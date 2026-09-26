@@ -99,10 +99,12 @@ CHECKING
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
-  frames FILE [--rm ID...] [--move ID --after|--before ID]
+  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
       List frames, sizes, durations ('still' for @still groups; every frame under
       '@still *') and animations; or delete / reorder frames (prints what it removed or
-      moved, not the listing).
+      moved, not the listing). FILE:SEL lists only those frames; 'frames hero.px:walk/left
+      --rm' removes them (ids after --rm must be in SEL), and 'frames hero.px:walk/left
+      --after idle/3' moves them there as a block, in order. --move ID takes a plain FILE.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -324,9 +326,9 @@ class Doc:
                 return f
         return None
 
-    def groups(self):
+    def groups(self, frames=None):
         out = {}
-        for f in self.frames:
+        for f in self.frames if frames is None else frames:
             out.setdefault(f.group, []).append(f)
         return out
 
@@ -1361,38 +1363,89 @@ def cmd_stats(a):
 
 
 def cmd_frames(a):
-    doc = parse(a.file, allow_empty=True)
-    if a.rm or a.move:
+    path, sel = split_sel(a.file)
+    doc = parse(path, allow_empty=True)
+    picked = doc.select(sel) if sel else doc.frames
+    if a.rm is not None or a.move or a.after or a.before:
         if doc.implicit:
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
-        did = []
-        for fid in a.rm or []:
-            f = doc.get(fid)
-            if not f:
-                fail("E_SELECT", f"--rm {fid!r}: no such frame")
-            doc.frames.remove(f)
-        if a.rm:
-            did.append("removed " + ", ".join(a.rm))
-        if a.move:
-            f = doc.get(a.move)
-            anchor = doc.get(a.after or a.before or "")
-            if not f or not anchor or f is anchor:
-                fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")
-            doc.frames.remove(f)
-            doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
-            did.append(f"moved {a.move} {'after' if a.after else 'before'} {anchor.id}")
-        print("; ".join(did + [write_doc(doc)]))
+        if a.after and a.before:
+            fail("E_BAD_ARG", "give --after or --before, not both")
+        print("; ".join((frames_sel_edit if sel else frames_edit)(a, doc, sel, picked) + [write_doc(doc)]))
         return
-    for g, fs in doc.groups().items():
+    for g, fs in doc.groups(picked).items():
         meta = doc.anims.get(g, {})
         still = doc.still(g)
-        head = f"{g or '(no group)'}: {len(fs)} frame(s)" + (" [still]" if still else "")
+        whole = len(doc.groups()[g])
+        head = f"{g or '(no group)'}: {len(fs)} frame(s)" + (f" (of {whole})" if len(fs) < whole else "") \
+            + (" [still]" if still else "")
         extra = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
         print(head + (f" [{extra}]" if extra else ""))
         for f in fs:
             print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}  (line {f.line})")
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
+
+
+def frames_edit(a, doc, sel, picked):
+    """frames FILE --rm ID... / --move ID --after|--before ID: returns what it did."""
+    if a.rm == []:
+        fail("E_BAD_ARG", "--rm needs frame ids (frames FILE --rm ID...), or FILE:SEL to remove the selection "
+             "(frames FILE:SEL --rm)")
+    if (a.after or a.before) and not a.move:
+        fail("E_BAD_ARG", "--after/--before need --move ID (frames FILE --move ID --after ID), or FILE:SEL to move "
+             "the selection (frames FILE:SEL --after ID)")
+    did = []
+    for fid in a.rm or []:
+        f = doc.get(fid)
+        if not f:
+            fail("E_SELECT", f"--rm {fid!r}: no such frame")
+        doc.frames.remove(f)
+    if a.rm:
+        did.append("removed " + ", ".join(a.rm))
+    if a.move:
+        f = doc.get(a.move)
+        anchor = doc.get(a.after or a.before or "")
+        if not f or not anchor or f is anchor:
+            fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")
+        doc.frames.remove(f)
+        doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
+        did.append(f"moved {a.move} {'after' if a.after else 'before'} {anchor.id}")
+    return did
+
+
+def frames_sel_edit(a, doc, sel, picked):
+    """frames FILE:SEL --rm [ID...] removes the selection (or those ids in it); FILE:SEL --after|--before ID moves
+    the selection there as a block, in its order."""
+    if a.move:
+        fail("E_BAD_ARG", f"--move takes one frame id and FILE without :SEL; to move the selection {sel!r}, give only "
+             f"--after/--before: frames {doc.path}:{sel} --after ID")
+    if a.rm is not None and (a.after or a.before):
+        fail("E_BAD_ARG", f"with FILE:SEL, give --rm (remove {sel!r}) or --after/--before (move it), not both")
+    if a.rm is not None:
+        gone = picked
+        if a.rm:
+            ids = {f.id for f in picked}
+            out = [fid for fid in a.rm if fid not in ids]
+            if out:
+                fail("E_SELECT", f"--rm {', '.join(out)}: not in {sel!r} ({', '.join(sorted(ids))}); drop the :SEL "
+                     "to remove frames by id anywhere")
+            gone = [f for f in picked if f.id in a.rm]
+        for f in gone:
+            doc.frames.remove(f)
+        return ["removed " + ", ".join(f.id for f in gone)]
+    where = a.after or a.before
+    anchor = doc.get(where)
+    if not anchor:
+        fail("E_SELECT", f"--{'after' if a.after else 'before'} {where!r}: no such frame")
+    if anchor in picked:
+        fail("E_SELECT", f"--{'after' if a.after else 'before'} {where!r} is inside the selection {sel!r}; "
+             "name a frame outside it")
+    for f in picked:
+        doc.frames.remove(f)
+    at = doc.frames.index(anchor) + (1 if a.after else 0)
+    doc.frames[at:at] = picked
+    return [f"moved {sel} ({len(picked)} frame(s)) {'after' if a.after else 'before'} {anchor.id}"]
 
 
 def cmd_flip(a):
@@ -1863,7 +1916,7 @@ def main(argv=None):
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
-    p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="+")
+    p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")

@@ -3335,3 +3335,170 @@ def test_check_missing_file_still_errors_without_notes(tmp_path):
 
 def test_help_documents_lookalikes():
     assert "look like ASCII (Cyrillic/Greek" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop G: frames FILE:SEL
+
+SELS = ("k #000000\n@anim walk ms=90\n@frame idle/0\nk\n@frame walk/0\nk\n@frame walk/1\nk\n@frame walk/2\nk\n"
+        "@frame icon\nk\n")
+
+
+def test_frames_sel_lists_only_the_selection(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("walk: 3 frame(s) [ms=90]\n")
+    assert "walk/0  1x1  90ms" in out and "walk/2  1x1  90ms" in out
+    assert "idle" not in out and "icon" not in out
+
+
+def test_frames_sel_one_frame_says_of_how_many(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk/1") == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "walk: 1 frame(s) (of 3) [ms=90]" and "walk/1  1x1  90ms" in out
+    assert "walk/0" not in out
+
+
+def test_frames_sel_top_level_frame(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:icon") == 0
+    assert capsys.readouterr().out.startswith("(no group): 1 frame(s)\n")
+
+
+def test_frames_without_sel_listing_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "(of" not in out and "walk: 3 frame(s) [ms=90]" in out and "idle: 1 frame(s)" in out
+
+
+def test_frames_sel_unknown_is_select_not_file_error(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    msg = run_err("frames", f"{p}:run")
+    assert "E_SELECT" in msg and "E_FILE" not in msg
+
+
+def test_frames_sel_rm_removes_the_selection(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk", "--rm") == 0
+    assert capsys.readouterr().out == f"removed walk/0, walk/1, walk/2; wrote {p}\n"
+    assert ids(p) == ["idle/0", "icon"]
+
+
+def test_frames_sel_rm_one_frame(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk/1", "--rm") == 0
+    assert capsys.readouterr().out == f"removed walk/1; wrote {p}\n"
+    assert ids(p) == ["idle/0", "walk/0", "walk/2", "icon"]
+
+
+def test_frames_sel_rm_ids_inside_the_selection(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk", "--rm", "walk/2", "walk/0") == 0
+    assert capsys.readouterr().out == f"removed walk/0, walk/2; wrote {p}\n"
+    assert ids(p) == ["idle/0", "walk/1", "icon"]
+
+
+def test_frames_sel_rm_id_outside_the_selection_is_select_error(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    before = p.read_text()
+    msg = run_err("frames", f"{p}:walk", "--rm", "idle/0")
+    assert "E_SELECT" in msg and "--rm idle/0: not in 'walk'" in msg and "drop the :SEL" in msg
+    assert p.read_text() == before
+
+
+def test_frames_sel_rm_is_the_error_from_loop_g(tmp_path):
+    """The loop G call: 'frames FILE:SEL --rm ...' used to be E_FILE: No such file or directory."""
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk/0", "--rm", "walk/0") == 0
+    assert ids(p) == ["idle/0", "walk/1", "walk/2", "icon"]
+
+
+def test_frames_sel_rm_keeps_layout(tmp_path):
+    p = write(tmp_path, "a.px", BLANK_FRAMES)
+    assert run("frames", f"{p}:walk/1", "--rm") == 0
+    assert p.read_text() == BLANK_FRAMES.replace("@frame walk/1\n.kk.\nkgkk\n\n", "")
+
+
+def test_frames_sel_move_block_after(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk", "--after", "icon") == 0
+    assert capsys.readouterr().out == f"moved walk (3 frame(s)) after icon; wrote {p}\n"
+    assert ids(p) == ["idle/0", "icon", "walk/0", "walk/1", "walk/2"]
+
+
+def test_frames_sel_move_block_before(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk", "--before", "idle/0") == 0
+    assert ids(p) == ["walk/0", "walk/1", "walk/2", "idle/0", "icon"]
+
+
+def test_frames_sel_move_one_frame(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk/2", "--before", "walk/0") == 0
+    assert ids(p) == ["idle/0", "walk/2", "walk/0", "walk/1", "icon"]
+
+
+def test_frames_sel_move_to_same_place_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    before, m = snap(p)
+    assert run("frames", f"{p}:walk", "--after", "idle/0") == 0
+    assert capsys.readouterr().out.endswith(f"no change: {p}\n") and untouched(p, before, m)
+
+
+def test_frames_sel_move_anchor_inside_selection(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    msg = run_err("frames", f"{p}:walk", "--after", "walk/1")
+    assert "E_SELECT" in msg and "inside the selection 'walk'" in msg
+
+
+def test_frames_sel_move_missing_anchor(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    assert "E_SELECT" in run_err("frames", f"{p}:walk", "--after", "nope")
+
+
+def test_frames_sel_with_move_is_bad_arg_saying_why(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    msg = run_err("frames", f"{p}:walk", "--move", "walk/0", "--after", "icon")
+    assert "E_BAD_ARG" in msg and "--move takes one frame id and FILE without :SEL" in msg
+    assert f"frames {p}:walk --after ID" in msg
+
+
+def test_frames_sel_rm_and_move_together_is_bad_arg(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    msg = run_err("frames", f"{p}:walk", "--rm", "--after", "icon")
+    assert "E_BAD_ARG" in msg and "not both" in msg
+
+
+def test_frames_after_and_before_together_is_bad_arg(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    assert "E_BAD_ARG" in run_err("frames", p, "--move", "icon", "--after", "walk/0", "--before", "walk/1")
+
+
+def test_frames_bare_rm_without_sel_is_bad_arg(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    msg = run_err("frames", p, "--rm")
+    assert "E_BAD_ARG" in msg and "FILE:SEL" in msg
+
+
+def test_frames_after_without_move_or_sel_is_bad_arg(tmp_path):
+    p = write(tmp_path, "h.px", SELS)
+    before = p.read_text()
+    msg = run_err("frames", p, "--after", "icon")
+    assert "E_BAD_ARG" in msg and "--move ID" in msg and p.read_text() == before
+
+
+def test_frames_sel_on_implicit_file(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert "E_SELECT" in run_err("frames", f"{p}:x")
+
+
+def test_frames_missing_file_with_sel_is_file_error_on_the_file(tmp_path):
+    msg = run_err("frames", f"{tmp_path / 'nope.px'}:walk", "--rm")
+    assert "E_FILE" in msg and "nope.px" in msg and "nope.px:walk" not in msg
+
+
+def test_help_documents_frames_sel():
+    doc = pxart.__doc__
+    assert "frames FILE[:SEL] [--rm [ID...]]" in doc and "moves them there as a block" in doc

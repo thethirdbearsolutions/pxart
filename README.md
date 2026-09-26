@@ -103,7 +103,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   tile and a sprite in one cell); later layers draw on top, and `.` is empty.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII;
-  exits 1), `stats`, `frames` (`--rm`/`--move` print only what they did).
+  exits 1), `stats`, `frames` (`--rm`/`--move` print only what they did; with a selector,
+  `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
   region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor`
   (optionally within a region), `mask` (erase outside `--keep x,y,w,h` or
