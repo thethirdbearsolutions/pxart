@@ -386,3 +386,11 @@ def test_from_png_into_palette_file_reuses_its_keys(tmp_path):
     assert run("from-png", tmp_path / "i.png", "-o", out, "--id", "idle") == 0
     doc = pxart.parse(out)
     assert doc.get("idle/i").grid == ["o"] and doc.palette == {}
+
+
+def test_anim_strip_diffs_frames_of_different_sizes(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame w/0\nkk\nkk\n@frame w/1\nk.k\n")
+    assert run("anim", f"{p}:w", "-o", tmp_path / "w.gif") == 0
+    strip = Image.open(tmp_path / "w.strip.png").convert("RGBA")
+    magenta = sum(1 for px in pxart.pixels(strip) if px[:3] == (255, 40, 200))
+    assert magenta > 0  # both diff cells drawn, not skipped for the size mismatch

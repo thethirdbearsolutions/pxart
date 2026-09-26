@@ -750,9 +750,8 @@ def cmd_anim(a):
         x = pad + i * (w * S + pad)
         strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
         d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
-        prev, cur = frames[i - 1], frames[i]
-        if prev.size != cur.size:
-            continue
+        # Compare on a shared canvas, bottom-centered as drawn, so frames of different sizes diff too.
+        prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
         dx, dy = best_shift(prev, cur)
         moved = shifted(prev, dx, dy)
         y2 = pad * 2 + h * S + lab
