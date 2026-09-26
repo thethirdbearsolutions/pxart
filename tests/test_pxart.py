@@ -2636,3 +2636,151 @@ def test_help_documents_new_and_fill():
     doc = pxart.__doc__
     assert "new OUT[:frame] --size WxH [--key K] [--palette P.px]" in doc
     assert "fill FILE[:frame] KEY [--region x,y,w,h]" in doc
+
+
+# ---------------------------------------------------------------- loop F: scene --tint, tint on a PNG
+
+def near(a, b, tol=1):
+    return all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def blend(c, t):
+    a = t[3] / 255
+    return tuple(round(x * (1 - a) + y * a) for x, y in zip(c[:3], t[:3]))
+
+
+def test_scene_tint_darkens_everything(tmp_path):
+    hero = write(tmp_path, "h.px", "h #c86432\nh\n")
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "r.map", "W tiles.px:wall\n\nW.\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1", "--bg", "#406080",
+               "--tint", "#10183080", f"{hero}@1,1") == 0
+    img = scene_px(tmp_path / "s.png")
+    t = pxart.hex2rgba("#10183080")
+    assert near(img.getpixel((0, 0))[:3], blend((255, 255, 255), t))  # map tile
+    assert near(img.getpixel((1, 1))[:3], blend((0xc8, 0x64, 0x32), t))  # item
+    assert near(img.getpixel((3, 0))[:3], blend((0x40, 0x60, 0x80), t))  # background
+    assert all(img.getpixel((x, y))[3] == 255 for x in range(4) for y in range(2))
+
+
+def test_scene_tint_applies_to_items_with_own_variant(tmp_path):
+    hero = write(tmp_path, "hero.px", VHERO)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "1x1", "--scale", "1", "--tint", "#000000ff",
+               f"{hero}%red@0,0") == 0
+    assert scene_px(tmp_path / "s.png").getpixel((0, 0))[:3] == (0, 0, 0)
+
+
+def test_scene_tint_before_scale(tmp_path):
+    hero = write(tmp_path, "h.px", "h #ffffff\nh\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "1x1", "--scale", "3", "--tint", "#00000080",
+               f"{hero}@0,0") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (3, 3) and len(set(pxart.pixels(img))) == 1
+
+
+def test_scene_tint_opaque_and_zero(tmp_path):
+    hero = write(tmp_path, "h.px", "h #c86432\nh\n")
+    assert run("scene", "-o", tmp_path / "a.png", "--size", "1x1", "--scale", "1", "--tint", "#ff0000",
+               f"{hero}@0,0") == 0
+    assert scene_px(tmp_path / "a.png").getpixel((0, 0)) == (255, 0, 0, 255)
+    assert run("scene", "-o", tmp_path / "b.png", "--size", "1x1", "--scale", "1", "--tint", "#ff000000",
+               f"{hero}@0,0") == 0
+    assert scene_px(tmp_path / "b.png").getpixel((0, 0)) == (0xc8, 0x64, 0x32, 255)
+
+
+def test_scene_tint_without_hash(tmp_path):
+    hero = write(tmp_path, "h.px", "h #ffffff\nh\n")
+    assert run("scene", "-o", tmp_path / "a.png", "--size", "1x1", "--scale", "1", "--tint", "000000ff",
+               f"{hero}@0,0") == 0
+    assert scene_px(tmp_path / "a.png").getpixel((0, 0))[:3] == (0, 0, 0)
+
+
+@pytest.mark.parametrize("bad", ["#12345", "#1234567", "black", "#gggggggg", "#"])
+def test_scene_tint_bad_color(tmp_path, bad):
+    hero = write(tmp_path, "h.px", "h #ffffff\nh\n")
+    msg = run_err("scene", "-o", tmp_path / "a.png", f"--tint={bad}", f"{hero}@0,0")
+    assert "E_BAD_COLOR" in msg and "quote it" in msg and not (tmp_path / "a.png").exists()
+
+
+def test_scene_without_tint_unchanged(tmp_path):
+    hero = write(tmp_path, "h.px", "h #c86432\nh\n")
+    assert run("scene", "-o", tmp_path / "a.png", "--size", "2x1", "--scale", "1", f"{hero}@0,0") == 0
+    img = scene_px(tmp_path / "a.png")
+    assert img.getpixel((0, 0)) == (0xc8, 0x64, 0x32, 255) and img.getpixel((1, 0))[:3] == (0x47, 0x2d, 0x3c)
+
+
+def test_scene_tint_keeps_transparent_bg_transparent(tmp_path):
+    hero = write(tmp_path, "h.px", "h #ffffff\nh\n")
+    assert run("scene", "-o", tmp_path / "a.png", "--size", "2x1", "--scale", "1", "--bg", "#00000000",
+               "--tint", "#00000080", f"{hero}@0,0") == 0
+    img = scene_px(tmp_path / "a.png")
+    assert img.getpixel((1, 0)) == (0, 0, 0, 0) and img.getpixel((0, 0))[3] == 255
+
+
+def test_tint_png(tmp_path, capsys):
+    p = solid_png(tmp_path, size=(2, 2), color=(200, 100, 50, 255))
+    assert run("tint", p, "#00000080", "-o", tmp_path / "o.png") == 0
+    assert capsys.readouterr().out == f"wrote {tmp_path / 'o.png'}\n"
+    out = scene_px(tmp_path / "o.png")
+    assert near(out.getpixel((1, 1))[:3], blend((200, 100, 50), pxart.hex2rgba("#00000080")))
+    assert scene_px(p).getpixel((0, 0)) == (200, 100, 50, 255)  # input untouched
+
+
+def test_tint_png_in_place(tmp_path):
+    p = solid_png(tmp_path, size=(1, 1), color=(200, 100, 50, 255))
+    assert run("tint", p, "#000000ff") == 0
+    assert scene_px(p).getpixel((0, 0)) == (0, 0, 0, 255)
+
+
+def test_tint_png_keeps_alpha(tmp_path):
+    img = Image.new("RGBA", (3, 1))
+    img.putpixel((0, 0), (200, 200, 200, 255)); img.putpixel((1, 0), (200, 200, 200, 100))
+    img.save(tmp_path / "s.png")
+    assert run("tint", tmp_path / "s.png", "#ff0000ff", "-o", tmp_path / "o.png") == 0
+    out = scene_px(tmp_path / "o.png")
+    assert out.getpixel((0, 0)) == (255, 0, 0, 255) and out.getpixel((1, 0)) == (255, 0, 0, 100)
+    assert out.getpixel((2, 0)) == (0, 0, 0, 0)
+
+
+def test_tint_png_matches_scene_tint(tmp_path):
+    hero = write(tmp_path, "h.px", "h #c86432\ng #203040\nhg\ngh\n")
+    base = ["scene", "--size", "3x3", "--scale", "1", f"{hero}@1,0"]
+    assert run(*base, "-o", tmp_path / "day.png") == 0
+    assert run(*base, "-o", tmp_path / "night.png", "--tint", "#10183099") == 0
+    assert run("tint", tmp_path / "day.png", "#10183099", "-o", tmp_path / "t.png") == 0
+    assert pxart.pixels(scene_px(tmp_path / "t.png")) == pxart.pixels(scene_px(tmp_path / "night.png"))
+
+
+def test_tint_needs_pngs(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert "E_BAD_ARG" in run_err("tint", p, "#00000080")
+    q = solid_png(tmp_path)
+    assert "E_BAD_ARG" in run_err("tint", q, "#00000080", "-o", tmp_path / "o.px")
+
+
+def test_tint_bad_color(tmp_path):
+    q = solid_png(tmp_path)
+    assert "E_BAD_COLOR" in run_err("tint", q, "#00000")
+
+
+def test_tint_missing_png_is_file_error(tmp_path):
+    assert "E_FILE" in run_err("tint", tmp_path / "nope.png", "#00000080")
+
+
+def test_tint_night_with_a_lit_circle(tmp_path):
+    """The loop F flow without a hand-made shade.px: tint, then the lit circle of the day render on top."""
+    floor = write(tmp_path, "f.px", "k #806040\n" + ("k" * 16 + "\n") * 16)
+    assert run("scene", "-o", tmp_path / "day.png", "--size", "16x16", "--scale", "1", f"{floor}@0,0") == 0
+    assert run("scene", "-o", tmp_path / "dark.png", "--size", "16x16", "--scale", "1", "--tint", "#000000c0",
+               f"{floor}@0,0") == 0
+    assert run("mask", tmp_path / "day.png", "--keep-circle", "8,8,4", "-o", tmp_path / "lit.png") == 0
+    assert run("scene", "-o", tmp_path / "night.png", "--size", "16x16", "--scale", "1",
+               f"{tmp_path / 'dark.png'}@0,0", f"{tmp_path / 'lit.png'}@0,0") == 0
+    img = scene_px(tmp_path / "night.png")
+    assert img.getpixel((8, 8))[:3] == (0x80, 0x60, 0x40) and img.getpixel((0, 0))[0] < 0x30
+
+
+def test_help_documents_tint():
+    doc = pxart.__doc__
+    assert "--tint '#10183080'" in doc and "those with their own %variant too" in doc
+    assert "tint IN.png '#rrggbbaa' [-o OUT.png]" in doc and "Quote the color in scripts" in doc

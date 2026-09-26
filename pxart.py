@@ -53,7 +53,7 @@ LOOKING
       unless --fps is given.
   onion A B -o x.png [--scale 8]    B drawn over a faded A
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
-        ITEM@x,y ...
+        [--tint #rrggbbaa] ITEM@x,y ...
       ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
       '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend chars ('.' =
       empty). In a legend line the rest of the line is the path, relative to the map file:
@@ -70,6 +70,14 @@ LOOKING
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
       partly off the left/top edge), in scene and in compose.
+      --tint '#10183080' lays that color, at its alpha, over the whole finished scene (bg,
+      map, every item, those with their own %variant too) at 1x, before --scale: a night
+      scene in one step. To keep a light bright, render the scene untinted, mask the lit
+      circle out of it, and put that PNG over the tinted one. Quote the color in scripts
+      (an unquoted word starting with # is a comment there); the '#' may be left off.
+  tint IN.png '#rrggbbaa' [-o OUT.png]
+      The same on a PNG (a rendered scene); each pixel keeps its alpha, so transparent
+      pixels stay transparent. Without -o, IN is rewritten.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
 
@@ -1075,7 +1083,34 @@ def draw_at(canvas, img, x, y):
     canvas.alpha_composite(img, (x, y))
 
 
+def parse_tint(s):
+    """'#rrggbbaa' (or #rrggbb, or without the '#') -> rgba."""
+    v = s if s.startswith("#") else "#" + s
+    if not COLOR_RE.match(v):
+        fail("E_BAD_COLOR", f"tint {s!r} isn't #rrggbbaa or #rrggbb (in a script, quote it: '#10183080'; "
+             "an unquoted word starting with # is a comment there)")
+    return hex2rgba(v)
+
+
+def tinted(img, color):
+    """`color` laid over img at the color's alpha; every pixel keeps its own alpha (transparent stays so)."""
+    over = Image.blend(img, Image.new("RGBA", img.size, color[:3] + (255,)), color[3] / 255)
+    alpha = img.getchannel("A")
+    over.putalpha(alpha)
+    return Image.composite(over, img, alpha.point(lambda v: 255 if v else 0))
+
+
+def cmd_tint(a):
+    color = parse_tint(a.color)
+    if not a.file.endswith(".png") or not str(a.o or a.file).endswith(".png"):
+        fail("E_BAD_ARG", "tint reads and writes PNGs (a rendered scene); for a whole scene use scene --tint")
+    out = a.o or a.file
+    tinted(Image.open(a.file).convert("RGBA"), color).save(outpath(out))
+    print("wrote", out)
+
+
 def cmd_scene(a):
+    tint = parse_tint(a.tint) if a.tint else None
     placed = []
     tile = tuple(map(int, a.tile.split("x")))
     if a.map:
@@ -1091,6 +1126,8 @@ def cmd_scene(a):
     for spec in a.specs:
         path, x, y = split_at(spec)
         draw_at(sc, one_frame(path, "scene item", a.variant).img, x, y)
+    if tint:
+        sc = tinted(sc, tint)
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
     print("wrote", a.o)
 
@@ -1686,6 +1723,8 @@ def main(argv=None):
     p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>' (rest of line = path), blank line, rows")
     p.add_argument("--tile", default="16x16", help="tile size for --map")
     p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
+    p.add_argument("--tint", help="'#rrggbbaa' laid over the finished scene (quote it in scripts)")
+    p = sub.add_parser("tint"); p.add_argument("file"); p.add_argument("color"); p.add_argument("-o")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
