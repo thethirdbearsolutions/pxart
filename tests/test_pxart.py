@@ -8058,3 +8058,95 @@ def test_help_documents_unnamed_grid_id():
     doc = " ".join(pxart.__doc__.split())
     assert "A file with one unnamed grid (no @frame) calls it by the file's name, as frames lists it" in doc
     assert "first makes the grid '@frame ant'" in doc
+
+
+# ---------------------------------------------------------------- loop J: paste takes +h / +v like compose and scene
+
+PASTE_SRC = "k #000000\ng #00ff00\n@frame arm\nkg.\nk..\n"
+PASTE_DST = "k #000000\ng #00ff00\n@frame body\n....\n....\n....\n"
+
+
+def paste_setup(tmp_path):
+    return write(tmp_path, "src.px", PASTE_SRC), write(tmp_path, "dst.px", PASTE_DST)
+
+
+@pytest.mark.parametrize("flip, grid", [
+    ("", ["kg..", "k...", "...."]),
+    ("+h", [".gk.", "..k.", "...."]),
+    ("+v", ["k...", "kg..", "...."]),
+    ("+hv", ["..k.", ".gk.", "...."]),
+    ("+vh", ["..k.", ".gk.", "...."]),
+])
+def test_paste_flip_grids(tmp_path, flip, grid):
+    src, dst = paste_setup(tmp_path)
+    assert run("paste", f"{src}:arm{flip}", "--into", dst, "--at", "0,0") == 0
+    assert pxart.parse(dst).get("body").grid == grid
+
+
+def test_paste_flip_at_offset(tmp_path):
+    src, dst = paste_setup(tmp_path)
+    assert run("paste", f"{src}:arm+h", "--into", dst, "--at", "1,1") == 0
+    assert pxart.parse(dst).get("body").grid == ["....", "..gk", "...k"]
+
+
+def test_paste_flip_matches_compose_layer_flip(tmp_path):
+    src, dst = paste_setup(tmp_path)
+    for flip in ("+h", "+v", "+hv"):
+        d = write(tmp_path, f"d{flip}.px", PASTE_DST)
+        assert run("paste", f"{src}:arm{flip}", "--into", d, "--at", "0,0") == 0
+        c = tmp_path / f"c{flip}.px"
+        assert run("compose", "-o", c, "--size", "4x3", f"{src}:arm{flip}@0,0") == 0
+        assert pxart.parse(d).get("body").grid == pxart.parse(c).frames[0].grid, flip
+
+
+def test_paste_flip_region_is_in_flipped_coordinates(tmp_path):
+    src, dst = paste_setup(tmp_path)
+    assert run("paste", f"{src}:arm+h", "--into", dst, "--at", "0,0", "--region", "1,0,2,1") == 0
+    assert pxart.parse(dst).get("body").grid == ["gk..", "....", "...."]
+
+
+def test_paste_flip_with_variant_suffix(tmp_path):
+    src = write(tmp_path, "src.px", "k #000000\ng #00ff00\n\n@variant night\ng #004400\n@frame arm\nkg.\nk..\n")
+    dst = write(tmp_path, "dst.px", PASTE_DST)
+    assert run("paste", f"{src}:arm%night+h", "--into", dst, "--at", "0,0") == 0
+    assert pxart.parse(dst).get("body").grid == [".gk.", "..k.", "...."]
+
+
+def test_paste_flip_leaves_source_alone(tmp_path):
+    src, dst = paste_setup(tmp_path)
+    assert run("paste", f"{src}:arm+hv", "--into", dst, "--at", "0,0") == 0
+    assert src.read_text() == PASTE_SRC
+
+
+def test_paste_b_suffix_is_bad_arg(tmp_path):
+    src, dst = paste_setup(tmp_path)
+    msg = run_err("paste", f"{src}:arm+hb", "--into", dst, "--at", "0,0")
+    assert "E_BAD_ARG" in msg and "+b anchors a map legend entry" in msg and msg.startswith("paste: SRC (")
+    assert dst.read_text() == PASTE_DST
+
+
+def test_paste_png_source_is_bad_arg_not_a_crash(tmp_path):
+    Image.new("RGBA", (1, 1), (0, 0, 0, 255)).save(tmp_path / "s.png")
+    dst = write(tmp_path, "dst.px", PASTE_DST)
+    msg = run_err("paste", tmp_path / "s.png", "--into", dst, "--at", "0,0")
+    assert "E_BAD_ARG" in msg and "paste copies a .px frame" in msg
+
+
+def test_paste_flip_into_selected_frames(tmp_path):
+    src = write(tmp_path, "src.px", PASTE_SRC)
+    dst = write(tmp_path, "dst.px", "k #000000\n@frame a/0\n...\n@frame a/1\n...\n")
+    assert run("paste", f"{src}:arm+h", "--into", f"{dst}:a", "--at", "0,0") == 0
+    assert [f.grid for f in pxart.parse(dst).frames] == [[".gk"], [".gk"]]
+
+
+def test_paste_flip_on_a_file_with_one_frame(tmp_path):
+    src = write(tmp_path, "src.px", "k #000000\nk.\n")
+    dst = write(tmp_path, "dst.px", "k #000000\n..\n")
+    assert run("paste", f"{src}+h", "--into", dst, "--at", "0,0") == 0
+    assert dst.read_text() == "k #000000\n.k\n"
+
+
+def test_help_documents_paste_flip():
+    doc = pxart.__doc__
+    assert "paste SRC[+h|+v|+hv] --into DST[:frame]" in doc
+    assert "--region is then in the\n      mirrored frame's coordinates" in doc

@@ -236,7 +236,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call.
-  paste SRC --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
+  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
+      Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
+      mirror SRC first, as for compose layers and scene items (--region is then in the
+      mirrored frame's coordinates).
   compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
@@ -2148,7 +2151,9 @@ def cmd_crop(a):
 
 def cmd_paste(a):
     with reading(f"SRC ({a.src})"):
-        src = one_frame(a.src, "--src")
+        src = place_item(a.src, "paste source")
+        if not src.doc:
+            fail("E_BAD_ARG", f"paste copies a .px frame, got {src.label}")
     ddoc, dframes, out = edit_target(a.into, a.o, "--into")
     ax, ay = map(int, a.at.split(","))
     for f in dframes:
