@@ -127,6 +127,7 @@ DIRECTIONS = ("forward", "reverse", "pingpong", "pingpong_reverse")
 ID_RE = re.compile(r"^[A-Za-z0-9_\-.]+(/[A-Za-z0-9_\-.]+)*$")
 COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 PAL_RE = re.compile(r"^(\S)\s+(\S+)$")
+PAL_SKIP = "\n     (unknown-key checks were skipped: those keys may come from this palette)"
 
 
 # ---------------------------------------------------------------------------- errors
@@ -335,7 +336,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
     def err(code, msg, n=None, **kw):
         issues.append(Issue(code, msg, str(path), n, **kw))
 
-    state, cur, variant, started = "header", None, None, False
+    state, cur, variant, started, pal_failed = "header", None, None, False, False
     for n, line in enumerate(raw.splitlines(), 1):
         s = line.strip()
         if not s:
@@ -383,17 +384,20 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     continue
                 ref = pos[0]
                 target = (path.parent / ref)
+                pal_failed, before = True, pal_failed  # until the import succeeds
+                skip = "" if palette_only else PAL_SKIP
                 if _depth > 4:
-                    err("E_PALETTE_FILE", "@palette nested too deeply (cycle?)", n)
+                    err("E_PALETTE_FILE", "@palette nested too deeply (cycle?)" + skip, n)
                     continue
                 try:
                     sub = parse(target, strict, palette_only=True, _depth=_depth + 1)
                 except FileNotFoundError:
-                    err("E_PALETTE_FILE", f"can't find palette file {ref!r} (relative to this file)", n)
+                    err("E_PALETTE_FILE", f"can't find palette file {ref!r} (relative to this file)" + skip, n)
                     continue
                 except PxError as e:
-                    err("E_PALETTE_FILE", f"palette file {ref!r} has errors: {e.issues[0]}", n)
+                    err("E_PALETTE_FILE", f"palette file {ref!r} has errors: {e.issues[0]}" + skip, n)
                     continue
+                pal_failed = before
                 doc.palette_refs.append(ref)
                 doc.shared.update(sub.shared)
                 doc.shared.update(sub.palette)
@@ -504,11 +508,11 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 err("E_ROW_WIDTH", f"row is {w} wide, but {widths.count(expect)} of {len(widths)} rows are "
                     f"{expect} wide: {r!r}",
                     f.row_lines[i], frame=f.id, row=i)
-            bad = [x for x, c in enumerate(r) if c not in pal]
+            bad = [] if pal_failed else [x for x, c in enumerate(r) if c not in pal]
             if bad:
                 err("E_UNKNOWN_KEY", f"keys {''.join(sorted(set(r[x] for x in bad)))!r} aren't in the palette",
                     f.row_lines[i], frame=f.id, row=i, cols=bad)
-    for name, over in doc.variants.items():
+    for name, over in ({} if pal_failed else doc.variants).items():
         for k in over:
             if k not in pal and k not in doc.shared_variants.get(name, {}):
                 err("E_VARIANT_KEY", f"@variant {name} sets {k!r}, which the base palette doesn't define")

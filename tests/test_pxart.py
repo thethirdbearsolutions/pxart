@@ -722,3 +722,71 @@ def test_note_suffix_helper(capsys):
     assert capsys.readouterr().out == ""
     pxart.note_suffix("a.pxalk/0")
     assert capsys.readouterr().out.startswith("note: output 'a.pxalk/0'")
+
+
+# ---------------------------------------------------------------- failed @palette: no key-error flood
+
+def test_missing_palette_file_suppresses_unknown_key_errors(tmp_path):
+    p = write(tmp_path, "s.px", "@palette nope.px\n@frame a\nkgk\nggg\n@frame b\nkkk\nzzz\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"]
+    assert "unknown-key checks were skipped" in str(e.value)
+
+
+def test_broken_palette_file_suppresses_unknown_key_errors(tmp_path):
+    write(tmp_path, "pal.px", "k #12345\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\nkk\nkk\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"] and "has errors" in str(e.value)
+    assert str(e.value).count("unknown-key checks were skipped") == 1
+
+
+def test_failed_palette_still_reports_other_errors(tmp_path):
+    p = write(tmp_path, "s.px", "@palette nope.px\nkk\nk\nkk\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert sorted(codes(e)) == ["E_PALETTE_FILE", "E_ROW_WIDTH"]
+
+
+def test_failed_palette_suppresses_variant_key_errors(tmp_path):
+    p = write(tmp_path, "s.px", "@palette nope.px\n\n@variant dark\nk #000000\n\nk\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"]
+
+
+def test_one_good_one_failed_palette_still_skips(tmp_path):
+    write(tmp_path, "good.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette nope.px\n@palette good.px\nkq\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"]
+    p = write(tmp_path, "t.px", "@palette good.px\n@palette nope.px\nkq\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"]
+
+
+def test_good_palette_still_checks_unknown_keys(tmp_path):
+    write(tmp_path, "good.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette good.px\nkq\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_UNKNOWN_KEY"]
+
+
+def test_check_prints_one_palette_error_not_a_flood(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "@palette nope.px\n" + "kgkgkg\n" * 20)
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    assert "1 error(s)" in out and "E_UNKNOWN_KEY" not in out and "checks were skipped" in out
+
+
+def test_nested_failed_palette_has_one_skip_line(tmp_path):
+    write(tmp_path, "mid.px", "@palette nope.px\n")
+    p = write(tmp_path, "s.px", "@palette mid.px\nkk\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    assert codes(e) == ["E_PALETTE_FILE"] and str(e.value).count("checks were skipped") == 1
