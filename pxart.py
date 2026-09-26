@@ -51,6 +51,11 @@ LOOKING
       moves (an idle breathing: chest up 1px, legs still), moving the whole sprite would
       light up the legs, so the strip shows the unshifted diff instead:
       "no shift then M px (rows Y+ still; shift dx,dy: N px)". Both counts are always shown.
+      Tiles and overlays scroll with wrap-around (shift --wrap): for frames that fill the
+      canvas and are a ground tile (every pixel opaque) or a sparse overlay (at most 1/4
+      of the pixels opaque: snow, rain), every scroll is tried too, and one that leaves
+      strictly fewer pixels changed than the best plain shift is shown as
+      "shift dx,dy (wrap) then N px (no shift: M px)". A character sprite never wraps.
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
       to stdout, one line per frame; without -o, anim prints only those lines and writes
       nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
@@ -260,7 +265,7 @@ ERROR CODES
   Frames of different sizes in one animation are allowed; check notes them.
 """
 import argparse, contextlib, json, math, os, pathlib, re, string, sys, unicodedata
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
 CLEAR = (0, 0, 0, 0)
@@ -945,8 +950,34 @@ def shifted(img, dx, dy):
     return out
 
 
-def best_shift(prev, cur, reach=2):
-    """The whole-sprite (dx, dy) that best explains cur as a moved prev: the body bob."""
+def rolled(img, dx, dy):
+    """img scrolled by dx, dy with wrap-around, as 'shift --wrap' scrolls a tile."""
+    return ImageChops.offset(img, dx, dy)
+
+
+def n_changed(a, b):
+    """How many pixels differ between two same-size RGBA images."""
+    d = ImageChops.difference(a, b).split()
+    return sum(ImageChops.lighter(ImageChops.lighter(d[0], d[1]), ImageChops.lighter(d[2], d[3])).histogram()[1:])
+
+
+def may_wrap(prev, cur):
+    """Whether cur may be prev scrolled around the edges: a ground tile (every pixel opaque in both, so any plain
+    shift uncovers empty pixels) or a sparse overlay (at most 1/4 of the pixels opaque in each: snow, rain). A
+    sprite in between (a character: walks, idles) never wraps."""
+    def opaque(img):
+        return sum(img.getchannel("A").histogram()[1:])
+    area = cur.width * cur.height
+    if prev.size != cur.size:
+        return False
+    a, b = opaque(prev), opaque(cur)
+    return a == b == area or (4 * a <= area and 4 * b <= area)
+
+
+def best_shift(prev, cur, reach=2, wrap=False):
+    """The whole-sprite (dx, dy) that best explains cur as a moved prev: the body bob. With wrap (a tile that fills
+    its frame, like falling snow), every scroll of prev around the edges is tried too, and one wins only when it
+    leaves strictly fewer pixels changed than the best plain shift: (dx, dy, wrapped)."""
     best, cd = None, pixels(cur)
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
@@ -954,26 +985,33 @@ def best_shift(prev, cur, reach=2):
             key = (n, abs(dx) + abs(dy))
             if best is None or key < best[0]:
                 best = (key, dx, dy)
-    return best[1], best[2]
+    if wrap:
+        w, h = cur.size
+        tries = [(dx, dy) for dy in range(-((h - 1) // 2), h // 2 + 1) for dx in range(-((w - 1) // 2), w // 2 + 1)]
+        key, dx, dy = min(((n_changed(rolled(prev, dx, dy), cur), abs(dx) + abs(dy)), dx, dy) for dx, dy in tries)
+        if key[0] < best[0][0]:
+            return dx, dy, True
+    return best[1], best[2], False
 
 
-def motion(prev, cur):
+def motion(prev, cur, wrap=False):
     """How cur differs from prev: the whole-sprite shift (dx, dy), px changed after it, px changed with
-    no shift, and `still`: the row from which down the sprite stayed put, when that explains cur far
-    better than moving everything (an idle whose chest rises while the legs stay), else None."""
-    dx, dy = best_shift(prev, cur)
+    no shift, `still`: the row from which down the sprite stayed put, when that explains cur far
+    better than moving everything (an idle whose chest rises while the legs stay), else None, and whether
+    the shift wraps around the edges (only tried with wrap: frames that fill the canvas)."""
+    dx, dy, wrapped = best_shift(prev, cur, wrap=wrap)
     w, h = cur.size
-    C, P, M = pixels(cur), pixels(prev), pixels(shifted(prev, dx, dy))
+    C, P, M = pixels(cur), pixels(prev), pixels((rolled if wrapped else shifted)(prev, dx, dy))
     moved = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
     kept = [sum(P[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
     n_shift, n_none, still = sum(moved), sum(kept), None
-    if (dx, dy) != (0, 0):
+    if (dx, dy) != (0, 0) and not wrapped:
         # Rows above y moved by (dx, dy), rows from y down stayed put: the best y, and what it leaves changed.
         split = [sum(moved[:y]) + sum(kept[y:]) for y in range(h)]
         y = min(range(h), key=lambda y: (split[y], -y))
         if 3 * split[y] < n_shift and any(c[3] for c in C[y * w:]):
             still = y
-    return dx, dy, n_shift, n_none, still
+    return dx, dy, n_shift, n_none, still, wrapped
 
 
 def diff_frame(prev, cur):
@@ -1138,8 +1176,12 @@ def cmd_anim(a):
     for i, fr in enumerate(framed):
         # Compare on a shared canvas, bottom-centered as drawn, so frames of different sizes diff too.
         prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
-        dx, dy, n_shift, n_none, still = motion(prev, cur)
-        if still is None:
+        tile = frames[i - 1].size == frames[i].size == (w, h) and may_wrap(prev, cur)
+        dx, dy, n_shift, n_none, still, wrapped = motion(prev, cur, wrap=tile)
+        if wrapped:
+            base, head = rolled(prev, dx, dy), f"shift {dx:+d},{dy:+d} (wrap) then {n_shift}px"
+            alt = f"(no shift: {n_none}px)"
+        elif still is None:
             base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {n_shift}px"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:

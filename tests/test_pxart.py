@@ -1953,7 +1953,7 @@ WALK_1 = BODY + LEGS_WIDE + [EMPTY]        # body up 1px and the legs change pos
 
 def motion_of(tmp_path, a, b):
     doc = pxart.parse(anim_file(tmp_path, a, b, name="mo.px"))
-    return pxart.motion(doc.image(doc.frames[0]), doc.image(doc.frames[1]))
+    return pxart.motion(doc.image(doc.frames[0]), doc.image(doc.frames[1]))[:5]  # [5]: wrapped (loop H)
 
 
 def anim_lines(tmp_path, capsys, *frames):
@@ -5282,3 +5282,174 @@ def test_missing_input_file_is_still_plain_e_file(tmp_path):
 
 def test_help_documents_error_prefixes():
     assert "compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop H: the strip's shift detector wraps tiles
+
+SNOW_PAL = "s #f4f8ff\nw #c8d8f0\n"
+SNOW_0 = ["............s...", "..w.............", "................", ".........w......", "....s...........",
+          "................", "..............w.", "................", ".....w..........", "................",
+          "........s.......", "...........w....", "...............s", ".w..............", ".......w........",
+          "................"]
+
+
+def roll_grid(grid, dx, dy):
+    """grid scrolled by dx, dy with wrap-around, as 'shift --wrap' does."""
+    h, w = len(grid), len(grid[0])
+    return ["".join(grid[(y - dy) % h][(x - dx) % w] for x in range(w)) for y in range(h)]
+
+
+def tile_file(tmp_path, pal, *grids, name="t.px", group="fall"):
+    text = pal + f"@anim {group} ms=180\n" + "".join(f"@frame {group}/{i}\n" + "\n".join(g) + "\n"
+                                                    for i, g in enumerate(grids))
+    return write(tmp_path, name, text)
+
+
+def strip_lines(tmp_path, capsys, p, sel="fall"):
+    assert run("anim", f"{p}:{sel}") == 0
+    return [l.split(": ", 1)[1] for l in capsys.readouterr().out.splitlines() if " vs " in l]
+
+
+def test_roll_grid_matches_shift_wrap(tmp_path):
+    p = write(tmp_path, "s.px", SNOW_PAL + "\n".join(SNOW_0) + "\n")
+    assert run("shift", p, "--dx", "-1", "--dy", "4", "--wrap") == 0
+    assert pxart.parse(p).frames[0].grid == roll_grid(SNOW_0, -1, 4)
+
+
+def test_snowfall_wrap_is_found(tmp_path, capsys):
+    # The loop H case: a sparse snow overlay scrolled -1,+4 with wrap read as 'shift -1,-2 then 17px'.
+    p = tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, -1, 4))
+    lines = strip_lines(tmp_path, capsys, p)
+    assert lines[1].startswith("shift -1,+4 (wrap) then 0px (no shift: ")
+    assert lines[0].startswith("shift +1,-4 (wrap) then 0px (no shift: ")
+
+
+def test_loop_h_snowfall_frames(tmp_path, capsys):
+    f1 = roll_grid(SNOW_0, -1, 4)
+    f2 = roll_grid(f1, 1, 4)
+    f3 = roll_grid(f2, -1, 4)
+    p = tile_file(tmp_path, SNOW_PAL, SNOW_0, f1, f2, f3)
+    lines = strip_lines(tmp_path, capsys, p)
+    assert [l.split(" then")[0] for l in lines] == ["shift +1,+4 (wrap)", "shift -1,+4 (wrap)",
+                                                    "shift +1,+4 (wrap)", "shift -1,+4 (wrap)"]
+    assert all(" then 0px " in l for l in lines)
+
+
+def test_snowfall_strip_shows_nothing_changed(tmp_path, capsys):
+    p = tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, -1, 4))
+    assert run("anim", f"{p}:fall", "-o", tmp_path / "a.gif") == 0
+    capsys.readouterr()
+    for i in (0, 1):
+        assert magenta_rows(tmp_path, i, h=16, w=16) == set()
+
+
+@pytest.mark.parametrize("dx,dy", [(1, 0), (-1, 0), (0, 1), (0, -1), (3, 5), (-7, 2), (8, 8), (-5, -6), (0, 7)])
+def test_wrap_scroll_of_a_sparse_overlay_any_offset(tmp_path, capsys, dx, dy):
+    p = tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, dx, dy))
+    line = strip_lines(tmp_path, capsys, p)[1]
+    assert line.startswith(f"shift {dx:+d},{dy:+d} ") and " then 0px " in line
+    # A scroll within the plain reach (2px) that no flake wraps in is already exact as a plain shift: no '(wrap)'.
+    doc = pxart.parse(p)
+    a, b = (doc.image(f) for f in doc.frames)
+    plain_exact = max(abs(dx), abs(dy)) <= 2 and pxart.n_changed(pxart.shifted(a, dx, dy), b) == 0
+    assert ("(wrap)" in line) != plain_exact
+
+
+WATER_PAL = "a #2050a0\nb #3070c0\nc #80b0e0\n"
+WATER_0 = ["aaaabbbaaaaacaaa", "aabbbaaaaccaaaaa", "abbaaaaacaaaaabb", "bbaaaaaaaaaaabba",
+           "aaaacaaaaabbbbaa", "aaacccaaabbaaaaa", "aaaaaaabbaaaaaac", "bbaaaabbaaaaaccc"]
+
+
+@pytest.mark.parametrize("dx,dy", [(1, 0), (-2, 0), (0, 1), (3, -2)])
+def test_wrap_scroll_of_a_ground_tile(tmp_path, capsys, dx, dy):
+    p = tile_file(tmp_path, WATER_PAL, WATER_0, roll_grid(WATER_0, dx, dy), group="water")
+    lines = strip_lines(tmp_path, capsys, p, "water")
+    assert lines[1].startswith(f"shift {dx:+d},{dy:+d} (wrap) then 0px (no shift: ")
+
+
+def test_ground_tile_still_frame_is_no_shift(tmp_path, capsys):
+    p = tile_file(tmp_path, WATER_PAL, WATER_0, WATER_0, group="water")
+    assert strip_lines(tmp_path, capsys, p, "water") == ["shift +0,+0 then 0px"] * 2
+
+
+def test_ground_tile_with_a_changed_pixel_and_no_scroll(tmp_path, capsys):
+    other = list(WATER_0)
+    other[3] = "c" + other[3][1:]
+    p = tile_file(tmp_path, WATER_PAL, WATER_0, other, group="water")
+    assert strip_lines(tmp_path, capsys, p, "water")[1] == "shift +0,+0 then 1px"
+
+
+def test_wrap_needs_strictly_fewer_pixels(tmp_path, capsys):
+    # One flake moved 1,1 in the middle: the plain shift already explains it all, so no '(wrap)'.
+    a = ["." * 8] * 3 + ["...s...."] + ["." * 8] * 4
+    b = ["." * 8] * 4 + ["....s..."] + ["." * 8] * 3
+    p = tile_file(tmp_path, SNOW_PAL, a, b)
+    lines = strip_lines(tmp_path, capsys, p)
+    assert lines[1] == "shift +1,+1 then 0px (no shift: 2px)" and "(wrap)" not in lines[0]
+
+
+def test_character_sprite_never_wraps(tmp_path, capsys):
+    # Half the pixels opaque (a sprite, not a tile or an overlay): even a scroll that a wrap would explain
+    # exactly is reported as a plain shift, as before.
+    a = ["kkyy....", "kkyy....", "..yykk..", "..yykk..", "kk....yy", "kk....yy", "yykk..kk", "yykk..kk"]
+    b = roll_grid(a, 0, 1)
+    p = anim_file(tmp_path, a, b, name="c.px")
+    assert run("anim", f"{p}:idle") == 0
+    out = capsys.readouterr().out
+    assert "(wrap)" not in out and "shift +0,+1 then" in out
+
+
+def test_mixed_size_frames_never_wrap(tmp_path, capsys):
+    small = [r[:15] for r in SNOW_0]  # 15 wide: drawn on a 16-wide canvas, so it doesn't fill it
+    p = tile_file(tmp_path, SNOW_PAL, small, roll_grid(SNOW_0, -1, 4))
+    assert all("(wrap)" not in l for l in strip_lines(tmp_path, capsys, p))
+
+
+def test_may_wrap_rules(tmp_path):
+    def img(n_opaque, w=8, h=8):
+        im = Image.new("RGBA", (w, h))
+        for i in range(n_opaque):
+            im.putpixel((i % w, i // w), (1, 2, 3, 255))
+        return im
+    assert pxart.may_wrap(img(64), img(64))          # a ground tile
+    assert pxart.may_wrap(img(16), img(3))           # sparse: at most 1/4
+    assert pxart.may_wrap(img(0), img(16))
+    assert not pxart.may_wrap(img(17), img(3))       # just over 1/4
+    assert not pxart.may_wrap(img(64), img(63))      # a tile with a hole isn't a ground tile
+    assert not pxart.may_wrap(img(64), img(10))      # one tile, one overlay
+    assert not pxart.may_wrap(img(30), img(30))      # a sprite
+    assert not pxart.may_wrap(img(4, 8, 8), img(4, 8, 9))
+
+
+def test_best_shift_without_wrap_is_unchanged(tmp_path):
+    a, b = Image.new("RGBA", (4, 4)), Image.new("RGBA", (4, 4))
+    a.putpixel((0, 0), (1, 1, 1, 255)); b.putpixel((3, 3), (1, 1, 1, 255))
+    assert pxart.best_shift(a, b) == (0, -1, False)  # as before: out of reach, it pushes the pixel off the edge
+    assert pxart.best_shift(a, b, wrap=True) == (-1, -1, True)  # 0,0 scrolled -1,-1 lands on 3,3
+
+
+def test_motion_reports_wrapped(tmp_path):
+    doc = pxart.parse(tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, -1, 4)))
+    a, b = (doc.image(f) for f in doc.frames)
+    dx, dy, n_shift, n_none, still, wrapped = pxart.motion(a, b, wrap=True)
+    assert (dx, dy, n_shift, still, wrapped) == (-1, 4, 0, None, True) and n_none > 0
+    assert pxart.motion(a, b)[5] is False
+
+
+def test_n_changed_counts_differing_pixels():
+    a, b = Image.new("RGBA", (3, 2)), Image.new("RGBA", (3, 2))
+    b.putpixel((0, 0), (0, 0, 0, 1)); b.putpixel((2, 1), (5, 0, 0, 0))
+    assert pxart.n_changed(a, b) == 2 and pxart.n_changed(a, a) == 0
+    assert pxart.n_changed(a, b) == sum(x != y for x, y in zip(pxart.pixels(a), pxart.pixels(b)))
+
+
+def test_rolled_matches_shift_wrap(tmp_path):
+    doc = pxart.parse(tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, 3, -5)))
+    a, b = (doc.image(f) for f in doc.frames)
+    assert pxart.pixels(pxart.rolled(a, 3, -5)) == pxart.pixels(b)
+
+
+def test_help_documents_wrap_in_the_strip():
+    doc = pxart.__doc__
+    assert '"shift dx,dy (wrap) then N px (no shift: M px)"' in doc and "A character sprite never wraps" in doc
+    assert "strictly fewer pixels changed" in doc
