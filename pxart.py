@@ -61,8 +61,13 @@ LOOKING
       bottom of the sprite stays exactly put (rows Y down identical, 0 px changed) and only
       the part above it moves (an idle breathing: chest up 1px, legs still), moving the
       whole sprite would light up the legs, so the strip shows the unshifted diff instead:
-      "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)". A walk whose leg moved
-      even 1px keeps the shift. Both counts are always shown.
+      "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)"; Y is the first identical
+      row. A walk whose leg moved even 1px keeps the shift. Both counts are always shown.
+      So the rise and the fall of a breath read alike (the fall may carry an arm move that
+      a frame alone would call a shift): once one frame shows rows still, and rows Y down are
+      identical in every frame of the animation (legs that never move), every frame whose
+      shift would light those rows up shows the unshifted diff too. A walk over a static
+      shadow, where no frame shows its legs still on its own, keeps every shift.
       Tiles and overlays scroll with wrap-around (shift --wrap): for frames that fill the
       canvas and are a ground tile (every pixel opaque) or a sparse overlay (at most 1/4
       of the pixels opaque: snow, rain), every scroll is tried too, and one that leaves
@@ -1165,12 +1170,15 @@ def best_shift(prev, cur, reach=2, wrap=False):
     return best[1], best[2], False
 
 
-def motion(prev, cur, wrap=False):
+def motion(prev, cur, wrap=False, legs=None):
     """How cur differs from prev: the whole-sprite shift (dx, dy), px changed after it, px changed with
     no shift, `still`: the row from which down the sprite stayed exactly put (0 px changed there), when
     that explains cur far better than moving everything (an idle whose chest rises while the legs stay),
     else None, and whether the shift wraps around the edges (only tried with wrap: frames that fill the
-    canvas). A walk whose leg moved 1px has no identical lower rows, so it keeps its shift."""
+    canvas). A walk whose leg moved 1px has no identical lower rows, so it keeps its shift.
+    `legs`: the row from which down every frame of the animation is identical, given once another frame
+    showed them still (see still_rows): then any shift that would light those rows up leaves them still
+    here too, so the fall of a breath reads like its rise even when an arm moves on the way down."""
     dx, dy, wrapped = best_shift(prev, cur, wrap=wrap)
     w, h = cur.size
     C, P, M = pixels(cur), pixels(prev), pixels((rolled if wrapped else shifted)(prev, dx, dy))
@@ -1180,11 +1188,19 @@ def motion(prev, cur, wrap=False):
     if (dx, dy) != (0, 0) and not wrapped:
         # Rows above y moved by (dx, dy), rows from y down are identical to prev (not one pixel changed there, so
         # a leg that moved 1px rules y out): the best such y, and what it leaves changed.
-        ys = [y for y in range(h) if not any(kept[y:]) and any(c[3] for c in C[y * w:])]
-        y = min(ys, key=lambda y: (sum(moved[:y]), -y), default=None)
-        if y is not None and 3 * sum(moved[:y]) < n_shift:
+        # The first such row is the one reported, the same for the rise and the fall (kept is symmetric).
+        y = next((y for y in range(h) if not any(kept[y:]) and any(c[3] for c in C[y * w:])), None)
+        if y is not None and (3 * sum(moved[:y]) < n_shift or (legs is not None and any(moved[legs:]))):
             still = y
     return dx, dy, n_shift, n_none, still, wrapped
+
+
+def still_rows(imgs):
+    """The first row from which down every image is identical (and not empty), or None: legs that never move."""
+    w, h = imgs[0].size
+    rows = [[tuple(px[y * w:y * w + w]) for y in range(h)] for px in map(pixels, imgs)]
+    return next((y for y in range(h) if all(r[y:] == rows[0][y:] for r in rows)
+                 and any(p[3] for row in rows[0][y:] for p in row)), None)
 
 
 def diff_frame(prev, cur):
@@ -1352,11 +1368,18 @@ def cmd_anim(a):
         size = (pad + len(framed) * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2)
         strip = Image.new("RGBA", size, (30, 30, 36, 255))
         d = ImageDraw.Draw(strip)
+    # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
+    clear = [fit(i, "#00000000") for i in range(len(frames))]
+    pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
+             for i in range(len(frames))]
+    moves = [motion(p, c, wrap=t) for p, c, t in pairs]
+    legs = still_rows(clear) if any(m[4] is not None for m in moves) else None
+    if legs is not None:  # one frame showed the legs still; every frame whose shift would light them keeps them so
+        moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m[4] is None and m[:2] != (0, 0) and not m[5]
+                 else m for i, m in enumerate(moves)]
     for i, fr in enumerate(framed):
-        # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
-        prev, cur = fit(i - 1, "#00000000"), fit(i, "#00000000")
-        tile = frames[i - 1].size == frames[i].size == (w, h) and may_wrap(prev, cur)
-        dx, dy, n_shift, n_none, still, wrapped = motion(prev, cur, wrap=tile)
+        prev, cur = pairs[i][:2]
+        dx, dy, n_shift, n_none, still, wrapped = moves[i]
         opaque = sum(cur.getchannel("A").histogram()[1:])
 
         def px(n):  # '72px (9%)': of the frame's opaque pixels

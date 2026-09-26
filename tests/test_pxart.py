@@ -2064,7 +2064,8 @@ def test_big_upper_body_lift_is_unshifted(tmp_path):
     a = [EMPTY] + BODY + LEGS
     b = BODY + LEGS[:3] + [LEGS[2], LEGS[3]]
     dx, dy, n_shift, n_none, still = motion_of(tmp_path, a, b)
-    assert (dx, dy) == (0, -1) and still is not None and still >= 12
+    # Rows 11+ are identical (LEGS[1] == LEGS[2]): the report names the first identical row.
+    assert (dx, dy) == (0, -1) and still == 11
 
 
 def test_strip_png_is_taller_for_the_second_label_line(tmp_path, capsys):
@@ -7246,3 +7247,195 @@ def test_help_keeps_new_commands_under_drawing():
     drawing = doc[doc.index("\nDRAWING"):doc.index("\nCONVERTING")]
     for cmd in ("line ", "rect ", "ellipse ", "arc ", "flood ", "rotate ", "transpose ", "shade ", "outline "):
         assert f"\n  {cmd}" in drawing, cmd
+
+
+# ---------------------------------------------------------------- loop J: the rise and the fall of a breath read alike
+
+# A breathing idle whose legs never move: 0 chest down, 1 chest up (clean), 2 up with the arms out, 3 back down with
+# the arms in on the way. The fall carries an arm change, which is what made it read "shift" before.
+WAVE = BODY[:4] + ["kkkyyyykkk", "ssykyykyss", "ssyyyyyyss", "kyykyykyyk"] + BODY[8:]
+ARMS_IN = BODY[:4] + ["skkyyyykks", "kyysyysyyk", "kyyyyyyyyk", "kyykyykyyk"] + BODY[8:]
+IDLE_4 = ([EMPTY] + BODY + LEGS, BODY + [BODY[-1]] + LEGS, WAVE + [WAVE[-1]] + LEGS, [EMPTY] + ARMS_IN + LEGS)
+
+
+def test_breath_fixture_legs_identical_in_every_frame():
+    assert all(f[10:] == LEGS for f in IDLE_4) and all(len(f) == 14 and all(len(r) == 10 for r in f) for f in IDLE_4)
+
+
+def test_breath_fall_alone_fails_the_single_frame_rule(tmp_path):
+    # Without the animation around it, the fall (2 -> 3) still reads as a shift: its arm change is too big a
+    # share of what the shift leaves changed. This is the case the animation-wide rule fixes.
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, IDLE_4[2], IDLE_4[3])
+    assert (dx, dy) == (0, 1) and still is None
+
+
+def test_breath_rise_alone_passes_the_single_frame_rule(tmp_path):
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, IDLE_4[0], IDLE_4[1])
+    assert (dx, dy) == (0, -1) and still == 9
+
+
+def test_breath_rise_and_fall_both_still(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    assert "no shift then" in lines[1] and "(rows 9+ still; shift +0,-1:" in lines[1]
+    assert "no shift then" in lines[3] and "(rows 9+ still; shift +0,+1:" in lines[3]
+
+
+def test_breath_rise_and_fall_name_the_same_row(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    rows = [l.split("(rows ")[1].split("+")[0] for l in lines if "(rows " in l]
+    assert rows == ["9", "9"]
+
+
+def test_breath_fall_exact_line(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, IDLE_4[2], IDLE_4[3])
+    assert lines[3].endswith(f"vs idle/2: no shift then {pc(n_none, IDLE_4[3])} (rows 9+ still; shift +0,+1: {n_shift}px)")
+
+
+def test_breath_rise_exact_line_unchanged(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, IDLE_4[0], IDLE_4[1])
+    assert lines[1].endswith(f"vs idle/0: no shift then {pc(n_none, IDLE_4[1])} (rows 9+ still; shift +0,-1: {n_shift}px)")
+
+
+def test_breath_unshifted_frames_unchanged(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    assert "vs idle/3: shift +0,+0 then" in lines[0] and "vs idle/1: shift +0,+0 then" in lines[2]
+
+
+def test_breath_strip_legs_dark_on_rise_and_fall(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, *IDLE_4)
+    for i in (1, 3):
+        rows = magenta_rows(tmp_path, i)
+        assert rows and max(rows) < 10, (i, rows)  # legs (rows 10-13) unlit, rise and fall alike
+
+
+def test_breath_strip_fall_shows_the_body(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, *IDLE_4)
+    assert magenta_rows(tmp_path, 3) & {0, 1, 2}  # the head coming down is what changed
+
+
+def test_breath_reversed_order_is_symmetric_too(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4[::-1])
+    assert sum("(rows 9+ still;" in l for l in lines) == 2
+    assert not any("then" in l and "legs" in l for l in lines)
+
+
+def test_breath_pingpong_of_a_clean_breath_symmetric(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, IDLE_4[0], IDLE_4[1])
+    assert all("(rows 9+ still;" in l for l in lines), lines
+
+
+def test_breath_pingpong_where_neither_passes_alone_is_symmetric_too(tmp_path, capsys):
+    # Both moves carry the arm change and neither passes on its own: both keep the shift, alike.
+    lines = anim_lines(tmp_path, capsys, IDLE_4[2], IDLE_4[3])
+    assert all(" then " in l and "still" not in l and "shift +0," in l for l in lines), lines
+
+
+def test_breath_with_moving_legs_keeps_the_fall_shifted(tmp_path, capsys):
+    # One frame changes the leg pose: the legs aren't identical in every frame, so only the frame that passes on its
+    # own is still, as before.
+    walky = WAVE + [WAVE[-1]] + LEGS_WIDE
+    lines = anim_lines(tmp_path, capsys, IDLE_4[0], IDLE_4[1], walky, IDLE_4[3])
+    assert "(rows 9+ still;" in lines[1]
+    assert "vs idle/2: shift +0,+1 then" in lines[3]
+
+
+def test_breath_feet_row_identical_everywhere_counts_as_legs(tmp_path, capsys):
+    # Only the bottom row (the feet) is identical in every frame; one frame passes alone, so the fall keeps the feet
+    # still too, and names its own first identical row.
+    walky = WAVE + [WAVE[-1]] + ["..kbbbbk..", "..kbkkbk..", ".kbk..kbk.", "..kkk.kkk."]
+    lines = anim_lines(tmp_path, capsys, IDLE_4[0], IDLE_4[1], walky, IDLE_4[3])
+    assert "(rows 9+ still;" in lines[1]
+    assert "vs idle/2: no shift then" in lines[3] and "(rows 13+ still; shift +0,+1:" in lines[3]
+
+
+def test_breath_no_frame_passes_alone_stays_shifted(tmp_path, capsys):
+    # Legs identical everywhere, but no frame passes on its own (every move carries an arm change): nothing shows the
+    # legs standing, so every frame keeps its shift (a walk over a static shadow reads like this).
+    lines = anim_lines(tmp_path, capsys, IDLE_4[2], IDLE_4[3], IDLE_4[2], IDLE_4[3])
+    assert all("still" not in l for l in lines), lines
+
+
+def shadow_walk():
+    """A walk over a 1-row static shadow: the body bobs, the legs change pose, the shadow never moves."""
+    shadow = "..kkkkkk.."
+    down = ["..kbbbbk..", "..kbkkbk..", "..kbkkbk.."]
+    return ([EMPTY] + BODY + down + [shadow], BODY + [BODY[-1]] + [".kbbbbk...", ".kbk.kbk..", "kbk...kbk."] + [shadow],
+            [EMPTY] + BODY + down + [shadow], BODY + [BODY[-1]] + ["...kbbbbk.", "..kbk.kbk.", ".kbk...kbk"] + [shadow])
+
+
+def test_shadow_walk_fixture_is_14_rows():
+    assert all(len(f) == 14 for f in shadow_walk())
+
+
+def test_shadow_walk_every_frame_keeps_its_shift(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *shadow_walk())
+    assert [l.split(": ", 1)[1] for l in lines] == [
+        "shift +0,+1 then 25px (27%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)",
+        "shift +0,+1 then 25px (27%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)"]
+
+
+def test_shadow_walk_shadow_is_identical_in_every_frame(tmp_path):
+    doc = pxart.parse(anim_file(tmp_path, *shadow_walk(), name="sw.px"))
+    assert pxart.still_rows([doc.image(f) for f in doc.frames]) == 13
+
+
+def test_shadow_walk_strip_lights_the_legs(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, *shadow_walk())
+    for i in range(4):
+        assert magenta_rows(tmp_path, i) & {10, 11, 12}, i
+
+
+def test_still_rows_all_identical_tail():
+    imgs = [Image.new("RGBA", (3, 4)) for _ in range(3)]
+    for im in imgs:
+        im.putpixel((1, 3), (9, 9, 9, 255))
+    imgs[1].putpixel((0, 0), (1, 1, 1, 255))
+    imgs[2].putpixel((2, 1), (1, 1, 1, 255))
+    assert pxart.still_rows(imgs) == 2
+
+
+def test_still_rows_none_when_bottom_differs():
+    imgs = [Image.new("RGBA", (3, 4)) for _ in range(2)]
+    imgs[0].putpixel((1, 3), (9, 9, 9, 255))
+    assert pxart.still_rows(imgs) is None
+
+
+def test_still_rows_none_when_tail_is_empty():
+    imgs = [Image.new("RGBA", (3, 4)) for _ in range(2)]
+    imgs[1].putpixel((0, 0), (1, 1, 1, 255))
+    assert pxart.still_rows(imgs) is None  # rows 1+ are identical but empty: nothing standing there
+
+
+def test_still_rows_whole_frame_identical():
+    imgs = [Image.new("RGBA", (2, 2), (5, 5, 5, 255)) for _ in range(3)]
+    assert pxart.still_rows(imgs) == 0
+
+
+def test_motion_legs_argument_turns_the_fall_still(tmp_path):
+    doc = pxart.parse(anim_file(tmp_path, IDLE_4[2], IDLE_4[3], name="mo.px"))
+    prev, cur = (doc.image(f) for f in doc.frames)
+    assert pxart.motion(prev, cur)[4] is None
+    assert pxart.motion(prev, cur, legs=10)[4] == 9
+
+
+def test_motion_legs_argument_needs_the_shift_to_light_them(tmp_path):
+    # Legs given, but the frame doesn't move: nothing to call still.
+    doc = pxart.parse(anim_file(tmp_path, IDLE_4[0], IDLE_4[0], name="mo.px"))
+    prev, cur = (doc.image(f) for f in doc.frames)
+    assert pxart.motion(prev, cur, legs=10)[4] is None
+
+
+def test_motion_first_identical_row_is_reported(tmp_path):
+    # Rows 9+ identical; the old tie-break named a lower row whenever the row below had nothing left to explain.
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, IDLE_4[0], IDLE_4[1])
+    assert still == 9
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, IDLE_4[1], IDLE_4[0])
+    assert still == 9
+
+
+def test_help_documents_the_breath_symmetry():
+    doc = " ".join(pxart.__doc__.split())
+    assert "rows Y down are identical in every frame of the animation" in doc
+    assert "the rise and the fall of a breath read alike" in doc

@@ -104,7 +104,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip;
   without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and
-  writes nothing; "rows Y+ still" only when those rows are pixel-identical; a ground tile or a
+  writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the rise and
+  the fall of one breath alike when the legs are identical in every frame; a ground tile or a
   sparse overlay like falling snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`),
   `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
   suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
