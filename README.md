@@ -64,6 +64,9 @@ pxart 1
 - **`@anim`:** sets a group's `direction` (`forward`, `reverse`, `pingpong`,
   `pingpong_reverse`, the same words Aseprite uses), `repeat` and default `ms`.
 - **`@frame … ms=`:** overrides the duration for that frame.
+- **`anim-set`** writes both: `anim-set hero.px:walk/down ms=125 direction=pingpong`
+  updates (or adds) the `@anim` line, and `anim-set hero.px:walk/down/1 ms=250` sets one
+  frame's `ms`. Only that line changes; `ms=` with no value clears it.
 - **`@palette file.px`:** imports keys from a palette-only file, so a whole sprite set
   shares one palette. Keys defined locally win.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
@@ -114,7 +117,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
-  a new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
+  a new frame lands after its animation), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
   always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px

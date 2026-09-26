@@ -21,6 +21,7 @@ FORMAT (.px)
   An animation plays its frames in file order (not by the number in the id).
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
+  'anim-set hero.px:walk/down ms=125' writes these (and 'hero.px:walk/down/1 ms=250' a frame's).
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
   ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
@@ -194,6 +195,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
+  anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [-o OUT]
+      Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
+      FILE:GROUP/ID (one frame) takes only ms=N and sets that frame's own duration
+      ('@frame ID ms=N'), which wins over the group's. KEY= with no value clears a setting.
+      A path that is both a group and a frame means the group. Only that one line changes.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 CONVERTING
@@ -1811,6 +1817,57 @@ def cmd_dup(a):
     print(write_doc(doc, a.o), "frame", a.new)
 
 
+def timing_value(k, v):
+    """An anim-set value as the file would hold it: None to clear (KEY=), else checked like the parser does."""
+    if v == "":
+        return None
+    if k == "direction":
+        if v not in DIRECTIONS:
+            fail("E_BAD_ARG", f"direction={v!r}; use one of {', '.join(DIRECTIONS)}")
+        return v
+    if not v.isdigit() or (k == "ms" and int(v) < 1):
+        fail("E_BAD_ARG", f"{k}={v!r} must be an integer" + (" >= 1" if k == "ms" else ""))
+    return int(v)
+
+
+def cmd_anim_set(a):
+    """Timing: FILE:GROUP updates or adds '@anim GROUP ...'; FILE:GROUP/ID sets that frame's ms=. One line changes."""
+    path, sel = split_sel(a.target)
+    doc = parse(path)
+    out = pathlib.Path(a.o) if a.o else doc.path
+    if not sel:
+        fail("E_SELECT", f"anim-set needs FILE:GROUP (an animation's @anim line) or FILE:GROUP/ID (one frame's ms=); "
+             f"animations: {', '.join(g for g in doc.groups() if g) or 'none'}", path=doc.path)
+    kw = {}
+    for arg in a.settings:
+        k, eq, v = arg.partition("=")
+        if not eq or k not in ("ms", "direction", "repeat"):
+            fail("E_BAD_ARG", f"anim-set: {arg!r}; settings are ms=N, direction=D, repeat=N (KEY= clears one)", path=doc.path)
+        kw[k] = timing_value(k, v)
+    if not kw:
+        fail("E_BAD_ARG", "anim-set: give ms=N, direction=D and/or repeat=N", path=doc.path)
+    groups = doc.groups()
+    if sel in groups and sel:
+        anim = doc.anims.setdefault(sel, {})
+        anim.update(kw)
+        line = next(text for anchor, _, text in doc.lines() if anchor == ("anim", sel))
+        if kw.get("ms"):
+            for f in groups[sel]:
+                if f.ms:
+                    print(f"note: {f.id} keeps its own ms={f.ms} (anim-set {doc.path}:{f.id} ms= clears it)")
+    else:
+        f = doc.get(sel)
+        if not f:
+            fail("E_SELECT", f"{sel!r} is neither an animation nor a frame; animations: "
+                 f"{', '.join(g for g in groups if g) or 'none'}", path=doc.path)
+        if set(kw) - {"ms"}:
+            fail("E_BAD_ARG", f"{sel!r} is one frame, which takes only ms=; direction= and repeat= belong to its "
+                 f"animation: anim-set {doc.path}:{f.group or 'GROUP'} ...", path=doc.path)
+        f.ms = kw["ms"]
+        line = next(text for anchor, _, text in doc.lines() if anchor == ("frame", f.id))
+    print(f"{line}; {write_doc(doc, out)}")
+
+
 def cmd_palette(a):
     doc = parse(a.file, palette_only=not _has_grid(a.file))
     for m in a.add or []:
@@ -2013,6 +2070,7 @@ def main(argv=None):
     p.add_argument("--size")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
+    p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
     p.add_argument("--used", action="store_true")
     p = sub.add_parser("export"); p.add_argument("file"); p.add_argument("--frames"); p.add_argument("--aseprite")

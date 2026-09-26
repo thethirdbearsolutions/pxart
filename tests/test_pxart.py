@@ -3900,3 +3900,210 @@ def test_help_documents_recolor_swap_and_order():
     doc = pxart.__doc__
     assert "'a<>b' swaps" in doc and "quote it, since unquoted < and > are shell" in doc
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
+
+
+# ---------------------------------------------------------------- loop G: anim-set (timing)
+
+TIMED = ("pxart 1\nk #000000\n\n@anim walk ms=120\n@anim idle   direction=pingpong  ms=300\n\n@frame walk/0\nk\n"
+         "@frame walk/1 ms=200\nk\n@frame idle/0\nk\n@frame idle/1\nk\n@frame run/0\nk\n@frame run/1\nk\n@frame icon\nk\n")
+
+
+def changed_lines(before, after):
+    """(indices changed in place, lines inserted, lines removed) between two texts."""
+    import difflib
+    a, b = before.splitlines(), after.splitlines()
+    ops = [op for op in difflib.SequenceMatcher(None, a, b).get_opcodes() if op[0] != "equal"]
+    return ops
+
+
+def test_anim_set_updates_one_line(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk", "ms=90") == 0
+    assert capsys.readouterr().out.endswith(f"\n@anim walk ms=90; wrote {p}\n")
+    assert p.read_text() == TIMED.replace("@anim walk ms=120", "@anim walk ms=90")
+    assert changed_lines(TIMED, p.read_text()) == [("replace", 3, 4, 3, 4)]
+
+
+def test_anim_set_adds_a_setting_keeps_the_others(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk", "direction=reverse", "repeat=3") == 0
+    assert pxart.parse(p).anims["walk"] == {"direction": "reverse", "repeat": 3, "ms": 120}
+    assert p.read_text() == TIMED.replace("@anim walk ms=120", "@anim walk direction=reverse repeat=3 ms=120")
+
+
+def test_anim_set_rewrites_only_the_changed_line_canonically(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:idle", "repeat=2") == 0
+    got = p.read_text()
+    assert got == TIMED.replace("@anim idle   direction=pingpong  ms=300", "@anim idle direction=pingpong repeat=2 ms=300")
+    assert changed_lines(TIMED, got) == [("replace", 4, 5, 4, 5)]
+
+
+def test_anim_set_new_group_adds_one_line_after_the_others(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:run", "ms=80", "direction=pingpong") == 0
+    assert capsys.readouterr().out == f"@anim run direction=pingpong ms=80; wrote {p}\n"
+    got = p.read_text()
+    assert got == TIMED.replace("ms=300\n", "ms=300\n@anim run direction=pingpong ms=80\n", 1)
+    assert changed_lines(TIMED, got) == [("insert", 5, 5, 5, 6)]
+
+
+def test_anim_set_first_anim_in_a_file(tmp_path):
+    text = "k #000000\n\n@frame a/0\nk\n@frame a/1\nk\n"
+    p = write(tmp_path, "a.px", text)
+    assert run("anim-set", f"{p}:a", "ms=150") == 0
+    assert p.read_text() == "k #000000\n\n@anim a ms=150\n\n@frame a/0\nk\n@frame a/1\nk\n"
+    assert pxart.parse(p).anims["a"]["ms"] == 150
+
+
+def test_anim_set_frame_ms_one_line(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk/0", "ms=250") == 0
+    assert capsys.readouterr().out == f"@frame walk/0 ms=250; wrote {p}\n"
+    assert p.read_text() == TIMED.replace("@frame walk/0\n", "@frame walk/0 ms=250\n")
+    assert changed_lines(TIMED, p.read_text()) == [("replace", 6, 7, 6, 7)]
+    doc = pxart.parse(p)
+    assert doc.ms(doc.get("walk/0")) == 250 and doc.ms(doc.get("walk/1")) == 200
+
+
+def test_anim_set_frame_ms_replaces_its_own(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk/1", "ms=60") == 0
+    assert p.read_text() == TIMED.replace("@frame walk/1 ms=200", "@frame walk/1 ms=60")
+
+
+def test_anim_set_frame_ms_clear(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk/1", "ms=") == 0
+    assert p.read_text() == TIMED.replace("@frame walk/1 ms=200", "@frame walk/1")
+    doc = pxart.parse(p)
+    assert doc.ms(doc.get("walk/1")) == 120  # back to the group's
+
+
+def test_anim_set_clear_a_group_setting(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:idle", "direction=") == 0
+    assert "@anim idle ms=300\n" in p.read_text() and pxart.parse(p).anims["idle"].get("direction") is None
+    assert run("anim-set", f"{p}:idle", "ms=") == 0
+    assert "@anim idle\n" in p.read_text()
+    doc = pxart.parse(p)
+    assert doc.ms(doc.get("idle/0")) == pxart.DEFAULT_MS
+
+
+def test_anim_set_top_level_frame(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:icon", "ms=500") == 0
+    assert "@frame icon ms=500\n" in p.read_text()
+
+
+def test_anim_set_same_values_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    before, m = snap(p)
+    assert run("anim-set", f"{p}:idle", "ms=300", "direction=pingpong") == 0
+    assert capsys.readouterr().out == f"@anim idle direction=pingpong ms=300; no change: {p}\n"
+    assert untouched(p, before, m)
+    assert run("anim-set", f"{p}:walk/1", "ms=200") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_anim_set_group_ms_notes_frames_with_their_own(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk", "ms=100") == 0
+    out = capsys.readouterr().out
+    assert f"note: walk/1 keeps its own ms=200 (anim-set {p}:walk/1 ms= clears it)" in out
+    assert "walk/0 keeps" not in out
+
+
+def test_anim_set_used_by_anim_and_exports(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:run", "ms=70", "direction=pingpong", "repeat=2") == 0
+    assert run("anim-set", f"{p}:run/1", "ms=140") == 0
+    assert run("export", f"{p}", "--aseprite", tmp_path / "x.json") == 0
+    ase = json.loads((tmp_path / "x.json").read_text())
+    by = {f["filename"]: f["duration"] for f in ase["frames"]}
+    assert by["run/0"] == 70 and by["run/1"] == 140
+    assert {"name": "run", "from": 4, "to": 5, "direction": "pingpong", "color": "#000000ff",
+            "repeat": "2"} in ase["meta"]["frameTags"]
+
+
+@pytest.mark.parametrize("arg", ["ms=0", "ms=-5", "ms=x", "repeat=-1", "repeat=1.5", "direction=sideways", "speed=3",
+                                 "ms", "=5"])
+def test_anim_set_bad_settings(tmp_path, arg):
+    p = write(tmp_path, "h.px", TIMED)
+    msg = run_err("anim-set", f"{p}:walk", arg)
+    assert "E_BAD_ARG" in msg and p.read_text() == TIMED
+
+
+def test_anim_set_needs_a_setting(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    assert "E_BAD_ARG" in run_err("anim-set", f"{p}:walk")
+
+
+def test_anim_set_needs_a_selector(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    msg = run_err("anim-set", p, "ms=100")
+    assert "E_SELECT" in msg and "FILE:GROUP" in msg and "walk, idle, run" in msg
+
+
+def test_anim_set_unknown_group(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    msg = run_err("anim-set", f"{p}:jump", "ms=100")
+    assert "E_SELECT" in msg and "neither an animation nor a frame" in msg and p.read_text() == TIMED
+
+
+def test_anim_set_grandparent_path_is_not_a_group(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk/down/0\nk\n@frame walk/left/0\nk\n")
+    msg = run_err("anim-set", f"{p}:walk", "ms=100")
+    assert "E_SELECT" in msg and "walk/down, walk/left" in msg
+
+
+def test_anim_set_frame_rejects_direction_and_repeat(tmp_path):
+    p = write(tmp_path, "h.px", TIMED)
+    for arg in ("direction=reverse", "repeat=2"):
+        msg = run_err("anim-set", f"{p}:walk/0", "ms=90", arg)
+        assert "E_BAD_ARG" in msg and "takes only ms=" in msg and f"anim-set {p}:walk" in msg
+    assert p.read_text() == TIMED
+
+
+def test_anim_set_group_and_frame_with_the_same_path_means_the_group(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk\nk\n@frame walk/0\nk\n@frame walk/1\nk\n")
+    assert run("anim-set", f"{p}:walk", "ms=90") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["ms"] == 90 and doc.get("walk").ms is None
+
+
+def test_anim_set_output_file(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:walk", "ms=90", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == TIMED and (tmp_path / "o.px").read_text() == TIMED.replace("ms=120", "ms=90")
+
+
+def test_anim_set_keeps_messy_layout(tmp_path):
+    p = write(tmp_path, "m.px", MESSY)
+    assert run("anim-set", f"{p}:walk/1", "ms=40") == 0
+    assert p.read_text() == MESSY.replace("@frame walk/1\n", "@frame walk/1 ms=40\n")
+
+
+def test_anim_set_crlf_file(tmp_path):
+    p = tmp_path / "c.px"
+    p.write_bytes(CRLF.encode())
+    assert run("anim-set", f"{p}:b", "ms=40") == 0
+    assert p.read_bytes() == CRLF.replace("@frame b\r\n", "@frame b ms=40\r\n").encode()
+
+
+def test_anim_set_missing_file_is_file_error(tmp_path):
+    assert "E_FILE" in run_err("anim-set", f"{tmp_path / 'nope.px'}:walk", "ms=90")
+
+
+def test_anim_set_frames_listing_shows_it(tmp_path, capsys):
+    p = write(tmp_path, "h.px", TIMED)
+    assert run("anim-set", f"{p}:run", "ms=80") == 0
+    capsys.readouterr()
+    assert run("frames", f"{p}:run") == 0
+    assert "run: 2 frame(s) [ms=80]" in capsys.readouterr().out
+
+
+def test_help_documents_anim_set():
+    doc = pxart.__doc__
+    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [-o OUT]" in doc
+    assert "FILE:GROUP/ID (one frame) takes only ms=N" in doc and "Only that one line changes" in doc
