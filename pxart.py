@@ -186,7 +186,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
   extract FILE:SEL -o OUT [--inline-palette]
       Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
-      of groups left behind): 'extract hero.px:walk/down -o walk.px'. --inline-palette
+      of groups left behind; @anim lines in the order of the frames' groups):
+      'extract hero.px:walk/down -o walk.px'. --inline-palette
       makes OUT self-contained for a hand-off: the imported keys its frames use (and any a
       local @variant line sets) become key lines in OUT, each variant gets the imported
       colors of the keys OUT has, and the @palette lines go. OUT renders exactly like the
@@ -1744,6 +1745,7 @@ def cmd_extract(a):
     doc.frames = keep
     out = pathlib.Path(a.o)
     note_suffix(out)
+    order_anims(doc, [f.group for f in keep])
     doc.anims = {g: v for g, v in doc.anims.items() if g not in gone}
     doc.stills = [g for g in doc.stills if g not in gone]
     if a.inline_palette:
@@ -1754,6 +1756,20 @@ def cmd_extract(a):
             doc.palette_refs[i] = new
             doc.lead[("palref", new)] = doc.lead.pop(("palref", ref), [])
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
+
+
+def order_anims(doc, groups):
+    """@anim lines in the order `groups` first appear (others after, as they were). Blank lines above them stay
+    where they were; a comment moves with its line."""
+    old = list(doc.anims)
+    new = [g for g in dict.fromkeys(groups) if g in doc.anims] + [g for g in old if g not in groups]
+    leads = [doc.lead.get(("anim", g)) for g in old]
+    if all(not any(x.strip() for x in lead or []) for lead in leads):
+        for g, lead in zip(new, leads):
+            doc.lead.pop(("anim", g), None)
+            if lead is not None:
+                doc.lead[("anim", g)] = lead
+    doc.anims = {g: doc.anims[g] for g in new}
 
 
 def inline_palette(doc):

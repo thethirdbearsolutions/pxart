@@ -5007,3 +5007,72 @@ def test_frames_already_in_place_keeps_layout(tmp_path, capsys):
 
 def test_help_documents_already_in_place():
     assert 'prints "already in\n      place" and writes nothing' in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop H: extract writes @anim in frame-group order
+
+ANIMS_OUT_OF_ORDER = ("k #000000\n\n@anim villager/walk ms=150\n@anim dog/walk ms=90\n@anim dog/idle ms=300\n\n"
+                      "@frame dog/idle/0\nk\n@frame dog/walk/0\nk\n@frame dog/walk/1\nk\n"
+                      "@frame villager/walk/0\nk\n@frame villager/walk/1\nk\n")
+
+
+def anim_order(p):
+    return [l.split()[1] for l in p.read_text().splitlines() if l.startswith("@anim")]
+
+
+def test_extract_anims_follow_the_frames_groups(tmp_path):
+    p = write(tmp_path, "f.px", ANIMS_OUT_OF_ORDER)
+    assert run("extract", f"{p}:dog", "-o", tmp_path / "dog.px") == 0
+    assert anim_order(tmp_path / "dog.px") == ["dog/idle", "dog/walk"]
+    assert (tmp_path / "dog.px").read_text() == (
+        "k #000000\n\n@anim dog/idle ms=300\n@anim dog/walk ms=90\n\n"
+        "@frame dog/idle/0\nk\n@frame dog/walk/0\nk\n@frame dog/walk/1\nk\n")
+
+
+def test_extract_whole_file_orders_anims_by_frames(tmp_path):
+    p = write(tmp_path, "f.px", ANIMS_OUT_OF_ORDER)
+    assert run("extract", p, "-o", tmp_path / "all.px") == 0
+    assert anim_order(tmp_path / "all.px") == ["dog/idle", "dog/walk", "villager/walk"]
+    doc = pxart.parse(tmp_path / "all.px")
+    assert doc.anims == pxart.parse(p).anims and [f.id for f in doc.frames] == ids(p)
+
+
+def test_extract_anims_already_in_order_are_a_byte_copy(tmp_path):
+    text = ("k #000000\n\n# timing\n@anim a ms=90\n\n@anim b ms=80\n\n@frame a/0\nk\n@frame b/0\nk\n")
+    p = write(tmp_path, "f.px", text)
+    assert run("extract", p, "-o", tmp_path / "c.px") == 0
+    assert (tmp_path / "c.px").read_text() == text
+
+
+def test_extract_anim_comments_move_with_their_line(tmp_path):
+    text = "k #000000\n\n# for b\n@anim b ms=80\n# for a\n@anim a ms=90\n@frame a/0\nk\n@frame b/0\nk\n"
+    p = write(tmp_path, "f.px", text)
+    assert run("extract", p, "-o", tmp_path / "c.px") == 0
+    assert (tmp_path / "c.px").read_text() == ("k #000000\n# for a\n@anim a ms=90\n\n# for b\n@anim b ms=80\n"
+                                               "@frame a/0\nk\n@frame b/0\nk\n")
+
+
+def test_extract_anim_without_frames_goes_last(tmp_path):
+    text = "k #000000\n@anim ghost ms=10\n@anim b ms=80\n@anim a ms=90\n@frame a/0\nk\n@frame b/0\nk\n"
+    p = write(tmp_path, "f.px", text)
+    assert run("extract", p, "-o", tmp_path / "c.px") == 0
+    assert anim_order(tmp_path / "c.px") == ["a", "b", "ghost"]
+
+
+def test_extract_anims_after_frames_move(tmp_path):
+    # The loop H sequence: move the dog after the villager, then extract everything: @anim follows.
+    p = write(tmp_path, "f.px", ANIMS_OUT_OF_ORDER)
+    assert run("frames", f"{p}:dog", "--after", "villager/walk/1") == 0
+    assert run("extract", p, "-o", tmp_path / "c.px") == 0
+    assert anim_order(tmp_path / "c.px") == ["villager/walk", "dog/idle", "dog/walk"]
+
+
+def test_extract_inline_palette_orders_anims_too(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "f.px", "@palette pal.px\n@anim b ms=80\n@anim a ms=90\n@frame a/0\nk\n@frame b/0\nk\n")
+    assert run("extract", p, "-o", tmp_path / "c.px", "--inline-palette") == 0
+    assert anim_order(tmp_path / "c.px") == ["a", "b"]
+
+
+def test_help_documents_extract_anim_order():
+    assert "@anim lines in the order of the frames' groups" in pxart.__doc__
