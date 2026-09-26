@@ -18,16 +18,21 @@ FORMAT (.px)
     ....kkkk....
     @frame walk/down/1 ms=250          per-frame duration overrides the anim's
     ...
+  An animation plays its frames in file order (not by the number in the id).
+  direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
+  repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
   Palette variants (recolors): keys listed after '@variant night' override the base
-  palette when rendering/exporting with --variant night.
+  palette.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame.
+  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. Add
+  %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
+  modifier; write "${F}:walk" or quote the whole argument.
 
 LOOKING
-  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V]
-      Preview sheet with a pixel grid and x/y rulers every 4px. Also writes a 1x PNG
-      beside each single-frame .px.
+  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
+      Preview sheet with a pixel grid and x/y rulers every 4px. --png also writes a 1x
+      PNG beside each single-frame .px.
   sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count.
   anim FILE... -o walk.gif [--scale 8] [--fps N] [--variant V]
@@ -45,7 +50,8 @@ CHECKING
       color budget / unused keys per frame. P is a .px, .gpl, .hex, or text of
       #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
   stats FILE...                     size, bbox, color count, colors per frame
-  frames FILE                       list frames, sizes, durations, animations
+  frames FILE [--rm ID...] [--move ID --after|--before ID]
+      List frames, sizes, durations and animations; or delete / reorder frames.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
@@ -56,22 +62,29 @@ EDITING (writes .px; -o defaults to editing the input in place)
   paste SRC --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
   compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
-      With OUT:frame, adds or replaces that frame in OUT and keeps its other frames.
-  dup FILE:ID NEWID [-o OUT]        copy a frame under a new id (then edit the copy)
-  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex]
+      With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
+      (OUT may be a palette-only file). Canvas size: --size, else the frame being
+      replaced, else the other frames of its animation, else the first layer. Pixels
+      that land outside the canvas are cropped, with a note saying how many.
+  dup FILE:ID NEWID [--after ID] [-o OUT]
+      Copy a frame under a new id, placed after the last frame of NEWID's animation
+      (or after --after), then edit the copy.
+  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 CONVERTING
   export FILE [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
       --frames: one PNG per frame at DIR/<frame id>.png
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
+      (--aseprite x.json and --tiled x.tsj share one identical x.png)
   from-png ref.png [-o ref.px]      PNG -> .px (reads exact pixels)
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
-  E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_ANIM_SIZE
-  E_UNKNOWN_SECTION E_SELECT E_KEY_CONFLICT E_TILE_SIZE
+  E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_UNKNOWN_SECTION
+  E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
+  Frames of different sizes in one animation are allowed; check notes them.
 """
 import argparse, json, math, os, pathlib, re, string, sys
 from PIL import Image, ImageDraw
@@ -276,7 +289,7 @@ def _int_arg(kw, name, issues, path, n, lo=None):
     return int(v)
 
 
-def parse(path, strict=False, text=None, palette_only=False, _depth=0):
+def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, _depth=0):
     path = pathlib.Path(path)
     raw = text if text is not None else path.read_text()
     doc = Doc(path)
@@ -433,7 +446,7 @@ def parse(path, strict=False, text=None, palette_only=False, _depth=0):
         return doc
 
     pal = doc.resolved()
-    if not doc.frames:
+    if not doc.frames and not allow_empty:
         err("E_NO_FRAMES", "no grid rows")
     for f in doc.frames:
         if not f.grid:
@@ -453,10 +466,6 @@ def parse(path, strict=False, text=None, palette_only=False, _depth=0):
         for k in over:
             if k not in pal:
                 err("E_VARIANT_KEY", f"@variant {name} sets {k!r}, which the base palette doesn't define")
-    for g, fs in doc.groups().items():
-        if g and len({f.size for f in fs if f.grid}) > 1:
-            err("E_ANIM_SIZE", f"frames of animation {g!r} differ in size: "
-                + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs), fs[0].line)
     if issues:
         raise PxError(issues)
     return doc
@@ -464,8 +473,17 @@ def parse(path, strict=False, text=None, palette_only=False, _depth=0):
 
 # ---------------------------------------------------------------------------- inputs
 
+def split_variant(arg):
+    """'hero.px:walk/down%frost' -> ('hero.px:walk/down', 'frost')."""
+    left, sep, right = arg.rpartition("%")
+    if sep and left and re.match(r"^[A-Za-z0-9_\-]+$", right):
+        return left, right
+    return arg, None
+
+
 def split_sel(arg):
     """'hero.px:walk/down' -> (path, 'walk/down'); a plain path -> (path, None)."""
+    arg = split_variant(arg)[0]
     left, sep, right = arg.rpartition(":")
     if sep and left and pathlib.Path(left).suffix in (".px", ".png") and not os.path.exists(arg):
         return left, right
@@ -487,6 +505,7 @@ class Item:
 
 
 def items(arg, variant=None, strict=False):
+    variant = split_variant(arg)[1] or variant
     path, sel = split_sel(arg)
     if path.endswith(".png") or path.endswith(".gif"):
         return [Item(pathlib.Path(path).stem, Image.open(path).convert("RGBA"), DEFAULT_MS)]
@@ -693,7 +712,7 @@ def cmd_render(a):
     its = all_items(a.files, a.variant)
     for f in a.files:
         path, sel = split_sel(f)
-        if path.endswith(".px") and not sel:
+        if a.png and path.endswith(".px") and not sel:
             doc = parse(path)
             if len(doc.frames) == 1:
                 doc.image(doc.frames[0], a.variant).save(pathlib.Path(path).with_suffix(".png"))
@@ -780,6 +799,11 @@ def cmd_check(a):
         notes = []
         if its and its[0].doc:
             doc = its[0].doc
+            for g, fs in doc.groups().items():
+                if g and len({f.size for f in fs}) > 1:
+                    notes.append(f"animation {g!r} mixes frame sizes ("
+                                 + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
+                                 + "); frames draw bottom-centered, and Tiled export needs one size")
             used = set("".join(r for f in doc.frames for r in f.grid))
             unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
             if unused:
@@ -814,7 +838,24 @@ def cmd_stats(a):
 
 
 def cmd_frames(a):
-    doc = parse(a.file)
+    doc = parse(a.file, allow_empty=True)
+    if a.rm or a.move:
+        if doc.implicit:
+            fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
+        for fid in a.rm or []:
+            f = doc.get(fid)
+            if not f:
+                fail("E_SELECT", f"--rm {fid!r}: no such frame")
+            doc.frames.remove(f)
+        if a.move:
+            f = doc.get(a.move)
+            anchor = doc.get(a.after or a.before or "")
+            if not f or not anchor or f is anchor:
+                fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")
+            doc.frames.remove(f)
+            doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
+        doc.save()
+        print("wrote", doc.path)
     for g, fs in doc.groups().items():
         meta = doc.anims.get(g, {})
         head = f"{g or '(no group)'}: {len(fs)} frame(s)"
@@ -894,10 +935,9 @@ def cmd_compose(a):
     for lay, _, _ in layers:
         if not lay.doc:
             fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
-    size = tuple(map(int, a.size.split("x"))) if a.size else layers[0][0].frame.size
     opath, osel = split_sel(a.o)
     if pathlib.Path(opath).exists():
-        doc = parse(opath)
+        doc = parse(opath, allow_empty=True)
     else:
         doc = Doc(opath)
         doc.version = FORMAT_VERSION
@@ -916,8 +956,24 @@ def cmd_compose(a):
         doc.implicit = True
         doc.frames = [Frame(None)]
         target = doc.frames[0]
+    if a.size:
+        size, why = tuple(map(int, a.size.split("x"))), "--size"
+    elif target.grid:
+        size, why = target.size, "the frame being replaced"
+    elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):
+        size = next(f.size for f in doc.frames if f.group == target.group and f.grid and f is not target)
+        why = f"the rest of {target.group!r}"
+    else:
+        size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
     for lay, x, y in layers:
+        w, h = lay.frame.size
+        cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
+                  if ch != "." and lay.doc.resolved()[ch][3]
+                  and not (0 <= x + xx < size[0] and 0 <= y + yy < size[1]))
+        if cut:
+            print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
+                  f"(size from {why}) and were cropped")
         stamp(doc, target, lay.doc, lay.frame, (x, y))
     print("wrote", doc.save(opath), f"frame {osel}" if osel else "")
 
@@ -932,7 +988,15 @@ def cmd_dup(a):
     if doc.get(a.new) or not ID_RE.match(a.new):
         fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
     new = Frame(a.new, list(src.grid), src.ms)
-    doc.frames.insert(doc.frames.index(src) + 1, new)
+    if a.after:
+        anchor = doc.get(a.after)
+        if not anchor:
+            fail("E_SELECT", f"--after {a.after!r}: no such frame")
+    else:
+        group = new.group
+        same = [f for f in doc.frames if f.group == group] if group else []
+        anchor = same[-1] if same else src
+    doc.frames.insert(doc.frames.index(anchor) + 1, new)
     print("wrote", doc.save(a.o or doc.path), "frame", a.new)
 
 
@@ -954,7 +1018,7 @@ def cmd_palette(a):
             for c in r:
                 used[c] = used.get(c, 0) + 1
     if a.export:
-        cols = [(k, v) for k, v in pal.items() if v[3]]
+        cols = [(k, v) for k, v in pal.items() if v[3] and (not a.used or used.get(k))]
         if a.export.endswith(".gpl"):
             body = "GIMP Palette\nName: %s\nColumns: 0\n#\n" % doc.stem
             body += "".join("%3d %3d %3d\t%s\n" % (v[0], v[1], v[2], k) for k, v in cols)
@@ -1014,6 +1078,7 @@ def cmd_export(a):
         if len({it.img.size for it in its}) > 1:
             fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
                  + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its))
+        its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = pathlib.Path(a.tiled)
         ip = tp.with_suffix(".png")
@@ -1061,6 +1126,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="pxart", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
+    p.add_argument("--png", action="store_true")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--bg", default="#3a3a44")
     p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
@@ -1076,7 +1142,8 @@ def main(argv=None):
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
-    p = sub.add_parser("frames"); p.add_argument("file")
+    p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="+")
+    p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
@@ -1087,7 +1154,9 @@ def main(argv=None):
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
+    p.add_argument("--after")
     p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
+    p.add_argument("--used", action="store_true")
     p = sub.add_parser("export"); p.add_argument("file"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("png"); p.add_argument("-o")
@@ -1096,6 +1165,8 @@ def main(argv=None):
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:
         sys.exit(str(e))
+    except OSError as e:
+        sys.exit(f"{e.filename or ''}: E_FILE: {e.strerror or e}")
 
 
 if __name__ == "__main__":

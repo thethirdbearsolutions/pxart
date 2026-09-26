@@ -108,7 +108,6 @@ def test_all_errors_reported_together_with_locations(tmp_path):
     ("k #000000\nk\n@frame a\nk\n", "E_MIXED_FRAMES"),
     ("k #000000\n@frame a\nk\n@frame a\nk\n", "E_DUP_FRAME"),
     ("k #000000\n@frame bad id\nk\n", "E_BAD_ID"),
-    ("k #000000\n@frame w/0\nk\n@frame w/1\nkk\n", "E_ANIM_SIZE"),
     ("k #000000\n@variant v\nq #111111\n\nk\n", "E_VARIANT_KEY"),
     ("k #000000\n@anim w direction=sideways\n@frame w/0\nk\n", "E_BAD_ARG"),
     ("k #000000\n@frame w/0 ms=0\nk\n", "E_BAD_ARG"),
@@ -292,9 +291,73 @@ def test_check_exit_codes_and_palette(tmp_path):
 def test_render_sheet_onion_scene(tmp_path):
     p = write(tmp_path, "m.px", MULTI)
     single = write(tmp_path, "s.px", LEGACY)
-    assert run("render", single, f"{p}:walk/down", "-o", tmp_path / "prev.png") == 0
+    assert run("render", single, f"{p}:walk/down", "-o", tmp_path / "prev.png", "--png") == 0
     assert (tmp_path / "s.png").exists()
     assert run("sheet", p, "-o", tmp_path / "sh.png", "--scale", "1") == 0
     assert run("onion", f"{p}:walk/down/0", f"{p}:walk/down/1", "-o", tmp_path / "on.png") == 0
     assert run("scene", "-o", tmp_path / "sc.png", "--size", "8x8", f"{single}@1,1", f"{p}:idle@4,4") == 0
     assert run("scene", "-o", tmp_path / "sc.png", f"{p}@0,0") == 1  # 3 frames: ambiguous
+
+
+# ---------------------------------------------------------------- loop-3 fixes
+
+def test_mixed_sizes_allowed_and_noted(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame w/0\nk\n@frame w/1\nkk\n")
+    assert run("check", p) == 0
+    assert "mixes frame sizes" in capsys.readouterr().out
+
+
+def test_compose_sizes_from_animation_and_warns_on_crop(tmp_path, capsys):
+    out = write(tmp_path, "h.px", "k #000000\n@frame w/0\nkkkk\nkkkk\n")
+    big = write(tmp_path, "big.px", "k #000000\nkkkkk\n")
+    assert run("compose", "-o", f"{out}:w/1", f"{big}@0,1") == 0
+    assert pxart.parse(out).get("w/1").size == (4, 2)
+    assert "1 px of big fall outside the 4x2 canvas" in capsys.readouterr().out
+
+
+def test_compose_into_palette_only_file(tmp_path):
+    out = write(tmp_path, "h.px", "@palette base.px\n")
+    write(tmp_path, "base.px", "k #000000\n")
+    layer = write(tmp_path, "l.px", "@palette base.px\nk.\n")
+    assert run("compose", "-o", f"{out}:idle/0", f"{layer}@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.get("idle/0").grid == ["k."] and doc.palette_refs == ["base.px"] and "k" not in doc.palette
+
+
+def test_dup_lands_at_end_of_its_animation(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@frame idle/0\nk\n@frame shoot/0\nk\n@frame shoot/1\nk\n")
+    assert run("dup", f"{p}:idle/0", "shoot/2") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["idle/0", "shoot/0", "shoot/1", "shoot/2"]
+
+
+def test_frames_rm_and_move(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a/0\nk\n@frame a/1\nk\n@frame a/2\nk\n")
+    assert run("frames", p, "--move", "a/2", "--before", "a/0") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["a/2", "a/0", "a/1"]
+    assert run("frames", p, "--rm", "a/0") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["a/2", "a/1"]
+
+
+def test_variant_selector_suffix(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    (it,) = pxart.items(f"{p}:idle%night")
+    assert it.img.getpixel((1, 0))[:3] == (0x25, 0x95, 0x6A)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "8x8", f"{p}:idle%night@0,0") == 0
+
+
+def test_missing_file_is_a_coded_error(tmp_path, capsys):
+    assert run("render", tmp_path / "nope.px", "-o", tmp_path / "x.png") == 1
+
+
+def test_palette_export_used_only(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\nj #ffffff\nk\n")
+    assert run("palette", p, "--export", tmp_path / "p.hex", "--used") == 0
+    assert (tmp_path / "p.hex").read_text().split() == ["000000"]
+
+
+def test_aseprite_and_tiled_share_identical_sheet(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\nj #ffffff\n@frame b/0\nk\n@frame a/0\nj\n@frame b/1\nj\n")
+    assert run("export", p, "--aseprite", tmp_path / "x.json") == 0
+    first = pxart.pixels(Image.open(tmp_path / "x.png").convert("RGBA"))
+    assert run("export", p, "--tiled", tmp_path / "x.tsj") == 0
+    assert pxart.pixels(Image.open(tmp_path / "x.png").convert("RGBA")) == first
