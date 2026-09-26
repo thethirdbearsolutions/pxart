@@ -4703,3 +4703,88 @@ def test_help_documents_put():
     doc = pxart.__doc__
     assert "put FILE[:frame] [-o OUT] < grid.txt" in doc and "nothing is written on an error" in doc
     assert "Only that frame's lines change" in doc
+
+
+# ---------------------------------------------------------------- loop H: shift leaves '.', or --fill KEY
+
+FLOOR = "k #000000\nf #806040\nffff\nfkkf\nfkkf\nffff\n"
+
+
+def test_shift_vacated_pixels_become_dot(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nkk..\nkk..\n")
+    assert run("shift", p, "--dx", "2") == 0
+    assert pxart.parse(p).frames[0].grid == ["..kk", "..kk"]
+
+
+def test_shift_region_vacated_pixels_become_dot(tmp_path):
+    p = write(tmp_path, "a.px", FLOOR)
+    assert run("shift", p, "--dx", "1", "--region", "1,1,2,2") == 0
+    assert pxart.parse(p).frames[0].grid == ["ffff", "f.kk", "f.kk", "ffff"]
+
+
+def test_shift_fill_paints_vacated_region_pixels(tmp_path):
+    p = write(tmp_path, "a.px", FLOOR)
+    assert run("shift", p, "--dx", "1", "--region", "1,1,2,2", "--fill", "f") == 0
+    assert pxart.parse(p).frames[0].grid == ["ffff", "ffkk", "ffkk", "ffff"]
+
+
+def test_shift_fill_whole_frame(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nf #806040\nkk..\nkk..\n")
+    assert run("shift", p, "--dx", "1", "--dy", "1", "--fill", "f") == 0
+    assert pxart.parse(p).frames[0].grid == ["ffff", "fkk."]
+
+
+def test_shift_fill_leaves_transparent_moved_pixels_transparent(tmp_path):
+    # Pixels under the moved block aren't vacated: a '.' moved there stays '.', it isn't filled.
+    p = write(tmp_path, "a.px", "k #000000\nf #806040\nk.k.\n")
+    assert run("shift", p, "--dx", "1", "--fill", "f") == 0
+    assert pxart.parse(p).frames[0].grid == ["fk.k"]
+
+
+def test_shift_fill_dot_is_the_default(tmp_path):
+    a, b = write(tmp_path, "a.px", FLOOR), write(tmp_path, "b.px", FLOOR)
+    assert run("shift", a, "--dx", "-1", "--dy", "1", "--region", "1,1,2,2") == 0
+    assert run("shift", b, "--dx", "-1", "--dy", "1", "--region", "1,1,2,2", "--fill", ".") == 0
+    assert a.read_text() == b.read_text()
+
+
+@pytest.mark.parametrize("dx,dy", [(1, 0), (-1, 0), (0, 1), (0, -1), (2, 2), (-3, 1), (5, 0), (0, 0)])
+def test_shift_fill_only_touches_vacated_pixels(tmp_path, dx, dy):
+    n = 6
+    text = "k #000000\nf #806040\n" + "".join("".join("k" if (x + y) % 2 else "." for x in range(n)) + "\n"
+                                              for y in range(n))
+    plain, filled = write(tmp_path, "p.px", text), write(tmp_path, "q.px", text)
+    args = ["--dx", str(dx), "--dy", str(dy), "--region", "1,1,4,4"]
+    assert run("shift", plain, *args) == 0
+    assert run("shift", filled, *args, "--fill", "f") == 0
+    gp, gf = pxart.parse(plain).frames[0].grid, pxart.parse(filled).frames[0].grid
+    for y in range(n):
+        for x in range(n):
+            vacated = 1 <= x < 5 and 1 <= y < 5 and not (1 + dx <= x < 5 + dx and 1 + dy <= y < 5 + dy)
+            assert gf[y][x] == ("f" if vacated else gp[y][x]), (x, y)
+
+
+def test_shift_fill_unknown_key_is_select_error(tmp_path):
+    p = write(tmp_path, "a.px", FLOOR)
+    before = p.read_text()
+    msg = run_err("shift", p, "--dx", "1", "--fill", "q")
+    assert "E_SELECT" in msg and "--fill key 'q'" in msg and p.read_text() == before
+
+
+def test_shift_fill_with_wrap_is_bad_arg(tmp_path):
+    p = write(tmp_path, "a.px", FLOOR)
+    before = p.read_text()
+    msg = run_err("shift", p, "--dx", "1", "--wrap", "--fill", "f")
+    assert "E_BAD_ARG" in msg and "--wrap leaves none" in msg and p.read_text() == before
+
+
+def test_shift_fill_one_frame_leaves_others(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\nf #806040\n@frame a\nk.\n@frame b\nk.\n")
+    assert run("shift", f"{p}:a", "--dx", "1", "--fill", "f") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a").grid == ["fk"] and doc.get("b").grid == ["k."]
+
+
+def test_help_documents_shift_vacated_and_fill():
+    doc = pxart.__doc__
+    assert "[--wrap] [--fill KEY]" in doc and "(vacated) become '.', or KEY" in doc

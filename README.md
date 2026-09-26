@@ -115,7 +115,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   (`put hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with
   optional palette lines merged like `compose`'s; checked like a file, errors at stdin's
   lines, nothing written on an error, and only that frame's lines change), `fill` (a
-  region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor`
+  region or the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`, or `--fill KEY`), `set`, `crop`, `recolor`
   (optionally within a region; `'a<>b'` swaps two keys, quoted for the shell; the key
   moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside

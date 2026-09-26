@@ -148,7 +148,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
-  shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap]
+  shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap] [--fill KEY]
+      Move the frame's pixels (or only the region's) by dx,dy. Pixels moved past the frame's
+      edge are dropped, and the pixels the move leaves behind (vacated) become '.', or KEY
+      with --fill KEY (a floor under a moved prop). With --region the moved block may land
+      outside the region; its '.' pixels don't overwrite what they land on.
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
   fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
@@ -1534,8 +1538,13 @@ def cmd_flip(a):
 
 
 def cmd_shift(a):
+    """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
     doc, frames, out = edit_target(a.file, a.o)
     pal = doc.resolved()
+    if a.fill is not None and a.wrap:
+        fail("E_BAD_ARG", "--fill paints the pixels a shift leaves behind; --wrap leaves none")
+    if a.fill is not None and a.fill not in pal:
+        fail("E_SELECT", f"shift: --fill key {a.fill!r} not in palette (add it with palette --add)")
     for f in frames:
         x0, y0, w, h = parse_rect(a.region, f.size)
         W, H = f.size
@@ -1548,9 +1557,11 @@ def cmd_shift(a):
                     g[y0 + (y + a.dy) % bh][x0 + (x + a.dx) % bw] = block[y][x]
             f.grid = ["".join(r) for r in g]
             continue
+        bh, bw = len(block), len(block[0]) if block else 0
         for y in range(y0, min(y0 + h, H)):
             for x in range(x0, min(x0 + w, W)):
-                g[y][x] = "."
+                under = x0 + a.dx <= x < x0 + bw + a.dx and y0 + a.dy <= y < y0 + bh + a.dy  # the moved block
+                g[y][x] = "." if under or a.fill is None else a.fill
         for y, row in enumerate(block):
             for x, ch in enumerate(row):
                 tx, ty = x0 + x + a.dx, y0 + y + a.dy
@@ -2153,6 +2164,7 @@ def main(argv=None):
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")
+    p.add_argument("--fill", help="key for the pixels the shift leaves behind (default '.')")
     p = sub.add_parser("mask"); p.add_argument("file"); p.add_argument("-o")
     k = p.add_mutually_exclusive_group(required=True)
     k.add_argument("--keep", help="x,y,w,h"); k.add_argument("--keep-circle", help="cx,cy,r")
