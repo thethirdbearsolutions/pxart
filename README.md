@@ -119,7 +119,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   (optionally within a region; `'a<>b'` swaps two keys, quoted for the shell; the key
   moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
-  instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
+  instead; both flags repeat, and the kept area is the union, so two lamps are one call;
+  works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
   a new frame lands after its animation), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`

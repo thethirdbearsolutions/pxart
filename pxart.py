@@ -167,12 +167,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       other keys must be FILE's. Rows are checked like a file's (widths, keys), errors point
       at stdin's lines, and nothing is written on an error. Only that frame's lines change.
       A frame that doesn't exist yet is added, placed like new; a new FILE is started.
-  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [--invert] [-o OUT]
+  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r ... [--dither N] [--invert] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
       with a 4x4 ordered (Bayer) dither: a light radius in one command. --invert erases
       the inside and keeps the outside: exactly the pixels the plain mask erases, dither
       band mirrored, so a mask and its --invert split the image with no overlap or gap.
+      --keep and --keep-circle repeat, and mix: the kept area is their union (a pixel kept
+      by any shape is kept, where dither bands overlap too), and --dither and --invert
+      work over the union. Two lamps in one call:
+      'mask scene.png --keep-circle 20,30,12 --keep-circle 70,30,12 --dither 4'.
       FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
@@ -1581,22 +1585,30 @@ def cmd_mask(a):
         fail("E_SELECT", f"a PNG has no frames to pick: {a.file!r}")
     if png != str(a.o or path).endswith(".png"):
         fail("E_BAD_ARG", "mask writes what it reads: a .px from a .px, a .png from a .png (-o OUT.png)")
+    if not a.keep and not a.keep_circle:
+        fail("E_BAD_ARG", "mask needs a shape: --keep x,y,w,h and/or --keep-circle cx,cy,r (each repeatable)")
     if a.dither is not None and (a.dither < 1 or not a.keep_circle):
         fail("E_BAD_ARG", "--dither N wants N >= 1 and --keep-circle")
-    try:
-        if a.keep_circle:
-            cx, cy, r = (float(v) for v in a.keep_circle.split(","))
-        else:
-            x0, y0, w, h = (int(v) for v in a.keep.split(","))
-    except ValueError:
-        fail("E_BAD_ARG", f"--keep wants x,y,w,h; --keep-circle wants cx,cy,r; got {a.keep or a.keep_circle!r}")
+    shapes = []  # ("rect", x0, y0, w, h) | ("circle", cx, cy, r), in the order given; kept = inside any of them
+    for kind, flag, vals, want, conv in (("rect", "--keep", a.keep, "x,y,w,h", int),
+                                         ("circle", "--keep-circle", a.keep_circle, "cx,cy,r", float)):
+        for v in vals or []:
+            try:
+                nums = tuple(conv(n) for n in v.split(","))
+            except ValueError:
+                nums = ()
+            if len(nums) != len(want.split(",")):
+                fail("E_BAD_ARG", f"{flag} wants {want}, got {v!r}")
+            shapes.append((kind,) + nums)
 
-    def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither band included
-        return inside(x, y) != a.invert
+    def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither bands included
+        return any(inside(s, x, y) for s in shapes) != a.invert
 
-    def inside(x, y):
-        if not a.keep_circle:
+    def inside(s, x, y):
+        if s[0] == "rect":
+            _, x0, y0, w, h = s
             return x0 <= x < x0 + w and y0 <= y < y0 + h
+        _, cx, cy, r = s
         d = math.hypot(x - cx, y - cy)
         if d > r:
             return False
@@ -2166,10 +2178,10 @@ def main(argv=None):
     p.add_argument("--wrap", action="store_true")
     p.add_argument("--fill", help="key for the pixels the shift leaves behind (default '.')")
     p = sub.add_parser("mask"); p.add_argument("file"); p.add_argument("-o")
-    k = p.add_mutually_exclusive_group(required=True)
-    k.add_argument("--keep", help="x,y,w,h"); k.add_argument("--keep-circle", help="cx,cy,r")
-    p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside the circle's edge")
-    p.add_argument("--invert", action="store_true", help="erase inside the shape, keep the outside")
+    p.add_argument("--keep", action="append", help="x,y,w,h (repeatable: kept = inside any shape)")
+    p.add_argument("--keep-circle", action="append", help="cx,cy,r (repeatable)")
+    p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside each circle's edge")
+    p.add_argument("--invert", action="store_true", help="erase inside the shapes, keep the outside")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")

@@ -1179,8 +1179,7 @@ def test_mask_bad_args(tmp_path):
     assert run("mask", p, "--keep-circle", "1,1,1", "--dither", "0") == 1
     with pytest.raises(SystemExit):
         pxart.main(["mask", str(p)])  # one of --keep / --keep-circle is required
-    with pytest.raises(SystemExit):
-        pxart.main(["mask", str(p), "--keep", "0,0,1,1", "--keep-circle", "1,1,1"])
+    assert run("mask", p, "--keep", "0,0,1,1", "--keep-circle", "1,1,1") == 0  # loop H: shapes mix, as a union
 
 
 def test_mask_keeps_layout(tmp_path):
@@ -4788,3 +4787,117 @@ def test_shift_fill_one_frame_leaves_others(tmp_path):
 def test_help_documents_shift_vacated_and_fill():
     doc = pxart.__doc__
     assert "[--wrap] [--fill KEY]" in doc and "(vacated) become '.', or KEY" in doc
+
+
+# ---------------------------------------------------------------- loop H: mask takes several shapes (union)
+
+def mask_grid(tmp_path, n, *args, name="u.px"):
+    p = square(tmp_path, n, name)
+    assert run("mask", p, *args) == 0
+    return pxart.parse(p).frames[0].grid
+
+
+def kept(grid):
+    return {(x, y) for y, row in enumerate(grid) for x, ch in enumerate(row) if ch == "k"}
+
+
+def test_mask_two_rects_union(tmp_path):
+    g = mask_grid(tmp_path, 6, "--keep", "0,0,2,2", "--keep", "4,4,2,2")
+    assert g == ["kk....", "kk....", "......", "......", "....kk", "....kk"]
+
+
+def test_mask_two_circles_hard_edge_union(tmp_path):
+    g = mask_grid(tmp_path, 11, "--keep-circle", "2,5,2", "--keep-circle", "8,5,2")
+    assert kept(g) == kept(mask_grid(tmp_path, 11, "--keep-circle", "2,5,2", name="a.px")) | \
+        kept(mask_grid(tmp_path, 11, "--keep-circle", "8,5,2", name="b.px"))
+    assert g[5] == "kkkkk.kkkkk"
+
+
+@pytest.mark.parametrize("shapes", [
+    [["--keep-circle", "12,20,10"], ["--keep-circle", "28,20,10"]],                 # overlapping lamps
+    [["--keep-circle", "10,10,8"], ["--keep-circle", "30,30,8"]],                   # apart
+    [["--keep-circle", "20,20,12"], ["--keep-circle", "20,20,6"]],                  # nested
+    [["--keep-circle", "15,15,9"], ["--keep", "20,5,15,10"]],                       # a circle and a rect
+    [["--keep", "0,0,10,10"], ["--keep", "5,5,10,10"], ["--keep-circle", "30,30,7"]],
+    [["--keep-circle", "12,20,10"], ["--keep-circle", "20,20,10"], ["--keep-circle", "28,20,10"]],
+])
+@pytest.mark.parametrize("dither", [[], ["--dither", "3"], ["--dither", "6"]])
+def test_mask_union_is_the_or_of_single_masks(tmp_path, shapes, dither):
+    if dither and not any(s[0] == "--keep-circle" for s in shapes):
+        pytest.skip("dither needs a circle")
+    n = 40
+    union = kept(mask_grid(tmp_path, n, *[a for s in shapes for a in s], *dither))
+    each = set()
+    for i, s in enumerate(shapes):
+        d = dither if s[0] == "--keep-circle" else []
+        each |= kept(mask_grid(tmp_path, n, *s, *d, name=f"s{i}.px"))
+    assert union == each
+
+
+@pytest.mark.parametrize("dither", [[], ["--dither", "4"], ["--dither", "8"]])
+def test_mask_union_invert_is_the_exact_complement(tmp_path, dither):
+    shapes = ["--keep-circle", "14,20,11", "--keep-circle", "26,20,11", "--keep", "0,34,40,3"]
+    n = 40
+    plain = kept(mask_grid(tmp_path, n, *shapes, *dither, name="p.px"))
+    inv = kept(mask_grid(tmp_path, n, *shapes, *dither, "--invert", name="i.px"))
+    assert plain & inv == set() and plain | inv == {(x, y) for x in range(n) for y in range(n)}
+
+
+def test_mask_overlapping_dither_bands_keep_what_either_keeps(tmp_path):
+    # Two lamps whose dither bands overlap: in the overlap a pixel is kept if either lamp keeps it.
+    n = 40
+    both = kept(mask_grid(tmp_path, n, "--keep-circle", "15,20,10", "--keep-circle", "25,20,10", "--dither", "5"))
+    a = kept(mask_grid(tmp_path, n, "--keep-circle", "15,20,10", "--dither", "5", name="a.px"))
+    b = kept(mask_grid(tmp_path, n, "--keep-circle", "25,20,10", "--dither", "5", name="b.px"))
+    band = lambda cx, x, y: 5 < ((x - cx) ** 2 + (y - 20) ** 2) ** 0.5 <= 10  # noqa: E731
+    overlap = {(x, y) for x in range(n) for y in range(n) if band(15, x, y) and band(25, x, y)}
+    assert overlap and both == a | b
+    assert any(p in a and p not in b for p in overlap) and any(p in b and p not in a for p in overlap)
+    assert all(p in both for p in overlap if p in a or p in b)
+
+
+def test_mask_union_on_a_png(tmp_path):
+    solid_png(tmp_path, "s.png", (30, 20), (0, 0, 0, 255))
+    args = ["--keep-circle", "8,10,6", "--keep-circle", "22,10,6", "--dither", "3"]
+    assert run("mask", tmp_path / "s.png", *args, "-o", tmp_path / "m.png") == 0
+    p = write(tmp_path, "r.px", "k #000000\n" + ("k" * 30 + "\n") * 20)
+    assert run("mask", p, *args) == 0
+    assert alpha_grid(tmp_path / "m.png") == pxart.parse(p).frames[0].grid
+
+
+def test_mask_union_erased_count(tmp_path, capsys):
+    p = square(tmp_path, 4)
+    assert run("mask", p, "--keep", "0,0,1,1", "--keep", "3,3,1,1", "--keep", "0,0,1,1") == 0
+    assert "erased 14 px" in capsys.readouterr().out
+
+
+def test_mask_one_shape_unchanged(tmp_path):
+    assert mask_grid(tmp_path, 7, "--keep-circle", "3,3,2") == [
+        ".......", "...k...", "..kkk..", ".kkkkk.", "..kkk..", "...k...", "......."]
+
+
+def test_mask_union_bad_value_names_the_flag(tmp_path):
+    p = square(tmp_path, 4)
+    before = p.read_text()
+    msg = run_err("mask", p, "--keep-circle", "1,1,1", "--keep-circle", "1,1")
+    assert "E_BAD_ARG" in msg and "--keep-circle wants cx,cy,r, got '1,1'" in msg
+    msg = run_err("mask", p, "--keep", "0,0,1,1", "--keep", "a,0,1,1")
+    assert "--keep wants x,y,w,h, got 'a,0,1,1'" in msg and p.read_text() == before
+
+
+def test_mask_union_dither_needs_a_circle(tmp_path):
+    p = square(tmp_path, 4)
+    assert "E_BAD_ARG" in run_err("mask", p, "--keep", "0,0,1,1", "--keep", "1,1,1,1", "--dither", "2")
+    assert run("mask", p, "--keep", "0,0,1,1", "--keep-circle", "3,3,1", "--dither", "1") == 0
+
+
+def test_mask_without_a_shape_is_bad_arg(tmp_path):
+    p = square(tmp_path, 4)
+    msg = run_err("mask", p, "--invert")
+    assert "E_BAD_ARG" in msg and "mask needs a shape" in msg
+
+
+def test_help_documents_mask_union():
+    doc = pxart.__doc__
+    assert "--keep and --keep-circle repeat" in doc and "the kept area is their union" in doc
+    assert "--dither and --invert\n      work over the union" in doc
