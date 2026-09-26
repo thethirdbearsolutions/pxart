@@ -5259,7 +5259,7 @@ def test_check_output_is_unchanged_by_error_prefixes(tmp_path, capsys):
 def test_argument_errors_have_no_input_prefix(tmp_path):
     ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
     msg = run_err("set", ok, "k", "9,9")
-    assert msg.startswith("E_BAD_ARG") or msg.startswith(": E_BAD_ARG")
+    assert msg.startswith("set: E_BAD_ARG: ")  # loop J: the command, never a bare ': E_BAD_ARG'
     assert "FILE (" not in msg
 
 
@@ -5937,7 +5937,7 @@ def test_line_negative_start_is_clipped_with_a_note(tmp_path, capsys):
 def test_line_bad_point_is_bad_arg(tmp_path):
     p = canvas(tmp_path, 3, 3)
     msg = run_err("line", f"{p}:a", "k", "0,0", "2")
-    assert "E_BAD_ARG" in msg and "line: the end wants x,y" in msg
+    assert msg.startswith("line: E_BAD_ARG: the end wants x,y")
 
 
 def test_line_unknown_key(tmp_path):
@@ -8150,3 +8150,125 @@ def test_help_documents_paste_flip():
     doc = pxart.__doc__
     assert "paste SRC[+h|+v|+hv] --into DST[:frame]" in doc
     assert "--region is then in the\n      mirrored frame's coordinates" in doc
+
+
+# ---------------------------------------------------------------- loop J: errors name the command and the right axis
+
+@pytest.mark.parametrize("shape, axis", [
+    ("1,1.5,1,1", "cy=1.5 and ry=1"), ("1,1,1,1.5", "cy=1 and ry=1.5"), ("1.5,1,1,1", "cx=1.5 and rx=1"),
+    ("1,1,1.5,1", "cx=1 and rx=1.5"), ("1.5,1.5,1,1", "cx=1.5 and rx=1"), ("2,2.5,1.5,1", "cx=2 and rx=1.5"),
+])
+def test_ellipse_half_pixel_error_names_the_axis(tmp_path, shape, axis):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    msg = run_err("ellipse", p, "k", shape)
+    assert msg.startswith(f"ellipse: E_BAD_ARG: {axis} put the shape's edge on half a pixel")
+    assert p.read_text() == "k #000000\n....\n....\n"
+
+
+@pytest.mark.parametrize("shape, names", [("1,1.5,1,1", ("cy", "ry")), ("1.5,1,1,1", ("cx", "rx"))])
+def test_ellipse_half_pixel_error_suggests_that_axis(tmp_path, shape, names):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    msg = run_err("ellipse", p, "k", shape)
+    assert f"give {names[0]} and {names[1]} both whole (7,7,3,3: 7 across)" in msg
+    assert f"({names[0]}-{names[1]}..{names[0]}+{names[1]} must be whole pixels)" in msg
+
+
+def test_ellipse_y_axis_error_never_mentions_cx(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    msg = run_err("ellipse", p, "k", "1,1.5,1,1")
+    assert "cx" not in msg and "rx" not in msg
+
+
+def test_ellipse_negative_radius_message(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    assert run_err("ellipse", p, "k", "1,1,1,-1") == "ellipse: E_BAD_ARG: radii must be >= 0, got rx=1, ry=-1"
+
+
+@pytest.mark.parametrize("circle, axis", [("1,1.5,1", "cy=1.5 and r=1"), ("1.5,1,1", "cx=1.5 and r=1"),
+                                          ("1,1,1.5", "cx=1 and r=1.5")])
+def test_arc_half_pixel_error_names_the_axis(tmp_path, circle, axis):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    msg = run_err("arc", p, "k", circle, "0,90")
+    assert msg.startswith(f"arc: E_BAD_ARG: {axis} put the shape's edge on half a pixel")
+    assert "(7,7,3: 7 across)" in msg and "rx" not in msg
+
+
+def test_arc_negative_radius_message(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    assert run_err("arc", p, "k", "1,1,-1", "0,90") == "arc: E_BAD_ARG: r must be >= 0, got r=-1"
+
+
+def test_ellipse_box_directly():
+    assert pxart.ellipse_box(3.5, 3.5, 3.5, 2.5, "ellipse") == (0, 1, 7, 6)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.ellipse_box(3, 3.5, 3, 3, "ellipse")
+    assert "cy=3.5 and ry=3" in str(e.value)
+
+
+@pytest.mark.parametrize("argv, start", [
+    (["ellipse", "{p}", "k", "1,1.5,1,1"], "ellipse: E_BAD_ARG: cy=1.5"),
+    (["rect", "{p}", "k", "1,1"], "rect: E_BAD_ARG: rect wants x,y,w,h"),
+    (["rect", "{p}", "k", "0,0,0,1"], "rect: E_BAD_ARG: w and h must be >= 1"),
+    (["line", "{p}", "k", "0", "1,1"], "line: E_BAD_ARG: the start wants x,y"),
+    (["line", "{p}", "k", "0,0", "1,1", "--width", "0"], "line: E_BAD_ARG: --width wants N >= 1"),
+    (["arc", "{p}", "k", "1,1,1", "zz"], "arc: E_BAD_ARG: angles are a0,a1"),
+    (["flood", "{p}", "k", "9,9"], "flood: E_BAD_ARG: 9,9 is outside"),
+    (["set", "{p}", "k", "9"], "set: E_BAD_ARG: points are x,y"),
+    (["set", "{p}", "k", "9,9"], "set: E_BAD_ARG: 9,9 is outside"),
+    (["set", "{p}", "q", "0,0"], "set: E_SELECT: key 'q' not in palette"),
+    (["fill", "{p}", "q"], "fill: E_SELECT: key 'q' not in palette"),
+    (["fill", "{p}", "k", "--region", "1"], "fill: E_BAD_ARG: --region wants x,y,w,h"),
+    (["shift", "{p}", "--region", "1"], "shift: E_BAD_ARG: --region wants x,y,w,h"),
+    (["shift", "{p}", "--fill", "q"], "shift: E_SELECT: --fill key 'q' not in palette"),
+    (["recolor", "{p}", "zz"], "recolor: E_BAD_ARG: 'zz' isn't a=b"),
+    (["recolor", "{p}", "q=k"], "recolor: E_SELECT: key 'q' not in palette"),
+    (["mask", "{p}"], "mask: E_BAD_ARG: mask needs a shape"),
+    (["outline", "{p}", "--key", "q"], "outline: E_SELECT: key 'q' not in palette"),
+    (["shade", "{p}", "--ramp", "q"], "shade: E_SELECT: key 'q' not in palette"),
+    (["tint", "{t}/x.png", "zz"], "tint: E_BAD_COLOR: tint 'zz' isn't"),
+    (["render", "{p}", "--bg", "zz", "-o", "{t}/r.png"], "render: E_BAD_COLOR: --bg 'zz' isn't"),
+    (["new", "{t}/n.px", "--size", "0x1"], "new: E_BAD_ARG: --size wants WxH"),
+    (["export", "{p}"], "export: E_BAD_ARG: give --frames DIR"),
+    (["frames", "{p}", "--rm"], "frames: E_MIXED_FRAMES: this file has one unnamed grid"),
+])
+def test_every_error_line_starts_with_the_command(tmp_path, argv, start):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    msg = run_err(*[a.format(p=p, t=tmp_path) for a in argv])
+    assert msg.startswith(start), msg
+    assert not any(l.startswith(":") for l in msg.splitlines())
+
+
+def test_no_error_line_starts_with_a_bare_colon(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    for argv in (["ellipse", p, "k", "1,1.5,1,1"], ["set", p, "k", "9"], ["anim-set", p, "ms=3"],
+                 ["render", p, "--variant", "zz", "-o", tmp_path / "r.png"]):
+        msg = run_err(*argv)
+        assert not msg.startswith(":") and msg.startswith(f"{argv[0]}: "), msg
+
+
+def test_error_with_a_path_and_no_input_label_gets_the_command(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n")
+    assert run_err("anim-set", p, "ms=3").startswith(f"anim-set: {p}: E_SELECT: ")
+
+
+def test_error_with_an_input_label_unchanged(tmp_path):
+    msg = run_err("compose", "-o", tmp_path / "o.px", "bad")
+    assert msg == "compose: layer 1 (bad): E_BAD_ARG: expected FILE[:frame][%variant]@x,y, got 'bad'"
+
+
+def test_issue_str_without_a_path_has_no_leading_colon():
+    assert str(pxart.Issue("E_BAD_ARG", "nope")) == "E_BAD_ARG: nope"
+    i = pxart.Issue("E_BAD_ARG", "nope")
+    i.ctx = "layer 1 (x)"
+    assert str(i) == "layer 1 (x): E_BAD_ARG: nope"
+
+
+def test_said_drops_a_repeated_command_name():
+    assert pxart.said("line", pxart.Issue("E_BAD_ARG", "line: the start wants x,y")) == \
+        "line: E_BAD_ARG: the start wants x,y"
+    assert pxart.said("rect", pxart.Issue("E_BAD_ARG", "rect wants x,y,w,h")) == "rect: E_BAD_ARG: rect wants x,y,w,h"
+
+
+def test_help_documents_error_prefix():
+    doc = " ".join(pxart.__doc__.split())
+    assert "Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...')" in doc

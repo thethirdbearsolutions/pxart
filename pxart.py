@@ -370,8 +370,9 @@ ERROR CODES
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
   E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_UNKNOWN_SECTION
   E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
-  An error in an input file says which command and which input it came from, then where
-  in the file: 'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
+  Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...'). An
+  error in an input file also says which input it came from, then where in the file:
+  'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
   Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   Frames of different sizes in one animation are allowed; check notes them.
@@ -403,7 +404,7 @@ class Issue:
     def __str__(self):
         if self.ctx and self.ctx != str(self.path):
             here = Issue(self.code, self.msg, self.path, self.line, self.frame, self.row, self.cols)
-            return f"{self.ctx}: {here}" if self.path else f"{self.ctx}: {str(here)[2:]}"
+            return f"{self.ctx}: {here}"
         where = str(self.path or "")
         if self.line:
             where += f":{self.line}"
@@ -414,7 +415,7 @@ class Issue:
             loc.append(f"row {self.row}")
         if self.cols:
             loc.append(f"x={self.cols}")
-        return f"{where}: {self.code}" + (f" ({', '.join(loc)})" if loc else "") + f": {self.msg}"
+        return (f"{where}: " if where else "") + self.code + (f" ({', '.join(loc)})" if loc else "") + f": {self.msg}"
 
 
 class PxError(Exception):
@@ -2406,20 +2407,27 @@ def ellipse_points(x0, y0, x1, y1, fill=False):
     return pts
 
 
-def ellipse_box(cx, cy, rx, ry, what):
-    """cx,cy,rx,ry -> the inclusive box cx-rx..cx+rx, cy-ry..cy+ry, which must fall on whole pixels."""
-    box = (cx - rx, cy - ry, cx + rx, cy + ry)
-    if rx < 0 or ry < 0 or any(v != int(v) for v in box):
-        fail("E_BAD_ARG", f"{what}: the shape spans cx-r..cx+r, which must be whole pixels: give cx and r both whole "
-             f"(7,7,3: 7 wide) or both ending in .5 (7.5,7.5,3.5: 8 wide), radii >= 0")
-    return tuple(int(v) for v in box)
+def ellipse_box(cx, cy, rx, ry, what, radii=("rx", "ry")):
+    """cx,cy,rx,ry -> the inclusive box cx-rx..cx+rx, cy-ry..cy+ry, which must fall on whole pixels. An error names
+    the axis that doesn't (radii: how the command calls its radii, 'r' for arc's one)."""
+    one = radii[0] == radii[1]
+    if rx < 0 or ry < 0:
+        fail("E_BAD_ARG", f"{what}: {'r' if one else 'radii'} must be >= 0, got {radii[0]}={rx:g}"
+             + ("" if one else f", {radii[1]}={ry:g}"))
+    eg = ("7,7,3", "7.5,7.5,3.5") if one else ("7,7,3,3", "7.5,7.5,3.5,3.5")
+    for c, r, cn, rn in ((cx, rx, "cx", radii[0]), (cy, ry, "cy", radii[1])):
+        if c - r != int(c - r):
+            fail("E_BAD_ARG", f"{what}: {cn}={c:g} and {rn}={r:g} put the shape's edge on half a pixel "
+                 f"({cn}-{rn}..{cn}+{rn} must be whole pixels): give {cn} and {rn} both whole ({eg[0]}: 7 across) "
+                 f"or both ending in .5 ({eg[1]}: 8 across)")
+    return tuple(int(v) for v in (cx - rx, cy - ry, cx + rx, cy + ry))
 
 
 def arc_points(cx, cy, r, a0, a1, width=1):
     """The circle of radius r around cx,cy (as ellipse draws it) from angle a0 to a1 degrees, counter-clockwise, 0 =
     right (east), 90 = up. width > 1 thickens it inward: the pixels of the filled circle r that aren't in the filled
     circle r - width. A pixel is on the arc when the direction from the center to its center is in the range."""
-    x0, y0, x1, y1 = ellipse_box(cx, cy, r, r, "arc")
+    x0, y0, x1, y1 = ellipse_box(cx, cy, r, r, "arc", ("r", "r"))
     if width <= 1:
         ring = ellipse_points(x0, y0, x1, y1)
     else:
@@ -3090,6 +3098,14 @@ def cmd_from_png(a):
         print(doc.text(), end="")
 
 
+def said(cmd, issue):
+    """An error line as the CLI prints it: 'ellipse: E_BAD_ARG: ...', 'compose: layer 2 (x.px): x.px:4: E_...'. A
+    message that starts with the command's own name doesn't say it twice."""
+    if not issue.ctx and issue.msg.startswith(f"{cmd}: "):
+        issue = Issue(issue.code, issue.msg[len(cmd) + 2:], issue.path, issue.line, issue.frame, issue.row, issue.cols)
+    return f"{cmd}: {issue}"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="pxart", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -3183,8 +3199,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
-    except PxError as e:  # an input's errors say which command and which input: 'compose: layer 2 (x.px): ...'
-        sys.exit("\n".join(f"{a.cmd}: {i}" if i.ctx else str(i) for i in e.issues))
+    except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'
+        sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
         sys.exit(file_error(e))
 
