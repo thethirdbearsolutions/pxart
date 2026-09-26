@@ -100,6 +100,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap]
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
+  fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
+  new OUT[:frame] --size WxH [--key K] [--palette P.px]
+      A blank frame ('.'), or one filled with K, in a new file or added to an existing one
+      (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
+      already exists is E_DUP_FRAME: fill it instead.
   mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
@@ -1390,18 +1395,17 @@ def cmd_extract(a):
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
 
 
-def cmd_compose(a):
-    layers = [(one_frame(p, "layer"), x, y) for p, x, y in (split_at(s) for s in a.layers)]
-    for lay, _, _ in layers:
-        if not lay.doc:
-            fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
-    opath, osel = split_sel(a.o)
-    note_suffix(opath)
+def frame_slot(opath, osel, palette=None, flag="-o"):
+    """Open OUT (or start it, importing `palette`) and find or make the frame OUT[:frame] names: (doc, frame).
+    A new frame goes after the last frame of its animation, or at the end when the animation is new."""
     if pathlib.Path(opath).exists():
         doc = parse(opath, allow_empty=True)
     else:
         doc = Doc(opath)
         doc.version = FORMAT_VERSION
+        if palette:
+            ref = pathlib.Path(os.path.relpath(palette, pathlib.Path(opath).resolve().parent)).as_posix()
+            doc = parse(opath, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
     if osel:
         if doc.implicit:
             fail("E_MIXED_FRAMES", f"{opath} has one unnamed grid; can't add frame {osel!r} to it")
@@ -1414,10 +1418,57 @@ def cmd_compose(a):
             doc.frames.insert(doc.frames.index(same[-1]) + 1 if same else len(doc.frames), target)
     else:
         if doc.frames and not doc.implicit:
-            fail("E_SELECT", f"{opath} has named frames; say which one: -o {opath}:<frame-id>")
+            fail("E_SELECT", f"{opath} has named frames; say which one: {flag} {opath}:<frame-id>")
         doc.implicit = True
         doc.frames = [Frame(None)]
         target = doc.frames[0]
+    return doc, target
+
+
+def parse_size(s, what="--size"):
+    m = re.match(r"^(\d+)x(\d+)$", s or "")
+    if not m or not int(m.group(1)) or not int(m.group(2)):
+        fail("E_BAD_ARG", f"{what} wants WxH like 16x16, got {s!r}")
+    return int(m.group(1)), int(m.group(2))
+
+
+def cmd_new(a):
+    opath, osel = split_sel(a.out)
+    note_suffix(opath)
+    if a.palette and pathlib.Path(opath).exists():
+        fail("E_BAD_ARG", f"--palette starts a new file, and {opath} exists (it keeps its own palette)")
+    w, h = parse_size(a.size)
+    had_grid = not osel and pathlib.Path(opath).exists() and parse(opath, allow_empty=True).implicit
+    doc, target = frame_slot(opath, osel, a.palette, flag="new")
+    if target.grid or had_grid:
+        fail("E_DUP_FRAME", f"{opath} already has " + (f"frame {osel!r}" if osel else "its grid")
+             + f"; repaint it with 'pxart fill {a.out} KEY'")
+    key = a.key or "."
+    if key not in doc.resolved():
+        fail("E_SELECT", f"new: key {key!r} not in palette (add it with palette --add, or start with --palette)")
+    target.grid = [key * w] * h
+    print(write_doc(doc, opath), f"frame {osel}" if osel else "")
+
+
+def cmd_fill(a):
+    doc, frames, out = edit_target(a.file, a.o)
+    if a.key not in doc.resolved():
+        fail("E_SELECT", f"fill: key {a.key!r} not in palette (add it with palette --add)")
+    for f in frames:
+        x0, y0, w, h = parse_rect(a.region, f.size)
+        f.grid = ["".join(a.key if x0 <= x < x0 + w and y0 <= y < y0 + h else c for x, c in enumerate(row))
+                  for y, row in enumerate(f.grid)]
+    print(write_doc(doc, out))
+
+
+def cmd_compose(a):
+    layers = [(one_frame(p, "layer"), x, y) for p, x, y in (split_at(s) for s in a.layers)]
+    for lay, _, _ in layers:
+        if not lay.doc:
+            fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
+    opath, osel = split_sel(a.o)
+    note_suffix(opath)
+    doc, target = frame_slot(opath, osel)
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), getattr(a, "size_from", "--size")
     elif target.grid:
@@ -1655,6 +1706,10 @@ def main(argv=None):
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
+    p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
+    p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
+    p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
+    p.add_argument("-o")
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size")

@@ -99,7 +99,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
   they did).
-- **Editing:** `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
+- **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
+  region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
   `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a `--dither N`
   edge; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
   new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits

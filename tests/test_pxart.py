@@ -2445,3 +2445,194 @@ def test_still_star_top_level_mixed_sizes_no_note(tmp_path, capsys):
 
 def test_help_documents_still_star_top_level():
     assert "'@still *' marks every frame in the file, top-level" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop F: new, fill
+
+def test_new_blank_file(tmp_path, capsys):
+    out = tmp_path / "blank.px"
+    assert run("new", out, "--size", "3x2") == 0
+    assert out.read_text() == "pxart 1\n\n...\n...\n"
+    assert capsys.readouterr().out == f"wrote {out} \n"
+    doc = pxart.parse(out)
+    assert doc.implicit and doc.frames[0].size == (3, 2)
+
+
+def test_new_frame_in_new_file(tmp_path):
+    out = tmp_path / "h.px"
+    assert run("new", f"{out}:idle/0", "--size", "2x2") == 0
+    assert out.read_text() == "pxart 1\n\n@frame idle/0\n..\n..\n"
+
+
+def test_new_filled_with_palette_import(tmp_path):
+    write(tmp_path, "pal.px", "g #00ff00\n")
+    (tmp_path / "sub").mkdir()
+    out = tmp_path / "sub" / "t.px"
+    assert run("new", f"{out}:grass", "--size", "2x1", "--key", "g", "--palette", tmp_path / "pal.px") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../pal.px"] and doc.get("grass").grid == ["gg"] and doc.palette == {}
+    assert doc.image(doc.get("grass")).getpixel((1, 0)) == (0, 255, 0, 255)
+
+
+def test_new_frame_in_existing_file_lands_after_its_animation(tmp_path, capsys):
+    p = write(tmp_path, "h.px", GROUPS)
+    assert run("new", f"{p}:walk/2", "--size", "1x1", "--key", "k") == 0
+    assert ids(p) == ["idle/0", "walk/0", "walk/1", "walk/2", "shoot/0"]
+    assert pxart.parse(p).get("walk/2").grid == ["k"]
+    assert capsys.readouterr().out == f"wrote {p} frame walk/2\n"
+
+
+def test_new_frame_follows_file_spacing(tmp_path):
+    p = write(tmp_path, "a.px", TIGHT_FRAMES)
+    assert run("new", f"{p}:extra", "--size", "2x1") == 0
+    assert p.read_text() == TIGHT_FRAMES + "@frame extra\n..\n"
+    p = write(tmp_path, "b.px", BLANK_FRAMES)
+    assert run("new", f"{p}:walk/2", "--size", "4x1", "--key", "g") == 0
+    assert p.read_text() == BLANK_FRAMES.replace("\n@frame idle", "\n@frame walk/2\ngggg\n\n@frame idle")
+
+
+def test_new_existing_frame_is_dup_error(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    before = p.read_text()
+    msg = run_err("new", f"{p}:walk/0", "--size", "1x1")
+    assert "E_DUP_FRAME" in msg and "pxart fill" in msg and p.read_text() == before
+
+
+def test_new_over_existing_single_grid_is_dup_error(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert "E_DUP_FRAME" in run_err("new", p, "--size", "1x1")
+    assert p.read_text() == "k #000000\nk\n"
+
+
+def test_new_into_palette_only_file(tmp_path):
+    p = write(tmp_path, "pal.px", "k #000000\n")
+    assert run("new", p, "--size", "2x1", "--key", "k") == 0
+    assert p.read_text() == "k #000000\n\nkk\n"
+    q = write(tmp_path, "pal2.px", "k #000000\n")
+    assert run("new", f"{q}:a", "--size", "1x1", "--key", "k") == 0
+    assert pxart.parse(q).get("a").grid == ["k"]
+
+
+def test_new_without_frame_into_named_file_asks_for_one(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    msg = run_err("new", p, "--size", "1x1")
+    assert "E_SELECT" in msg and "new " in msg and ":<frame-id>" in msg
+
+
+def test_new_frame_into_single_grid_file_is_mixed(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert "E_MIXED_FRAMES" in run_err("new", f"{p}:x", "--size", "1x1")
+
+
+def test_new_unknown_key(tmp_path):
+    assert "E_SELECT" in run_err("new", tmp_path / "a.px", "--size", "1x1", "--key", "k")
+    assert not (tmp_path / "a.px").exists()
+
+
+@pytest.mark.parametrize("size", ["0x4", "4x0", "4", "4x", "ax4", "4*4", "-1x2", ""])
+def test_new_bad_size(tmp_path, size):
+    assert "E_BAD_ARG" in run_err("new", tmp_path / "a.px", f"--size={size}")
+
+
+def test_new_palette_on_existing_file_is_bad_arg(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "h.px", GROUPS)
+    assert "E_BAD_ARG" in run_err("new", f"{p}:x", "--size", "1x1", "--palette", tmp_path / "pal.px")
+
+
+def test_new_missing_palette_file(tmp_path):
+    assert "E_PALETTE_FILE" in run_err("new", tmp_path / "a.px", "--size", "1x1", "--palette", tmp_path / "no.px")
+
+
+def test_new_bad_frame_id(tmp_path):
+    assert "E_BAD_ID" in run_err("new", f"{tmp_path / 'a.px'}:bad id", "--size", "1x1")
+
+
+def test_new_notes_mangled_output(tmp_path, capsys):
+    assert run("new", tmp_path / "heroalk", "--size", "1x1") == 0
+    assert "doesn't end in .px" in capsys.readouterr().out
+
+
+def test_new_then_draw_round_trip(tmp_path):
+    p = tmp_path / "s.px"
+    assert run("new", f"{p}:a", "--size", "3x3") == 0
+    assert run("palette", p, "--add", "k=#000000") == 0
+    assert run("set", f"{p}:a", "k", "1,1") == 0
+    assert pxart.parse(p).get("a").grid == ["...", ".k.", "..."]
+
+
+def test_fill_whole_frame(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame a\nkj\njk\n@frame b\nkk\n")
+    assert run("fill", f"{p}:a", "j") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a").grid == ["jj", "jj"] and doc.get("b").grid == ["kk"]
+
+
+def test_fill_region(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n" + "....\n" * 3)
+    assert run("fill", p, "k", "--region", "1,1,2,2") == 0
+    assert pxart.parse(p).frames[0].grid == ["....", ".kk.", ".kk."]
+
+
+def test_fill_region_partly_outside_is_clipped(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n...\n...\n")
+    assert run("fill", p, "k", "--region=-1,1,3,5") == 0
+    assert pxart.parse(p).frames[0].grid == ["...", "kk."]
+
+
+def test_fill_erase_with_dot(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nkkk\n")
+    assert run("fill", p, ".", "--region", "0,0,2,1") == 0
+    assert pxart.parse(p).frames[0].grid == ["..k"]
+
+
+def test_fill_every_selected_frame(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n@frame w/0\n..\n@frame w/1\n...\n@frame x\n.\n")
+    assert run("fill", f"{p}:w", "k") == 0
+    doc = pxart.parse(p)
+    assert doc.get("w/0").grid == ["kk"] and doc.get("w/1").grid == ["kkk"] and doc.get("x").grid == ["."]
+
+
+def test_fill_unknown_key(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n..\n")
+    assert "E_SELECT" in run_err("fill", p, "q")
+
+
+def test_fill_bad_region(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n..\n")
+    assert "E_BAD_ARG" in run_err("fill", p, "k", "--region", "1,2")
+
+
+def test_fill_same_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nkk\n")
+    before, m = snap(p)
+    assert run("fill", p, "k") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_fill_output_is_whole_file(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame a\n.\n@frame b\n.\n")
+    assert run("fill", f"{p}:a", "k", "-o", tmp_path / "o.px") == 0
+    doc = pxart.parse(tmp_path / "o.px")
+    assert doc.get("a").grid == ["k"] and doc.get("b").grid == ["."]
+    assert "gets all of" in capsys.readouterr().out
+
+
+def test_fill_keeps_layout(tmp_path):
+    p = write(tmp_path, "a.px", MESSY)
+    assert run("fill", f"{p}:walk/1", "Z") == 0
+    assert p.read_text() == MESSY.replace(".kk.\n.kk.\n.kk.\n", "ZZZZ\nZZZZ\nZZZZ\n")
+
+
+def test_compose_single_grid_replacement_unchanged(tmp_path):
+    # compose OUT (no :frame) over an existing single grid still sizes from the first layer
+    out = write(tmp_path, "o.px", "k #000000\nkkkk\n")
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", out, f"{layer}@0,0") == 0
+    assert pxart.parse(out).frames[0].grid == ["k"]
+
+
+def test_help_documents_new_and_fill():
+    doc = pxart.__doc__
+    assert "new OUT[:frame] --size WxH [--key K] [--palette P.px]" in doc
+    assert "fill FILE[:frame] KEY [--region x,y,w,h]" in doc
