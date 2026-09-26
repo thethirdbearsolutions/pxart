@@ -2528,9 +2528,11 @@ def test_new_without_frame_into_named_file_asks_for_one(tmp_path):
     assert "E_SELECT" in msg and "new " in msg and ":<frame-id>" in msg
 
 
-def test_new_frame_into_single_grid_file_is_mixed(tmp_path):
+def test_new_frame_into_single_grid_file_names_the_grid_first(tmp_path):
+    # Was E_MIXED_FRAMES; now the unnamed grid becomes '@frame a' (loop J) and x is added after it.
     p = write(tmp_path, "a.px", "k #000000\nk\n")
-    assert "E_MIXED_FRAMES" in run_err("new", f"{p}:x", "--size", "1x1")
+    assert run("new", f"{p}:x", "--size", "1x1") == 0
+    assert p.read_text() == "k #000000\n\n@frame a\nk\n\n@frame x\n.\n"
 
 
 def test_new_unknown_key(tmp_path):
@@ -7897,3 +7899,162 @@ def test_help_documents_compose_new_palette():
     doc = " ".join(pxart.__doc__.split())
     assert "A new OUT starts with the layers' whole palettes, used or not" in doc
     assert "crop writes a new OUT the same way" in doc
+
+
+# ---------------------------------------------------------------- loop J: a single unnamed grid goes by the file's name
+
+ANT = "pxart 1\nk #000000\ng #00ff00\n\n...\n.k.\n"
+
+
+def test_unnamed_grid_selected_by_stem(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    doc = pxart.parse(p)
+    assert doc.select("ant") == doc.frames
+
+
+def test_unnamed_grid_other_selector_still_e_select(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p).select("bee")
+    assert codes(e) == ["E_SELECT"] and "frames: ant" in str(e.value)
+
+
+def test_unnamed_grid_frames_lists_the_stem(tmp_path, capsys):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("frames", p) == 0
+    assert "  ant  3x2" in capsys.readouterr().out
+
+
+def test_unnamed_grid_frames_with_stem_selector(tmp_path, capsys):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("frames", f"{p}:ant") == 0
+    assert "  ant  3x2" in capsys.readouterr().out
+
+
+def test_new_then_compose_named_by_stem_reported_case(tmp_path, capsys):
+    p = tmp_path / "ant.px"
+    parts = write(tmp_path, "parts.px", "k #000000\n@frame dot\nk\n")
+    assert run("new", p, "--size", "3x2") == 0
+    assert run("compose", "-o", f"{p}:ant", f"{parts}:dot@1,1") == 0
+    assert p.read_text() == "pxart 1\nk #000000\n\n@frame ant\n...\n.k.\n"
+    assert "note: " in capsys.readouterr().out
+
+
+def test_compose_named_by_stem_keeps_size_of_the_grid(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    parts = write(tmp_path, "parts.px", "g #00ff00\n@frame dot\ng\n")
+    assert run("compose", "-o", f"{p}:ant", f"{parts}:dot@0,0") == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["ant"] and doc.get("ant").grid == ["g..", "..."]
+
+
+def test_compose_named_by_stem_prints_a_note(tmp_path, capsys):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("compose", "-o", f"{p}:ant", f"{p}:ant@0,0") == 0
+    assert f"note: {p}'s unnamed grid is now '@frame ant' (the id it went by)" in capsys.readouterr().out
+
+
+def test_compose_named_by_stem_same_pixels_writes_the_frame_line(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("compose", "-o", f"{p}:ant", f"{p}:ant@0,0") == 0
+    assert p.read_text() == "pxart 1\nk #000000\ng #00ff00\n\n@frame ant\n...\n.k.\n"
+
+
+def test_compose_other_id_promotes_and_adds(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("compose", "-o", f"{p}:walk/0", f"{p}:ant@0,0") == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["ant", "walk/0"] and doc.get("walk/0").grid == doc.get("ant").grid
+
+
+def test_promote_keeps_comments_above_the_grid(tmp_path):
+    p = write(tmp_path, "ant.px", "# top\nk #000000\n\n# the ant\nk.\n.k\n")
+    assert run("compose", "-o", f"{p}:ant", f"{p}:ant@0,0") == 0
+    assert p.read_text() == "# top\nk #000000\n\n# the ant\n@frame ant\nk.\n.k\n"
+
+
+def test_promote_without_blank_line_above_the_grid(tmp_path):
+    p = write(tmp_path, "ant.px", "k #000000\nk.\n.k\n")
+    assert run("compose", "-o", f"{p}:ant", f"{p}:ant@0,0") == 0
+    assert p.read_text() == "k #000000\n\n@frame ant\nk.\n.k\n"
+
+
+def test_promote_keeps_row_spelling_and_crlf(tmp_path):
+    p = tmp_path / "ant.px"
+    p.write_bytes(b"k #000000\r\n\r\nk.\r\n.k\r\n")
+    assert run("compose", "-o", f"{p}:x", f"{p}:ant@0,0") == 0
+    assert p.read_bytes() == b"k #000000\r\n\r\n@frame ant\r\nk.\r\n.k\r\n\r\n@frame x\r\nk.\r\n.k\r\n"
+
+
+def test_promote_result_parses_as_named(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("compose", "-o", f"{p}:ant", f"{p}:ant@0,0") == 0
+    doc = pxart.parse(p)
+    assert not doc.implicit and doc.frames[0].id == "ant"
+
+
+def test_put_named_by_stem(tmp_path, monkeypatch):
+    p = write(tmp_path, "ant.px", ANT)
+    assert put(monkeypatch, "kk\nkk\n", f"{p}:ant") == 0
+    assert p.read_text() == "pxart 1\nk #000000\ng #00ff00\n\n@frame ant\nkk\nkk\n"
+
+
+def test_new_named_by_stem_is_dup_frame(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert "E_DUP_FRAME" in run_err("new", f"{p}:ant", "--size", "1x1")
+    assert p.read_text() == ANT
+
+
+def test_crop_into_named_by_stem(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    src = write(tmp_path, "src.px", "k #000000\nkkk\nk.k\n")
+    assert run("crop", src, "0,0,3,2", "-o", f"{p}:ant") == 0
+    assert pxart.parse(p).get("ant").grid == ["kkk", "k.k"]
+
+
+def test_edit_commands_accept_stem_selector(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("set", f"{p}:ant", "g", "0,0") == 0
+    assert p.read_text() == "pxart 1\nk #000000\ng #00ff00\n\ng..\n.k.\n"  # stays unnamed: only pixels changed
+
+
+def test_render_accepts_stem_selector(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    assert run("render", f"{p}:ant", "-o", tmp_path / "r.png") == 0
+
+
+def test_stem_that_is_not_an_id_stays_mixed(tmp_path):
+    p = write(tmp_path, "my ant.px", ANT)
+    msg = run_err("compose", "-o", f"{p}:x", f"{p}@0,0")
+    assert "E_MIXED_FRAMES" in msg and "'my ant' can't be a frame id" in msg
+    assert p.read_text() == ANT
+
+
+def test_from_png_into_unnamed_grid_file_promotes(tmp_path, capsys):
+    p = write(tmp_path, "ant.px", ANT)
+    Image.new("RGBA", (3, 2), (0, 0, 0, 255)).save(tmp_path / "leg.png")
+    assert run("from-png", tmp_path / "leg.png", "-o", p) == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["ant", "leg"] and doc.get("leg").grid == ["kkk", "kkk"]
+    assert "unnamed grid is now '@frame ant'" in capsys.readouterr().out
+
+
+def test_from_png_same_stem_replaces_the_promoted_grid(tmp_path):
+    p = write(tmp_path, "ant.px", ANT)
+    Image.new("RGBA", (3, 2), (0, 0, 0, 255)).save(tmp_path / "ant.png")
+    assert run("from-png", tmp_path / "ant.png", "-o", p) == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["ant"] and doc.get("ant").grid == ["kkk", "kkk"]
+
+
+def test_doc_promote_directly(tmp_path):
+    doc = pxart.parse(write(tmp_path, "ant.px", ANT))
+    doc.promote()
+    assert not doc.implicit and doc.frames[0].id == "ant" and doc.select("ant") == doc.frames
+    assert doc.text() == "pxart 1\nk #000000\ng #00ff00\n\n@frame ant\n...\n.k.\n"
+
+
+def test_help_documents_unnamed_grid_id():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A file with one unnamed grid (no @frame) calls it by the file's name, as frames lists it" in doc
+    assert "first makes the grid '@frame ant'" in doc

@@ -38,7 +38,11 @@ FORMAT (.px)
   override imported ones, and check notes the override.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. Add
+  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. A file with
+  one unnamed grid (no @frame) calls it by the file's name, as frames lists it: ant.px's
+  grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
+  ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
+  ant that is the frame written. Add
   %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
   modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
   letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
@@ -550,11 +554,24 @@ class Doc:
     def select(self, sel):
         if not sel:
             return list(self.frames)
+        if self.implicit and sel == self.stem:  # the unnamed grid goes by the file's name, as frames lists it
+            return list(self.frames)
         got = [f for f in self.frames if f.id == sel or (f.id or "").startswith(sel + "/")]
         if not got:
             fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}",
                  path=self.path)
         return got
+
+    def promote(self):
+        """The unnamed grid becomes '@frame <stem>' (the id it already goes by), keeping its rows' spelling and the
+        blank/comment lines above the grid, now above the @frame line."""
+        f, fid = self.frames[0], self.stem
+        for j in range(len(f.grid)):
+            for store in (self.lead, self.raw, self.at):
+                if ("row", None, j) in store:
+                    store[("row", fid, j)] = store.pop(("row", None, j))
+        self.lead[("frame", fid)] = self.lead.pop(("row", fid, 0), None) or [""]
+        self.implicit, f.id = False, fid
 
     def get(self, fid):
         for f in self.frames:
@@ -2207,7 +2224,11 @@ def frame_slot(opath, osel, palette=None, flag="-o"):
             doc = parse(opath, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
     if osel:
         if doc.implicit:
-            fail("E_MIXED_FRAMES", f"{opath} has one unnamed grid; can't add frame {osel!r} to it")
+            if not ID_RE.match(doc.stem):
+                fail("E_MIXED_FRAMES", f"{opath} has one unnamed grid, and its name {doc.stem!r} can't be a frame id "
+                     f"to give it; can't add frame {osel!r}")
+            doc.promote()
+            print(f"note: {opath}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
         if not ID_RE.match(osel):
             fail("E_BAD_ID", f"bad frame id {osel!r}")
         target = doc.get(osel)
@@ -3032,7 +3053,11 @@ def cmd_from_png(a):
                 doc = parse(doc.path, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
     named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
     if named and doc.implicit:
-        fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid; import into a new file or one with @frame ids")
+        if not ID_RE.match(doc.stem):
+            fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid, and its name {doc.stem!r} can't be a frame id to "
+                 "give it; import into a new file or one with @frame ids")
+        doc.promote()
+        print(f"note: {out}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
     keyof = {c: k for k, c in doc.resolved().items() if c[3]}
     free = [k for k in KEYS if k not in doc.resolved()]
     for path, img in imgs:

@@ -79,7 +79,9 @@ pxart 1
   frame, top-level ids included (a parts file).
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
-`file.px:walk/down/0` (one frame). In zsh write `"${F}:walk/down"`: `"$F:walk/down"` applies a
+`file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's name
+(`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o ant.px:ant`)
+first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`: `"$F:walk/down"` applies a
 modifier, and a missing input like `hero.pxalk/down` is reported as that mistake.
 
 ### Errors
