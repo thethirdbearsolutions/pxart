@@ -22,7 +22,8 @@ FORMAT (.px)
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
-  out of animation exports and checks. Top-level ids with no '/' are fine.
+  out of animation exports and checks; '@still *' marks every group in the file (a parts
+  file). Top-level ids with no '/' are fine.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override.
@@ -236,7 +237,7 @@ class Doc:
 
     def animated(self, group):
         """Groups are animations unless marked @still (and the ungrouped top level never is)."""
-        return bool(group) and group not in self.stills
+        return bool(group) and group not in self.stills and "*" not in self.stills
 
     def label(self, f):
         return f.id if f.id else self.stem
@@ -473,8 +474,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 keep(("anim", pos[0]))
                 state = "header" if not doc.frames else state
             elif word == "@still":
-                if len(pos) != 1 or not ID_RE.match(pos[0]) or kw:
-                    err("E_BAD_ID", f"@still needs one group path like ui/life: {s!r}", n)
+                if len(pos) != 1 or not (ID_RE.match(pos[0]) or pos[0] == "*") or kw:
+                    err("E_BAD_ID", f"@still needs one group path like ui/life, or * for every group: {s!r}", n)
                     continue
                 doc.stills.append(pos[0])
                 keep(("still", pos[0]))

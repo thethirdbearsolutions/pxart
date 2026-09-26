@@ -1009,3 +1009,51 @@ def test_text_reparses_to_same_doc_after_reorder(tmp_path):
 
 def test_help_documents_layout_limits():
     assert "sections are written in a fixed order" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- @still *
+
+PARTS = "k #000000\n@still *\n@frame hat/big\nkk\n@frame hat/small\nk\n@frame body/a\nkkk\n@frame loose\nk\n"
+
+
+def test_still_star_marks_every_group(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", PARTS))
+    assert doc.stills == ["*"]
+    assert not doc.animated("hat") and not doc.animated("body") and not doc.animated("anything/else")
+
+
+def test_still_star_round_trips(tmp_path):
+    p = write(tmp_path, "p.px", PARTS)
+    assert pxart.parse(p).text() == PARTS
+
+
+def test_still_star_skips_mixed_size_note(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PARTS)
+    assert run("check", p) == 0
+    assert "mixes frame sizes" not in capsys.readouterr().out
+
+
+def test_without_still_star_mixed_sizes_are_noted(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PARTS.replace("@still *\n", ""))
+    assert run("check", p) == 0
+    assert "mixes frame sizes" in capsys.readouterr().out
+
+
+def test_still_star_no_aseprite_tags_or_tiled_anims(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@still *\n@frame a/0\nk\n@frame a/1\nk\n@frame b/0\nk\n@frame b/1\nk\n")
+    assert run("export", p, "--aseprite", tmp_path / "x.json", "--tiled", tmp_path / "x.tsj") == 0
+    assert json.loads((tmp_path / "x.json").read_text())["meta"]["frameTags"] == []
+    assert json.loads((tmp_path / "x.tsj").read_text())["tiles"] == []
+
+
+def test_still_star_with_other_args_is_bad(tmp_path):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(write(tmp_path, "p.px", "k #000000\n@still * x\n@frame a/0\nk\n"))
+    assert codes(e) == ["E_BAD_ID"]
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(write(tmp_path, "q.px", "k #000000\n@still **\n@frame a/0\nk\n"))
+    assert codes(e) == ["E_BAD_ID"]
+
+
+def test_still_star_works_in_strict_mode(tmp_path):
+    pxart.parse(write(tmp_path, "p.px", PARTS), strict=True)
