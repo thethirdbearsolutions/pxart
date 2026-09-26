@@ -239,12 +239,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call.
-  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
+  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
-      mirrored frame's coordinates).
-  compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
+      mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
+  compose -o OUT[:frame] [--size WxH] [--under] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
+      --under keeps OUT's frame and draws the layers behind it: they fill only its empty
+      pixels (a floor or a shadow under a finished sprite). The frame must exist.
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
       An existing OUT keeps its own palette and @palette; each layer's keys are added to it
       unless the key already exists with the same color (a different color is
@@ -1375,8 +1377,9 @@ def edit_target(arg, out, label="FILE"):
     return doc, frames, out
 
 
-def stamp(dst_doc, dst, src_doc, src, at, region=None):
-    """Copy src frame (or a region of it) onto dst frame at `at`; '.'/transparent keys don't overwrite."""
+def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False):
+    """Copy src frame (or a region of it) onto dst frame at `at`; '.'/transparent keys don't overwrite. under: only
+    onto dst's empty (transparent) pixels, so src goes behind what dst has."""
     src_pal = src_doc.resolved()
     for k in set("".join(src.grid)):
         if src_pal[k][3]:
@@ -1384,13 +1387,14 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None):
     x0, y0, w, h = parse_rect(region, src.size)
     W, H = dst.size
     g = [list(r) for r in dst.grid]
+    dst_pal = dst_doc.resolved()
     for y in range(h):
         for x in range(w):
             if not (0 <= y0 + y < src.size[1] and 0 <= x0 + x < src.size[0]):
                 continue
             ch = src.grid[y0 + y][x0 + x]
             tx, ty = at[0] + x, at[1] + y
-            if src_pal[ch][3] and 0 <= tx < W and 0 <= ty < H:
+            if src_pal[ch][3] and 0 <= tx < W and 0 <= ty < H and not (under and dst_pal[g[ty][tx]][3]):
                 g[ty][tx] = ch
     dst.grid = ["".join(r) for r in g]
 
@@ -2187,7 +2191,7 @@ def cmd_paste(a):
     ax, ay = map(int, a.at.split(","))
     for f in dframes:
         with reading(f"SRC ({a.src})"):
-            stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region)
+            stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region, a.under)
     print(write_doc(ddoc, out))
 
 
@@ -2841,9 +2845,21 @@ def cmd_compose(a):
         layers.append((lay, x, y, label))
     opath, osel = split_sel(a.o)
     note_suffix(opath)
-    fresh = not pathlib.Path(opath).exists()
+    fresh, under = not pathlib.Path(opath).exists(), None  # under: the frame the layers go behind
     with reading(f"-o ({a.o})"):
+        if getattr(a, "under", False) and not osel and not fresh:  # OUT's single grid, which frame_slot clears
+            was = parse(opath, allow_empty=True)
+            under = list(was.frames[0].grid) if was.implicit else None
         doc, target = frame_slot(opath, osel)
+    if getattr(a, "under", False):  # (crop has no --under)
+        under = list(target.grid) if osel else under
+        if not under:
+            fail("E_BAD_ARG", f"--under draws the layers behind OUT's frame, and {a.o} has none yet; compose it first "
+                 "(or drop --under)")
+        if a.size and parse_size(a.size) != (len(under[0]), len(under)):
+            fail("E_BAD_ARG", f"--under keeps the frame being replaced, {len(under[0])}x{len(under)}; drop --size "
+                 f"{a.size}")
+        target.grid = under
     if fresh:
         left = seed_palette(doc, layers)
         if left:
@@ -2869,6 +2885,9 @@ def cmd_compose(a):
                   f"(size from {why}) and were cropped")
         with reading(label):
             stamp(doc, target, lay.doc, lay.frame, (x, y))
+    if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
+        pal = doc.resolved()
+        target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
     print(write_doc(doc, opath), f"frame {osel}" if osel else "")
 
 
@@ -3213,6 +3232,7 @@ def main(argv=None):
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
+    p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
     p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
@@ -3248,7 +3268,7 @@ def main(argv=None):
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
-    p.add_argument("--size")
+    p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

@@ -7464,6 +7464,8 @@ REPOINT_CMDS = {
     "fill": ["fill", "{p}", "w", "--region", "0,0,1,1"],
     "line": ["line", "{p}", "w", "0,0", "3,3"],
     "rect": ["rect", "{p}", "w", "0,0,2,2"],
+    "poly": ["poly", "{p}", "w", "0,0", "3,0", "3,3", "--fill"],
+    "paste-under": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1", "--under"],
     "ellipse": ["ellipse", "{p}", "w", "1,1,1,1"],
     "arc": ["arc", "{p}", "w", "2,2,2", "0,90"],
     "flood": ["flood", "{p}", "w", "3,0"],
@@ -8708,3 +8710,139 @@ def test_help_documents_poly():
     drawing = doc[doc.index("\nDRAWING"):doc.index("\nCONVERTING")]
     assert "\n  poly FILE[:frame] KEY x,y x,y x,y ... [--fill]" in drawing
     assert "nonzero winding: a self-crossing star" in " ".join(drawing.split())
+
+
+# ---------------------------------------------------------------- loop J: compose --under / paste --under
+
+UNDER = "k #000000\ng #00ff00\nf #806040\nt transparent\n@frame hero\n.kk.\nk..k\n.kk.\n@frame floor\nffff\nffff\nffff\n"
+
+
+def test_compose_under_fills_only_empty_pixels(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:floor@0,0") == 0
+    assert pxart.parse(p).get("hero").grid == ["fkkf", "kffk", "fkkf"]
+
+
+def test_compose_without_under_replaces_the_frame(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("compose", "-o", f"{p}:hero", f"{p}:floor@0,0") == 0
+    assert pxart.parse(p).get("hero").grid == ["ffff"] * 3
+
+
+def test_compose_under_layers_stack_among_themselves(tmp_path):
+    p = write(tmp_path, "u.px", UNDER + "@frame dot\ng.\n")
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:floor@0,0", f"{p}:dot@0,0") == 0
+    assert pxart.parse(p).get("hero").grid == ["gkkf", "kffk", "fkkf"]  # dot over floor, both behind the hero
+
+
+def test_compose_under_offset_and_partial_cover(tmp_path):
+    p = write(tmp_path, "u.px", UNDER + "@frame dot\ngg\n")
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:dot@2,1") == 0
+    assert pxart.parse(p).get("hero").grid == [".kk.", "k.gk", ".kk."]
+
+
+def test_compose_under_transparent_key_counts_as_empty(tmp_path):
+    p = write(tmp_path, "u.px", UNDER.replace("@frame hero\n.kk.", "@frame hero\ntkk."))
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:floor@0,0") == 0
+    assert pxart.parse(p).get("hero").grid[0] == "fkkf"
+
+
+def test_compose_under_layer_transparent_pixels_leave_holes_empty(tmp_path):
+    p = write(tmp_path, "u.px", UNDER + "@frame ring\nf..f\n")
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:ring@0,1") == 0
+    assert pxart.parse(p).get("hero").grid == [".kk.", "k..k", ".kk."]  # the ring's pixels land on the hero's k
+
+
+def test_compose_under_new_frame_is_bad_arg(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    before = p.read_text()
+    msg = run_err("compose", "-o", f"{p}:nope", "--under", f"{p}:floor@0,0")
+    assert msg.startswith("compose: E_BAD_ARG: --under draws the layers behind OUT's frame") and p.read_text() == before
+
+
+def test_compose_under_new_file_is_bad_arg(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert "E_BAD_ARG" in run_err("compose", "-o", tmp_path / "new.px", "--under", f"{p}:floor@0,0")
+    assert not (tmp_path / "new.px").exists()
+
+
+def test_compose_under_other_size_is_bad_arg(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    msg = run_err("compose", "-o", f"{p}:hero", "--under", "--size", "8x8", f"{p}:floor@0,0")
+    assert "--under keeps the frame being replaced, 4x3; drop --size 8x8" in msg
+
+
+def test_compose_under_same_size_is_fine(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("compose", "-o", f"{p}:hero", "--under", "--size", "4x3", f"{p}:floor@0,0") == 0
+
+
+def test_compose_under_new_key_joins_palette(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    q = write(tmp_path, "q.px", "z #123456\nzzzz\nzzzz\nzzzz\n")
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{q}@0,0") == 0
+    doc = pxart.parse(p)
+    assert doc.get("hero").grid == ["zkkz", "kzzk", "zkkz"] and doc.palette["z"] == (0x12, 0x34, 0x56, 255)
+
+
+def test_compose_under_on_single_grid_file(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\nf #806040\n.k\nk.\n")
+    q = write(tmp_path, "q.px", "f #806040\nff\nff\n")
+    assert run("compose", "-o", p, "--under", f"{q}@0,0") == 0
+    assert p.read_text() == "k #000000\nf #806040\nfk\nkf\n"
+
+
+def test_compose_under_nothing_empty_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("compose", "-o", f"{p}:floor", "--under", f"{p}:hero@0,0") == 0
+    assert "no change" in capsys.readouterr().out
+
+
+def test_compose_under_flipped_layer(tmp_path):
+    p = write(tmp_path, "u.px", UNDER + "@frame dot\ng.\n")
+    assert run("compose", "-o", f"{p}:hero", "--under", f"{p}:dot+h@2,0") == 0
+    assert pxart.parse(p).get("hero").grid == [".kkg", "k..k", ".kk."]
+
+
+def test_crop_has_no_under_and_still_works(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("crop", f"{p}:hero", "0,0,2,2", "-o", f"{p}:c") == 0
+    assert pxart.parse(p).get("c").grid == [".k", "k."]
+
+
+def test_paste_under_fills_only_empty_pixels(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("paste", f"{p}:floor", "--into", f"{p}:hero", "--at", "0,0", "--under") == 0
+    assert pxart.parse(p).get("hero").grid == ["fkkf", "kffk", "fkkf"]
+
+
+def test_paste_without_under_covers(tmp_path):
+    p = write(tmp_path, "u.px", UNDER)
+    assert run("paste", f"{p}:floor", "--into", f"{p}:hero", "--at", "0,0") == 0
+    assert pxart.parse(p).get("hero").grid == ["ffff"] * 3
+
+
+def test_paste_under_with_region_and_flip(tmp_path):
+    p = write(tmp_path, "u.px", UNDER + "@frame dot\ngf\n")
+    assert run("paste", f"{p}:dot+h", "--into", f"{p}:hero", "--at", "0,0", "--under", "--region", "0,0,1,1") == 0
+    assert pxart.parse(p).get("hero").grid == ["fkk.", "k..k", ".kk."]
+
+
+def test_paste_under_every_selected_frame(tmp_path):
+    p = write(tmp_path, "u.px", "k #000000\nf #806040\n@frame a/0\nk.\n@frame a/1\n.k\n@frame fl\nff\n")
+    assert run("paste", f"{p}:fl", "--into", f"{p}:a", "--at", "0,0", "--under") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a/0").grid == ["kf"] and doc.get("a/1").grid == ["fk"]
+
+
+def test_stamp_under_directly(tmp_path):
+    doc = pxart.parse(write(tmp_path, "u.px", UNDER))
+    hero, floor = doc.get("hero"), doc.get("floor")
+    pxart.stamp(doc, hero, doc, floor, (1, 0), under=True)
+    assert hero.grid == [".kkf", "kffk", ".kkf"]
+
+
+def test_help_documents_under():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--under keeps OUT's frame and draws the layers behind it" in doc
+    assert "--under fills only DST's empty pixels: SRC goes behind" in doc
