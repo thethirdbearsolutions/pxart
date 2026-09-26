@@ -308,8 +308,12 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       shaded material re-shades) get ramp tones by how they face the light. The ramp runs
       darkest to lightest; the base is its middle key (d2,d1,base,l1: the extra key goes
       dark), or --base K. Keys are 'a,b,c' or 'abc'. Nothing outside the material changes.
-      Algorithm, per pixel of the material (the shape: those pixels, inside --region if
-      given; everything else, and off the frame, is outside):
+      --region x,y,w,h repaints only the material inside it, shaded as part of the whole
+      frame's material: the region's border is not an edge, only a real one is (an empty
+      pixel, another material, or the frame's side). Shade a half, and it matches that half
+      of the whole shading.
+      Algorithm, per pixel of the material (the shape: those pixels, over the whole frame;
+      everything else, and off the frame, is outside):
         1. depth: its distance to the shape's edge (a vector distance transform from the
            edge pixels, those with an outside side neighbor; ~Euclidean, 0 on the edge);
         2. normal: which way is out from it: the pull of the outside pixels within depth + 4
@@ -2732,9 +2736,10 @@ def cmd_shade(a):
     changed = 0
     for f in frames:
         x0, y0, rw, rh = parse_rect(a.region, f.size)
-        shape = {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row)
-                 if ch in keys and x0 <= x < x0 + rw and y0 <= y < y0 + rh}
-        tones = shade_tones(shape, ramp, base, a.light, a.strength, a.dither)
+        # The whole frame's material is the shape, so --region's own border is no edge; only its pixels change.
+        shape = {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row) if ch in keys}
+        tones = {p: k for p, k in shade_tones(shape, ramp, base, a.light, a.strength, a.dither).items()
+                 if x0 <= p[0] < x0 + rw and y0 <= p[1] < y0 + rh}
         g = [list(r) for r in f.grid]
         for (x, y), k in sorted(tones.items(), key=lambda kv: (kv[0][1], kv[0][0])):
             counts[k] += 1

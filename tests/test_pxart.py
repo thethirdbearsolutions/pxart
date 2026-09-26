@@ -7105,13 +7105,13 @@ def test_shade_strength_reaches_deeper(tmp_path):
     assert list(tones(p).values()).count("C") > list(tones(q).values()).count("C")
 
 
-def test_shade_region_limits_the_shape(tmp_path):
+def test_shade_region_limits_the_repaint(tmp_path):
     rows = square_rows(10, pad=0)
     p = material_file(tmp_path, rows)
     assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,5,10") == 0
     g = grid_of(p)
     assert all(r[5:] == "CCCCC" for r in g)          # outside the region: untouched
-    assert g[5][4] in "AB"                           # the region's cut is an edge (facing away from nw)
+    assert g[5][4] == "C"                            # loop J: the region's cut is no edge (was dark)
     assert g[5][0] in "DE"                           # the lit left edge
 
 
@@ -8419,3 +8419,87 @@ def test_tell_apart_directly():
 def test_help_documents_sheet_prefix():
     doc = " ".join(pxart.__doc__.split())
     assert "Frames with the same id from different files are labeled with their file's stem in front" in doc
+
+
+# ---------------------------------------------------------------- loop J: shade --region's border is not an edge
+
+@pytest.mark.parametrize("region", ["0,0,5,10", "5,0,5,10", "0,0,10,5", "0,5,10,5", "2,2,6,6", "3,0,1,10", "0,0,1,1",
+                                    "9,9,1,1", "4,4,2,2", "0,0,10,10", "-3,-3,8,8", "7,7,20,20"])
+@pytest.mark.parametrize("light", ["nw", "se", "n", "e"])
+def test_shade_region_matches_that_part_of_the_whole(tmp_path, region, light):
+    rows = square_rows(10, pad=0)
+    whole, part = material_file(tmp_path, rows, "w.px"), material_file(tmp_path, rows, "p.px")
+    assert run("shade", f"{whole}:a", "--ramp", RAMP, "--light", light) == 0
+    assert run("shade", f"{part}:a", "--ramp", RAMP, "--light", light, f"--region={region}") == 0
+    x0, y0, w, h = map(int, region.split(","))
+    W, P = grid_of(whole), grid_of(part)
+    for y in range(10):
+        for x in range(10):
+            want = W[y][x] if x0 <= x < x0 + w and y0 <= y < y0 + h else "C"
+            assert P[y][x] == want, (x, y)
+
+
+@pytest.mark.parametrize("region", ["0,0,6,12", "6,0,6,12", "3,3,6,6"])
+def test_shade_region_matches_the_whole_on_a_circle(tmp_path, region):
+    rows = circle_rows(10)
+    whole, part = material_file(tmp_path, rows, "w.px"), material_file(tmp_path, rows, "p.px")
+    assert run("shade", f"{whole}:a", "--ramp", RAMP, "--strength", "5") == 0
+    assert run("shade", f"{part}:a", "--ramp", RAMP, "--strength", "5", "--region", region) == 0
+    x0, y0, w, h = map(int, region.split(","))
+    W, P = grid_of(whole), grid_of(part)
+    for y, row in enumerate(rows):
+        for x, c in enumerate(row):
+            assert P[y][x] == (W[y][x] if x0 <= x < x0 + w and y0 <= y < y0 + h else c), (x, y)
+
+
+def test_shade_region_interior_cut_is_base_tone(tmp_path):
+    p = material_file(tmp_path, square_rows(12, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "4,4,4,4") == 0
+    g = grid_of(p)
+    assert all(g[y][x] == "C" for y in range(4, 8) for x in range(4, 8))  # deep inside: nothing to shade
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "4,4,4,4", "--dither") == 0
+    assert all(grid_of(p)[y][x] == "C" for y in range(4, 8) for x in range(4, 8))
+
+
+def test_shade_region_real_transparent_edge_still_shades(tmp_path):
+    p = material_file(tmp_path, square_rows(10))  # 1px of '.' around the square
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,6,12") == 0
+    g = grid_of(p)
+    assert g[5][1] in "DE" and g[1][5] in "DE"   # the lit left and top edges: real edges
+    assert g[5][5] == "C"                         # at the region's right cut: no edge there
+
+
+def test_shade_region_other_material_is_an_edge(tmp_path):
+    rows = ["CCCCCXCCCC"] * 6
+    p = write(tmp_path, "m.px", SHADE_PAL + "X #ff00ff\n@frame a\n" + "\n".join(rows) + "\n")
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--keys", "C", "--region", "0,0,5,6", "--light", "e") == 0
+    g = grid_of(p)
+    assert g[3][4] in "DE"                        # faces the other material to the east: a real edge, lit
+    assert g[3][0] in "AB"                        # the frame side to the west: an edge, dark
+
+
+def test_shade_region_counts_only_region_pixels(tmp_path, capsys):
+    p = material_file(tmp_path, square_rows(10, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,2,2") == 0
+    out = capsys.readouterr().out
+    counts = [int(x.split()[1]) for x in out.split("(")[1].split(",")[:5]]
+    assert sum(counts) == 4
+
+
+def test_shade_region_preview_matches_region_write(tmp_path):
+    p = material_file(tmp_path, square_rows(10, pad=0))
+    before = p.read_text()
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,5,10", "--preview", tmp_path / "v.png") == 0
+    assert p.read_text() == before
+
+
+def test_shade_region_outside_the_material_changes_nothing(tmp_path, capsys):
+    p = material_file(tmp_path, square_rows(4))
+    before = p.read_text()
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,1,1") == 0
+    assert p.read_text() == before and "no change" in capsys.readouterr().out
+
+
+def test_help_documents_shade_region_border():
+    doc = " ".join(pxart.__doc__.split())
+    assert "the region's border is not an edge, only a real one is" in doc
