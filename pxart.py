@@ -132,9 +132,11 @@ CHECKING
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
       List frames, sizes, durations ('still' for @still groups; every frame under
       '@still *') and animations; or delete / reorder frames (prints what it removed or
-      moved, not the listing). FILE:SEL lists only those frames; 'frames hero.px:walk/left
-      --rm' removes them (ids after --rm must be in SEL), and 'frames hero.px:walk/left
-      --after idle/3' moves them there as a block, in order. --move ID takes a plain FILE.
+      moved, not the listing; a move to where the frames already are prints "already in
+      place" and writes nothing). FILE:SEL lists only those frames; 'frames
+      hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
+      hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
+      takes a plain FILE.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -1500,9 +1502,11 @@ def frames_edit(a, doc, sel, picked):
         anchor = doc.get(a.after or a.before or "")
         if not f or not anchor or f is anchor:
             fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")
+        was = list(doc.frames)
         doc.frames.remove(f)
         doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
-        did.append(f"moved {a.move} {'after' if a.after else 'before'} {anchor.id}")
+        where = f"{a.move} {'after' if a.after else 'before'} {anchor.id}"
+        did.append(f"already in place: {where}" if doc.frames == was else f"moved {where}")
     return did
 
 
@@ -1533,11 +1537,13 @@ def frames_sel_edit(a, doc, sel, picked):
     if anchor in picked:
         fail("E_SELECT", f"--{'after' if a.after else 'before'} {where!r} is inside the selection {sel!r}; "
              "name a frame outside it")
+    was = list(doc.frames)
     for f in picked:
         doc.frames.remove(f)
     at = doc.frames.index(anchor) + (1 if a.after else 0)
     doc.frames[at:at] = picked
-    return [f"moved {sel} ({len(picked)} frame(s)) {'after' if a.after else 'before'} {anchor.id}"]
+    where = f"{sel} ({len(picked)} frame(s)) {'after' if a.after else 'before'} {anchor.id}"
+    return [f"already in place: {where}" if doc.frames == was else f"moved {where}"]
 
 
 def cmd_flip(a):

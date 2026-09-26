@@ -1613,7 +1613,7 @@ def test_frames_move_to_same_place_is_no_change(tmp_path, capsys):
     p = write(tmp_path, "m.px", THREE)
     before, m = snap(p)
     assert run("frames", p, "--move", "a/1", "--after", "a/0") == 0
-    assert capsys.readouterr().out == f"moved a/1 after a/0; no change: {p}\n" and untouched(p, before, m)
+    assert capsys.readouterr().out == f"already in place: a/1 after a/0; no change: {p}\n" and untouched(p, before, m)
 
 
 def test_from_png_same_pixels_again_is_no_change(tmp_path, capsys):
@@ -4947,3 +4947,63 @@ def test_anim_with_output_still_writes_gif_and_strip(tmp_path, capsys):
 def test_help_documents_anim_without_output():
     doc = pxart.__doc__
     assert "anim FILE... [-o walk.gif]" in doc and "without -o, anim prints only those lines" in doc
+
+
+# ---------------------------------------------------------------- loop H: frames move already in place
+
+@pytest.mark.parametrize("sel,where,anchor", [
+    ("walk", "--after", "idle/0"), ("walk", "--before", "icon"), ("walk/0", "--after", "idle/0"),
+    ("walk/2", "--before", "icon"), ("idle", "--before", "walk/0"), ("icon", "--after", "walk/2"),
+    ("walk/1", "--after", "walk/0"), ("walk/1", "--before", "walk/2"),
+])
+def test_frames_sel_move_already_in_place(tmp_path, capsys, sel, where, anchor):
+    p = write(tmp_path, "h.px", SELS)
+    before, m = snap(p)
+    assert run("frames", f"{p}:{sel}", where, anchor) == 0
+    out = capsys.readouterr().out
+    n = len(pxart.parse(p).select(sel))
+    assert out == f"already in place: {sel} ({n} frame(s)) {where[2:]} {anchor}; no change: {p}\n"
+    assert out.count("already in place") == 1 and "moved" not in out and untouched(p, before, m)
+
+
+@pytest.mark.parametrize("move,where,anchor", [
+    ("a/1", "--after", "a/0"), ("a/0", "--before", "a/1"), ("a/2", "--after", "a/1"), ("a/1", "--before", "a/2")])
+def test_frames_move_already_in_place(tmp_path, capsys, move, where, anchor):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a/0\nk\n@frame a/1\nk\n@frame a/2\nk\n")
+    before, m = snap(p)
+    assert run("frames", p, "--move", move, where, anchor) == 0
+    out = capsys.readouterr().out
+    assert out == f"already in place: {move} {where[2:]} {anchor}; no change: {p}\n"
+    assert "moved" not in out and untouched(p, before, m)
+
+
+def test_frames_move_that_moves_still_says_moved(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a/0\nk\n@frame a/1\nk\n@frame a/2\nk\n")
+    assert run("frames", p, "--move", "a/0", "--after", "a/1") == 0
+    out = capsys.readouterr().out
+    assert out == f"moved a/0 after a/1; wrote {p}\n" and "already" not in out
+    assert ids(p) == ["a/1", "a/0", "a/2"]
+
+
+def test_frames_sel_move_that_moves_still_says_moved(tmp_path, capsys):
+    p = write(tmp_path, "h.px", SELS)
+    assert run("frames", f"{p}:walk", "--after", "icon") == 0
+    out = capsys.readouterr().out
+    assert out == f"moved walk (3 frame(s)) after icon; wrote {p}\n" and "already" not in out
+
+
+def test_frames_rm_with_move_already_in_place_writes_the_removal(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a/0\nk\n@frame a/1\nk\n@frame a/2\nk\n")
+    assert run("frames", p, "--rm", "a/0", "--move", "a/2", "--after", "a/1") == 0
+    assert capsys.readouterr().out == f"removed a/0; already in place: a/2 after a/1; wrote {p}\n"
+    assert ids(p) == ["a/1", "a/2"]
+
+
+def test_frames_already_in_place_keeps_layout(tmp_path, capsys):
+    p = write(tmp_path, "a.px", MESSY)
+    assert run("frames", f"{p}:walk/1", "--after", "walk/0") == 0
+    assert p.read_text() == MESSY and "already in place" in capsys.readouterr().out
+
+
+def test_help_documents_already_in_place():
+    assert 'prints "already in\n      place" and writes nothing' in pxart.__doc__
