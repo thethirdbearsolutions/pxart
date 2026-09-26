@@ -160,6 +160,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
   and rewrites only the rows it changed):
   - `line hero.px:attack/2 W 3,40 28,12 --width 2`: Bresenham, no doubled corners.
+  - `poly … x,y x,y x,y … [--fill]`: a closed polygon from line's pixels (filled by nonzero
+    winding, so a star is solid).
   - `rect … x,y,w,h [--fill]`, `ellipse … cx,cy,rx,ry [--fill]` (clean, symmetric pixel
     ellipses; `.5` centers and radii for even sizes), `flood … x,y [--diagonal]`.
   - `arc … cx,cy,r a0,a1 --width 3`: a smear or swoosh (degrees, 0 = right, counter-clockwise).

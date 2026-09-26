@@ -8503,3 +8503,208 @@ def test_shade_region_outside_the_material_changes_nothing(tmp_path, capsys):
 def test_help_documents_shade_region_border():
     doc = " ".join(pxart.__doc__.split())
     assert "the region's border is not an edge, only a real one is" in doc
+
+
+# ---------------------------------------------------------------- loop J: poly (filled or outlined polygons)
+
+def pix(grid):
+    return {(x, y) for y, r in enumerate(grid) for x, c in enumerate(r) if c != "."}
+
+
+def poly_grid(tmp_path, w, h, *args):
+    p = canvas(tmp_path, w, h)
+    assert run("poly", f"{p}:a", "k", *args) == 0
+    return grid_of(p)
+
+
+def test_poly_square_outline_is_rect_border(tmp_path):
+    g = poly_grid(tmp_path, 6, 6, "0,0", "4,0", "4,4", "0,4")
+    assert g == ["kkkkk.", "k...k.", "k...k.", "k...k.", "kkkkk.", "......"]
+
+
+def test_poly_square_fill_is_rect_fill(tmp_path):
+    g = poly_grid(tmp_path, 6, 6, "0,0", "4,0", "4,4", "0,4", "--fill")
+    assert g == ["kkkkk.", "kkkkk.", "kkkkk.", "kkkkk.", "kkkkk.", "......"]
+
+
+def test_poly_matches_rect_command(tmp_path):
+    a, b = canvas(tmp_path, 9, 9, "a.px"), canvas(tmp_path, 9, 9, "b.px")
+    assert run("poly", f"{a}:a", "k", "1,2", "7,2", "7,6", "1,6", "--fill") == 0
+    assert run("rect", f"{b}:a", "k", "1,2,7,5", "--fill") == 0
+    assert grid_of(a) == grid_of(b)
+
+
+def test_poly_triangle_golden(tmp_path):
+    g = poly_grid(tmp_path, 7, 5, "3,0", "6,4", "0,4", "--fill")
+    # line's pixels: a tie at an edge's midpoint rounds toward its first end in (x, y) order, so the two slopes
+    # aren't mirror images on row 2 (as 'line' draws them).
+    assert g == ["...k...", "..kkk..", ".kkkk..", ".kkkkk.", "kkkkkkk"]
+
+
+def test_poly_triangle_outline_golden(tmp_path):
+    g = poly_grid(tmp_path, 7, 5, "3,0", "6,4", "0,4")
+    assert g == ["...k...", "..k.k..", ".k..k..", ".k...k.", "kkkkkkk"]
+
+
+def test_poly_outline_is_the_lines(tmp_path):
+    pts = [(1, 1), (10, 3), (7, 9), (2, 7)]
+    want = set()
+    for a, b in zip(pts, pts[1:] + pts[:1]):
+        want |= set(pxart.line_points(*a, *b))
+    g = poly_grid(tmp_path, 12, 12, *[f"{x},{y}" for x, y in pts])
+    assert pix(g) == want
+
+
+@pytest.mark.parametrize("pts", [
+    [(1, 1), (10, 3), (7, 9), (2, 7)], [(0, 0), (11, 0), (6, 11)], [(3, 0), (11, 5), (8, 11), (0, 9), (1, 3)],
+    [(5, 0), (7, 4), (11, 5), (8, 8), (9, 11), (5, 9), (1, 11), (2, 8), (0, 5), (4, 4)],
+])
+@pytest.mark.parametrize("fill", [False, True])
+def test_poly_same_pixels_reversed_or_rotated(pts, fill):
+    got = pxart.poly_points(pts, fill)
+    assert pxart.poly_points(pts[::-1], fill) == got
+    for k in range(1, len(pts)):
+        assert pxart.poly_points(pts[k:] + pts[:k], fill) == got
+
+
+@pytest.mark.parametrize("pts", [
+    [(1, 1), (10, 3), (7, 9), (2, 7)], [(0, 0), (11, 0), (6, 11)], [(3, 0), (11, 5), (8, 11), (0, 9), (1, 3)],
+])
+def test_poly_fill_contains_outline_and_stays_in_bbox(pts):
+    out, fill = pxart.poly_points(pts), pxart.poly_points(pts, True)
+    assert out <= fill
+    xs, ys = [x for x, _ in pts], [y for _, y in pts]
+    assert all(min(xs) <= x <= max(xs) and min(ys) <= y <= max(ys) for x, y in fill)
+
+
+@pytest.mark.parametrize("pts", [
+    [(1, 1), (10, 3), (7, 9), (2, 7)], [(0, 0), (11, 0), (6, 11)], [(3, 0), (11, 5), (8, 11), (0, 9), (1, 3)],
+    [(0, 5), (5, 0), (10, 5), (5, 10)],
+])
+def test_poly_convex_fill_rows_are_contiguous(pts):
+    fill = pxart.poly_points(pts, True)
+    for y in {y for _, y in fill}:
+        xs = sorted(x for x, yy in fill if yy == y)
+        assert xs == list(range(xs[0], xs[-1] + 1)), y
+
+
+def test_poly_convex_fill_has_no_hole(tmp_path):
+    fill = pxart.poly_points([(0, 5), (5, 0), (10, 5), (5, 10)], True)
+    assert fill == {(x, y) for y in range(11) for x in range(11) if abs(x - 5) + abs(y - 5) <= 5}
+
+
+def test_poly_star_is_solid(tmp_path):
+    star = [(7, 0), (9, 6), (15, 6), (10, 10), (12, 15), (7, 12), (2, 15), (4, 10), (0, 6), (5, 6)]
+    fill = pxart.poly_points(star, True)
+    assert {(7, 7), (7, 9), (7, 3), (3, 7), (11, 7)} <= fill
+
+
+def test_poly_self_crossing_pentagram_center_filled():
+    # A pentagram drawn as one self-crossing line: nonzero winding fills its center too.
+    pent = [(8, 0), (13, 15), (0, 5), (16, 5), (3, 15)]
+    assert (8, 8) in pxart.poly_points(pent, True)
+    assert (8, 8) not in pxart.poly_points(pent)
+
+
+def test_poly_bowtie_both_halves(tmp_path):
+    g = poly_grid(tmp_path, 7, 7, "0,0", "6,6", "6,0", "0,6", "--fill")
+    assert g[3] == "kkkkkkk" and g[1][0] == "k" and g[1][6] == "k" and g[0][3] == "."
+
+
+def test_poly_symmetric_shape_is_mirror_symmetric():
+    pts = [(5, 0), (10, 4), (8, 10), (2, 10), (0, 4)]
+    for fill in (False, True):
+        got = pxart.poly_points(pts, fill)
+        assert got == {(10 - x, y) for x, y in got}
+
+
+def test_poly_two_points_is_a_line(tmp_path):
+    g = poly_grid(tmp_path, 9, 3, "0,0", "8,2")
+    assert pix(g) == set(pxart.line_points(0, 0, 8, 2))
+
+
+def test_poly_two_points_fill_is_still_a_line():
+    assert pxart.poly_points([(0, 0), (8, 2)], True) == set(pxart.line_points(0, 0, 8, 2))
+
+
+def test_poly_collinear_points_fill_is_the_line():
+    assert pxart.poly_points([(0, 0), (4, 0), (8, 0)], True) == {(x, 0) for x in range(9)}
+
+
+def test_poly_repeated_points(tmp_path):
+    a = pxart.poly_points([(0, 0), (4, 0), (4, 0), (4, 4), (0, 4), (0, 0)], True)
+    assert a == pxart.poly_points([(0, 0), (4, 0), (4, 4), (0, 4)], True)
+
+
+def test_poly_one_point_is_bad_arg(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert run_err("poly", f"{p}:a", "k", "1,1") == \
+        "poly: E_BAD_ARG: poly wants at least 2 points x,y x,y ... (3 or more for a shape)"
+
+
+def test_poly_bad_point_names_which(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    msg = run_err("poly", f"{p}:a", "k", "0,0", "1,1", "2")
+    assert msg == "poly: E_BAD_ARG: point 3 wants x,y (integers), got '2'"
+
+
+def test_poly_half_coordinates_rejected(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert "E_BAD_ARG" in run_err("poly", f"{p}:a", "k", "0,0", "1.5,1", "2,2")
+
+
+def test_poly_unknown_key(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert run_err("poly", f"{p}:a", "q", "0,0", "2,2").startswith("poly: E_SELECT: key 'q' not in palette")
+
+
+def test_poly_negative_points_clip_with_note(tmp_path, capsys):
+    p = canvas(tmp_path, 4, 4)
+    assert run("poly", f"{p}:a", "k", "-2,-2", "3,-2", "3,3", "-2,3", "--fill") == 0
+    out = capsys.readouterr().out
+    assert grid_of(p) == ["kkkk"] * 4
+    assert "note: 20 px of the poly fall outside a (4x4) and were clipped" in out and "painted 16 px" in out
+
+
+def test_poly_erases_with_dot(tmp_path):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\nkkk\nkkk\nkkk\n")
+    assert run("poly", f"{p}:a", ".", "0,0", "2,0", "2,2", "0,2") == 0
+    assert grid_of(p) == ["...", ".k.", "..."]
+
+
+def test_poly_every_selected_frame(tmp_path):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a/0\n...\n...\n@frame a/1\n...\n...\n")
+    assert run("poly", f"{p}:a", "k", "0,0", "2,1", "0,1", "--fill") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a/0").grid == doc.get("a/1").grid == ["kk.", "kkk"]
+
+
+def test_poly_no_change(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\nkkk\nkkk\n")
+    assert run("poly", f"{p}:a", "k", "0,0", "2,0", "2,1", "--fill") == 0
+    assert "painted 0 px; no change" in capsys.readouterr().out
+
+
+def test_poly_output_file(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    before = p.read_text()
+    assert run("poly", f"{p}:a", "k", "0,0", "2,2", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == before and grid_of(tmp_path / "o.px") == ["k..", ".k.", "..k"]
+
+
+def test_poly_rewrites_only_changed_rows(tmp_path):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\n...\n# keep me\n...\n...\n")
+    assert run("poly", f"{p}:a", "k", "0,2", "2,2") == 0
+    assert p.read_text() == "k #000000\n@frame a\n...\n# keep me\n...\nkkk\n"
+
+
+def test_poly_in_usage():
+    with pytest.raises(SystemExit):
+        pxart.main(["poly", "-h"])
+
+
+def test_help_documents_poly():
+    doc = pxart.__doc__
+    drawing = doc[doc.index("\nDRAWING"):doc.index("\nCONVERTING")]
+    assert "\n  poly FILE[:frame] KEY x,y x,y x,y ... [--fill]" in drawing
+    assert "nonzero winding: a self-crossing star" in " ".join(drawing.split())

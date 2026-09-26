@@ -274,14 +274,19 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
   are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
-  says how many px fell outside); x,y may be negative. line, rect, ellipse, arc and flood
-  print "painted N px".
+  says how many px fell outside); x,y may be negative. line, rect, poly, ellipse, arc and
+  flood print "painted N px".
   line FILE[:frame] KEY x0,y0 x1,y1 [--width N]
       Bresenham: one pixel per step along the longer axis, 8-connected, no doubled corners;
       the same pixels whichever end comes first (0,0 8,2 is three runs of 3). --width N
       paints N px across the line (down for a mostly-horizontal line, right for a mostly-
       vertical one), centered, the odd pixel down/right.
   rect FILE[:frame] KEY x,y,w,h [--fill]          a 1px border, or filled
+  poly FILE[:frame] KEY x,y x,y x,y ... [--fill]
+      A closed polygon through the points in order: line's pixels from each point to the
+      next and from the last back to the first (1px, the same whichever way round it goes).
+      --fill adds every pixel whose center is inside (nonzero winding: a self-crossing star
+      is solid). Two points are a line. 'poly rock.px o 2,14 5,6 11,3 14,9 12,14 --fill'.
   ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]
       The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
       center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
@@ -2390,6 +2395,29 @@ def widened(pts, width, across_y):
     return [(x, y + k) if across_y else (x + k, y) for x, y in pts for k in range(lo, lo + width)]
 
 
+def poly_points(pts, fill=False):
+    """The closed polygon through pts: line_points from each point to the next and from the last back to the first;
+    fill adds every pixel strictly inside it by the nonzero winding rule (a self-crossing star is solid), its center
+    tested against the edges through the points' centers."""
+    ring = [p for a, b in zip(pts, pts[1:] + pts[:1]) for p in line_points(*a, *b)]
+    out = set(ring)
+    if not fill or len(pts) < 3:
+        return out
+    xs, ys = [x for x, _ in pts], [y for _, y in pts]
+    for py in range(min(ys), max(ys) + 1):
+        for px in range(min(xs), max(xs) + 1):
+            wind = 0
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
+                side = (x1 - x0) * (py - y0) - (px - x0) * (y1 - y0)  # which side of the edge px is on
+                if y0 <= py < y1 and side > 0:    # the edge crosses the row to px's right, going one way (half-open,
+                    wind += 1                     # so a vertex on the row counts once)
+                elif y1 <= py < y0 and side < 0:  # ... or going the other way
+                    wind -= 1
+            if wind:
+                out.add((px, py))
+    return out
+
+
 def ellipse_points(x0, y0, x1, y1, fill=False):
     """The ellipse inscribed in the box x0..x1, y0..y1 (inclusive): Alois Zingl's integer algorithm ('A Rasterizing
     Algorithm for Drawing Curves'), a thin 8-connected outline, mirror-symmetric both ways. fill adds every pixel
@@ -2530,6 +2558,14 @@ def cmd_rect(a):
     pts = [(xx, yy) for yy in range(y, y + h) for xx in range(x, x + w)
            if a.fill or xx in (x, x + w - 1) or yy in (y, y + h - 1)]
     draw(a, lambda f: pts)
+
+
+def cmd_poly(a):
+    pts = [coords(p, "xy", f"poly: point {n}") for n, p in enumerate(a.points, 1)]
+    if len(pts) < 2:
+        fail("E_BAD_ARG", "poly wants at least 2 points x,y x,y ... (3 or more for a shape)")
+    shape = poly_points(pts, a.fill)
+    draw(a, lambda f: sorted(shape, key=lambda p: (p[1], p[0])))
 
 
 def cmd_ellipse(a):
@@ -3188,6 +3224,8 @@ def main(argv=None):
     p.add_argument("--width", type=int, default=1); p.add_argument("-o")
     p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key"); p.add_argument("rect")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
+    p = sub.add_parser("poly"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
+    p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
@@ -3205,7 +3243,7 @@ def main(argv=None):
     p.add_argument("--light", choices=list(LIGHTS), default="nw"); p.add_argument("--strength", type=float, default=2)
     p.add_argument("--region"); p.add_argument("--dither", action="store_true"); p.add_argument("--preview")
     p.add_argument("-o")
-    for name in ("line", "rect", "ellipse", "arc", "flood"):
+    for name in ("line", "rect", "poly", "ellipse", "arc", "flood"):
         sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
