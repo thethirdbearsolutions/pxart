@@ -3502,3 +3502,217 @@ def test_frames_missing_file_with_sel_is_file_error_on_the_file(tmp_path):
 def test_help_documents_frames_sel():
     doc = pxart.__doc__
     assert "frames FILE[:SEL] [--rm [ID...]]" in doc and "moves them there as a block" in doc
+
+
+# ---------------------------------------------------------------- loop G: map placement, +b bottom anchor
+
+def rect(x, y, w, h):
+    return {(xx, yy) for yy in range(y, y + h) for xx in range(x, x + w)}
+
+
+def where(img, rgb):
+    return {(x, y) for y in range(img.height) for x in range(img.width) if img.getpixel((x, y))[:3] == rgb}
+
+
+def solid(w, h, key):
+    return "\n".join([key * w] * h) + "\n"
+
+
+MARKET_TILES = ("c #808080\nw #0000ff\nr #ff0000\no #ff8000\n@frame cobble\n" + solid(16, 16, "c")
+                + "@frame water/0\n" + solid(16, 16, "w")
+                + "@frame crate\n" + "\n".join(["r" + "o" * 15] * 16) + "\n")
+STALL = "s #00ff00\n" + solid(32, 32, "s")
+LAMP = "y #ffff00\nl #ff00ff\n" + "\n".join(["y" + "l" * 15] * 32) + "\n"
+
+
+def doc_example_map():
+    """The worked market.map in -h, as written there."""
+    lines = pxart.__doc__.splitlines()
+    i = next(n for n, l in enumerate(lines) if "A worked map, market.map" in l)
+    body = []
+    for l in lines[i + 2:]:
+        if l.startswith("      'pxart scene"):
+            break
+        body.append(l[10:])
+    return "\n".join(body) + "\n"
+
+
+def market(tmp_path, text=None):
+    write(tmp_path, "tiles.px", MARKET_TILES)
+    write(tmp_path, "stall.px", STALL)
+    write(tmp_path, "lamp.px", LAMP)
+    return write(tmp_path, "market.map", text or doc_example_map())
+
+
+def test_help_worked_map_example_renders_as_documented(tmp_path):
+    m = market(tmp_path)
+    assert "S stall.px+b" in m.read_text() and "---" in m.read_text() and "l lamp.px+hb" in m.read_text()
+    assert run("check", m) == 0
+    assert run("scene", "--map", m, "-o", tmp_path / "market.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "market.png")
+    assert img.size == (96, 48)
+    assert where(img, (0, 255, 0)) == rect(8, 0, 32, 32)                          # stall at 8,0
+    assert where(img, (255, 255, 0)) == rect(48, 0, 1, 32) | rect(95, 0, 1, 32)   # lamp edges: 48,0 and 80,0 mirrored
+    assert where(img, (255, 0, 255)) == rect(49, 0, 15, 32) | rect(80, 0, 15, 32)
+    assert where(img, (255, 0, 0)) == rect(15, 32, 1, 16)                        # crate mirrored at 0,32
+    assert where(img, (255, 128, 0)) == rect(0, 32, 15, 16)
+    assert where(img, (0, 0, 255)) == rect(16, 32, 80, 16)
+    assert where(img, (128, 128, 128)) == rect(0, 0, 96, 32) - rect(8, 0, 32, 32) - rect(48, 0, 16, 32) \
+        - rect(80, 0, 16, 32)
+
+
+def test_map_default_placement_is_cell_top_left(tmp_path):
+    m = market(tmp_path, "S stall.px\nL lamp.px\n\n....\n.S.L\n....\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (64, 48)
+    assert where(img, (0, 255, 0)) == rect(16, 16, 32, 32)  # hangs right and down from its cell
+    assert where(img, (255, 255, 0)) == rect(48, 16, 1, 32)
+
+
+@pytest.mark.parametrize("size,tile,cell,want", [
+    ((32, 32), (16, 16), (16, 16), (8, 0)),
+    ((16, 32), (16, 16), (48, 16), (48, 0)),
+    ((16, 16), (16, 16), (32, 16), (32, 16)),     # a tile-sized item: same as top-left
+    ((16, 8), (16, 16), (0, 0), (0, 8)),          # shorter: sits on the cell's bottom
+    ((8, 8), (16, 16), (0, 0), (4, 8)),           # narrower: centered
+    ((15, 16), (16, 16), (0, 0), (0, 0)),         # odd spare pixel: the item goes left
+    ((13, 16), (16, 16), (16, 0), (17, 0)),
+    ((33, 20), (16, 16), (16, 16), (7, 12)),      # wider by an odd amount: floor, one more to the left
+    ((48, 48), (16, 16), (0, 0), (-16, -32)),     # off the top-left edge
+    ((3, 5), (2, 2), (4, 6), (3, 3)),
+])
+def test_cell_spot_bottom_anchor_math(size, tile, cell, want):
+    img = Image.new("RGBA", size)
+    assert pxart.cell_spot("a.px+b", img, *cell, tile) == want
+    x, y = cell
+    assert want == (x + (tile[0] - size[0]) // 2, y + tile[1] - size[1])
+
+
+@pytest.mark.parametrize("arg", ["a.px", "a.px+h", "a.px+v", "a.px+hv", "a.px:x%dusk+h", "dir+b/a.px"])
+def test_cell_spot_without_b_is_the_cell(arg):
+    assert pxart.cell_spot(arg, Image.new("RGBA", (32, 32)), 16, 16, (16, 16)) == (16, 16)
+
+
+@pytest.mark.parametrize("arg", ["a.px+b", "a.px+hb", "a.px+bh", "a.px+vb", "a.px+hvb", "a.px+bvh", "a.px:x%dusk+b",
+                                 "a.px:x+b%dusk"])
+def test_cell_spot_with_b_anywhere_in_the_suffix(arg):
+    assert pxart.cell_spot(arg, Image.new("RGBA", (32, 32)), 16, 16, (16, 16)) == (8, 0)
+
+
+def test_split_flip_with_b():
+    assert pxart.split_flip("lamp.px+b") == ("lamp.px", "b")
+    assert pxart.split_flip("lamp.px+hb") == ("lamp.px", "hb")
+    assert pxart.split_flip("lamp.px:on%dusk+hvb") == ("lamp.px:on%dusk", "hvb")
+    assert pxart.split_flip("lamp.px:on+bh%dusk") == ("lamp.px:on%dusk", "bh")
+    assert pxart.split_flip("lamp.px+bb") == ("lamp.px+bb", "")
+    assert pxart.split_flip("lamp.px+hh") == ("lamp.px+hh", "")
+    assert pxart.split_flip("lamp.px+hvbx") == ("lamp.px+hvbx", "")
+    assert pxart.split_flip("+b") == ("+b", "")
+
+
+@pytest.mark.parametrize("suffix,col", [("+b", 0), ("+hb", 15), ("+bh", 15)])
+def test_map_bottom_anchor_with_flip(tmp_path, suffix, col):
+    m = market(tmp_path, f"L lamp.px{suffix}\n\n.\nL\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert where(img, (255, 255, 0)) == rect(col, 0, 1, 32)
+
+
+def test_map_bottom_anchor_with_v_flip(tmp_path):
+    lamp = "y #ffff00\nl #ff00ff\n" + "y" * 16 + "\n" + ("l" * 16 + "\n") * 31  # yellow top row
+    write(tmp_path, "lamp.px", lamp)
+    m = write(tmp_path, "r.map", "L lamp.px+vb\nM lamp.px+b\n\n..\nLM\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert where(img, (255, 255, 0)) == rect(0, 31, 16, 1) | rect(16, 0, 16, 1)
+
+
+def test_map_bottom_anchor_on_first_row_is_cut_at_the_top(tmp_path):
+    m = market(tmp_path, "L lamp.px+b\n\nL\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (16, 16) and where(img, (255, 255, 0)) == rect(0, 0, 1, 16)
+
+
+def test_map_bottom_anchor_wide_prop_off_the_left_edge(tmp_path):
+    m = market(tmp_path, "S stall.px+b\n\nS.\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert where(img, (0, 255, 0)) == rect(0, 0, 24, 16)  # drawn at -8,-16, clipped
+
+
+def test_map_bottom_anchor_with_other_tile_size(tmp_path):
+    m = market(tmp_path, "L lamp.px+b\n\n..\n.L\n")
+    assert run("scene", "--map", m, "--tile", "8x8", "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (16, 16)
+    assert where(img, (255, 255, 0)) == rect(4, 0, 1, 16)  # 8 + (8-16)//2 = 4; 8 + 8 - 32 = -16
+
+
+def test_map_bottom_anchor_with_variants(tmp_path):
+    write(tmp_path, "lamp.px", "y #ffff00\n\n@variant dusk\ny #0000ff\n\n" + solid(4, 8, "y"))
+    m = write(tmp_path, "r.map", "a lamp.px%dusk+b\nb lamp.px+b%dusk\nc lamp.px+b\n\n...\nabc\n")
+    assert run("scene", "--map", m, "--tile", "4x4", "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert where(img, (0, 0, 255)) == rect(0, 0, 8, 8) and where(img, (255, 255, 0)) == rect(8, 0, 4, 8)
+    assert run("scene", "--map", m, "--tile", "4x4", "-o", tmp_path / "t.png", "--scale", "1", "--variant", "dusk") == 0
+    assert where(scene_px(tmp_path / "t.png"), (0, 0, 255)) == rect(0, 0, 12, 8)
+
+
+def test_map_bottom_anchor_path_with_spaces(tmp_path):
+    d = tmp_path / "tiles and props"
+    d.mkdir()
+    write(d, "lamp.px", LAMP)
+    for line in ("L tiles and props/lamp.px+b", 'L "tiles and props/lamp.px+b"'):
+        m = write(tmp_path, "r.map", f"{line}\n\n.\nL\n")
+        assert run("check", m) == 0
+        assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+        assert where(scene_px(tmp_path / "s.png"), (255, 255, 0)) == rect(0, 0, 1, 32)
+
+
+def test_map_bottom_anchor_png_legend(tmp_path):
+    png(tmp_path, "tall.png", (2, 4), (9, 9, 9, 255))
+    m = write(tmp_path, "r.map", "t tall.png+b\n\n..\n.t\n")
+    assert run("scene", "--map", m, "--tile", "2x2", "-o", tmp_path / "s.png", "--scale", "1") == 0
+    assert where(scene_px(tmp_path / "s.png"), (9, 9, 9)) == rect(2, 0, 2, 4)
+
+
+def test_map_bottom_anchor_in_a_later_layer_draws_over_the_row_above(tmp_path):
+    m = market(tmp_path, "c tiles.px:cobble\nL lamp.px+b\n\ncc\ncc\n---\n..\n.L\n")
+    assert run("scene", "--map", m, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert where(img, (255, 255, 0)) == rect(16, 0, 1, 32)
+    assert where(img, (128, 128, 128)) == rect(0, 0, 32, 32) - rect(16, 0, 16, 32)
+
+
+def test_read_map_still_returns_cells(tmp_path):
+    m = market(tmp_path, "L lamp.px+b\n\n.L\n")
+    placed, size = pxart.read_map(m, (16, 16))
+    assert placed == [(str(tmp_path / "lamp.px+b"), 16, 0)] and size == (32, 16)
+
+
+def test_scene_item_with_b_is_bad_arg(tmp_path):
+    write(tmp_path, "lamp.px", LAMP)
+    msg = run_err("scene", "-o", tmp_path / "s.png", f"{tmp_path / 'lamp.px'}+hb@0,0")
+    assert "E_BAD_ARG" in msg and "+b anchors a map legend entry" in msg and f"{tmp_path / 'lamp.px'}+h" in msg
+    assert not (tmp_path / "s.png").exists()
+
+
+def test_compose_layer_with_b_is_bad_arg(tmp_path):
+    write(tmp_path, "lamp.px", LAMP)
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{tmp_path / 'lamp.px'}+b@0,0")
+    assert "E_BAD_ARG" in msg and "+b anchors" in msg
+
+
+def test_scene_b_after_at_says_where_it_goes(tmp_path):
+    write(tmp_path, "lamp.px", LAMP)
+    msg = run_err("scene", "-o", tmp_path / "s.png", f"{tmp_path / 'lamp.px'}@0,0+hb")
+    assert "+hb goes before @" in msg
+
+
+def test_help_documents_map_placement():
+    doc = pxart.__doc__
+    assert "draws with its top-left at its cell's top-left" in doc
+    assert "A legend entry ending in +b (with flips: +hb, +vb, +hvb)" in doc
+    assert "x = cell x + (tile w - w) // 2" in doc and "y = cell y + tile h - h" in doc

@@ -58,12 +58,13 @@ LOOKING
         [--tint #rrggbbaa] ITEM@x,y ...
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
-      where '!' would be history expansion). Map legend entries and compose layers take
-      +h/+v too. --map draws a text tilemap first: legend lines
-      '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend chars ('.' =
-      empty). In a legend line the rest of the line is the path, relative to the map file:
-      spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes" optional. check and
-      scene load every legend entry; one that can't load is an error at its legend line.
+      where '!' would be history expansion). Map legend entries (which also take +b, see
+      Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
+      legend lines '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend
+      chars ('.' = empty). In a legend line the rest of the line is the path, relative to
+      the map file: spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes"
+      optional. check and scene load every legend entry; one that can't load is an
+      error at its legend line.
       Items are then drawn on top. '#' lines are comments only before the first row;
       after that every non-blank line is a row, so '#' works as a map char (a wall row
       '####'). Before the rows, a line that is exactly
@@ -74,6 +75,34 @@ LOOKING
       Layers (a tile and a sprite in one cell): a line '---' after the rows starts another
       grid of rows over the same legend. Layers draw in order, later over earlier, and '.'
       is empty in each; the map is as big as its widest row and tallest layer.
+      Placement: a map item draws with its top-left at its cell's top-left (column * tile
+      w, row * tile h), so a 32x32 stall on 16x16 tiles hangs right and down over the next
+      cells.
+      A legend entry ending in +b (with flips: +hb, +vb, +hvb) draws bottom-aligned to its
+      cell and centered across it, odd pixel left: x = cell x + (tile w - w) // 2,
+      y = cell y + tile h - h. A tall lamp then stands on its cell and rises into the row
+      above (cut off at the top edge on row 0). +b is for legend entries only.
+      A worked map, market.map, on 16x16 tiles (tiles.px:cobble, :water/0 and :crate are
+      16x16, stall.px is 32x32, lamp.px is 16x32):
+          # ground layer, then props
+          c tiles.px:cobble
+          w tiles.px:water/0
+          x tiles.px:crate+h
+          S stall.px+b
+          L lamp.px+b
+          l lamp.px+hb
+
+          cccccc
+          cccccc
+          wwwwww
+          ---
+          ......
+          .S.L.l
+          x.....
+      'pxart scene --map market.map -o market.png' is 96x48: cobbles and water, then the
+      props over them. The stall's cell is 16,16, so it draws at 16 + (16-32)//2,
+      16 + 16 - 32 = 8,0; the lamps at 48,0 and 80,0 (mirrored); the crate, mirrored, at its
+      cell's top-left, 0,32.
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
@@ -665,13 +694,16 @@ def split_sel(arg):
     return arg, None
 
 
-FLIP_RE = re.compile(r"^(.+)\+(hv|vh|h|v)(%[A-Za-z0-9_\-]+)?$")
+FLIP_RE = re.compile(r"^(.+)\+([hvb]{1,3})(%[A-Za-z0-9_\-]+)?$")
 
 
 def split_flip(arg):
-    """'hero.px:walk/0%night+h' -> ('hero.px:walk/0%night', 'h'); '+h%night' works too. No flip -> ''."""
+    """'hero.px:walk/0%night+h' -> ('hero.px:walk/0%night', 'h'); '+h%night' works too. No flip -> ''. The letters
+    are h, v and (map legend entries only) b for bottom-anchored, each at most once: '+hb', '+vh'."""
     m = FLIP_RE.match(arg)
-    return (m.group(1) + (m.group(3) or ""), m.group(2)) if m else (arg, "")
+    if not m or len(set(m.group(2))) < len(m.group(2)):
+        return arg, ""
+    return m.group(1) + (m.group(3) or ""), m.group(2)
 
 
 def flipped(img, how):
@@ -689,7 +721,7 @@ def split_at(arg):
     if sep and m:
         fail("E_BAD_ARG", f"%variant goes before @ (FILE:frame%variant@x,y): write "
              f"{left}%{m.group(2)}@{m.group(1)}, not {arg!r}")
-    m = re.match(r"^(-?\d+,-?\d+)\+(hv|vh|h|v)$", right)
+    m = re.match(r"^(-?\d+,-?\d+)\+([hvb]{1,3})$", right)
     if sep and m:
         fail("E_BAD_ARG", f"+{m.group(2)} goes before @ (FILE:frame%variant+h@x,y): write "
              f"{left}+{m.group(2)}@{m.group(1)}, not {arg!r}")
@@ -728,11 +760,15 @@ def one_frame(arg, what="input", variant=None):
     return got[0]
 
 
-def place_item(arg, what, variant=None):
+def place_item(arg, what, variant=None, anchor=False):
     """One frame for scene/compose/maps, mirrored by a +h / +v / +hv suffix: the Item, with its image and
-    (for .px) a frame whose grid is flipped the same way."""
+    (for .px) a frame whose grid is flipped the same way. +b (bottom anchor) is for map legend entries only."""
     arg, how = split_flip(arg)
+    if "b" in how and not anchor:
+        fail("E_BAD_ARG", f"+b anchors a map legend entry to the bottom of its cell; a {what} is placed at its x,y "
+             f"(its top-left), so drop the b: {arg}+{how.replace('b', '')}".rstrip("+"))
     it = one_frame(arg, what, variant)
+    how = how.replace("b", "")
     if how:
         it.img = flipped(it.img, how)
         if it.frame:
@@ -1139,7 +1175,7 @@ def load_legend(path, variant=None):
     for ch, arg in legend.items():
         n, written = where[ch]
         try:
-            imgs[arg] = place_item(arg, f"legend {ch!r}", variant).img
+            imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True).img
         except PxError as e:
             for i in e.issues:
                 at = f" ({i.path}:{i.line})" if i.line else ""
@@ -1150,6 +1186,14 @@ def load_legend(path, variant=None):
     if issues:
         raise PxError(issues)
     return imgs
+
+
+def cell_spot(arg, img, x, y, tile):
+    """Where a map item draws, given its cell's top-left x,y: there (its top-left), or with +b bottom-aligned to the
+    cell and centered across it, odd pixel left: (x + (tile w - w) // 2, y + tile h - h)."""
+    if "b" not in split_flip(arg)[1]:
+        return x, y
+    return x + (tile[0] - img.width) // 2, y + tile[1] - img.height
 
 
 def draw_at(canvas, img, x, y):
@@ -1200,7 +1244,7 @@ def cmd_scene(a):
     sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
     tiles = load_legend(a.map, a.variant) if a.map else {}
     for arg, x, y in placed:
-        draw_at(sc, tiles[arg], x, y)
+        draw_at(sc, tiles[arg], *cell_spot(arg, tiles[arg], x, y, tile))
     for spec in a.specs:
         path, x, y = split_at(spec)
         draw_at(sc, place_item(path, "scene item", a.variant).img, x, y)
