@@ -68,6 +68,11 @@ CHECKING
       List frames, sizes, durations and animations; or delete / reorder frames.
 
 EDITING (writes .px; -o defaults to editing the input in place)
+  Edits rewrite only what changed: other lines keep their spelling and the blank lines and
+  comments above them, and new frames get the file's spacing between @frame blocks.
+  Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
+  unknown @sections), so an @anim written between frames moves up; a comment inside the
+  file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap]
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
@@ -205,6 +210,13 @@ class Doc:
         self.frames = []
         self.implicit = False       # one unnamed grid, no @frame
         self.extensions = []        # unknown @sections kept verbatim (lenient mode)
+        # Source layout, so an edit rewrites only what changed (see text()).
+        self.lead = {}              # anchor -> blank/comment lines just above that line
+        self.raw = {}               # anchor -> (line as text() writes it, line as the file had it)
+        self.tail = []              # blank/comment lines after the last line
+        self.dot_at = None          # where a '. transparent' line sat among the palette keys
+        self.frame_gap = None       # blank lines the file puts between @frame blocks
+        self.newline, self.final_newline = "\n", True
 
     @property
     def stem(self):
@@ -272,34 +284,52 @@ class Doc:
             fail("E_BAD_KEY", f"{key!r} can't be a palette key", path=self.path)
         self.palette[key] = color
 
-    def text(self):
-        out = list(self.comments)
+    def lines(self):
+        """(anchor, default blank lines above, line) in the order text() writes them."""
         if self.version is not None:
-            out.append(f"pxart {self.version}")
-        out += [f"@palette {r}" for r in self.palette_refs]
-        out += [f"{k} {fmt_color(v)}" for k, v in self.palette.items()]
+            yield "version", 0, f"pxart {self.version}"
+        for r in self.palette_refs:
+            yield ("palref", r), 0, f"@palette {r}"
+        keys = [(k, f"{k} {fmt_color(v)}") for k, v in self.palette.items()]
+        if self.dot_at is not None:
+            keys.insert(self.dot_at, (".", ". transparent"))
+        for k, line in keys:
+            yield ("key", k), 0, line
         for name, over in self.variants.items():
-            out += ["", f"@variant {name}"] + [f"{k} {fmt_color(v)}" for k, v in over.items()]
-        if self.anims:
-            out.append("")
-        for g, a in self.anims.items():
+            yield ("variant", name), 1, f"@variant {name}"
+            for k, v in over.items():
+                yield ("vkey", name, k), 0, f"{k} {fmt_color(v)}"
+        for i, (g, a) in enumerate(self.anims.items()):
             parts = [f"@anim {g}"] + [f"{k}={a[k]}" for k in ("direction", "repeat", "ms") if a.get(k) is not None]
-            out.append(" ".join(parts))
-        if self.stills:
-            out += ([] if self.anims else [""]) + [f"@still {g}" for g in self.stills]
-        if self.implicit:
-            out += [""] + self.frames[0].grid
-        else:
-            for f in self.frames:
-                out += ["", f"@frame {f.id}" + (f" ms={f.ms}" if f.ms else "")] + f.grid
-        if self.extensions:
-            out += [""] + self.extensions
-        return "\n".join(out) + "\n"
+            yield ("anim", g), int(i == 0), " ".join(parts)
+        for i, g in enumerate(self.stills):
+            yield ("still", g), int(i == 0 and not self.anims), f"@still {g}"
+        for i, f in enumerate(self.frames):
+            if not self.implicit:
+                gap = 1 if i == 0 or self.frame_gap is None else self.frame_gap
+                yield ("frame", f.id), gap, f"@frame {f.id}" + (f" ms={f.ms}" if f.ms else "")
+            for j, row in enumerate(f.grid):
+                yield ("row", f.id, j), int(self.implicit and j == 0), row
+        for i, e in enumerate(self.extensions):
+            yield ("ext", i), int(i == 0), e
+
+    def text(self):
+        """The file. Lines the file already had keep their spelling and the blank lines and comments
+        above them; new lines follow the file's frame spacing (or the defaults)."""
+        out = list(self.comments)
+        for anchor, gap, line in self.lines():
+            lead = self.lead.get(anchor)
+            out += lead if lead is not None else [""] * gap if out else []
+            was = self.raw.get(anchor)
+            out.append(was[1] if was and was[0] == line else line)
+        out += self.tail
+        return self.newline.join(out) + (self.newline if self.final_newline else "")
 
     def save(self, path=None):
         path = pathlib.Path(path or self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.text())
+        with open(path, "w", newline="") as fh:  # the file's own line endings, untranslated
+            fh.write(self.text())
         return path
 
 
@@ -329,7 +359,10 @@ def _int_arg(kw, name, issues, path, n, lo=None):
 
 def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, _depth=0):
     path = pathlib.Path(path)
-    raw = text if text is not None else path.read_text()
+    if text is None:
+        with open(path, newline="") as fh:
+            text = fh.read()
+    raw = text
     doc = Doc(path)
     issues = []
 
@@ -337,18 +370,26 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
         issues.append(Issue(code, msg, str(path), n, **kw))
 
     state, cur, variant, started, pal_failed = "header", None, None, False, False
+    pending, source = [], {}
+    if "\r\n" in raw:
+        doc.newline = "\r\n"
+    doc.final_newline = raw.endswith("\n") or not raw
+
+    def keep(anchor):
+        """This line is `anchor`: remember its spelling and the blank/comment lines above it."""
+        doc.lead[anchor], source[anchor] = list(pending), line
+        pending.clear()
+
     for n, line in enumerate(raw.splitlines(), 1):
         s = line.strip()
-        if not s:
-            if state == "variant":
+        if not s or s.startswith("#"):
+            if not s and state == "variant":
                 state = "header"
-            continue
-        if s.startswith("#"):
-            if not started:
-                doc.comments.append(s)
+            (pending if started else doc.comments).append(line)
             continue
         if not started and re.match(r"^pxart\s+\S+$", s):
             started = True
+            keep("version")
             v = s.split()[1]
             if v != str(FORMAT_VERSION):
                 err("E_VERSION", f"this pxart reads format version {FORMAT_VERSION}, file says {v!r}", n)
@@ -374,6 +415,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     err("E_BAD_ARG", f"@frame doesn't take {k}=", n)
                 cur = Frame(pos[0], ms=ms, line=n)
                 doc.frames.append(cur)
+                keep(("frame", cur.id))
                 state = "frame"
             elif word == "@palette":
                 if doc.frames:
@@ -399,6 +441,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     continue
                 pal_failed = before
                 doc.palette_refs.append(ref)
+                keep(("palref", ref))
                 doc.shared.update(sub.shared)
                 doc.shared.update(sub.palette)
                 for vname, over in list(sub.shared_variants.items()) + list(sub.variants.items()):
@@ -410,6 +453,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     continue
                 variant = pos[0]
                 doc.variants.setdefault(variant, {})
+                keep(("variant", variant))
                 state = "variant"
             elif word == "@anim":
                 if len(pos) != 1 or not ID_RE.match(pos[0]):
@@ -426,21 +470,25 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 for k in kw:
                     err("E_BAD_ARG", f"@anim doesn't take {k}=", n)
                 doc.anims[pos[0]] = a
+                keep(("anim", pos[0]))
                 state = "header" if not doc.frames else state
             elif word == "@still":
                 if len(pos) != 1 or not ID_RE.match(pos[0]) or kw:
                     err("E_BAD_ID", f"@still needs one group path like ui/life: {s!r}", n)
                     continue
                 doc.stills.append(pos[0])
+                keep(("still", pos[0]))
                 state = "header" if not doc.frames else state
             else:
                 if strict:
                     err("E_UNKNOWN_SECTION", f"unknown section {word}", n)
+                keep(("ext", len(doc.extensions)))
                 doc.extensions.append(s)
                 state = "ext"
             continue
 
         if state == "ext":
+            keep(("ext", len(doc.extensions)))
             doc.extensions.append(s)
             continue
 
@@ -460,16 +508,21 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             if key == ".":
                 if color[3] != 0:
                     err("E_DOT_RESERVED", "'.' is always transparent; pick another key for this color", n)
+                elif state != "variant" and doc.dot_at is None:
+                    doc.dot_at = len(doc.palette)
+                    keep(("key", "."))
                 continue
             if key not in KEYS:
                 err("E_BAD_KEY", f"{key!r} can't be a palette key (not # @ . \" \\ or whitespace)", n)
                 continue
             if state == "variant":
                 doc.variants[variant][key] = color
+                keep(("vkey", variant, key))
             else:
                 if key in doc.palette:
                     err("E_DUP_KEY", f"key {key!r} defined twice", n)
                 doc.palette[key] = color
+                keep(("key", key))
             continue
 
         if " " in s or "\t" in s:
@@ -483,8 +536,14 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             cur = Frame(None, line=n)
             doc.frames.append(cur)
             state = "grid"
+        keep(("row", cur.id, len(cur.grid)))
         cur.grid.append(s)
         cur.row_lines.append(n)
+
+    doc.tail = pending
+    doc.raw = {a: (text_line, source[a]) for a, _, text_line in doc.lines() if a in source}
+    gaps = [doc.lead[("frame", f.id)].count("") for f in doc.frames[1:] if ("frame", f.id) in doc.lead]
+    doc.frame_gap = max(set(gaps), key=gaps.count) if gaps else None
 
     # --- whole-document checks
     if palette_only:

@@ -790,3 +790,222 @@ def test_nested_failed_palette_has_one_skip_line(tmp_path):
     with pytest.raises(pxart.PxError) as e:
         pxart.parse(p)
     assert codes(e) == ["E_PALETTE_FILE"] and str(e.value).count("checks were skipped") == 1
+
+
+# ---------------------------------------------------------------- layout-preserving text()
+
+BLANK_FRAMES = """pxart 1
+k #3f2631
+g #43e1b3
+
+@anim walk ms=120
+
+@frame walk/0
+.kk.
+kggk
+
+@frame walk/1
+.kk.
+kgkk
+
+@frame idle
+kkkk
+"""
+
+TIGHT_FRAMES = """pxart 1
+k #3f2631
+g #43e1b3
+@frame walk/0
+.kk.
+kggk
+@frame walk/1
+.kk.
+kgkk
+@frame idle
+kkkk
+"""
+
+TOP_COMMENTS = """# hero sprite
+# drawn by an agent, loop D
+
+# palette from dungeon.px
+pxart 1
+@palette base.px
+k #3f2631
+
+@frame a
+kk
+"""
+
+MESSY = """# alignment and case survive untouched
+pxart 1
+k   #3F2631
+g\t#43e1b3
+Z #00000080
+@variant  night
+g #25956A
+
+@anim walk   ms=120  direction=pingpong
+@still ui
+
+
+@frame walk/0   ms=90
+  .kk.
+kggk
+# mid-grid comment
+kggk
+@frame walk/1
+.kk.
+.kk.
+.kk.
+
+
+"""
+
+NO_FINAL_NEWLINE = "k #000000\nkk\nkk"
+
+CRLF = "pxart 1\r\nk #000000\r\n\r\n@frame a\r\nk\r\n\r\n@frame b\r\nk\r\n"
+
+EXTENSION = "k #000000\n\n@frame a\nk\n\n@future thing\nwhatever here\n\nmore\n"
+
+SPARSE = "\n\npxart 1\n\n\nk #000000\n\n\n\n@frame a\nk\n\n\n\n@frame b\nk\n\n\n"
+
+
+@pytest.mark.parametrize("text", [LEGACY, MULTI, BLANK_FRAMES, TIGHT_FRAMES, TOP_COMMENTS, MESSY,
+                                  NO_FINAL_NEWLINE, CRLF, EXTENSION, SPARSE,
+                                  "k #000000\nk\n", "k #000000\n\nk\n", "pxart 1\nk #000000\n\nk\n",
+                                  ". transparent\nk #000000\n\n.k\n", "k #000000\n. transparent\n.k\n"],
+                         ids=["legacy", "multi", "blank-frames", "tight-frames", "top-comments", "messy",
+                              "no-final-newline", "crlf", "extension", "sparse", "min", "min-blank",
+                              "version-blank", "dot-first", "dot-after"])
+def test_round_trip_is_byte_identical(tmp_path, text):
+    if "base.px" in text:
+        write(tmp_path, "base.px", "q #ffffff\n")
+    p = tmp_path / "a.px"
+    p.write_bytes(text.encode())
+    doc = pxart.parse(p)
+    assert doc.text() == text
+    doc.save()
+    assert p.read_bytes() == text.encode()
+
+
+def test_round_trip_palette_only_file(tmp_path):
+    text = "# shared palette\n\nk #3f2631\ng #43e1b3\n\n@variant night\ng #25956a\n"
+    p = write(tmp_path, "pal.px", text)
+    assert pxart.parse(p, palette_only=True).text() == text
+
+
+def test_editing_one_frame_changes_only_its_rows(tmp_path):
+    for layout in (BLANK_FRAMES, TIGHT_FRAMES):
+        p = write(tmp_path, "a.px", layout)
+        assert run("set", f"{p}:walk/1", "g", "0,0") == 0
+        before, after = layout.splitlines(), p.read_text().splitlines()
+        assert len(before) == len(after)
+        assert [i for i, (x, y) in enumerate(zip(before, after)) if x != y] == [before.index("kgkk") - 1]
+
+
+def test_flip_keeps_comments_and_spacing(tmp_path):
+    p = write(tmp_path, "a.px", MESSY)
+    assert run("flip", f"{p}:walk/1") == 0
+    got = p.read_text()
+    assert "# mid-grid comment" in got and "k   #3F2631" in got and "@anim walk   ms=120  direction=pingpong" in got
+    assert got.endswith(".kk.\n\n\n") and "@still ui\n\n\n@frame walk/0   ms=90\n  .kk.\n" in got
+
+
+def test_changed_line_is_rewritten_canonically(tmp_path):
+    p = write(tmp_path, "a.px", MESSY)
+    assert run("recolor", p, "k=#000000") == 0
+    got = p.read_text()
+    assert "k #000000\n" in got and "#3F2631" not in got and "g\t#43e1b3" in got
+
+
+def test_dup_follows_blank_frame_spacing(tmp_path):
+    p = write(tmp_path, "a.px", BLANK_FRAMES)
+    assert run("dup", f"{p}:walk/1", "walk/2") == 0
+    assert p.read_text() == BLANK_FRAMES.replace("\n@frame idle", "\n@frame walk/2\n.kk.\nkgkk\n\n@frame idle")
+
+
+def test_dup_follows_tight_frame_spacing(tmp_path):
+    p = write(tmp_path, "a.px", TIGHT_FRAMES)
+    assert run("dup", f"{p}:walk/1", "walk/2") == 0
+    assert p.read_text() == TIGHT_FRAMES.replace("@frame idle", "@frame walk/2\n.kk.\nkgkk\n@frame idle")
+
+
+def test_compose_new_frame_follows_tight_spacing(tmp_path):
+    p = write(tmp_path, "a.px", TIGHT_FRAMES)
+    layer = write(tmp_path, "l.px", "k #3f2631\nkk\n")
+    assert run("compose", "-o", f"{p}:extra", "--size", "2x1", f"{layer}@0,0") == 0
+    assert p.read_text() == TIGHT_FRAMES + "@frame extra\nkk\n"
+
+
+def test_palette_add_inserts_one_line(tmp_path):
+    p = write(tmp_path, "a.px", BLANK_FRAMES)
+    assert run("palette", p, "--add", "z=#123456") == 0
+    assert p.read_text() == BLANK_FRAMES.replace("g #43e1b3\n", "g #43e1b3\nz #123456\n")
+
+
+def test_frames_rm_takes_its_comment_along(tmp_path):
+    text = "k #000000\n\n# first\n@frame a\nk\n\n# second\n@frame b\nk\n"
+    p = write(tmp_path, "a.px", text)
+    assert run("frames", p, "--rm", "a") == 0
+    assert p.read_text() == "k #000000\n\n# second\n@frame b\nk\n"
+
+
+def test_frames_move_keeps_frame_comments(tmp_path):
+    text = "k #000000\n\n# first\n@frame a\nk\n\n# second\n@frame b\nj\n"
+    p = write(tmp_path, "a.px", text.replace("j", "k"))
+    assert run("frames", p, "--move", "b", "--before", "a") == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["b", "a"]
+    assert "# second\n@frame b" in p.read_text() and "# first\n@frame a" in p.read_text()
+
+
+def test_mid_file_comments_are_kept(tmp_path):
+    text = "pxart 1\n# keys\nk #000000\n# frames below\n\n@frame a\n# row comment\nk\n# trailing\n"
+    p = write(tmp_path, "a.px", text)
+    assert pxart.parse(p).text() == text
+    assert run("flip", p) == 0
+    assert p.read_text() == text
+
+
+def test_cropped_rows_drop_their_comments_only(tmp_path):
+    text = "k #000000\n@frame a\nkk\n# about row 2\nkk\n"
+    p = write(tmp_path, "a.px", text)
+    doc = pxart.parse(p)
+    doc.frames[0].grid = ["k."]
+    assert doc.text() == "k #000000\n@frame a\nk.\n"
+
+
+def test_new_doc_text_unchanged_defaults():
+    doc = pxart.Doc("x.px")
+    doc.version = 1
+    doc.palette["k"] = (0, 0, 0, 255)
+    doc.anims["w"] = {"ms": 100}
+    doc.frames = [pxart.Frame("w/0", ["k"]), pxart.Frame("w/1", ["k"])]
+    assert doc.text() == "pxart 1\nk #000000\n\n@anim w ms=100\n\n@frame w/0\nk\n\n@frame w/1\nk\n"
+
+
+def test_new_implicit_doc_text_defaults():
+    doc = pxart.Doc("x.px")
+    doc.palette["k"] = (0, 0, 0, 255)
+    doc.implicit, doc.frames = True, [pxart.Frame(None, ["k."])]
+    assert doc.text() == "k #000000\n\nk.\n"
+
+
+def test_from_png_stdout_unchanged(tmp_path, capsys):
+    Image.new("RGBA", (2, 1), (1, 2, 3, 255)).save(tmp_path / "i.png")
+    assert run("from-png", tmp_path / "i.png") == 0
+    assert capsys.readouterr().out == "pxart 1\na #010203\n\naa\n"
+
+
+def test_text_reparses_to_same_doc_after_reorder(tmp_path):
+    p = write(tmp_path, "a.px", MESSY)
+    doc = pxart.parse(p)
+    doc.frames.reverse()
+    again = pxart.parse(p, text=doc.text())
+    assert [(f.id, f.grid) for f in again.frames] == [(f.id, f.grid) for f in doc.frames]
+    assert again.variants == doc.variants and again.palette == doc.palette
+
+
+def test_help_documents_layout_limits():
+    assert "sections are written in a fixed order" in pxart.__doc__
