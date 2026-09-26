@@ -4259,3 +4259,142 @@ def test_extract_without_inline_still_repoints(tmp_path):
 def test_help_documents_inline_palette():
     doc = pxart.__doc__
     assert "extract FILE:SEL -o OUT [--inline-palette]" in doc and "makes OUT self-contained" in doc
+
+
+# ---------------------------------------------------------------- loop G: export FILE:SEL, id order
+
+HARBOR = ("k #000000\nw #0000ff\ns #00ff00\n@anim water ms=450\n@still cobble\n"
+          "@frame cobble/a\nkk\nkk\n@frame cobble/b\nkk\nk.\n@frame planks\nk.\n.k\n"
+          "@frame water/0\nww\nww\n@frame water/1\nw.\nww\n@frame crate\n.k\nk.\n@frame stall\nssss\nssss\nssss\nssss\n")
+
+
+def tsj(path):
+    return json.loads(pathlib.Path(path).read_text())
+
+
+def test_export_whole_file_needs_uniform_tiles_and_says_how(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    msg = run_err("export", p, "--tiled", tmp_path / "t.tsj")
+    assert "E_TILE_SIZE" in msg and "stall 4x4" in msg and f"export {p}:GROUP ... --tiled" in msg
+
+
+def test_export_tiled_selection(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:water", "--tiled", tmp_path / "t.tsj") == 0
+    t = tsj(tmp_path / "t.tsj")
+    assert t["tilecount"] == 2 and t["tilewidth"] == 2
+    assert t["tiles"] == [{"id": 0, "animation": [{"tileid": 0, "duration": 450}, {"tileid": 1, "duration": 450}],
+                           "properties": [{"name": "pxart_anim", "type": "string", "value": "water"}]}]
+
+
+def test_export_several_selectors_add_up_in_file_order(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:water", f"{p}:cobble", f"{p}:planks", f"{p}:crate", "--tiled", tmp_path / "t.tsj",
+               "--aseprite", tmp_path / "t.json") == 0
+    t = tsj(tmp_path / "t.tsj")
+    assert t["tilecount"] == 6
+    ase = tsj(tmp_path / "t.json")
+    # file order is cobble/a cobble/b planks water/0 water/1 crate; top-level planks and crate are one group
+    assert [f["filename"] for f in ase["frames"]] == ["cobble/a", "cobble/b", "planks", "crate", "water/0", "water/1"]
+    assert t["tiles"][0]["id"] == 4 and [a["tileid"] for a in t["tiles"][0]["animation"]] == [4, 5]
+    assert ase["meta"]["frameTags"] == [{"name": "water", "from": 4, "to": 5, "direction": "forward",
+                                         "color": "#000000ff"}]
+
+
+def test_export_selection_sheet_holds_only_the_selection(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:cobble", "--aseprite", tmp_path / "c.json") == 0
+    sheet = Image.open(tmp_path / "c.png").convert("RGBA")
+    assert sheet.size == (4, 2)  # two 2x2 frames, not the 4x4 stall's cells
+    assert [f["filename"] for f in tsj(tmp_path / "c.json")["frames"]] == ["cobble/a", "cobble/b"]
+
+
+def test_export_selection_frames_dir(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:water/1", f"{p}:stall", "--frames", tmp_path / "f") == 0
+    got = sorted(str(q.relative_to(tmp_path / "f")) for q in (tmp_path / "f").rglob("*.png"))
+    assert got == ["stall.png", "water/1.png"]
+
+
+def test_export_partial_group_tag_covers_the_selected_frames(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@frame w/0\nk\n@frame w/1\nk\n@frame w/2\nk\n")
+    assert run("export", f"{p}:w/1", f"{p}:w/2", "--aseprite", tmp_path / "x.json", "--tiled", tmp_path / "x.tsj") == 0
+    assert tsj(tmp_path / "x.json")["meta"]["frameTags"][0]["from"] == 0
+    assert tsj(tmp_path / "x.json")["meta"]["frameTags"][0]["to"] == 1
+    assert [a["tileid"] for a in tsj(tmp_path / "x.tsj")["tiles"][0]["animation"]] == [0, 1]
+
+
+def test_export_single_frame_of_a_group_has_no_tiled_animation(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:water/0", "--tiled", tmp_path / "t.tsj") == 0
+    assert tsj(tmp_path / "t.tsj")["tiles"] == [] and tsj(tmp_path / "t.tsj")["tilecount"] == 1
+
+
+def test_export_overlapping_selectors_count_once(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", f"{p}:water", f"{p}:water/1", "--tiled", tmp_path / "t.tsj") == 0
+    assert tsj(tmp_path / "t.tsj")["tilecount"] == 2
+
+
+def test_export_plain_file_among_selectors_means_everything(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert run("export", p, f"{p}:water", "--aseprite", tmp_path / "x.json") == 0
+    assert len(tsj(tmp_path / "x.json")["frames"]) == 7
+
+
+def test_export_two_files_is_bad_arg(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    q = write(tmp_path, "m.px", MULTI)
+    msg = run_err("export", p, q, "--frames", tmp_path / "f")
+    assert "E_BAD_ARG" in msg and "export reads one file" in msg
+
+
+def test_export_unknown_selection_is_select_error(tmp_path):
+    p = write(tmp_path, "h.px", HARBOR)
+    assert "E_SELECT" in run_err("export", f"{p}:nope", "--frames", tmp_path / "f")
+    assert not (tmp_path / "f").exists()
+
+
+def test_export_selector_variant_suffix(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("export", f"{p}:idle%night", "--frames", tmp_path / "f") == 0
+    assert Image.open(tmp_path / "f" / "idle.png").convert("RGBA").getpixel((1, 0))[:3] == (0x25, 0x95, 0x6A)
+    assert "E_BAD_ARG" in run_err("export", f"{p}:idle%night", f"{p}:walk%day", "--frames", tmp_path / "g")
+
+
+def test_export_without_selector_unchanged(tmp_path):
+    p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
+    assert run("export", p, "--aseprite", tmp_path / "a.json", "--tiled", tmp_path / "a.tsj") == 0
+    assert run("export", f"{p}:walk", f"{p}:idle", "--aseprite", tmp_path / "b.json", "--tiled", tmp_path / "b.tsj") == 0
+    a, b = tsj(tmp_path / "a.json"), tsj(tmp_path / "b.json")
+    a["meta"]["image"] = b["meta"]["image"] = "x"
+    assert a == b
+    a, b = tsj(tmp_path / "a.tsj"), tsj(tmp_path / "b.tsj")
+    a["image"] = b["image"] = a["name"] = b["name"] = "x"
+    assert a == b
+
+
+@pytest.mark.parametrize("order,want", [
+    (["a/0", "a/1", "b/0", "b/1"], ["a/0", "a/1", "b/0", "b/1"]),                  # contiguous: file order
+    (["b/0", "b/1", "a/0", "a/1"], ["b/0", "b/1", "a/0", "a/1"]),
+    (["a/0", "b/0", "a/1"], ["a/0", "a/1", "b/0"]),                                # a/1 moves up to its group
+    (["icon", "walk/0", "walk/1", "badge"], ["icon", "badge", "walk/0", "walk/1"]),  # top-level frames: one group
+    (["walk/0", "icon", "walk/1"], ["walk/0", "walk/1", "icon"]),
+    (["icon", "badge", "walk/0", "walk/1"], ["icon", "badge", "walk/0", "walk/1"]),
+    (["x/a/0", "x/b/0", "x/a/1"], ["x/a/0", "x/a/1", "x/b/0"]),                    # the group is the parent path
+])
+def test_export_id_order(tmp_path, order, want):
+    p = write(tmp_path, "o.px", "k #000000\n" + "".join(f"@frame {i}\nk\n" for i in order))
+    assert run("export", p, "--aseprite", tmp_path / "x.json", "--tiled", tmp_path / "x.tsj") == 0
+    assert [f["filename"] for f in tsj(tmp_path / "x.json")["frames"]] == want
+    sheet, cols = Image.open(tmp_path / "x.png"), tsj(tmp_path / "x.tsj")["columns"]
+    for n, f in enumerate(tsj(tmp_path / "x.json")["frames"]):  # Tiled id n sits where Aseprite frame n does
+        assert (f["frame"]["x"], f["frame"]["y"]) == ((n % cols), (n // cols))
+    assert sheet.size == (cols, -(-len(order) // cols))
+
+
+def test_help_documents_export_selection_and_id_order():
+    doc = pxart.__doc__
+    assert "export FILE[:SEL]... [--frames DIR]" in doc and "several selectors of one file add up" in doc
+    assert "each animation group contiguous" in doc and "a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2" in doc
+    assert "gets ids in file order" in doc

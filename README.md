@@ -129,6 +129,12 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.
   - `export --tiled x.tsj` writes a tileset with tile animations.
+  - `export harbor.px:cobble harbor.px:water --tiled t.tsj` exports only those frames
+    (selectors of one file add up), so a tileset can leave out the big props.
+  - Frame and tile ids count over the exported frames with each animation group
+    contiguous, groups in order of first appearance, and all top-level frames together as
+    one group. A file that already keeps each group together gets ids in file order;
+    otherwise a frame moves up to its group (`a/0 b/0 a/1` gives `a/0 a/1 b/0`).
   - `palette --export x.gpl|x.hex` writes the palette.
   - `from-png` converts a PNG to a sprite.
 

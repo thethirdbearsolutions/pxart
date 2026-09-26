@@ -207,11 +207,22 @@ EDITING (writes .px; -o defaults to editing the input in place)
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 CONVERTING
-  export FILE [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
+  export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
       --frames: one PNG per frame at DIR/<frame id>.png
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
       (--aseprite x.json and --tiled x.tsj share one identical x.png)
+      FILE:SEL exports only those frames; several selectors of one file add up, in file
+      order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' leaves the 32x32
+      props out of a 16x16 tileset.
+      Id order (the Aseprite frame index, the Tiled tile id, the sheet position): 0, 1, 2...
+      over the exported frames with each animation group contiguous, groups in order of
+      first appearance, and all top-level frames (no '/' in the id) together as one group
+      where the first of them appears. A file that keeps each group together, and its
+      top-level frames together, gets ids in file order; otherwise a frame moves up to its
+      group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
+      badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others,
+      and a Tiled map painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
@@ -1935,9 +1946,27 @@ def cmd_palette(a):
         print("variants:", ", ".join(names))
 
 
+def export_frames(args):
+    """export's FILE[:SEL]... : one file, the union of the selections in file order (no SEL: every frame)."""
+    paths = list(dict.fromkeys(split_sel(f)[0] for f in args))
+    if len(paths) > 1:
+        fail("E_BAD_ARG", f"export reads one file, got {', '.join(paths)}; pick parts of one file with "
+             f"FILE:SEL FILE:SEL ...")
+    doc = parse(paths[0])
+    sels = [split_sel(f)[1] for f in args]
+    if None in sels:
+        return doc, list(doc.frames)
+    chosen = {id(f) for sel in sels for f in doc.select(sel)}
+    return doc, [f for f in doc.frames if id(f) in chosen]
+
+
 def cmd_export(a):
-    doc = parse(a.file)
-    its = [Item(doc.label(f), doc.image(f, a.variant), doc.ms(f), doc, f) for f in doc.frames]
+    doc, picked = export_frames(a.files)
+    variants = {split_variant(f)[1] for f in a.files} - {None}
+    if len(variants) > 1:
+        fail("E_BAD_ARG", f"export: one variant per export, got %{' %'.join(sorted(variants))}")
+    variant = variants.pop() if variants else a.variant
+    its = [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in picked]
     wrote = []
     if a.frames:
         for it in its:
@@ -1956,7 +1985,7 @@ def cmd_export(a):
             frames.append({"filename": it.label, "frame": {"x": x, "y": y, "w": w, "h": h}, "rotated": False,
                            "trimmed": False, "spriteSourceSize": {"x": 0, "y": 0, "w": w, "h": h},
                            "sourceSize": {"w": w, "h": h}, "duration": it.ms})
-        for g, fs in doc.groups().items():
+        for g, fs in doc.groups(picked).items():
             if not doc.animated(g):
                 i += len(fs)
                 continue
@@ -1976,7 +2005,8 @@ def cmd_export(a):
     if a.tiled:
         if len({it.img.size for it in its}) > 1:
             fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
-                 + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its))
+                 + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its)
+                 + f"; export only same-size frames with FILE:SEL (export {doc.path}:GROUP ... --tiled X.tsj)")
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = outpath(a.tiled)
@@ -1984,7 +2014,7 @@ def cmd_export(a):
         sheet_img.save(ip)
         index = {id(it): n for n, it in enumerate(its)}
         tiles = []
-        for g, fs in doc.groups().items():
+        for g, fs in doc.groups(picked).items():
             if not doc.animated(g) or len(fs) < 2:
                 continue
             first = next(it for it in its if it.frame is fs[0])
@@ -2101,7 +2131,7 @@ def main(argv=None):
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
     p.add_argument("--used", action="store_true")
-    p = sub.add_parser("export"); p.add_argument("file"); p.add_argument("--frames"); p.add_argument("--aseprite")
+    p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
