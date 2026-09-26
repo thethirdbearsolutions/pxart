@@ -69,6 +69,9 @@ LOOKING
       legend line for '#', not a comment, and so is a quoted path ('# "my tiles/wall.png"');
       check and scene print a note for it. Any other line starting with '#' is a comment
       ('# see wall.px' too).
+      Layers (a tile and a sprite in one cell): a line '---' after the rows starts another
+      grid of rows over the same legend. Layers draw in order, later over earlier, and '.'
+      is empty in each; the map is as big as its widest row and tallest layer.
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
@@ -1043,14 +1046,22 @@ LEGEND_RE = re.compile(r"^(\S)\s+(.+)$")
 
 def parse_map(path):
     """Tilemap file: legend lines '<char> <FILE[:frame][%variant]>' (the rest of the line is the path, relative
-    to the map; "quote it" if you like), a blank line, then rows of legend chars. Returns {char: item_arg},
-    [(line, row)], notes, and {char: (line, path as written)}."""
+    to the map; "quote it" if you like), a blank line, then rows of legend chars; a line '---' starts another
+    layer of rows over the same legend. Returns {char: item_arg}, layers [[(line, row)]], notes, and
+    {char: (line, path as written)}."""
     path = pathlib.Path(path)
-    legend, rows, notes, where, in_rows = {}, [], [], {}, False
+    legend, layers, notes, where, in_rows = {}, [[]], [], {}, False
+    rows = layers[0]
     for n, line in enumerate(path.read_text().splitlines(), 1):
         s = line.strip()
         if not s:
             in_rows = in_rows or bool(legend)
+            continue
+        if s == "---" and (in_rows or legend):
+            in_rows = True
+            if rows:
+                rows = []
+                layers.append(rows)
             continue
         m = None if in_rows else LEGEND_RE.match(s)
         if m:
@@ -1067,17 +1078,21 @@ def parse_map(path):
             continue  # comments only before the rows; after that '#' is a map char (a wall row '####')
         in_rows = True
         rows.append((n, s))
-    return legend, rows, notes, where
+    if not layers[-1] and len(layers) > 1:
+        layers.pop()
+    if "-" in legend and len(layers) > 1:
+        notes.append(f"{path}: '---' lines separate layers; they aren't rows of the '-' tile")
+    return legend, layers, notes, where
 
 
 def read_map(path, tile, notes=None):
     """Returns [(item_arg, x, y)] and the map size in px; '#' legend notes go to `notes`."""
     path = pathlib.Path(path)
-    legend, rows, found, _ = parse_map(path)
+    legend, layers, found, _ = parse_map(path)
     if notes is not None:
         notes += found
     out = []
-    for y, (n, row) in enumerate(rows):
+    for n, y, row in ((n, y, row) for rows in layers for y, (n, row) in enumerate(rows)):  # later layers on top
         for x, ch in enumerate(row):
             if ch == ".":
                 continue
@@ -1089,8 +1104,8 @@ def read_map(path, tile, notes=None):
                     "define it with a legend line '# FILE', or '# \"FILE\"' for a path with spaces)" if ch == "#" else ""
                 fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line{hint}", path=str(path), line=n, cols=[x])
             out.append((legend[ch], x * tile[0], y * tile[1]))
-    width = max((len(r) for _, r in rows), default=0) * tile[0]
-    return out, (width, len(rows) * tile[1])
+    width = max((len(r) for rows in layers for _, r in rows), default=0) * tile[0]
+    return out, (width, max(len(rows) for rows in layers) * tile[1])
 
 
 def load_legend(path, variant=None):
@@ -1174,12 +1189,12 @@ def cmd_scene(a):
 
 def check_map(path):
     """check for a scene tilemap: every legend entry loads as one frame and every row char has one."""
-    issues, legend, rows, notes = [], {}, [], []
+    issues, legend, layers, notes = [], {}, [[]], []
     try:
-        legend, rows, notes, _ = parse_map(path)
+        legend, layers, notes, _ = parse_map(path)
     except OSError as e:
         issues.append(Issue("E_FILE", e.strerror or str(e), path))
-    for step in (lambda: read_map(path, (1, 1)), lambda: load_legend(path)) if legend or rows else ():
+    for step in (lambda: read_map(path, (1, 1)), lambda: load_legend(path)) if legend or layers[0] else ():
         try:
             step()
         except PxError as e:
@@ -1189,8 +1204,9 @@ def check_map(path):
         for i in issues:
             print(f"     {i}")
     else:
-        w = max((len(r) for _, r in rows), default=0)
-        print(f"ok   {path}: map {w}x{len(rows)} tiles, {len(legend)} legend char(s)")
+        w = max((len(r) for rows in layers for _, r in rows), default=0)
+        print(f"ok   {path}: map {w}x{max(len(rows) for rows in layers)} tiles, {len(legend)} legend char(s)"
+              + (f", {len(layers)} layers" if len(layers) > 1 else ""))
     for n in notes:
         print(f"     note: {n}")
     return not issues

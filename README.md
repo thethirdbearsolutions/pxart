@@ -97,7 +97,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   and a legend entry that can't load is an error at its legend line. A `#` line before
   the rows is a comment unless it is exactly `# FILE.px[:frame][%variant]` or
   `# FILE.png` (or a quoted path), which makes `#` a map char (a wall row `####`);
-  `check` and `scene` note it.
+  `check` and `scene` note it. A line `---` after the rows starts another layer of rows over
+  the same legend (a tile and a sprite in one cell); later layers draw on top, `.` is empty.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
   they did).

@@ -1815,8 +1815,8 @@ def test_map_hash_legend_forms(tmp_path, line):
                                   "# tiles.px:bad id", "# tiles.gif"])
 def test_map_hash_comment_forms(tmp_path, line):
     m = hash_map(tmp_path, line + "\n")
-    legend, rows, notes, _ = pxart.parse_map(m)
-    assert "#" not in legend and notes == [] and [r for _, r in rows] == ["ff"]
+    legend, layers, notes, _ = pxart.parse_map(m)
+    assert "#" not in legend and notes == [] and [[r for _, r in rows] for rows in layers] == [["ff"]]
 
 
 def test_map_hash_comment_that_names_a_path_is_a_comment(tmp_path):
@@ -2089,9 +2089,9 @@ def spaced_pack(tmp_path):
 def test_map_legend_path_with_spaces(tmp_path, line):
     spaced_pack(tmp_path)
     m = write(tmp_path / "rooms", "r.map", f"# a clearing\n{line}\n\nb.\n.b\n")
-    legend, rows, notes, where = pxart.parse_map(m)
+    legend, layers, notes, where = pxart.parse_map(m)
     assert legend["b"] == str(tmp_path / "rooms" / "../refs/png/trees and bushes/bush.png")
-    assert where["b"] == (2, "../refs/png/trees and bushes/bush.png") and [r for _, r in rows] == ["b.", ".b"]
+    assert where["b"] == (2, "../refs/png/trees and bushes/bush.png") and [r for _, r in layers[0]] == ["b.", ".b"]
     assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
     img = scene_px(tmp_path / "s.png")
     assert img.getpixel((0, 0))[:3] == (9, 99, 9) and img.getpixel((3, 3))[:3] == (9, 99, 9)
@@ -2231,7 +2231,8 @@ def test_map_legend_later_line_wins_and_keeps_its_line(tmp_path):
 def test_map_legend_old_forms_unchanged(tmp_path):
     write(tmp_path, "tiles.px", TILES)
     m = write(tmp_path, "r.map", "# c\nf tiles.px:floor\nW tiles.px:wall\n# tiles.px:wall\n\n#W\nf.\n")
-    legend, rows, notes, where = pxart.parse_map(m)
+    legend, layers, notes, where = pxart.parse_map(m)
+    (rows,) = layers
     assert legend == {"f": str(tmp_path / "tiles.px:floor"), "W": str(tmp_path / "tiles.px:wall"),
                       "#": str(tmp_path / "tiles.px:wall")}
     assert where == {"f": (2, "tiles.px:floor"), "W": (3, "tiles.px:wall"), "#": (4, "tiles.px:wall")}
@@ -3011,3 +3012,123 @@ def test_help_documents_flip_suffix():
     doc = pxart.__doc__
     assert "FILE[:frame][%variant][+h|+v|+hv]" in doc and "hero.px:walk/0+h@3,4" in doc
     assert "history expansion" in doc
+
+
+# ---------------------------------------------------------------- loop F: map layers ('---')
+
+LAYER_TILES = "g #00ff00\nd #806040\nr #ff0000\n@frame grass\ngg\ngg\n@frame dirt\ndd\ndd\n@frame rock\n..\n.r\n"
+
+
+def layer_map(tmp_path, body, head=""):
+    write(tmp_path, "t.px", LAYER_TILES)
+    return write(tmp_path, "r.map", head + "g t.px:grass\nd t.px:dirt\nr t.px:rock\n\n" + body)
+
+
+def test_map_layers_draw_in_order(tmp_path):
+    m = layer_map(tmp_path, "gd\ngg\n---\nr.\n.r\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (4, 4)
+    assert [(pathlib.Path(a).name, x, y) for a, x, y in placed] == [
+        ("t.px:grass", 0, 0), ("t.px:dirt", 2, 0), ("t.px:grass", 0, 2), ("t.px:grass", 2, 2),
+        ("t.px:rock", 0, 0), ("t.px:rock", 2, 2)]
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((1, 1))[:3] == (255, 0, 0)       # rock over grass
+    assert img.getpixel((0, 0))[:3] == (0, 255, 0)       # the rock tile's '.' shows the grass
+    assert img.getpixel((2, 0))[:3] == (0x80, 0x60, 0x40) and img.getpixel((3, 1))[:3] == (0x80, 0x60, 0x40)
+    assert img.getpixel((3, 3))[:3] == (255, 0, 0)
+
+
+def test_map_layers_later_wins(tmp_path):
+    m = layer_map(tmp_path, "g\n---\nd\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    assert scene_px(tmp_path / "s.png").getpixel((0, 0))[:3] == (0x80, 0x60, 0x40)
+
+
+def test_map_three_layers_and_blank_lines(tmp_path):
+    m = layer_map(tmp_path, "gg\n\n---\n\n.d\n---\n..\n.r\n\n")
+    legend, layers, notes, _ = pxart.parse_map(m)
+    assert [[r for _, r in rows] for rows in layers] == [["gg"], [".d"], ["..", ".r"]]
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (4, 4) and len(placed) == 4
+
+
+def test_map_layer_size_is_widest_and_tallest(tmp_path):
+    m = layer_map(tmp_path, "g\n---\n...d\n...d\n...d\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (8, 6)
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    assert scene_px(tmp_path / "s.png").size == (8, 6)
+
+
+def test_map_empty_layers_ignored(tmp_path):
+    m = layer_map(tmp_path, "---\ngg\n---\n---\ndd\n---\n")
+    _, layers, _, _ = pxart.parse_map(m)
+    assert [[r for _, r in rows] for rows in layers] == [["gg"], ["dd"]]
+
+
+def test_map_single_layer_unchanged(tmp_path):
+    m = layer_map(tmp_path, "gd\ndg\n")
+    _, layers, notes, _ = pxart.parse_map(m)
+    assert len(layers) == 1 and notes == []
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (4, 4) and len(placed) == 4
+
+
+def test_map_layer_hash_rows(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "r.map", "# tiles.px:wall\nf tiles.px:floor\n\nff\n---\n#.\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert [pathlib.Path(a).name for a, _, _ in placed] == ["tiles.px:floor", "tiles.px:floor", "tiles.px:wall"]
+
+
+def test_map_layer_unknown_char_names_its_line(tmp_path):
+    m = layer_map(tmp_path, "gg\n---\nq.\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert codes(e) == ["E_UNKNOWN_KEY"] and e.value.issues[0].line == 7
+
+
+def test_map_layer_separator_with_dash_legend_notes(tmp_path, capsys):
+    write(tmp_path, "t.px", LAYER_TILES)
+    m = write(tmp_path, "r.map", "- t.px:dirt\ng t.px:grass\n\ng-\n---\n-.\n")
+    _, layers, notes, _ = pxart.parse_map(m)
+    assert len(layers) == 2 and any("'---' lines separate layers" in n for n in notes)
+    assert run("check", m) == 0
+    out = capsys.readouterr().out
+    assert "2 layers" in out and "separate layers" in out
+
+
+def test_map_dash_legend_without_separator_no_note(tmp_path):
+    write(tmp_path, "t.px", LAYER_TILES)
+    m = write(tmp_path, "r.map", "- t.px:dirt\n\n--\n")
+    _, layers, notes, _ = pxart.parse_map(m)
+    assert notes == [] and [r for _, r in layers[0]] == ["--"]
+
+
+def test_check_map_reports_layers(tmp_path, capsys):
+    m = layer_map(tmp_path, "gg\ngg\n---\nr.\n")
+    assert run("check", m) == 0
+    assert f"ok   {m}: map 2x2 tiles, 3 legend char(s), 2 layers" in capsys.readouterr().out
+
+
+def test_check_map_single_layer_line_unchanged(tmp_path, capsys):
+    m = layer_map(tmp_path, "gg\n")
+    assert run("check", m) == 0
+    assert capsys.readouterr().out.strip() == f"ok   {m}: map 2x1 tiles, 3 legend char(s)"
+
+
+def test_map_layers_with_variant_and_flip(tmp_path):
+    write(tmp_path, "tiles.px", VTILES)
+    write(tmp_path, "a.px", ARROW)
+    m = write(tmp_path, "r.map", "f tiles.px:floor%dark\na a.px+h\n\nf\n---\na\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "3x2", "--scale", "1", "--bg", "#ffffff") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((2, 0))[:3] == (255, 0, 0) and img.getpixel((1, 0))[:3] == (0, 0, 255)
+    assert img.getpixel((0, 1))[:3] == (1, 1, 1)  # dark floor under the arrow's '.'
+    assert img.getpixel((2, 1))[:3] == (255, 0, 0)
+    assert "E_SELECT" in run_err("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "3x2", "--variant", "dark")
+
+
+def test_help_documents_map_layers():
+    assert "a line '---' after the rows starts another" in pxart.__doc__
