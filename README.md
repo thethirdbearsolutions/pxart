@@ -79,10 +79,11 @@ pxart 1
   frame, top-level ids included (a parts file).
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
-`file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's name
-(`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o ant.px:ant`)
-first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`: `"$F:walk/down"` applies a
-modifier, and a missing input like `hero.pxalk/down` is reported as that mistake.
+`file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's
+name (`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o
+ant.px:ant`) first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`:
+`"$F:walk/down"` applies a modifier, and a missing input like `hero.pxalk/down` is
+reported as that mistake.
 
 ### Errors
 
@@ -108,8 +109,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`), `anim` (GIF with 1x and 2x copies, plus a motion strip;
   without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and
-  writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the rise and
-  the fall of one breath alike when the legs are identical in every frame; a ground tile or a
+  writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the
+  rise and the fall of one breath alike when the legs are identical in every frame; a
+  ground tile or a
   sparse overlay like falling snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`),
   `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
   suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
@@ -143,19 +145,21 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; both flags repeat, and the kept area is the union, so two lamps are one call;
-  works on a rendered PNG too), `paste` (`+h`/`+v` mirror the source, as in `compose`; `--under` fills only the empty pixels), `compose` (stack layers into a frame;
-  a new frame lands after its animation; a new file gets the layers' whole palette, their
-  shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
-  finds its keys; `--under` draws the layers behind the frame that's there, in its empty pixels), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
+  works on a rendered PNG too), `paste` (`+h`/`+v` mirror the source, as in `compose`;
+  `--under` fills only the empty pixels), `compose` (stack layers into a frame; a new
+  frame lands after its animation; a new file gets the layers' whole palette, their shared
+  `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
+  its keys; `--under` draws the layers behind the frame that's there, in its empty
+  pixels), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
   always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px
   with that frame flipped, and an `OUT` in another directory gets its `@palette` lines
-  re-pointed from there, so it imports the same palette file. `extract hero.px:walk -o walk.px` writes only the selected
-  frames, with the same palette and imports (and their `@anim` lines, in the order of
-  the frames' groups); `--inline-palette` copies the imported keys
-  they use (and the variants' colors for them) into the file and drops `@palette`, so the
-  hand-off renders the same with nothing beside it.
+  re-pointed from there, so it imports the same palette file. `extract hero.px:walk -o
+  walk.px` writes only the selected frames, with the same palette and imports (and their
+  `@anim` lines, in the order of the frames' groups); `--inline-palette` copies the
+  imported keys they use (and the variants' colors for them) into the file and drops
+  `@palette`, so the hand-off renders the same with nothing beside it.
 - **Drawing** (for 32x48 heroes, 64x64 beasts and 256-wide layers, where typing every
   pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
   and rewrites only the rows it changed):
@@ -168,7 +172,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   - `shade hero.px:idle/0 --ramp XxcCw --keys c --light nw`: re-shades a material with a
     darkest-to-lightest ramp. Each pixel's tone comes from its outward normal against the
     light, fading to the base tone `--strength` px in from the edge: banded, deterministic,
-    no noise (`--dither` for an ordered blend at band boundaries, `--preview p.png` to look first).
+    no noise (`--dither` for an ordered blend at band boundaries, `--preview p.png` to look
+    first; `--region` repaints only inside it, shaded as part of the whole material, so its
+    border is no edge).
   - `outline beast.px:idle --key o --lit m`: an outline around the shape (or `--inside` on
     its edge), pixel-perfect by default (`--corners` keeps square corners), and selective:
     the edges facing the light get the lighter `--lit` key.
