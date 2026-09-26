@@ -394,3 +394,111 @@ def test_anim_strip_diffs_frames_of_different_sizes(tmp_path, capsys):
     strip = Image.open(tmp_path / "w.strip.png").convert("RGBA")
     magenta = sum(1 for px in pxart.pixels(strip) if px[:3] == (255, 40, 200))
     assert magenta > 0  # both diff cells drawn, not skipped for the size mismatch
+
+
+# ---------------------------------------------------------------- loops A/B/C fixes
+
+def test_variants_inherited_from_palette_file(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\ng #00ff00\n\n@variant night\ng #003300\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\nkg\n")
+    doc = pxart.parse(p)
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0))[:3] == (0, 0x33, 0)
+    assert "@variant" not in doc.text()  # inherited, not copied in
+    local = write(tmp_path, "l.px", "@palette pal.px\n\n@variant night\nk #111111\n\nkg\n")
+    img = pxart.parse(local).image(pxart.parse(local).frames[0], "night")
+    assert img.getpixel((0, 0))[:3] == (0x11, 0x11, 0x11) and img.getpixel((1, 0))[:3] == (0, 0x33, 0)
+
+
+def test_check_accepts_palette_files_and_notes_overrides(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "k #000000\n")
+    s = write(tmp_path, "s.px", "@palette pal.px\nk #ffffff\nk\n")
+    assert run("check", pal, s, pal) == 0
+    out = capsys.readouterr().out
+    assert "palette file, 1 key(s)" in out and out.count("pal.px: palette file") == 1
+    assert "local keys override @palette colors: k" in out
+
+
+def test_outputs_create_their_directories(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("render", p, "-o", tmp_path / "a" / "b" / "prev.png") == 0
+    assert run("anim", f"{p}:walk/down", "-o", tmp_path / "c" / "w.gif") == 0
+    assert run("palette", p, "--export", tmp_path / "d" / "p.gpl") == 0
+
+
+def test_anim_prints_numbers(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("anim", f"{p}:walk/down", "-o", tmp_path / "w.gif") == 0
+    out = capsys.readouterr().out
+    assert "walk/down/1" in out and "then" in out and "px" in out
+
+
+def test_row_width_message_says_majority(tmp_path):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(write(tmp_path, "a.px", "k #000000\nkkkkk\nkkkkkk\nkkkkkk\n"))
+    assert "2 of 3 rows are 6 wide" in str(e.value)
+
+
+def test_dup_into_new_animation_goes_after_source_group_and_copies_timing(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@anim crawl/right ms=150\n@frame crawl/right/0\nk\n"
+              "@frame crawl/right/1\nk\n@frame other\nk\n")
+    assert run("dup", f"{p}:crawl/right/0", "crawl/left/0") == 0
+    assert run("dup", f"{p}:crawl/right/1", "crawl/left/1") == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["crawl/right/0", "crawl/right/1", "crawl/left/0", "crawl/left/1", "other"]
+    assert doc.anims["crawl/left"]["ms"] == 150
+
+
+def test_shift_wrap(tmp_path):
+    p = write(tmp_path, "t.px", "k #000000\nk..\n...\n")
+    assert run("shift", p, "--dx", "-1", "--wrap") == 0
+    assert pxart.parse(p).frames[0].grid == ["..k", "..."]
+
+
+def test_still_groups_skip_animation_exports(tmp_path, capsys):
+    p = write(tmp_path, "ui.px", "k #000000\n@still life\n@frame life/full\nk\n@frame life/empty\nkk\n")
+    doc = pxart.parse(p)
+    assert doc.stills == ["life"] and "@still life" in doc.text()
+    assert run("check", p) == 0
+    assert "mixes frame sizes" not in capsys.readouterr().out
+    assert run("export", p, "--aseprite", tmp_path / "u.json") == 0
+    assert json.loads((tmp_path / "u.json").read_text())["meta"]["frameTags"] == []
+
+
+def test_scene_map(tmp_path):
+    write(tmp_path, "tiles.px", "k #000000\nw #ffffff\n@frame floor\nkk\nkk\n@frame wall\nww\nww\n")
+    m = write(tmp_path, "room.map", "# a room\nf tiles.px:floor\nW tiles.px:wall\n\nWWW\nf.f\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    assert img.size == (6, 4)
+    assert img.getpixel((0, 0))[:3] == (255, 255, 255) and img.getpixel((0, 2))[:3] == (0, 0, 0)
+    assert img.getpixel((2, 2))[:3] == pxart.hex2rgba("#472d3c")[:3]  # '.' left empty
+    bad = write(tmp_path, "bad.map", "f tiles.px:floor\n\nfq\n")
+    assert run("scene", "-o", tmp_path / "x.png", "--map", bad, "--tile", "2x2") == 1
+
+
+def test_set_and_crop(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkkk\nkkk\nkkk\n")
+    assert run("set", f"{p}:f", "j", "1,1", "2,0") == 0
+    assert pxart.parse(p).get("f").grid == ["kkj", "kjk", "kkk"]
+    assert run("set", f"{p}:f", "j", "5,5") == 1
+    assert run("crop", f"{p}:f", "1,0,2,2", "-o", f"{p}:g") == 0
+    assert pxart.parse(p).get("g").grid == ["kj", "jk"]
+
+
+def test_from_png_palette_option(tmp_path):
+    write(tmp_path, "pal.px", "o #010101\n")
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(tmp_path / "i.png")
+    out = tmp_path / "sub" / "o.px"
+    out.parent.mkdir()
+    assert run("from-png", tmp_path / "i.png", "-o", out, "--id", "x", "--palette", tmp_path / "pal.px") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../pal.px"] and doc.get("x/i").grid == ["o"] and doc.palette == {}
+
+
+def test_sheet_of_big_pngs_does_not_overflow(tmp_path):
+    Image.new("RGBA", (200, 120), (255, 0, 0, 255)).save(tmp_path / "big.png")
+    assert run("sheet", tmp_path / "big.png", tmp_path / "big.png", "-o", tmp_path / "s.png", "--scale", "1",
+               "--cols", "1") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    red_rows = [y for y in range(img.height) if img.getpixel((img.width - 5, y))[:3] == (255, 0, 0)]
+    assert len(red_rows) <= 2 * 120  # nothing extra below each cell

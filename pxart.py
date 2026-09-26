@@ -21,8 +21,11 @@ FORMAT (.px)
   An animation plays its frames in file order (not by the number in the id).
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
+  Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
+  out of animation exports and checks. Top-level ids with no '/' are fine.
   Palette variants (recolors): keys listed after '@variant night' override the base
-  palette.
+  palette. Variants in a @palette file are inherited; local keys (and local variant keys)
+  override imported ones, and check notes the override.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. Add
@@ -39,10 +42,16 @@ LOOKING
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
       shift ("shift dx,dy then N px"; a walk that's only a bob shows "then 0px").
-      Read the strip; the Read tool shows only a GIF's first frame. Durations come from
-      the file (@anim/@frame ms) unless --fps is given.
+      Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
+      to stdout, one line per frame. Durations come from the file (@anim/@frame ms)
+      unless --fps is given.
   onion A B -o x.png [--scale 8]    B drawn over a faded A
-  scene -o s.png [--scale 4] [--size 96x64] [--bg #472d3c] FILE@x,y ...
+  scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] ITEM@x,y ...
+      ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
+      '<char> <FILE[:frame]>' (paths relative to the map file), a blank line, then rows of
+      legend chars ('.' = empty). Items are then drawn on top.
+  Centering: frames of different sizes are bottom-aligned and centered, with the odd
+  pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
 
 CHECKING
   check FILE... [--palette P] [--size WxH] [--max-colors N] [--strict]
@@ -55,20 +64,28 @@ CHECKING
 
 EDITING (writes .px; -o defaults to editing the input in place)
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
-  shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h]
+  shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap]
+      --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
+  set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
+  crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
   recolor FILE a=b [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region);
-      c=#hex changes key c's color everywhere.
+      c=#hex changes key c's color everywhere. '.' works as a source key.
   paste SRC --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
   compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
+      Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
+      The output keeps its own palette and @palette; each layer's keys are added to it
+      unless the key already exists with the same color (a different color is
+      E_KEY_CONFLICT).
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
       (OUT may be a palette-only file). Canvas size: --size, else the frame being
       replaced, else the other frames of its animation, else the first layer. Pixels
       that land outside the canvas are cropped, with a note saying how many.
   dup FILE:ID NEWID [--after ID] [-o OUT]
-      Copy a frame under a new id, placed after the last frame of NEWID's animation
-      (or after --after), then edit the copy.
+      Copy a frame under a new id, placed after the last frame of NEWID's animation, or
+      when that animation is new, after the source's whole animation (or after --after).
+      A new animation inherits the source animation's @anim timing. Then edit the copy.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 CONVERTING
@@ -81,7 +98,8 @@ CONVERTING
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
       to OUT (replacing same-id frames). Colors already in OUT keep their keys, so
-      frames imported in separate runs share one palette.
+      frames imported in separate runs share one palette. --palette P.px starts a new
+      OUT that imports P and reuses its keys.
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
@@ -174,7 +192,9 @@ class Doc:
         self.shared = {}            # keys imported through @palette
         self.palette = {}           # keys defined in this file (order kept)
         self.variants = {}          # name -> {key: rgba}
+        self.shared_variants = {}   # variants imported through @palette
         self.anims = {}             # group -> {"direction", "repeat", "ms"}
+        self.stills = []            # groups marked @still: grouped, not animated
         self.frames = []
         self.implicit = False       # one unnamed grid, no @frame
         self.extensions = []        # unknown @sections kept verbatim (lenient mode)
@@ -188,11 +208,16 @@ class Doc:
         pal.update(self.shared)
         pal.update(self.palette)
         if variant:
-            if variant not in self.variants:
-                fail("E_SELECT", f"no @variant {variant!r} (have: {', '.join(self.variants) or 'none'})",
-                     path=self.path)
-            pal.update(self.variants[variant])
+            if variant not in self.variants and variant not in self.shared_variants:
+                have = sorted(set(self.variants) | set(self.shared_variants))
+                fail("E_SELECT", f"no @variant {variant!r} (have: {', '.join(have) or 'none'})", path=self.path)
+            pal.update(self.shared_variants.get(variant, {}))
+            pal.update(self.variants.get(variant, {}))
         return pal
+
+    def animated(self, group):
+        """Groups are animations unless marked @still (and the ungrouped top level never is)."""
+        return bool(group) and group not in self.stills
 
     def label(self, f):
         return f.id if f.id else self.stem
@@ -253,6 +278,8 @@ class Doc:
         for g, a in self.anims.items():
             parts = [f"@anim {g}"] + [f"{k}={a[k]}" for k in ("direction", "repeat", "ms") if a.get(k) is not None]
             out.append(" ".join(parts))
+        if self.stills:
+            out += ([] if self.anims else [""]) + [f"@still {g}" for g in self.stills]
         if self.implicit:
             out += [""] + self.frames[0].grid
         else:
@@ -364,6 +391,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 doc.palette_refs.append(ref)
                 doc.shared.update(sub.shared)
                 doc.shared.update(sub.palette)
+                for vname, over in list(sub.shared_variants.items()) + list(sub.variants.items()):
+                    doc.shared_variants.setdefault(vname, {}).update(over)
                 state = "header"
             elif word == "@variant":
                 if len(pos) != 1:
@@ -387,6 +416,12 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 for k in kw:
                     err("E_BAD_ARG", f"@anim doesn't take {k}=", n)
                 doc.anims[pos[0]] = a
+                state = "header" if not doc.frames else state
+            elif word == "@still":
+                if len(pos) != 1 or not ID_RE.match(pos[0]) or kw:
+                    err("E_BAD_ID", f"@still needs one group path like ui/life: {s!r}", n)
+                    continue
+                doc.stills.append(pos[0])
                 state = "header" if not doc.frames else state
             else:
                 if strict:
@@ -460,7 +495,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
         expect = max(set(widths), key=lambda w: (widths.count(w), w == widths[0]))
         for i, (r, w) in enumerate(zip(f.grid, widths)):
             if w != expect:
-                err("E_ROW_WIDTH", f"row is {w} wide, the frame's rows are {expect}: {r!r}",
+                err("E_ROW_WIDTH", f"row is {w} wide, but {widths.count(expect)} of {len(widths)} rows are "
+                    f"{expect} wide: {r!r}",
                     f.row_lines[i], frame=f.id, row=i)
             bad = [x for x, c in enumerate(r) if c not in pal]
             if bad:
@@ -468,7 +504,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     f.row_lines[i], frame=f.id, row=i, cols=bad)
     for name, over in doc.variants.items():
         for k in over:
-            if k not in pal:
+            if k not in pal and k not in doc.shared_variants.get(name, {}):
                 err("E_VARIANT_KEY", f"@variant {name} sets {k!r}, which the base palette doesn't define")
     if issues:
         raise PxError(issues)
@@ -570,11 +606,18 @@ def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
 
+def outpath(p):
+    """Output path with its directory created."""
+    p = pathlib.Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     tiles = [(it, upscale(it.img, scale, grid, rulers)) for it in its]
     lw = max(max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its)
-    iw = max(it.img.width for it in its)
+    iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
@@ -586,10 +629,11 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
         x, y = pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad)
         d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=hex2rgba(bg))
         s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
-        s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
+        if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
+            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {len(colors(it.img))}c", fill=(150, 150, 160, 255))
-    s.save(out)
+    s.save(outpath(out))
     return out
 
 
@@ -741,7 +785,7 @@ def cmd_anim(a):
         canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
         canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
         gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-    gif[0].save(a.o, save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
+    gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
     pad, lab = 8, 14
     n = len(framed)
     strip = Image.new("RGBA", (pad + n * (w * S + pad), pad + 2 * (h * S + lab + pad)), (30, 30, 36, 255))
@@ -758,6 +802,7 @@ def cmd_anim(a):
         strip.alpha_composite(upscale(on_bg(diff_frame(moved, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
         changed = sum(1 for p, c in zip(pixels(moved), pixels(cur)) if p != c)
         d.text((x, y2 + h * S + 1), f"shift {dx:+d},{dy:+d} then {changed}px", fill=(255, 120, 220, 255))
+        print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: shift {dx:+d},{dy:+d} then {changed}px")
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
     strip.save(sp)
     print("wrote", a.o, "and", sp)
@@ -771,17 +816,56 @@ def cmd_onion(a):
     base.alpha_composite(faded, ((w - A.width) // 2, h - A.height))
     top = B.copy(); top.putalpha(B.getchannel("A").point(lambda v: v * 80 // 100))
     base.alpha_composite(top, ((w - B.width) // 2, h - B.height))
-    upscale(base, a.scale, grid=True, rulers=True).save(a.o)
+    upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
     print("wrote", a.o)
 
 
+def read_map(path, tile):
+    """Tilemap file: legend lines '<char> <FILE[:frame][%variant]>' (paths relative to the map), a blank
+    line, then rows of legend chars ('.' = empty). Returns [(item_arg, x, y)] and the map size in px."""
+    path = pathlib.Path(path)
+    legend, rows, in_rows = {}, [], False
+    for n, line in enumerate(path.read_text().splitlines(), 1):
+        s = line.strip()
+        if s.startswith("#"):
+            continue
+        if not s:
+            in_rows = in_rows or bool(legend)
+            continue
+        parts = s.split()
+        if not in_rows and len(parts) == 2 and len(parts[0]) == 1:
+            legend[parts[0]] = str(path.parent / parts[1])
+            continue
+        in_rows = True
+        rows.append((n, s))
+    out = []
+    for y, (n, row) in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            if ch not in legend:
+                fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line", path=str(path), line=n, cols=[x])
+            out.append((legend[ch], x * tile[0], y * tile[1]))
+    width = max((len(r) for _, r in rows), default=0) * tile[0]
+    return out, (width, len(rows) * tile[1])
+
+
 def cmd_scene(a):
-    W, H = map(int, a.size.split("x"))
+    placed = []
+    tile = tuple(map(int, a.tile.split("x")))
+    if a.map:
+        placed, msize = read_map(a.map, tile)
+    W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
     sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
+    cache = {}
+    for arg, x, y in placed:
+        if arg not in cache:
+            cache[arg] = one_frame(arg, "map tile").img
+        sc.alpha_composite(cache[arg], (x, y))
     for spec in a.specs:
         path, x, y = split_at(spec)
         sc.alpha_composite(one_frame(path, "scene item").img, (x, y))
-    sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(a.o)
+    sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
     print("wrote", a.o)
 
 
@@ -789,8 +873,19 @@ def cmd_check(a):
     allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
-    for arg in a.files:
+    for arg in dict.fromkeys(a.files):
         path, sel = split_sel(arg)
+        if path.endswith(".px") and not sel and not _has_grid(path):
+            try:
+                pdoc = parse(path, a.strict, palette_only=True)
+                print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
+                      + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+            except PxError as e:
+                failed = True
+                print(f"FAIL {path}: {len(e.issues)} error(s)")
+                for i in e.issues:
+                    print(f"     {i}")
+            continue
         try:
             its = items(arg, strict=a.strict)
         except PxError as e:
@@ -802,8 +897,11 @@ def cmd_check(a):
         notes = []
         if its and its[0].doc:
             doc = its[0].doc
+            over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
+            if over:
+                notes.append("local keys override @palette colors: " + "".join(over))
             for g, fs in doc.groups().items():
-                if g and len({f.size for f in fs}) > 1:
+                if doc.animated(g) and len({f.size for f in fs}) > 1:
                     notes.append(f"animation {g!r} mixes frame sizes ("
                                  + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
                                  + "); frames draw bottom-centered, and Tiled export needs one size")
@@ -885,6 +983,13 @@ def cmd_shift(a):
         W, H = f.size
         g = [list(r) for r in f.grid]
         block = [[g[y][x] for x in range(x0, min(x0 + w, W))] for y in range(y0, min(y0 + h, H))]
+        if a.wrap:
+            bh, bw = len(block), len(block[0]) if block else 0
+            for y in range(bh):
+                for x in range(bw):
+                    g[y0 + (y + a.dy) % bh][x0 + (x + a.dx) % bw] = block[y][x]
+            f.grid = ["".join(r) for r in g]
+            continue
         for y in range(y0, min(y0 + h, H)):
             for x in range(x0, min(x0 + w, W)):
                 g[y][x] = "."
@@ -920,6 +1025,31 @@ def cmd_recolor(a):
                 f.grid = ["".join(v if c == k and x0 <= x < x0 + w and y0 <= y < y0 + h else c
                                   for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     print("wrote", doc.save(out))
+
+
+def cmd_set(a):
+    doc, frames, out = edit_target(a.file, a.o)
+    if a.key not in doc.resolved():
+        fail("E_SELECT", f"set: key {a.key!r} not in palette (add it with palette --add)")
+    for f in frames:
+        g = [list(r) for r in f.grid]
+        for pt in a.points:
+            try:
+                x, y = map(int, pt.split(","))
+            except ValueError:
+                fail("E_BAD_ARG", f"set: points are x,y; got {pt!r}")
+            if not (0 <= x < f.size[0] and 0 <= y < f.size[1]):
+                fail("E_BAD_ARG", f"set: {x},{y} is outside {doc.label(f)} ({f.size[0]}x{f.size[1]})")
+            g[y][x] = a.key
+        f.grid = ["".join(r) for r in g]
+    print("wrote", doc.save(out))
+
+
+def cmd_crop(a):
+    src = one_frame(a.src, "crop source")
+    x, y, w, h = parse_rect(a.rect, src.frame.size)
+    a.layers, a.size = [f"{a.src}@{-x},{-y}"], f"{w}x{h}"
+    cmd_compose(a)
 
 
 def cmd_paste(a):
@@ -996,10 +1126,12 @@ def cmd_dup(a):
         if not anchor:
             fail("E_SELECT", f"--after {a.after!r}: no such frame")
     else:
-        group = new.group
-        same = [f for f in doc.frames if f.group == group] if group else []
-        anchor = same[-1] if same else src
+        same = [f for f in doc.frames if f.group == new.group] if new.group else []
+        src_group = [f for f in doc.frames if f.group == src.group] if src.group else [src]
+        anchor = same[-1] if same else src_group[-1]
     doc.frames.insert(doc.frames.index(anchor) + 1, new)
+    if new.group and new.group not in doc.anims and src.group in doc.anims:
+        doc.anims[new.group] = dict(doc.anims[src.group])
     print("wrote", doc.save(a.o or doc.path), "frame", a.new)
 
 
@@ -1029,13 +1161,18 @@ def cmd_palette(a):
             body = "".join("%02x%02x%02x\n" % v[:3] for _, v in cols)
         else:
             fail("E_BAD_ARG", "--export wants a .gpl or .hex path")
-        pathlib.Path(a.export).write_text(body)
+        outpath(a.export).write_text(body)
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
         print("wrote", a.export)
+    if a.add or a.export:
+        return
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
-        print(f"{k} {fmt_color(v):11} {src:8} used {used.get(k, 0)}")
+        print(f"{k} {fmt_color(v):11} {src:8}" + (f" used {used.get(k, 0)}" if doc.frames else ""))
+    names = sorted(set(doc.variants) | set(doc.shared_variants))
+    if names:
+        print("variants:", ", ".join(names))
 
 
 def cmd_export(a):
@@ -1044,14 +1181,13 @@ def cmd_export(a):
     wrote = []
     if a.frames:
         for it in its:
-            p = pathlib.Path(a.frames) / (it.label + ".png")
-            p.parent.mkdir(parents=True, exist_ok=True)
+            p = outpath(pathlib.Path(a.frames) / (it.label + ".png"))
             it.img.save(p)
             wrote.append(str(p))
     if a.aseprite:
         its2 = grouped(its)
         sheet_img, spots, _, _, _ = pack(its2)
-        jp = pathlib.Path(a.aseprite)
+        jp = outpath(a.aseprite)
         ip = jp.with_suffix(".png")
         sheet_img.save(ip)
         frames, tags, i = [], [], 0
@@ -1061,7 +1197,7 @@ def cmd_export(a):
                            "trimmed": False, "spriteSourceSize": {"x": 0, "y": 0, "w": w, "h": h},
                            "sourceSize": {"w": w, "h": h}, "duration": it.ms})
         for g, fs in doc.groups().items():
-            if not g:
+            if not doc.animated(g):
                 i += len(fs)
                 continue
             meta = doc.anims.get(g, {})
@@ -1083,13 +1219,13 @@ def cmd_export(a):
                  + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its))
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
-        tp = pathlib.Path(a.tiled)
+        tp = outpath(a.tiled)
         ip = tp.with_suffix(".png")
         sheet_img.save(ip)
         index = {id(it): n for n, it in enumerate(its)}
         tiles = []
         for g, fs in doc.groups().items():
-            if not g or len(fs) < 2:
+            if not doc.animated(g) or len(fs) < 2:
                 continue
             first = next(it for it in its if it.frame is fs[0])
             tiles.append({"id": index[id(first)],
@@ -1116,6 +1252,9 @@ def cmd_from_png(a):
     else:
         doc = Doc(out or imgs[0][0].with_suffix(".px"))
         doc.version = FORMAT_VERSION
+        if a.palette:
+            ref = os.path.relpath(a.palette, (out or imgs[0][0]).resolve().parent)
+            doc = parse(doc.path, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
     named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
     if named and doc.implicit:
         fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid; import into a new file or one with @frame ids")
@@ -1160,9 +1299,11 @@ def main(argv=None):
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=8)
-    p = sub.add_parser("scene"); p.add_argument("specs", nargs="+"); p.add_argument("-o", required=True)
+    p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
-    p.add_argument("--size", default="96x64")
+    p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
+    p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>', blank line, rows")
+    p.add_argument("--tile", default="16x16", help="tile size for --map")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
@@ -1171,8 +1312,12 @@ def main(argv=None):
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
+    p.add_argument("--wrap", action="store_true")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
+    p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
+    p.add_argument("-o")
+    p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
@@ -1184,6 +1329,7 @@ def main(argv=None):
     p = sub.add_parser("export"); p.add_argument("file"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
+    p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
     a = ap.parse_args(argv)
     try:
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
