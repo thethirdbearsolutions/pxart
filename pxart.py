@@ -39,10 +39,13 @@ FORMAT (.px)
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
-      Preview sheet with a pixel grid and x/y rulers every 4px. --png also writes a 1x
-      PNG beside each single-frame .px.
-  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V]
-      Compare any mix of .px/.png frames, labeled with id, WxH and color count.
+      Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
+      anim and onion default to 8 too). --png also writes a 1x PNG beside each
+      single-frame .px.
+  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
+      Compare any mix of .px/.png frames, labeled with id, WxH and color count. A PNG whose
+      four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
+      count that color: it's the backdrop.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
@@ -62,6 +65,7 @@ LOOKING
   onion A B -o x.png [--scale 8]    B drawn over a faded A
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
+      Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
       where '!' would be history expansion). Map legend entries (which also take +b, see
@@ -111,6 +115,9 @@ LOOKING
       cell's top-left, 0,32.
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
+      %base is the base palette, so 'lamp.px%base@40,20' (or a legend entry 'L lamp.px%base')
+      stays unrecolored in a --variant night scene (a lit window, a glowing lamp). '%base'
+      works wherever %variant does, and a variant can't be named base.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
       partly off the left/top edge), in scene and in compose.
       --tint '#10183080' lays that color, at its alpha, over the whole finished scene (bg,
@@ -130,7 +137,8 @@ CHECKING
   check FILE... [--palette P] [--size WxH] [--max-colors N] [--strict]
       Every format error with a code and location, then size / off-palette colors /
       color budget / unused keys per frame. P is a .px, .gpl, .hex, or text of
-      #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
+      #rrggbb. --strict also rejects unknown @sections and @anim/@still lines whose group has
+      no frames (without --strict those are a note). Exit 1 on any failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
@@ -143,7 +151,8 @@ CHECKING
       place" and writes nothing). FILE:SEL lists only those frames; 'frames
       hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
-      takes a plain FILE.
+      takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
+      Removing a group's last frame removes its @anim and @still lines too.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -395,6 +404,7 @@ class Doc:
         # Source layout, so an edit rewrites only what changed (see text()).
         self.lead = {}              # anchor -> blank/comment lines just above that line
         self.raw = {}               # anchor -> (line as text() writes it, line as the file had it)
+        self.at = {}                # anchor -> its line number in the file as parsed
         self.tail = []              # blank/comment lines after the last line
         self.dot_at = None          # where a '. transparent' line sat among the palette keys
         self.frame_gap = None       # blank lines the file puts between @frame blocks
@@ -408,7 +418,7 @@ class Doc:
         pal = {".": CLEAR}
         pal.update(self.shared)
         pal.update(self.palette)
-        if variant:
+        if variant and variant != "base":  # %base: the base palette, whatever --variant says
             if variant not in self.variants and variant not in self.shared_variants:
                 have = sorted(set(self.variants) | set(self.shared_variants))
                 fail("E_SELECT", f"no @variant {variant!r} (have: {', '.join(have) or 'none'})", path=self.path)
@@ -563,7 +573,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
 
     def keep(anchor):
         """This line is `anchor`: remember its spelling and the blank/comment lines above it."""
-        doc.lead[anchor], source[anchor] = list(pending), line
+        doc.lead[anchor], source[anchor], doc.at[anchor] = list(pending), line, n
         pending.clear()
 
     for n, line in enumerate(raw.splitlines(), 1):
@@ -951,9 +961,19 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
         if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
-        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {len(colors(it.img))}c", fill=(150, 150, 160, 255))
+        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
     s.save(outpath(out))
     return out
+
+
+def n_colors(it, bg):
+    """The sheet label's color count. A PNG (a scene rendered with this --bg) whose four corners are exactly the
+    --bg color doesn't count that color: it's the backdrop, not the art's."""
+    cs, bg = colors(it.img), rgba(bg)
+    w, h = it.img.size
+    if it.doc is None and bg[3] and all(it.img.getpixel(c) == bg for c in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))):
+        cs = [c for c in cs if c != bg]
+    return len(cs)
 
 
 def on_bg(img, w, h, bg="#3a3a44"):
@@ -1508,11 +1528,21 @@ def cmd_check(a):
                 over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
                 if over:
                     notes.append("local keys override @palette colors: " + "".join(over))
+                if "base" in doc.variants or "base" in doc.shared_variants:
+                    notes.append("'@variant base' can't be picked: %base and --variant base mean the base palette; "
+                                 "rename it")
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
                         notes.append(f"animation {g!r} mixes frame sizes ("
                                      + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
                                      + "); frames draw bottom-centered, and Tiled export needs one size")
+                for text, n in orphans(doc):
+                    msg = f"{text!r} names a group with no frames; remove the line or add frames to it"
+                    if a.strict:
+                        failed = True
+                        print(f"FAIL {path}:{n}: E_SELECT: {msg}")
+                    else:
+                        notes.append(f"line {n}: {msg} (check --strict fails on it)")
                 used = set("".join(r for f in doc.frames for r in f.grid))
                 unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
                 if unused:
@@ -1561,7 +1591,9 @@ def cmd_frames(a):
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
         if a.after and a.before:
             fail("E_BAD_ARG", "give --after or --before, not both")
-        print("; ".join((frames_sel_edit if sel else frames_edit)(a, doc, sel, picked) + [write_doc(doc)]))
+        had = set(doc.groups())
+        did = (frames_sel_edit if sel else frames_edit)(a, doc, sel, picked)
+        print("; ".join(did + drop_orphans(doc, had - set(doc.groups())) + [write_doc(doc)]))
         return
     for g, fs in doc.groups(picked).items():
         meta = doc.anims.get(g, {})
@@ -1575,6 +1607,21 @@ def cmd_frames(a):
             print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}  (line {f.line})")
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
+
+
+def drop_orphans(doc, emptied):
+    """The @anim and @still lines of groups that just lost their last frame go too: what went."""
+    gone = [f"@anim {g}" for g in doc.anims if g in emptied] + [f"@still {g}" for g in doc.stills if g in emptied]
+    doc.anims = {g: v for g, v in doc.anims.items() if g not in emptied}
+    doc.stills = [g for g in doc.stills if g not in emptied]
+    return [f"removed {', '.join(gone)} (no frames left)"] if gone else []
+
+
+def orphans(doc):
+    """@anim / @still lines that name a group with no frames: [(line text, line number)]."""
+    have = set(doc.groups())
+    return [(f"@anim {g}", doc.at.get(("anim", g))) for g in doc.anims if g not in have] + \
+        [(f"@still {g}", doc.at.get(("still", g))) for g in doc.stills if g != "*" and g not in have]
 
 
 def frames_edit(a, doc, sel, picked):
@@ -1595,6 +1642,11 @@ def frames_edit(a, doc, sel, picked):
         did.append("removed " + ", ".join(a.rm))
     if a.move:
         f = doc.get(a.move)
+        inside = [g.id for g in doc.frames if (g.id or "").startswith(a.move + "/")]
+        if not f and inside:
+            where = f"--{'before' if a.before else 'after'} {a.before or a.after or 'ID'}"
+            fail("E_BAD_ARG", f"--move {a.move!r} is a group ({', '.join(inside)}); --move takes one frame id. Groups "
+                 f"move with 'frames FILE:GROUP --before/--after ID': frames {doc.path}:{a.move} {where}")
         anchor = doc.get(a.after or a.before or "")
         if not f or not anchor or f is anchor:
             fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")

@@ -3381,8 +3381,8 @@ def test_frames_sel_unknown_is_select_not_file_error(tmp_path):
 def test_frames_sel_rm_removes_the_selection(tmp_path, capsys):
     p = write(tmp_path, "h.px", SELS)
     assert run("frames", f"{p}:walk", "--rm") == 0
-    assert capsys.readouterr().out == f"removed walk/0, walk/1, walk/2; wrote {p}\n"
-    assert ids(p) == ["idle/0", "icon"]
+    assert capsys.readouterr().out == f"removed walk/0, walk/1, walk/2; removed @anim walk (no frames left); wrote {p}\n"
+    assert ids(p) == ["idle/0", "icon"] and "@anim" not in p.read_text()
 
 
 def test_frames_sel_rm_one_frame(tmp_path, capsys):
@@ -5523,3 +5523,219 @@ def test_parse_color_spellings():
     with pytest.raises(pxart.PxError) as e:
         pxart.parse_color("#12345", "--bg")
     assert codes(e) == ["E_BAD_COLOR"]
+
+
+# ---------------------------------------------------------------- loop I: removing a group's last frame drops its @anim/@still
+
+ORPH = ("k #000000\n@anim walk ms=90\n@anim idle ms=200\n@still ui\n\n@frame walk/0\nk\n@frame walk/1\nk\n"
+        "@frame idle/0\nk\n@frame ui/a\nk\n@frame ui/b\nk\n")
+
+
+def test_rm_every_frame_of_a_group_by_id_drops_its_anim(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("frames", p, "--rm", "walk/0", "walk/1") == 0
+    assert capsys.readouterr().out == f"removed walk/0, walk/1; removed @anim walk (no frames left); wrote {p}\n"
+    doc = pxart.parse(p)
+    assert list(doc.anims) == ["idle"] and "@anim walk" not in p.read_text()
+
+
+def test_rm_selection_drops_its_still(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("frames", f"{p}:ui", "--rm") == 0
+    assert "removed @still ui (no frames left)" in capsys.readouterr().out
+    assert pxart.parse(p).stills == [] and "@still" not in p.read_text()
+
+
+def test_rm_part_of_a_group_keeps_its_anim(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("frames", p, "--rm", "walk/0") == 0
+    assert "no frames left" not in capsys.readouterr().out
+    assert "@anim walk ms=90" in p.read_text()
+
+
+def test_rm_keeps_an_unrelated_orphan(tmp_path):
+    # Only the groups this --rm empties lose their lines; an @anim that was already orphaned is left for check.
+    p = write(tmp_path, "o.px", "k #000000\n@anim gone ms=5\n" + ORPH.split("\n", 1)[1])
+    assert run("frames", p, "--rm", "idle/0") == 0
+    assert list(pxart.parse(p).anims) == ["gone", "walk"]
+
+
+def test_rm_everything_leaves_a_palette_only_file_without_orphans(tmp_path):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("frames", p, "--rm", "walk/0", "walk/1", "idle/0", "ui/a", "ui/b") == 0
+    assert p.read_text() == "k #000000\n"
+
+
+def test_rm_star_still_is_kept(tmp_path):
+    p = write(tmp_path, "o.px", "k #000000\n@still *\n@frame a\nk\n@frame b\nk\n")
+    assert run("frames", p, "--rm", "a") == 0
+    assert pxart.parse(p).stills == ["*"]
+
+
+def test_rm_orphan_output_is_a_byte_exact_rewrite(tmp_path):
+    p = write(tmp_path, "o.px", "k #000000\n# walk timing\n@anim walk ms=90\n@anim idle ms=200\n\n@frame walk/0\nk\n"
+              "@frame idle/0\nk\n")
+    assert run("frames", p, "--rm", "walk/0") == 0
+    # The comment goes with its @anim line; the blank line went with walk/0's @frame, as any --rm does.
+    assert p.read_text() == "k #000000\n@anim idle ms=200\n@frame idle/0\nk\n"
+
+
+def test_check_notes_orphan_anim_and_still(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n@anim gone ms=5\n@still nothing\n@frame a/0\nk\n")
+    assert run("check", p) == 0
+    out = capsys.readouterr().out
+    assert f"{p}: line 2: '@anim gone' names a group with no frames" in out
+    assert f"{p}: line 3: '@still nothing' names a group with no frames" in out
+    assert "check --strict fails on it" in out
+
+
+def test_check_strict_fails_on_orphans(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n@anim gone ms=5\n@still nothing\n@frame a/0\nk\n")
+    assert run("check", "--strict", p) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {p}:2: E_SELECT: '@anim gone' names a group with no frames" in out
+    assert f"FAIL {p}:3: E_SELECT: '@still nothing' names a group with no frames" in out
+
+
+def test_check_strict_passes_without_orphans(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("check", "--strict", p) == 0
+    assert "no frames" not in capsys.readouterr().out
+
+
+def test_check_star_still_is_never_an_orphan(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n@still *\nk\n")
+    assert run("check", "--strict", p) == 0
+
+
+def test_orphans_helper(tmp_path):
+    doc = pxart.parse(write(tmp_path, "o.px", "k #000000\n@anim x\n@anim a\n@still y\n@frame a/0\nk\n"))
+    assert pxart.orphans(doc) == [("@anim x", 2), ("@still y", 4)]
+
+
+# ---------------------------------------------------------------- loop I: --move with a group name
+
+def test_move_a_group_name_says_how_groups_move(tmp_path):
+    p = write(tmp_path, "o.px", ORPH)
+    msg = run_err("frames", p, "--move", "walk", "--after", "idle/0")
+    assert "E_BAD_ARG" in msg and "'walk' is a group (walk/0, walk/1)" in msg
+    assert "frames FILE:GROUP --before/--after ID" in msg and f"frames {p}:walk --after idle/0" in msg
+    assert p.read_text() == ORPH
+
+
+def test_move_a_group_name_with_before(tmp_path):
+    p = write(tmp_path, "o.px", ORPH)
+    assert f"frames {p}:ui --before walk/0" in run_err("frames", p, "--move", "ui", "--before", "walk/0")
+
+
+def test_move_an_unknown_id_is_still_select(tmp_path):
+    p = write(tmp_path, "o.px", ORPH)
+    msg = run_err("frames", p, "--move", "nope", "--after", "idle/0")
+    assert "E_SELECT" in msg and "is a group" not in msg
+
+
+def test_move_a_frame_still_works(tmp_path):
+    p = write(tmp_path, "o.px", ORPH)
+    assert run("frames", p, "--move", "idle/0", "--before", "walk/0") == 0
+    assert [f.id for f in pxart.parse(p).frames][:2] == ["idle/0", "walk/0"]
+
+
+# ---------------------------------------------------------------- loop I: -h states default scales
+
+def test_help_states_default_scales():
+    doc = pxart.__doc__
+    assert "Default --scale 4 (not render's 8)" in doc and "(default --scale 8;" in doc
+
+
+# ---------------------------------------------------------------- loop I: %base keeps an item in the base palette
+
+NIGHT = "k #102030\ny #f0c040\n@variant night\ny #203040\n\n@frame lamp\ny\n@frame wall\nk\n"
+
+
+def px1(path, xy):
+    return Image.open(path).convert("RGBA").getpixel(xy)
+
+
+def test_scene_item_base_ignores_variant(tmp_path):
+    p = write(tmp_path, "l.px", NIGHT)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", "--variant", "night",
+               f"{p}:lamp%base@0,0", f"{p}:lamp@1,0") == 0
+    assert px1(tmp_path / "s.png", (0, 0))[:3] == (0xF0, 0xC0, 0x40)
+    assert px1(tmp_path / "s.png", (1, 0))[:3] == (0x20, 0x30, 0x40)
+
+
+def test_scene_legend_base_ignores_variant(tmp_path):
+    write(tmp_path, "l.px", NIGHT)
+    m = write(tmp_path, "r.map", "L l.px:lamp%base\nl l.px:lamp\n\nLl\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "1x1", "--scale", "1", "--variant", "night") == 0
+    assert px1(tmp_path / "s.png", (0, 0))[:3] == (0xF0, 0xC0, 0x40)
+    assert px1(tmp_path / "s.png", (1, 0))[:3] == (0x20, 0x30, 0x40)
+
+
+def test_base_with_flip_suffix(tmp_path):
+    p = write(tmp_path, "l.px", "y #f0c040\nk #000000\n@variant night\ny #203040\n\n@frame a\nyk\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", "--variant", "night",
+               f"{p}:a%base+h@0,0") == 0
+    assert px1(tmp_path / "s.png", (1, 0))[:3] == (0xF0, 0xC0, 0x40)
+
+
+def test_base_without_variant_is_base(tmp_path):
+    p = write(tmp_path, "l.px", NIGHT)
+    (it,) = pxart.items(f"{p}:lamp%base")
+    assert it.img.getpixel((0, 0))[:3] == (0xF0, 0xC0, 0x40)
+
+
+def test_base_works_for_a_file_with_no_variants(tmp_path):
+    p = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("render", f"{p}%base", "-o", tmp_path / "r.png") == 0
+
+
+def test_export_base(tmp_path):
+    p = write(tmp_path, "l.px", NIGHT)
+    assert run("export", f"{p}:lamp%base", "--frames", tmp_path / "f", "--variant", "night") == 0
+    assert px1(tmp_path / "f" / "lamp.png", (0, 0))[:3] == (0xF0, 0xC0, 0x40)
+
+
+def test_check_notes_variant_named_base(tmp_path, capsys):
+    p = write(tmp_path, "l.px", "k #000000\n@variant base\nk #ffffff\n\nk\n")
+    assert run("check", p) == 0
+    assert "'@variant base' can't be picked" in capsys.readouterr().out
+
+
+def test_help_documents_percent_base():
+    assert "%base is the base palette" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop I: sheet doesn't count the --bg backdrop
+
+def test_sheet_color_count_skips_bg_filled_png(tmp_path):
+    img = Image.new("RGBA", (6, 6), (0x3A, 0x3A, 0x44, 255))
+    img.putpixel((2, 2), (255, 0, 0, 255)); img.putpixel((3, 3), (0, 255, 0, 255))
+    img.save(tmp_path / "scene.png")
+    its = pxart.all_items([str(tmp_path / "scene.png")])
+    assert pxart.n_colors(its[0], "#3a3a44") == 2
+    assert pxart.n_colors(its[0], (0x3A, 0x3A, 0x44, 255)) == 2
+    assert pxart.n_colors(its[0], "#000000") == 3  # another bg: the fill is a color of the art
+
+
+def test_sheet_color_count_needs_all_four_corners(tmp_path):
+    img = Image.new("RGBA", (4, 4), (0, 0, 0, 255))
+    img.putpixel((3, 3), (9, 9, 9, 255))
+    img.save(tmp_path / "a.png")
+    (it,) = pxart.all_items([str(tmp_path / "a.png")])
+    assert pxart.n_colors(it, "#000000") == 2
+
+
+def test_sheet_color_count_of_px_is_unchanged(tmp_path):
+    p = write(tmp_path, "a.px", "k #3a3a44\nr #ff0000\nkk\nkr\n")
+    (it,) = pxart.all_items([str(p)])
+    assert pxart.n_colors(it, "#3a3a44") == 2  # a sprite's own color is never the backdrop
+
+
+def test_sheet_label_uses_the_count(tmp_path):
+    img = Image.new("RGBA", (6, 6), (0x47, 0x2D, 0x3C, 255)); img.putpixel((1, 1), (255, 0, 0, 255))
+    img.save(tmp_path / "s.png")
+    assert run("sheet", tmp_path / "s.png", "-o", tmp_path / "a.png", "--bg", "#472d3c") == 0
+    assert run("sheet", tmp_path / "s.png", "-o", tmp_path / "b.png") == 0
+    a, b = (pxart.pixels(Image.open(tmp_path / n).convert("RGBA")) for n in ("a.png", "b.png"))
+    assert a != b
