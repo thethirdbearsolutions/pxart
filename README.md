@@ -91,28 +91,30 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
   `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
-  suffix as in `hero.px:walk/0+h@3,4`; `--map` text tilemaps;
-  `--variant V` recolors the whole room; `--tint '#10183080'` lays a translucent color over
-  the finished scene for night, and `tint` does the same to a PNG). A map legend line is `<char> <path>`: the rest
-  of the line is the path, so a pack folder with spaces works as is (quotes optional),
-  and a legend entry that can't load is an error at its legend line. A `#` line before
-  the rows is a comment unless it is exactly `# FILE.px[:frame][%variant]` or
-  `# FILE.png` (or a quoted path), which makes `#` a map char (a wall row `####`);
-  `check` and `scene` note it. A line `---` after the rows starts another layer of rows over
-  the same legend (a tile and a sprite in one cell); later layers draw on top, `.` is empty.
+  suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
+  `--tint '#10183080'` lays a translucent color over the finished scene for night), and
+  `tint`, which does the same to a PNG.
+- **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
+  is the path, so a pack folder with spaces works as is (quotes optional). A legend
+  entry that can't load is an error at its legend line. A `#` line before the rows is a
+  comment unless it is exactly `# FILE.px[:frame][%variant]` or `# FILE.png` (or a
+  quoted path), which makes `#` a map char (a wall row `####`); `check` and `scene` note
+  it. A line `---` after the rows starts another layer of rows over the same legend (a
+  tile and a sprite in one cell); later layers draw on top, and `.` is empty.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
-  they did).
+  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII;
+  exits 1), `stats`, `frames` (`--rm`/`--move` print only what they did).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
-  region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
-  `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a `--dither N`
-  edge; `--invert` erases the inside instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
-  new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
+  region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor`
+  (optionally within a region), `mask` (erase outside `--keep x,y,w,h` or
+  `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
+  instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
+  a new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
-  always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with
-  that frame flipped. `extract hero.px:walk -o walk.px` writes only the selected frames,
-  with the same palette and imports.
+  always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px
+  with that frame flipped. `extract hero.px:walk -o walk.px` writes only the selected
+  frames, with the same palette and imports.
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.

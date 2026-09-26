@@ -64,9 +64,9 @@ LOOKING
       empty). In a legend line the rest of the line is the path, relative to the map file:
       spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes" optional. check and
       scene load every legend entry; one that can't load is an error at its legend line.
-      Items are then drawn on top. '#' lines are
-      comments only before the first row; after that every non-blank line is a row, so
-      '#' works as a map char (a wall row '####'). Before the rows, a line that is exactly
+      Items are then drawn on top. '#' lines are comments only before the first row;
+      after that every non-blank line is a row, so '#' works as a map char (a wall row
+      '####'). Before the rows, a line that is exactly
       '# FILE.px[:frame][%variant]' or '# FILE.png' (one token after '#', no spaces) is the
       legend line for '#', not a comment, and so is a quoted path ('# "my tiles/wall.png"');
       check and scene print a note for it. Any other line starting with '#' is a comment
@@ -100,8 +100,9 @@ CHECKING
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE [--rm ID...] [--move ID --after|--before ID]
-      List frames, sizes, durations ('still' for @still groups) and animations; or delete /
-      reorder frames (prints what it removed or moved, not the listing).
+      List frames, sizes, durations ('still' for @still groups; every frame under
+      '@still *') and animations; or delete / reorder frames (prints what it removed or
+      moved, not the listing).
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
