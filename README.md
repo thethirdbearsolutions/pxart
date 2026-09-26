@@ -69,7 +69,7 @@ pxart 1
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
   `--variant night`.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
-  group (a parts file).
+  frame, top-level ids included (a parts file).
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
 `file.px:walk/down/0` (one frame).

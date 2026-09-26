@@ -1408,9 +1408,9 @@ def test_frames_still_star_shows_still_everywhere(tmp_path, capsys):
     p = write(tmp_path, "p.px", PARTS)
     assert run("frames", p) == 0
     out = capsys.readouterr().out
-    assert "ms" not in out.replace("(no group)", "").split("loose")[0]
+    assert "ms" not in out
     assert "hat/big  2x1  still" in out and "body/a  3x1  still" in out
-    assert "loose  1x1  100ms" in out  # top-level frames aren't a @still group
+    assert "loose  1x1  still" in out  # '@still *' covers top-level frames too
 
 
 def test_help_documents_frames_still_and_output():
@@ -2391,3 +2391,57 @@ def test_extract_then_edit_gives_the_subset_flipped(tmp_path):
 def test_help_documents_output_semantics_and_extract():
     doc = pxart.__doc__
     assert "-o OUT always gets the whole file" in doc and "extract FILE:SEL -o OUT" in doc
+
+
+# ---------------------------------------------------------------- loop F: '@still *' covers top-level frames
+
+TOPLEVEL = "k #000000\n@still *\n@frame icon\nk\n@frame badge\nkk\n@frame hat/big\nkk\n"
+
+
+def test_still_star_top_level_frames_listed_still(tmp_path, capsys):
+    p = write(tmp_path, "p.px", TOPLEVEL)
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "(no group): 2 frame(s) [still]" in out and "hat: 1 frame(s) [still]" in out
+    assert "icon  1x1  still" in out and "badge  2x1  still" in out and "ms" not in out
+
+
+def test_top_level_frames_without_still_star_show_ms(tmp_path, capsys):
+    p = write(tmp_path, "p.px", TOPLEVEL.replace("@still *\n", ""))
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "icon  1x1  100ms" in out and "[still]" not in out
+
+
+def test_named_still_group_does_not_cover_top_level(tmp_path, capsys):
+    p = write(tmp_path, "p.px", TOPLEVEL.replace("@still *", "@still hat"))
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "icon  1x1  100ms" in out and "hat/big  2x1  still" in out
+    assert "(no group): 2 frame(s)\n" in out
+
+
+def test_doc_still_rule(tmp_path):
+    star = pxart.parse(write(tmp_path, "a.px", TOPLEVEL))
+    assert star.still("") and star.still("hat") and star.still("any/thing")
+    named = pxart.parse(write(tmp_path, "b.px", TOPLEVEL.replace("@still *", "@still hat")))
+    assert not named.still("") and named.still("hat") and not named.still("walk")
+    plain = pxart.parse(write(tmp_path, "c.px", TOPLEVEL.replace("@still *\n", "")))
+    assert not plain.still("") and not plain.still("hat")
+
+
+def test_still_star_top_level_excluded_from_exports(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@still *\n@frame a\nk\n@frame b\nk\n@frame g/0\nk\n@frame g/1\nk\n")
+    assert run("export", p, "--aseprite", tmp_path / "x.json", "--tiled", tmp_path / "x.tsj") == 0
+    assert json.loads((tmp_path / "x.json").read_text())["meta"]["frameTags"] == []
+    assert json.loads((tmp_path / "x.tsj").read_text())["tiles"] == []
+
+
+def test_still_star_top_level_mixed_sizes_no_note(tmp_path, capsys):
+    p = write(tmp_path, "p.px", TOPLEVEL)
+    assert run("check", p) == 0
+    assert "mixes frame sizes" not in capsys.readouterr().out
+
+
+def test_help_documents_still_star_top_level():
+    assert "'@still *' marks every frame in the file, top-level" in pxart.__doc__

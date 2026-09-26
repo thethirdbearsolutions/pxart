@@ -22,8 +22,9 @@ FORMAT (.px)
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
-  out of animation exports and checks; '@still *' marks every group in the file (a parts
-  file). Top-level ids with no '/' are fine.
+  out of animation exports and checks; '@still *' marks every frame in the file, top-level
+  ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
+  also lists them as 'still' in frames.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override.
@@ -271,6 +272,10 @@ class Doc:
     def animated(self, group):
         """Groups are animations unless marked @still (and the ungrouped top level never is)."""
         return bool(group) and group not in self.stills and "*" not in self.stills
+
+    def still(self, group):
+        """Marked still: a @still group, or any frame at all (top-level ones too) under '@still *'."""
+        return not self.animated(group) and (bool(group) or "*" in self.stills)
 
     def label(self, f):
         return f.id if f.id else self.stem
@@ -1206,7 +1211,7 @@ def cmd_frames(a):
         return
     for g, fs in doc.groups().items():
         meta = doc.anims.get(g, {})
-        still = g and not doc.animated(g)
+        still = doc.still(g)
         head = f"{g or '(no group)'}: {len(fs)} frame(s)" + (" [still]" if still else "")
         extra = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
         print(head + (f" [{extra}]" if extra else ""))
