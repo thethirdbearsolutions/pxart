@@ -104,7 +104,10 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   edge; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
   new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
-  an edit that changes nothing says `no change` and leaves the file alone.
+  an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
+  always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with
+  that frame flipped. `extract hero.px:walk -o walk.px` writes only the selected frames,
+  with the same palette and imports.
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.

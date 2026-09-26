@@ -2242,3 +2242,152 @@ def test_help_documents_legend_paths():
     doc = pxart.__doc__
     assert "the rest of the line is the path" in doc and "'# \"my tiles/wall.png\"'" in doc
     assert "error at its legend line" in doc
+
+
+# ---------------------------------------------------------------- loop F: -o with a selector writes the whole file; extract
+
+EDITS = "pxart 1\nk #000000\nj #ffffff\n@anim walk ms=90\n@frame walk/0\nkj.\n...\n@frame walk/1\n.jk\n...\n@frame idle\nkkk\nkkk\n"
+
+
+@pytest.mark.parametrize("argv", [
+    ["flip", "{p}:walk/0"],
+    ["flip", "{p}:walk/0", "--v"],
+    ["shift", "{p}:walk/0", "--dx", "1"],
+    ["set", "{p}:walk/0", "j", "2,1"],
+    ["mask", "{p}:walk/0", "--keep", "0,0,1,1"],
+    ["recolor", "{p}:walk/0", "k=j"],
+    ["paste", "{s}", "--into", "{p}:walk/0", "--at", "2,1"],
+])
+def test_edit_with_selector_and_output_writes_whole_file(tmp_path, capsys, argv):
+    p = write(tmp_path, "h.px", EDITS)
+    s = write(tmp_path, "s.px", "k #000000\nk\n")
+    before = p.read_text()
+    out = tmp_path / "out.px"
+    args = [a.format(p=p, s=s) for a in argv]
+    assert run(*args, "-o", out) == 0
+    assert p.read_text() == before  # the input is untouched
+    doc, src = pxart.parse(out), pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["walk/0", "walk/1", "idle"]  # every frame, not only the selection
+    assert doc.get("walk/0").grid != src.get("walk/0").grid
+    assert doc.get("walk/1").grid == src.get("walk/1").grid and doc.get("idle").grid == src.get("idle").grid
+    assert doc.anims == src.anims and doc.palette == src.palette
+    o = capsys.readouterr().out
+    assert f"note: {out} gets all of {p} with walk/0 edited" in o and f"pxart extract {p}:walk/0 -o {out}" in o
+
+
+@pytest.mark.parametrize("argv", [
+    ["flip", "{p}"], ["shift", "{p}", "--dx", "1"], ["set", "{p}:walk/0", "j", "2,1"],
+    ["recolor", "{p}", "k=j"], ["mask", "{p}", "--keep", "0,0,1,1"]])
+def test_no_selector_note_without_output_or_selector(tmp_path, capsys, argv):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run(*[a.format(p=p) for a in argv]) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_selector_with_output_to_same_file_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run("flip", f"{p}:walk/0", "-o", p) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_output_without_selector_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run("flip", p, "-o", tmp_path / "o.px") == 0
+    assert "note:" not in capsys.readouterr().out
+    assert len(pxart.parse(tmp_path / "o.px").frames) == 3
+
+
+def test_flip_group_selector_output_flips_only_the_group(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run("flip", f"{p}:walk", "-o", tmp_path / "o.px") == 0
+    doc = pxart.parse(tmp_path / "o.px")
+    assert doc.get("walk/0").grid == [".jk", "..."] and doc.get("walk/1").grid == ["kj.", "..."]
+    assert doc.get("idle").grid == ["kkk", "kkk"]
+
+
+def test_paste_goes_through_the_edit_path(tmp_path, capsys):
+    p = write(tmp_path, "h.px", EDITS)
+    s = write(tmp_path, "s.px", "k #000000\nk\n")
+    assert run("paste", s, "--into", f"{p}:idle", "--at", "0,0") == 0
+    assert "no change" in capsys.readouterr().out
+    assert run("paste", s, "--into", p, "--at", "2,1") == 0
+    doc = pxart.parse(p)
+    assert all(f.grid[1][2] == "k" for f in doc.frames)
+
+
+def test_extract_writes_only_selected_frames(tmp_path, capsys):
+    p = write(tmp_path, "h.px", EDITS)
+    out = tmp_path / "walk.px"
+    assert run("extract", f"{p}:walk", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s))\n"
+    assert out.read_text() == ("pxart 1\nk #000000\nj #ffffff\n@anim walk ms=90\n@frame walk/0\nkj.\n...\n"
+                               "@frame walk/1\n.jk\n...\n")
+
+
+def test_extract_one_frame_drops_other_anims(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run("extract", f"{p}:idle", "-o", tmp_path / "i.px") == 0
+    doc = pxart.parse(tmp_path / "i.px")
+    assert [f.id for f in doc.frames] == ["idle"] and doc.anims == {} and doc.palette == pxart.parse(p).palette
+
+
+def test_extract_keeps_variants_and_stills(tmp_path):
+    text = ("k #000000\n\n@variant night\nk #000011\n\n@still ui\n@still other\n@frame ui/a\nk\n@frame other/b\nk\n")
+    p = write(tmp_path, "u.px", text)
+    assert run("extract", f"{p}:ui", "-o", tmp_path / "o.px") == 0
+    doc = pxart.parse(tmp_path / "o.px")
+    assert doc.stills == ["ui"] and doc.variants == {"night": {"k": (0, 0, 0x11, 255)}}
+    star = write(tmp_path, "s.px", PARTS)
+    assert run("extract", f"{star}:hat", "-o", tmp_path / "hat.px") == 0
+    assert pxart.parse(tmp_path / "hat.px").stills == ["*"]
+
+
+def test_extract_repoints_palette_import(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", "@palette ../pal.px\n@frame a\nk\n@frame b\nkk\n")
+    assert run("extract", f"{p}:b", "-o", tmp_path / "out" / "deep" / "b.px") == 0
+    doc = pxart.parse(tmp_path / "out" / "deep" / "b.px")
+    assert doc.palette_refs == ["../../pal.px"] and doc.get("b").grid == ["kk"]
+    assert run("extract", f"{p}:a", "-o", tmp_path / "sprites" / "a.px") == 0
+    assert (tmp_path / "sprites" / "a.px").read_text() == "@palette ../pal.px\n@frame a\nk\n"
+    assert run("extract", f"{p}:a", "-o", tmp_path / "a.px") == 0
+    assert (tmp_path / "a.px").read_text() == "@palette pal.px\n@frame a\nk\n"
+
+
+def test_extract_keeps_comments_of_kept_frames(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n\n# first\n@frame a\nk\n\n# second\n@frame b\nk\n")
+    assert run("extract", f"{p}:b", "-o", tmp_path / "b.px") == 0
+    assert (tmp_path / "b.px").read_text() == "k #000000\n\n# second\n@frame b\nk\n"
+
+
+def test_extract_whole_file_is_a_byte_copy(tmp_path):
+    p = write(tmp_path, "m.px", MESSY)
+    assert run("extract", p, "-o", tmp_path / "c.px") == 0
+    assert (tmp_path / "c.px").read_text() == MESSY
+
+
+def test_extract_unknown_selection_is_select_error(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    assert "E_SELECT" in run_err("extract", f"{p}:nope", "-o", tmp_path / "o.px")
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_extract_needs_output(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    with pytest.raises(SystemExit):
+        pxart.main(["extract", f"{p}:idle"])
+
+
+def test_extract_then_edit_gives_the_subset_flipped(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    out = tmp_path / "w0.px"
+    assert run("extract", f"{p}:walk/0", "-o", out) == 0
+    assert run("flip", out) == 0
+    doc = pxart.parse(out)
+    assert [f.id for f in doc.frames] == ["walk/0"] and doc.get("walk/0").grid == [".jk", "..."]
+
+
+def test_help_documents_output_semantics_and_extract():
+    doc = pxart.__doc__
+    assert "-o OUT always gets the whole file" in doc and "extract FILE:SEL -o OUT" in doc

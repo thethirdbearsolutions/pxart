@@ -85,6 +85,9 @@ CHECKING
       reorder frames (prints what it removed or moved, not the listing).
 
 EDITING (writes .px; -o defaults to editing the input in place)
+  -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
+  frames edited and every other frame as it was (like editing a copy), and a note says so.
+  To get only some frames, extract them first (or after).
   Edits rewrite only what changed: other lines keep their spelling and the blank lines and
   comments above them, and new frames get the file's spacing between @frame blocks.
   An edit that changes nothing (set to the same key, flip of a symmetric frame) prints
@@ -104,6 +107,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
+  extract FILE:SEL -o OUT
+      Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
+      imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
+      of groups left behind): 'extract hero.px:walk/down -o walk.px'.
   recolor FILE a=b [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region);
       c=#hex changes key c's color everywhere. '.' works as a source key.
@@ -868,9 +875,16 @@ def write_doc(doc, path=None):
 
 
 def edit_target(arg, out):
+    """The shared edit path: (doc, selected frames, where to write). -o gets the whole file with the selection
+    edited, never just the selection (that's extract)."""
     path, sel = split_sel(arg)
     doc = parse(path)
-    return doc, doc.select(sel), pathlib.Path(out) if out else doc.path
+    frames = doc.select(sel)
+    out = pathlib.Path(out) if out else doc.path
+    if sel and out.resolve() != doc.path.resolve():
+        print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
+              f"'pxart extract {doc.path}:{sel} -o {out}'")
+    return doc, frames, out
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None):
@@ -1344,13 +1358,31 @@ def cmd_crop(a):
 
 def cmd_paste(a):
     src = one_frame(a.src, "--src")
-    dpath, dsel = split_sel(a.into)
-    ddoc = parse(dpath)
-    dframes = ddoc.select(dsel)
+    ddoc, dframes, out = edit_target(a.into, a.o)
     ax, ay = map(int, a.at.split(","))
     for f in dframes:
         stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region)
-    print(write_doc(ddoc, a.o))
+    print(write_doc(ddoc, out))
+
+
+def cmd_extract(a):
+    """Only the selected frames, with the file's palette, @palette imports (re-pointed from OUT's directory),
+    variants, and @anim/@still lines except those of groups the selection left behind."""
+    path, sel = split_sel(a.file)
+    doc = parse(path)
+    keep = doc.select(sel)
+    gone = {f.group for f in doc.frames} - {f.group for f in keep}  # groups the selection leaves behind
+    doc.frames = keep
+    out = pathlib.Path(a.o)
+    note_suffix(out)
+    doc.anims = {g: v for g, v in doc.anims.items() if g not in gone}
+    doc.stills = [g for g in doc.stills if g not in gone]
+    if out.resolve().parent != doc.path.resolve().parent:
+        for i, ref in enumerate(doc.palette_refs):
+            new = pathlib.Path(os.path.relpath((doc.path.parent / ref).resolve(), out.resolve().parent)).as_posix()
+            doc.palette_refs[i] = new
+            doc.lead[("palref", new)] = doc.lead.pop(("palref", ref), [])
+    print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
 
 
 def cmd_compose(a):
@@ -1618,6 +1650,7 @@ def main(argv=None):
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
+    p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
