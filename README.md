@@ -101,7 +101,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   `check` and `scene` note it. A line `---` after the rows starts another layer of rows over
   the same legend (a tile and a sprite in one cell); later layers draw on top, `.` is empty.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
+  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
   they did).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
   region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),

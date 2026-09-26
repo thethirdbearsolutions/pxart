@@ -96,6 +96,8 @@ CHECKING
       #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
+      Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
+      'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE [--rm ID...] [--move ID --after|--before ID]
       List frames, sizes, durations ('still' for @still groups) and animations; or delete /
@@ -177,7 +179,7 @@ ERROR CODES
   E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, json, math, os, pathlib, re, string, sys
+import argparse, json, math, os, pathlib, re, string, sys, unicodedata
 from PIL import Image, ImageDraw
 
 FORMAT_VERSION = 1
@@ -1230,66 +1232,121 @@ def check_map(path):
     return not issues
 
 
+# Non-ASCII letters that read as ASCII ones (Cyrillic, Greek); fullwidth and other compatibility forms come
+# from NFKC.
+LOOKALIKES = dict(zip("аеорсхуіјѕԁһӏԛԝАВЕКМНОРСТХУЅІЈοανρυικχΑΒΕΖΗΙΚΜΝΟΡΤΥΧ",
+                      "aeopcxyijsdhlqwABEKMHOPCTXYSIJoavpuikxABEZHIKMNOPTYX"))
+
+
+def lookalike(ch):
+    """The ASCII char a non-ASCII ch passes for, or None."""
+    if ord(ch) < 128:
+        return None
+    n = LOOKALIKES.get(ch) or unicodedata.normalize("NFKC", ch)
+    return n if len(n) == 1 and 32 < ord(n) < 127 else None
+
+
+def lookalike_notes(path):
+    """Notes for non-ASCII chars that look like ASCII in a .px's palette/grid lines or a .map's lines, with
+    where they are: 'frame F, row R, x=X' for a .px grid row, else the column."""
+    try:
+        with open(path, newline="") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    px, notes, frame, row, ext = str(path).endswith(".px"), [], None, 0, False
+    for n, line in enumerate(lines, 1):
+        s = line.strip()
+        if not s or (px and s.startswith("#")):
+            continue
+        if px and s.startswith("@"):
+            word, *rest = s.split()
+            ext = word not in ("@frame", "@palette", "@variant", "@anim", "@still")
+            if word == "@frame":
+                frame, row = (rest[0] if rest else None), 0
+            continue
+        if ext:
+            continue
+        grid = px and not re.search(r"\s", s)
+        lead = len(line) - len(line.lstrip())
+        for x, ch in enumerate(s):
+            asc = lookalike(ch)
+            if not asc:
+                continue
+            if grid:
+                where = (f"frame {frame}, " if frame else "") + f"row {row}, x={x}"
+            else:
+                where = f"col {lead + x + 1}" + (" (the key)" if px and x == 0 else "")
+            notes.append(f"{path}:{n} ({where}): {ch!r} is U+{ord(ch):04X} "
+                         f"{unicodedata.name(ch, 'non-ASCII')}, not ASCII {asc!r}")
+        row += grid
+    return notes
+
+
 def cmd_check(a):
     allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     for arg in dict.fromkeys(a.files):
         path, sel = split_sel(arg)
-        if path.endswith(".map"):
-            failed |= not check_map(path)
-            continue
-        if path.endswith(".px") and not sel and not _has_grid(path):
+        try:
+            if path.endswith(".map"):
+                failed |= not check_map(path)
+                continue
+            if path.endswith(".px") and not sel and not _has_grid(path):
+                try:
+                    pdoc = parse(path, a.strict, palette_only=True)
+                    print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
+                          + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                except PxError as e:
+                    failed = True
+                    print(f"FAIL {path}: {len(e.issues)} error(s)")
+                    for i in e.issues:
+                        print(f"     {i}")
+                continue
             try:
-                pdoc = parse(path, a.strict, palette_only=True)
-                print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
-                      + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                its = items(arg, strict=a.strict)
             except PxError as e:
                 failed = True
                 print(f"FAIL {path}: {len(e.issues)} error(s)")
                 for i in e.issues:
                     print(f"     {i}")
-            continue
-        try:
-            its = items(arg, strict=a.strict)
-        except PxError as e:
-            failed = True
-            print(f"FAIL {path}: {len(e.issues)} error(s)")
-            for i in e.issues:
-                print(f"     {i}")
-            continue
-        notes = []
-        if its and its[0].doc:
-            doc = its[0].doc
-            over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
-            if over:
-                notes.append("local keys override @palette colors: " + "".join(over))
-            for g, fs in doc.groups().items():
-                if doc.animated(g) and len({f.size for f in fs}) > 1:
-                    notes.append(f"animation {g!r} mixes frame sizes ("
-                                 + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
-                                 + "); frames draw bottom-centered, and Tiled export needs one size")
-            used = set("".join(r for f in doc.frames for r in f.grid))
-            unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
-            if unused:
-                notes.append("unused keys " + "".join(unused))
-        for it in its:
-            probs = []
-            if want and it.img.size != want:
-                probs.append(f"size {it.img.width}x{it.img.height} != {want[0]}x{want[1]}")
-            cs = colors(it.img)
-            if allowed is not None:
-                off = [rgba2hex(c) for c in cs if c[:3] not in allowed]
-                if off:
-                    probs.append("off-palette " + " ".join(off))
-            if a.max_colors and len(cs) > a.max_colors:
-                probs.append(f"{len(cs)} colors > {a.max_colors}")
-            failed |= bool(probs)
-            name = path if len(its) == 1 and not (it.frame and it.frame.id) else f"{path}:{it.label}"
-            print(f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} {len(cs)}c"
-                  + "".join(f"; {x}" for x in probs))
-        for note in notes:
-            print(f"     {path}: {note}")
+                continue
+            notes = []
+            if its and its[0].doc:
+                doc = its[0].doc
+                over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
+                if over:
+                    notes.append("local keys override @palette colors: " + "".join(over))
+                for g, fs in doc.groups().items():
+                    if doc.animated(g) and len({f.size for f in fs}) > 1:
+                        notes.append(f"animation {g!r} mixes frame sizes ("
+                                     + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
+                                     + "); frames draw bottom-centered, and Tiled export needs one size")
+                used = set("".join(r for f in doc.frames for r in f.grid))
+                unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
+                if unused:
+                    notes.append("unused keys " + "".join(unused))
+            for it in its:
+                probs = []
+                if want and it.img.size != want:
+                    probs.append(f"size {it.img.width}x{it.img.height} != {want[0]}x{want[1]}")
+                cs = colors(it.img)
+                if allowed is not None:
+                    off = [rgba2hex(c) for c in cs if c[:3] not in allowed]
+                    if off:
+                        probs.append("off-palette " + " ".join(off))
+                if a.max_colors and len(cs) > a.max_colors:
+                    probs.append(f"{len(cs)} colors > {a.max_colors}")
+                failed |= bool(probs)
+                name = path if len(its) == 1 and not (it.frame and it.frame.id) else f"{path}:{it.label}"
+                print(f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} {len(cs)}c"
+                      + "".join(f"; {x}" for x in probs))
+            for note in notes:
+                print(f"     {path}: {note}")
+        finally:  # after the file's own lines, like its other notes
+            for note in lookalike_notes(path) if path.endswith((".px", ".map")) else []:
+                print(f"     note: {note}")
     sys.exit(1 if failed else 0)
 
 

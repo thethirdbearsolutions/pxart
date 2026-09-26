@@ -3225,3 +3225,113 @@ def test_outpath_still_creates_directories(tmp_path):
 def test_help_documents_mangled_inputs_and_file_parents():
     doc = pxart.__doc__
     assert "hero.pxalk/0" in doc and "-o hero.px/walk/0" in doc
+
+
+# ---------------------------------------------------------------- loop F: check notes non-ASCII lookalikes
+
+@pytest.mark.parametrize("ch,asc,name", [("а", "a", "CYRILLIC SMALL LETTER A"), ("е", "e", "CYRILLIC SMALL LETTER IE"),
+                                         ("о", "o", "CYRILLIC SMALL LETTER O"), ("р", "p", "CYRILLIC SMALL LETTER ER"),
+                                         ("с", "c", "CYRILLIC SMALL LETTER ES"), ("х", "x", "CYRILLIC SMALL LETTER HA"),
+                                         ("у", "y", "CYRILLIC SMALL LETTER U"), ("Н", "H", "CYRILLIC CAPITAL LETTER EN"),
+                                         ("ο", "o", "GREEK SMALL LETTER OMICRON"), ("Α", "A", "GREEK CAPITAL LETTER ALPHA"),
+                                         ("ｋ", "k", "FULLWIDTH LATIN SMALL LETTER K"), ("＃", "#", "FULLWIDTH NUMBER SIGN"),
+                                         ("０", "0", "FULLWIDTH DIGIT ZERO"), ("．", ".", "FULLWIDTH FULL STOP")])
+def test_lookalike_table(ch, asc, name):
+    assert pxart.lookalike(ch) == asc
+    import unicodedata
+    assert unicodedata.name(ch) == name
+
+
+@pytest.mark.parametrize("ch", ["a", "k", ".", " ", "é", "ß", "中", "→", "λ", "ж", "　"])
+def test_not_lookalikes(ch):
+    assert pxart.lookalike(ch) is None
+
+
+def test_check_notes_lookalike_in_grid_row(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\no #ffffff\n@frame walk/0\nkok\nkоk\n")
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    fail_at, note_at = out.index("FAIL"), out.index("note:")
+    assert fail_at < note_at  # the note follows the file's own lines
+    assert (f"     note: {p}:5 (frame walk/0, row 1, x=1): 'о' is U+043E CYRILLIC SMALL LETTER O, not ASCII 'o'"
+            in out)
+
+
+def test_check_notes_lookalike_palette_key(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\nа #ffffff\nk\n")
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    assert f"{p}:2 (col 1 (the key)): 'а' is U+0430 CYRILLIC SMALL LETTER A, not ASCII 'a'" in out
+    assert "E_BAD_KEY" in out
+
+
+def test_check_notes_fullwidth_in_implicit_grid(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n\nkk\nkｋ\n")
+    assert run("check", p) == 1
+    assert f"{p}:4 (row 1, x=1): 'ｋ' is U+FF4B FULLWIDTH LATIN SMALL LETTER K, not ASCII 'k'" in capsys.readouterr().out
+
+
+def test_check_notes_every_lookalike_on_a_line(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #000000\n@frame a\nоoо\n")
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    assert "(frame a, row 0, x=0)" in out and "(frame a, row 0, x=2)" in out and "x=1)" not in out
+
+
+def test_check_notes_indented_lines_count_columns(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n  kkа\n")
+    assert run("check", p) == 1
+    assert "(row 0, x=2)" in capsys.readouterr().out
+
+
+def test_check_lookalike_rows_count_per_frame(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nkk\nkk\n@frame b\nkk\nkх\n")
+    assert run("check", p) == 1
+    assert "(frame b, row 1, x=1): 'х'" in capsys.readouterr().out
+
+
+def test_check_lookalike_in_comment_is_ignored(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "# сolor notes: о\nk #000000\nk\n")
+    assert run("check", p) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_check_lookalike_in_unknown_section_is_ignored(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\nk\n\n@future thing\nаbc\n")
+    assert run("check", p) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_check_clean_file_has_no_lookalike_note(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("check", p) == 0
+    assert "U+" not in capsys.readouterr().out
+
+
+def test_check_lookalike_note_is_not_a_failure(tmp_path, capsys):
+    q = write(tmp_path, "m.map", "а x.png\n\nа\n")
+    png(tmp_path, "x.png", (1, 1), (1, 1, 1, 255))
+    assert run("check", q) == 0  # a Cyrillic legend char used consistently still works
+    assert "U+0430" in capsys.readouterr().out
+
+
+def test_check_map_notes_lookalike_mismatch(tmp_path, capsys):
+    png(tmp_path, "x.png", (1, 1), (1, 1, 1, 255))
+    m = write(tmp_path, "m.map", "a x.png\n\naа\n")
+    assert run("check", m) == 1
+    out = capsys.readouterr().out
+    assert "E_UNKNOWN_KEY" in out and f"{m}:3 (col 2): 'а' is U+0430 CYRILLIC SMALL LETTER A, not ASCII 'a'" in out
+
+
+def test_check_palette_file_lookalike(tmp_path, capsys):
+    p = write(tmp_path, "pal.px", "k #000000\nе #ffffff\n")
+    assert run("check", p) == 1
+    assert "'е' is U+0435 CYRILLIC SMALL LETTER IE, not ASCII 'e'" in capsys.readouterr().out
+
+
+def test_check_missing_file_still_errors_without_notes(tmp_path):
+    assert "E_FILE" in run_err("check", tmp_path / "nope.px")
+
+
+def test_help_documents_lookalikes():
+    assert "look like ASCII (Cyrillic/Greek" in pxart.__doc__
