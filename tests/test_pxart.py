@@ -4107,3 +4107,155 @@ def test_help_documents_anim_set():
     doc = pxart.__doc__
     assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [-o OUT]" in doc
     assert "FILE:GROUP/ID (one frame) takes only ms=N" in doc and "Only that one line changes" in doc
+
+
+# ---------------------------------------------------------------- loop G: extract --inline-palette
+
+BASE_PAL = "# base colors\nk #101010\ng #20a020\nb #2020c0\nu #999999\n\n@variant dusk\nk #000000\ng #104010\nu #555555\n"
+MID_PAL = "@palette base.px\nr #c02020\n\n@variant dusk\nr #601010\n\n@variant frost\nb #a0c0ff\n"
+HANDOFF = ("pxart 1\n# imports\n@palette pals/mid.px\ng #30ff30\nq #ff00ff\n\n@variant dusk\nq #800080\n\n"
+           "@variant rain\nk #333344\n\n@anim cat ms=90\n\n@frame cat/0\nkgr.\nk..b\n@frame cat/1\n.gk.\nq..r\n"
+           "@frame dog/0\nuuuu\n")
+
+
+def handoff(tmp_path):
+    (tmp_path / "pals").mkdir(exist_ok=True)
+    write(tmp_path / "pals", "base.px", BASE_PAL)
+    write(tmp_path / "pals", "mid.px", MID_PAL)
+    return write(tmp_path, "folk.px", HANDOFF)
+
+
+def same_renders(src, out, sel=None):
+    """Every selected frame of src renders the same from out, base palette and every variant src knows."""
+    names = [None] + sorted(set(src.variants) | set(src.shared_variants))
+    n = 0
+    for f in src.select(sel):
+        for v in names:
+            assert pxart.pixels(src.image(f, v)) == pxart.pixels(out.image(out.get(f.id), v)), (f.id, v)
+            n += 1
+    return n
+
+
+def test_extract_inline_palette_renders_identically(tmp_path):
+    p = handoff(tmp_path)
+    out = tmp_path / "hand" / "cat.px"
+    assert run("extract", f"{p}:cat", "-o", out, "--inline-palette") == 0
+    src, o = pxart.parse(p), pxart.parse(out)
+    assert same_renders(src, o, "cat") == 2 * 4  # two frames x (base, dusk, frost, rain)
+
+
+def test_extract_inline_palette_is_self_contained(tmp_path):
+    p = handoff(tmp_path)
+    out = tmp_path / "cat.px"
+    assert run("extract", f"{p}:cat", "-o", out, "--inline-palette") == 0
+    text = out.read_text()
+    assert "@palette" not in text
+    alone = tmp_path / "elsewhere"
+    alone.mkdir()
+    (alone / "cat.px").write_text(text)  # no palette files beside it
+    o = pxart.parse(alone / "cat.px")
+    assert o.palette_refs == [] and same_renders(pxart.parse(p), o, "cat") == 8
+
+
+def test_extract_inline_palette_exact_text(tmp_path):
+    p = handoff(tmp_path)
+    out = tmp_path / "cat.px"
+    assert run("extract", f"{p}:cat", "-o", out, "--inline-palette") == 0
+    assert out.read_text() == (
+        "pxart 1\n# imports\n"
+        "k #101010\nb #2020c0\nr #c02020\n"      # imported keys the frames use, in import order (base.px first)
+        "g #30ff30\nq #ff00ff\n"                  # local keys as they were (g overrides the import)
+        "\n@variant dusk\nq #800080\nk #000000\ng #104010\nr #601010\n"
+        "\n@variant rain\nk #333344\n"
+        "\n@variant frost\nb #a0c0ff\n"
+        "\n@anim cat ms=90\n\n@frame cat/0\nkgr.\nk..b\n@frame cat/1\n.gk.\nq..r\n")
+
+
+def test_extract_inline_palette_only_used_imported_keys(tmp_path):
+    p = handoff(tmp_path)
+    out = tmp_path / "dog.px"
+    assert run("extract", f"{p}:dog", "-o", out, "--inline-palette") == 0
+    o = pxart.parse(out)
+    assert list(o.palette) == ["k", "u", "g", "q"]  # u used; k set by local @variant rain; g, q local
+    assert "b" not in o.palette and "r" not in o.palette
+    assert o.variants["dusk"] == {"q": (0x80, 0, 0x80, 255), "k": (0, 0, 0, 255), "g": (0x10, 0x40, 0x10, 255),
+                                  "u": (0x55, 0x55, 0x55, 255)}
+    assert o.variants["frost"] == {} and "@variant frost\n" in out.read_text()
+    assert same_renders(pxart.parse(p), o, "dog") == 4
+
+
+def test_extract_inline_palette_local_override_wins_over_imported_variant_rule(tmp_path):
+    # An imported variant color applies to a locally overridden key too; inlining keeps that.
+    p = handoff(tmp_path)
+    out = tmp_path / "cat.px"
+    assert run("extract", f"{p}:cat/0", "-o", out, "--inline-palette") == 0
+    src, o = pxart.parse(p), pxart.parse(out)
+    assert src.image(src.get("cat/0"), "dusk").getpixel((1, 0))[:3] == (0x10, 0x40, 0x10)
+    assert o.image(o.get("cat/0"), "dusk").getpixel((1, 0))[:3] == (0x10, 0x40, 0x10)
+    assert o.image(o.get("cat/0")).getpixel((1, 0))[:3] == (0x30, 0xff, 0x30)
+
+
+def test_extract_inline_palette_without_variants(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\nj #ffffff\nz #123456\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nkj\n@frame b\njj\n")
+    out = tmp_path / "o.px"
+    assert run("extract", f"{p}:a", "-o", out, "--inline-palette") == 0
+    assert out.read_text() == "k #000000\nj #ffffff\n@frame a\nkj\n"
+    assert same_renders(pxart.parse(p), pxart.parse(out), "a") == 1
+
+
+def test_extract_inline_palette_keeps_comments_above_the_import(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "pxart 1\n\n# shared colors\n@palette pal.px\nj #ffffff\n\n@frame a\nkj\n")
+    assert run("extract", p, "-o", tmp_path / "o.px", "--inline-palette") == 0
+    assert (tmp_path / "o.px").read_text() == "pxart 1\n\n# shared colors\nk #000000\nj #ffffff\n\n@frame a\nkj\n"
+
+
+def test_extract_inline_palette_with_dot_line(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n. transparent\nj #ffffff\n\n.kj\n")
+    assert run("extract", p, "-o", tmp_path / "o.px", "--inline-palette") == 0
+    assert (tmp_path / "o.px").read_text() == "k #000000\n. transparent\nj #ffffff\n\n.kj\n"
+
+
+def test_extract_inline_palette_all_keys_imported(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\nj #ffffff\n\n@variant night\nk #000022\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n\nkj\n")
+    out = tmp_path / "sub" / "o.px"
+    assert run("extract", p, "-o", out, "--inline-palette") == 0
+    assert out.read_text() == "k #000000\nj #ffffff\n\n@variant night\nk #000022\n\nkj\n"
+    assert same_renders(pxart.parse(p), pxart.parse(out)) == 2
+
+
+def test_extract_inline_palette_no_import_is_plain_extract(tmp_path):
+    p = write(tmp_path, "h.px", EDITS)
+    assert run("extract", f"{p}:walk", "-o", tmp_path / "a.px") == 0
+    assert run("extract", f"{p}:walk", "-o", tmp_path / "b.px", "--inline-palette") == 0
+    assert (tmp_path / "a.px").read_text() == (tmp_path / "b.px").read_text()
+
+
+def test_extract_inline_palette_two_imports(tmp_path):
+    write(tmp_path, "a.px", "k #000000\n\n@variant v\nk #010101\n")
+    write(tmp_path, "b.px", "j #ffffff\nk #0000ff\n")  # the later import wins for k
+    p = write(tmp_path, "s.px", "@palette a.px\n@palette b.px\n\nkj\n")
+    assert run("extract", p, "-o", tmp_path / "o.px", "--inline-palette") == 0
+    o = pxart.parse(tmp_path / "o.px")
+    assert o.palette == {"k": (0, 0, 255, 255), "j": (255, 255, 255, 255)}
+    assert same_renders(pxart.parse(p), o) == 2
+
+
+def test_extract_inline_palette_then_check_strict(tmp_path, capsys):
+    p = handoff(tmp_path)
+    assert run("extract", f"{p}:cat", "-o", tmp_path / "cat.px", "--inline-palette") == 0
+    assert run("check", "--strict", tmp_path / "cat.px") == 0
+
+
+def test_extract_without_inline_still_repoints(tmp_path):
+    p = handoff(tmp_path)
+    assert run("extract", f"{p}:cat", "-o", tmp_path / "x" / "cat.px") == 0
+    assert pxart.parse(tmp_path / "x" / "cat.px").palette_refs == ["../pals/mid.px"]
+
+
+def test_help_documents_inline_palette():
+    doc = pxart.__doc__
+    assert "extract FILE:SEL -o OUT [--inline-palette]" in doc and "makes OUT self-contained" in doc

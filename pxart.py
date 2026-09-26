@@ -166,10 +166,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
-  extract FILE:SEL -o OUT
+  extract FILE:SEL -o OUT [--inline-palette]
       Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
-      of groups left behind): 'extract hero.px:walk/down -o walk.px'.
+      of groups left behind): 'extract hero.px:walk/down -o walk.px'. --inline-palette
+      makes OUT self-contained for a hand-off: the imported keys its frames use (and any a
+      local @variant line sets) become key lines in OUT, each variant gets the imported
+      colors of the keys OUT has, and the @palette lines go. OUT renders exactly like the
+      source frames, in every variant.
   recolor FILE a=b ['a<>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
@@ -1688,12 +1692,35 @@ def cmd_extract(a):
     note_suffix(out)
     doc.anims = {g: v for g, v in doc.anims.items() if g not in gone}
     doc.stills = [g for g in doc.stills if g not in gone]
-    if out.resolve().parent != doc.path.resolve().parent:
+    if a.inline_palette:
+        inline_palette(doc)
+    elif out.resolve().parent != doc.path.resolve().parent:
         for i, ref in enumerate(doc.palette_refs):
             new = pathlib.Path(os.path.relpath((doc.path.parent / ref).resolve(), out.resolve().parent)).as_posix()
             doc.palette_refs[i] = new
             doc.lead[("palref", new)] = doc.lead.pop(("palref", ref), [])
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
+
+
+def inline_palette(doc):
+    """Make doc self-contained: the imported keys its frames use (and any a local @variant sets) become key lines
+    ahead of its own, each variant gets the imported colors of every key doc now defines (local ones still win), and
+    the @palette lines go, their comments moving to the next line. Renders exactly as before, every variant too."""
+    need = set("".join(r for f in doc.frames for r in f.grid)) | {k for over in doc.variants.values() for k in over}
+    got = {k: c for k, c in doc.shared.items() if k in need and k not in doc.palette}
+    if doc.dot_at is not None:
+        doc.dot_at += len(got)
+    doc.palette = {**got, **doc.palette}
+    for name in list(doc.variants) + [n for n in doc.shared_variants if n not in doc.variants]:
+        over = doc.variants.setdefault(name, {})
+        for k, c in doc.shared_variants.get(name, {}).items():
+            if k in doc.palette and k not in over:
+                over[k] = c
+    lead = [l for r in doc.palette_refs for l in doc.lead.pop(("palref", r), [])]
+    doc.palette_refs, doc.shared, doc.shared_variants = [], {}, {}
+    nxt = next((anchor for anchor, _, _ in doc.lines() if anchor != "version"), None)
+    if lead and nxt:
+        doc.lead[nxt] = lead + (doc.lead.get(nxt) or [])
 
 
 def frame_slot(opath, osel, palette=None, flag="-o"):
@@ -2066,6 +2093,7 @@ def main(argv=None):
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
+    p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")

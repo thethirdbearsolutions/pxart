@@ -122,7 +122,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
   always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px
   with that frame flipped. `extract hero.px:walk -o walk.px` writes only the selected
-  frames, with the same palette and imports.
+  frames, with the same palette and imports; `--inline-palette` copies the imported keys
+  they use (and the variants' colors for them) into the file and drops `@palette`, so the
+  hand-off renders the same with nothing beside it.
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.
