@@ -1190,7 +1190,7 @@ def cmd_set(a):
 def cmd_crop(a):
     src = one_frame(a.src, "crop source")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
-    a.layers, a.size = [f"{a.src}@{-x},{-y}"], f"{w}x{h}"
+    a.layers, a.size, a.size_from = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", "the crop rectangle"
     cmd_compose(a)
 
 
@@ -1234,7 +1234,7 @@ def cmd_compose(a):
         doc.frames = [Frame(None)]
         target = doc.frames[0]
     if a.size:
-        size, why = tuple(map(int, a.size.split("x"))), "--size"
+        size, why = tuple(map(int, a.size.split("x"))), getattr(a, "size_from", "--size")
     elif target.grid:
         size, why = target.size, "the frame being replaced"
     elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):

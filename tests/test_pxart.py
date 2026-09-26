@@ -1407,3 +1407,35 @@ def test_frames_still_star_shows_still_everywhere(tmp_path, capsys):
 
 def test_help_documents_frames_still_and_output():
     assert "'still' for @still groups" in pxart.__doc__ and "not the listing" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop E: crop's note names the crop rectangle
+
+def test_crop_note_names_crop_rectangle(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame f\nkkk\nkkk\nkkk\n")
+    assert run("crop", f"{p}:f", "1,1,2,2", "-o", f"{p}:g") == 0
+    out = capsys.readouterr().out
+    assert "(size from the crop rectangle)" in out and "--size" not in out
+    assert "5 px of f fall outside the 2x2 canvas" in out
+    assert pxart.parse(p).get("g").grid == ["kk", "kk"]
+
+
+def test_crop_whole_frame_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame f\nkk\nkk\n")
+    assert run("crop", f"{p}:f", "0,0,2,2", "-o", f"{p}:g") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_compose_size_note_still_says_size(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nkkk\n")
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{layer}@0,0") == 0
+    assert "(size from --size)" in capsys.readouterr().out
+
+
+def test_compose_size_note_other_reasons(tmp_path, capsys):
+    out = write(tmp_path, "h.px", "k #000000\n@frame w/0\nkk\n")
+    big = write(tmp_path, "big.px", "k #000000\nkkk\n")
+    assert run("compose", "-o", f"{out}:w/1", f"{big}@0,0") == 0
+    assert "(size from the rest of 'w')" in capsys.readouterr().out
+    assert run("compose", "-o", f"{out}:w/1", f"{big}@1,0") == 0
+    assert "(size from the frame being replaced)" in capsys.readouterr().out
