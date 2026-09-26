@@ -7640,3 +7640,260 @@ def test_repoint_helper_directly(tmp_path):
 def test_help_documents_repointing():
     doc = " ".join(pxart.__doc__.split())
     assert "An OUT in another directory gets its @palette lines re-pointed from there" in doc
+
+
+# ---------------------------------------------------------------- loop J: a new compose OUT keeps the whole palette
+
+CPAL = "k #101010\nd #402020\nm #804040\nl #c08080\nw #f0e0e0\n\n@variant night\nm #202040\nl #303060\n"
+
+
+def cpal_setup(tmp_path, parts="@palette pal.px\n@still *\n@frame body\nmmm\nmmm\n@frame hat\nk.\nkk\n"):
+    write(tmp_path, "pal.px", CPAL)
+    return write(tmp_path, "parts.px", parts)
+
+
+def test_compose_new_out_keeps_shared_palette(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0", f"{p}:hat@0,0") == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n\nkmm\nkkm\n"
+
+
+def test_compose_new_out_then_shade_with_unused_ramp_keys(tmp_path):
+    # The reported case: the ramp's d, l, w aren't used by any layer; they must still be in OUT's palette.
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    assert run("shade", out, "--ramp", "dmlw", "--keys", "m") == 0
+
+
+def test_compose_new_out_then_recolor_to_unused_key(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    assert run("recolor", out, "m=w") == 0 and pxart.parse(out).frames[0].grid == ["www", "www"]
+
+
+def test_compose_new_out_in_another_directory_repoints(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "art" / "deep" / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../../pal.px"] and doc.palette == {}
+    assert set(doc.resolved()) == set("kdmlw.")
+
+
+def test_compose_new_out_named_frame_keeps_shared_palette(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", f"{out}:idle/0", f"{p}:body@0,0") == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n\n@frame idle/0\nmmm\nmmm\n"
+
+
+def test_compose_new_out_variant_comes_from_the_import(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.image(doc.frames[0], "night").getpixel((0, 0)) == (0x20, 0x20, 0x40, 255)
+    assert doc.variants == {}  # nothing to copy: the import brings it
+
+
+def test_compose_new_out_renders_like_the_layer(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "hero.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    src, doc = pxart.parse(p), pxart.parse(out)
+    for v in (None, "night"):
+        assert doc.image(doc.frames[0], v).tobytes() == src.image(src.get("body"), v).tobytes()
+
+
+def test_compose_new_out_layer_local_keys_all_come(tmp_path):
+    p = cpal_setup(tmp_path, "@palette pal.px\nz #00ff00\ny #ffff00\n@frame body\nmz\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and doc.palette == {"z": (0, 255, 0, 255), "y": (255, 255, 0, 255)}
+
+
+def test_compose_new_out_used_local_keys_come_first(tmp_path):
+    p = cpal_setup(tmp_path, "@palette pal.px\nz #00ff00\ny #ffff00\n@frame body\nmy\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    assert list(pxart.parse(out).palette) == ["y", "z"]
+
+
+def test_compose_new_out_local_override_of_import_stays(tmp_path):
+    p = cpal_setup(tmp_path, "@palette pal.px\nm #00ff00\n@frame body\nmk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette == {"m": (0, 255, 0, 255)} and doc.resolved()["m"] == (0, 255, 0, 255)
+    assert doc.image(doc.frames[0]).tobytes() == pxart.parse(p).image(pxart.parse(p).frames[0]).tobytes()
+
+
+def test_compose_new_out_unused_override_of_import_stays_too(tmp_path):
+    p = cpal_setup(tmp_path, "@palette pal.px\nw #00ff00\n@frame body\nmk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    assert pxart.parse(out).resolved()["w"] == (0, 255, 0, 255)
+
+
+def test_compose_new_out_different_imports_inline_everything(tmp_path):
+    write(tmp_path, "pal.px", CPAL)
+    write(tmp_path, "pal2.px", "q #123456\nr #654321\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame body\nmm\n")
+    b = write(tmp_path, "b.px", "@palette pal2.px\n@frame hat\nq.\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:body@0,0", f"{b}:hat@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == [] and list(doc.palette) == ["m", "q", "k", "d", "l", "w", "r"]
+    assert out.read_text().startswith("pxart 1\nm #804040\nq #123456\nk #101010\n")
+
+
+def test_compose_new_out_inlined_variants_come_along(tmp_path):
+    write(tmp_path, "pal.px", CPAL)
+    write(tmp_path, "pal2.px", "q #123456\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame body\nmm\n")
+    b = write(tmp_path, "b.px", "@palette pal2.px\n@frame hat\nq.\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:body@0,0", f"{b}:hat@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.variants == {"night": {"m": (0x20, 0x20, 0x40, 255), "l": (0x30, 0x30, 0x60, 255)}}
+    src = pxart.parse(a)
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == src.image(src.frames[0], "night").getpixel((1, 0))
+
+
+def test_compose_new_out_one_layer_without_import_inlines(tmp_path):
+    write(tmp_path, "pal.px", CPAL)
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame body\nmm\n")
+    b = write(tmp_path, "b.px", "q #123456\n@frame hat\nq.\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:body@0,0", f"{b}:hat@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == [] and set(doc.palette) == set("mqkdlw")
+
+
+def test_compose_new_out_no_imports_inlines_all_keys(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:x@0,0") == 0
+    assert out.read_text() == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
+
+
+def test_compose_new_out_local_variant_copied(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n\n@variant night\nz #000080\n@frame x\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:x@0,0") == 0
+    assert pxart.parse(out).variants == {"night": {"z": (0, 0, 0x80, 255)}}
+
+
+def test_compose_new_out_local_variant_over_kept_import(tmp_path):
+    p = cpal_setup(tmp_path, "@palette pal.px\n\n@variant night\nk #ff0000\n@frame body\nmk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and doc.variants == {"night": {"k": (255, 0, 0, 255)}}
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (255, 0, 0, 255)
+
+
+def test_compose_new_out_unused_conflicting_key_left_out_with_note(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "j #00ff00\nz #ff0000\n@frame y\nj\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "j": (0, 255, 0, 255), "z": (255, 255, 255, 255)}
+    assert "note: keys 'z' of a later layer aren't in" in capsys.readouterr().out
+
+
+def test_compose_new_out_used_key_beats_an_unused_one(tmp_path):
+    # Layer 1 has z unused (white); layer 2 uses z (red): the used color wins, no conflict.
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "z #ff0000\n@frame y\nz\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette["z"] == (255, 0, 0, 255) and doc.frames[0].grid == ["kz"]
+
+
+def test_compose_new_out_used_conflict_still_errors(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "k #ffffff\n@frame y\nk\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0")
+    assert msg.startswith(f"compose: layer 2 ({b}:y): ") and "E_KEY_CONFLICT" in msg
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_compose_new_out_same_file_twice_keys_once(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:body@0,0", f"{p}:body@1,0", f"{p}:hat@0,0") == 0
+    assert out.read_text().count("@palette") == 1
+
+
+def test_compose_new_out_flipped_layer_keeps_palette(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:hat+h@0,0") == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n\n.k\nkk\n"
+
+
+def test_compose_same_palette_spelled_differently_is_kept(tmp_path):
+    write(tmp_path, "pal.px", CPAL)
+    (tmp_path / "sub").mkdir()
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nm\n")
+    b = write(tmp_path / "sub", "b.px", "@palette ../pal.px\n@frame y\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    assert pxart.parse(out).palette_refs == ["pal.px"] and pxart.parse(out).palette == {}
+
+
+def test_compose_existing_out_keeps_old_behavior(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = write(tmp_path, "o.px", "j #00ff00\n@frame a\nj\n")
+    assert run("compose", "-o", f"{out}:b", f"{p}:hat@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == [] and set(doc.palette) == {"j", "k"}  # only the used key joins, as before
+
+
+def test_compose_existing_palette_only_out_keeps_old_behavior(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = write(tmp_path, "o.px", "j #00ff00\n")
+    assert run("compose", "-o", f"{out}:b", f"{p}:hat@0,0") == 0
+    assert set(pxart.parse(out).palette) == {"j", "k"}
+
+
+def test_crop_new_out_keeps_shared_palette(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "c.px"
+    assert run("crop", f"{p}:body", "0,0,2,1", "-o", out) == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n\nmm\n"
+
+
+def test_crop_new_out_in_another_directory_repoints(tmp_path):
+    p = cpal_setup(tmp_path)
+    out = tmp_path / "x" / "c.px"
+    assert run("crop", f"{p}:body", "0,0,2,1", "-o", out) == 0
+    assert pxart.parse(out).palette_refs == ["../pal.px"]
+
+
+def test_crop_new_out_inline_file_keeps_all_keys(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nz #ffffff\nkk\nkk\n")
+    out = tmp_path / "c.px"
+    assert run("crop", p, "0,0,1,1", "-o", out) == 0
+    assert out.read_text() == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
+
+
+def test_seed_palette_returns_left_out_keys(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "j #00ff00\nz #ff0000\n@frame y\nj\n")
+    layers = [(pxart.place_item(f"{a}:x", "layer"), 0, 0, "l1"), (pxart.place_item(f"{b}:y", "layer"), 0, 0, "l2")]
+    doc = pxart.Doc(tmp_path / "o.px")
+    left = pxart.seed_palette(doc, layers)
+    assert left == ["z"] and list(doc.palette) == ["k", "j", "z"]
+
+
+def test_help_documents_compose_new_palette():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A new OUT starts with the layers' whole palettes, used or not" in doc
+    assert "crop writes a new OUT the same way" in doc

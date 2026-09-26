@@ -140,7 +140,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; both flags repeat, and the kept area is the union, so two lamps are one call;
   works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
-  a new frame lands after its animation), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
+  a new frame lands after its animation; a new file gets the layers' whole palette, their
+  shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
+  finds its keys), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
   always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px

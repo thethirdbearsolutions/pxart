@@ -236,9 +236,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
   compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
-      The output keeps its own palette and @palette; each layer's keys are added to it
+      An existing OUT keeps its own palette and @palette; each layer's keys are added to it
       unless the key already exists with the same color (a different color is
-      E_KEY_CONFLICT).
+      E_KEY_CONFLICT). A new OUT starts with the layers' whole palettes, used or not, so a
+      later 'shade --ramp' or recolor finds its keys: when every layer imports the same
+      @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
+      colors become OUT's key lines. Local keys follow, the keys the layers use first; an
+      unused key another layer has in another color is left out, with a note. Variants come
+      along for the keys OUT has (the first layer's win). crop writes a new OUT the same way.
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
       (OUT may be a palette-only file). A new frame goes after the last frame of its
       animation (like dup), or at the end when the animation is new. Canvas size: --size, else the frame being
@@ -2692,6 +2697,44 @@ def cmd_shade(a):
     print(f"shaded {changed} px ({tally}, darkest to lightest);", write_doc(doc, out))
 
 
+def seed_palette(doc, layers):
+    """A new compose OUT starts with its layers' whole palettes, not only the keys they use, so a later shade ramp
+    or recolor finds its keys. When every layer imports the same @palette files, OUT imports them too (re-pointed
+    from OUT); otherwise their colors become key lines. Then each layer's keys join in layer order, the keys the
+    layers use first: a key OUT already has in the same color is skipped, one that overrides an import (as in the
+    layer) stays an override, and an unused key whose char another layer has in another color is left out (a used
+    one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
+    first layer's winning. Returns the unused keys left out."""
+    docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
+    imports = {tuple((d.path.parent / r).resolve() for r in d.palette_refs) for d in docs}
+    keep = imports.pop() if len(imports) == 1 else ()
+    if keep:  # the layers' imports, so their colors: no need to read the palette files again
+        doc.palette_refs = [pathlib.Path(os.path.relpath(r, doc.path.resolve().parent)).as_posix() for r in keep]
+        doc.shared = dict(docs[0].shared)
+        doc.shared_variants = {n: dict(v) for n, v in docs[0].shared_variants.items()}
+    used = {id(d): {k for lay, *_ in layers if lay.doc is d for k in "".join(lay.frame.grid)} for d in docs}
+    left = []
+    for want_used in (True, False):
+        for d in docs:
+            for k, c in d.resolved().items():
+                if k == "." or (k in used[id(d)]) != want_used or (keep and k in d.shared and k not in d.palette):
+                    continue
+                have = doc.resolved()
+                if k not in have or (have[k] != c and k not in doc.palette):
+                    doc.palette[k] = c
+                elif have[k] != c and not want_used and k not in left:
+                    left.append(k)
+    for d in docs:
+        base = d.resolved()
+        for name in list(d.variants) + ([] if keep else [n for n in d.shared_variants if n not in d.variants]):
+            over = {**({} if keep else d.shared_variants.get(name, {})), **d.variants.get(name, {})}
+            for k, c in over.items():
+                if doc.resolved().get(k) == base.get(k) and k not in doc.variants.get(name, {}) \
+                        and doc.shared_variants.get(name, {}).get(k) != c:
+                    doc.variants.setdefault(name, {})[k] = c
+    return left
+
+
 def cmd_compose(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
@@ -2704,8 +2747,14 @@ def cmd_compose(a):
         layers.append((lay, x, y, label))
     opath, osel = split_sel(a.o)
     note_suffix(opath)
+    fresh = not pathlib.Path(opath).exists()
     with reading(f"-o ({a.o})"):
         doc, target = frame_slot(opath, osel)
+    if fresh:
+        left = seed_palette(doc, layers)
+        if left:
+            print(f"note: keys {''.join(left)!r} of a later layer aren't in {opath}: an earlier layer has them in "
+                  "another color, and no layer uses them")
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), getattr(a, "size_from", "--size")
     elif target.grid:
