@@ -279,6 +279,21 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       Bucket fill: repaint the region of x,y's key that touches x,y through sides (4-connected),
       or corners too with --diagonal. A hole of another key stops it.
 
+  outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
+          [--corners]
+      Outline the frame's shape (every pixel whose color isn't transparent). --outside (the
+      default) paints the empty pixels touching the shape on a side; --inside repaints the
+      shape's own pixels that have an empty side (off the frame counts as empty). Sides only is
+      the pixel-perfect rule: a diagonal edge gets a 1px staircase and a square corner is cut,
+      so there are no doubled (L-shaped) corners; --corners also takes the pixels touching only
+      at a corner (square corners, a 2px staircase). Selective outline (--lit L, or
+      --selective --lit L): outline pixels facing the light get L (a darker tone of the
+      material, say) and the rest K. Facing: the outline pixel's outward normal (the pull of
+      the empty pixels within 2px minus that of the shape's, 1/distance-weighted, so a
+      staircase reads as its slope) dotted with the light's direction; above 0 is lit, so a
+      nw light lights the top and left edges and a 45-degree edge (ne, sw) stays K.
+      --light: n ne e se s sw w nw (default nw). Prints "outlined N px (A lit, B K)".
+
 CONVERTING
   export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
@@ -2424,6 +2439,72 @@ def cmd_flood(a):
     draw(a, region)
 
 
+SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
+CORNERS = ((1, 1), (1, -1), (-1, 1), (-1, -1))
+
+
+def light_vec(name):
+    dx, dy = LIGHTS[name]
+    n = math.hypot(dx, dy)
+    return dx / n, dy / n
+
+
+def normal(p, inside, reach=2):
+    """Which way is out at pixel p, as a unit vector (0, 0 when it can't tell, as inside a 1px line): over the
+    (2*reach+1)^2 pixels around p, the pull of each outside pixel minus that of each inside one, weighted
+    1/distance. Off the frame counts as outside. The same rule for a shape's edge pixels and for the pixels
+    just outside it, and it smooths a staircase edge into the slope it stands for."""
+    x, y = p
+    sx = sy = 0.0
+    for dy in range(-reach, reach + 1):
+        for dx in range(-reach, reach + 1):
+            if dx or dy:
+                s = -1 if (x + dx, y + dy) in inside else 1
+                sx, sy = sx + s * dx / (dx * dx + dy * dy), sy + s * dy / (dx * dx + dy * dy)
+    n = math.hypot(sx, sy)
+    return (sx / n, sy / n) if n > 1e-9 else (0.0, 0.0)
+
+
+def opaque_set(doc, f):
+    pal = doc.resolved()
+    return {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row) if pal[ch][3]}
+
+
+def outline_points(shape, w, h, inside=False, corners=False):
+    """The outline of `shape` (a set of pixels) in a w x h frame: outside, the empty pixels touching it on a side
+    (with corners, also those touching it only at a corner); inside, its own pixels with an empty side (corners:
+    or an empty corner) neighbor, off the frame counting as empty. Sides only is the pixel-perfect outline: a
+    diagonal edge gets a 1px staircase and a square corner is cut, with no doubled (L-shaped) corners."""
+    near = SIDES + (CORNERS if corners else ())
+    if inside:
+        return {p for p in shape if any((p[0] + dx, p[1] + dy) not in shape for dx, dy in near)}
+    return {(x, y) for y in range(h) for x in range(w)
+            if (x, y) not in shape and any((x + dx, y + dy) in shape for dx, dy in near)}
+
+
+def cmd_outline(a):
+    """Outline the frame's opaque pixels with a.key; --lit KEY (selective) on the edges facing the light."""
+    doc, frames, out = edit_target(a.file, a.o)
+    pal = doc.resolved()
+    if a.selective and not a.lit:
+        fail("E_BAD_ARG", "outline --selective needs --lit KEY: the lighter key for the edges facing the light")
+    for k in (a.key, a.lit):
+        if k is not None and k not in pal:
+            fail("E_SELECT", f"outline: key {k!r} not in palette (add it with palette --add)")
+    L = light_vec(a.light)
+    counts = {"lit": 0, "dark": 0}
+    for f in frames:
+        w, h = f.size
+        shape = opaque_set(doc, f)
+        ring = sorted(outline_points(shape, w, h, a.inside, a.corners), key=lambda p: (p[1], p[0]))
+        lit = [p for p in ring if a.lit and sum(n * l for n, l in zip(normal(p, shape), L)) > 0]
+        counts["lit"] += paint(f, lit, a.lit)[0] if a.lit else 0
+        counts["dark"] += paint(f, [p for p in ring if p not in set(lit)], a.key)[0]
+    said = f"outlined {counts['lit'] + counts['dark']} px" + (f" ({counts['lit']} lit {a.lit!r}, {counts['dark']} "
+                                                            f"{a.key!r})" if a.lit else "")
+    print(f"{said};", write_doc(doc, out))
+
+
 def cmd_compose(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
@@ -2807,6 +2888,12 @@ def main(argv=None):
     p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")
     p = sub.add_parser("flood"); p.add_argument("file"); p.add_argument("key"); p.add_argument("at")
     p.add_argument("--diagonal", action="store_true"); p.add_argument("-o")
+    p = sub.add_parser("outline"); p.add_argument("file"); p.add_argument("--key", required=True)
+    p.add_argument("--lit", help="lighter key for the edges facing the light (selective outline)")
+    p.add_argument("--selective", action="store_true"); p.add_argument("--light", choices=list(LIGHTS), default="nw")
+    g = p.add_mutually_exclusive_group(); g.add_argument("--inside", action="store_true")
+    g.add_argument("--outside", action="store_true"); p.add_argument("--corners", action="store_true")
+    p.add_argument("-o")
     for name in ("line", "rect", "ellipse", "arc", "flood"):
         sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)

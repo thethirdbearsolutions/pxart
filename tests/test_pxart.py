@@ -6683,3 +6683,219 @@ def test_help_documents_rotate():
     doc = pxart.__doc__
     assert "rotate FILE 90|180|270 [-o OUT]" in doc and "transpose FILE [-o OUT]" in doc
     assert "re-light with shade and outline --selective" in doc
+
+
+# ---------------------------------------------------------------- loop I: outline (selective, pixel-perfect corners)
+
+def shape_file(tmp_path, rows, name="s.px"):
+    return write(tmp_path, name, "b #406080\no #101018\nl #203040\n@frame a\n" + "\n".join(rows) + "\n")
+
+
+SQUARE = [".......", ".......", "..bbb..", "..bbb..", "..bbb..", ".......", "......."]
+
+
+def test_outline_outside_square_cuts_corners(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p) == [".......", "..ooo..", ".obbbo.", ".obbbo.", ".obbbo.", "..ooo..", "......."]
+
+
+def test_outline_outside_square_corners_kept(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--corners") == 0
+    assert grid_of(p) == [".......", ".ooooo.", ".obbbo.", ".obbbo.", ".obbbo.", ".ooooo.", "......."]
+
+
+def test_outline_outside_is_the_default(tmp_path):
+    p, q = shape_file(tmp_path, SQUARE), shape_file(tmp_path, SQUARE, "q.px")
+    assert run("outline", f"{p}:a", "--key", "o") == 0 and run("outline", f"{q}:a", "--key", "o", "--outside") == 0
+    assert grid_of(p) == grid_of(q)
+
+
+def test_outline_inside_square(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert grid_of(p) == [".......", ".......", "..ooo..", "..obo..", "..ooo..", ".......", "......."]
+
+
+DIAG = ["......", ".b....", ".bb...", ".bbb..", "......", "......"]
+
+
+def test_outline_diagonal_is_a_clean_staircase(tmp_path):
+    p = shape_file(tmp_path, DIAG)
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p) == [".o....", "obo...", "obbo..", "obbbo.", ".ooo..", "......"]
+
+
+def test_outline_diagonal_with_corners_doubles(tmp_path):
+    p = shape_file(tmp_path, DIAG)
+    assert run("outline", f"{p}:a", "--key", "o", "--corners") == 0
+    assert grid_of(p) == ["ooo...", "oboo..", "obboo.", "obbbo.", "ooooo.", "......"]
+
+
+def test_outline_inside_diagonal(tmp_path):
+    p = shape_file(tmp_path, DIAG)
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert grid_of(p) == ["......", ".o....", ".oo...", ".ooo..", "......", "......"]
+
+
+def test_outline_inside_corners_on_a_thick_diagonal(tmp_path):
+    rows = ["bbbb..", "bbbbb.", "bbbbbb", "bbbbbb"]
+    p = shape_file(tmp_path, rows)
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert grid_of(p) == ["oooo..", "obbbo.", "obbbbo", "oooooo"]
+    p = shape_file(tmp_path, rows, "q.px")
+    assert run("outline", f"{p}:a", "--key", "o", "--inside", "--corners") == 0
+    assert grid_of(p) == ["oooo..", "obboo.", "obbboo", "oooooo"]
+
+
+@pytest.mark.parametrize("w", range(3, 14))
+def test_outline_outside_of_ellipses_has_no_doubled_corners(tmp_path, w):
+    shape = pxart.ellipse_points(2, 2, w + 1, w // 2 + 3, fill=True)
+    ring = pxart.outline_points(shape, w + 4, w // 2 + 6)
+    for x, y in ring:
+        assert (x, y) not in shape
+        for dx, dy in pxart.CORNERS:  # an L: two ring side-neighbors that touch each other at a corner
+            assert not ((x + dx, y) in ring and (x, y + dy) in ring and (x + dx, y + dy) not in shape), (x, y)
+
+
+def test_outline_every_ring_pixel_touches_the_shape_on_a_side(tmp_path):
+    shape = pxart.ellipse_points(1, 1, 10, 7, fill=True)
+    for x, y in pxart.outline_points(shape, 12, 9):
+        assert any((x + dx, y + dy) in shape for dx, dy in pxart.SIDES)
+
+
+def test_outline_single_pixel(tmp_path):
+    p = shape_file(tmp_path, [".....", ".....", "..b..", ".....", "....."])
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p) == [".....", "..o..", ".obo.", "..o..", "....."]
+
+
+def test_outline_clips_at_the_frame(tmp_path):
+    p = shape_file(tmp_path, ["bb.", "bb.", "..."])
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p) == ["bbo", "bbo", "oo."]
+
+
+def test_outline_inside_frame_edge_counts_as_empty(tmp_path):
+    p = shape_file(tmp_path, ["bbb", "bbb", "bbb"])
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert grid_of(p) == ["ooo", "obo", "ooo"]
+
+
+def test_outline_transparent_keys_are_empty(tmp_path):
+    p = write(tmp_path, "s.px", "b #406080\no #101018\nt transparent\n@frame a\nttt\ntbt\nttt\n")
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p) == ["tot", "obo", "tot"]
+
+
+# selective
+
+def test_selective_square_nw(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--selective") == 0
+    assert grid_of(p) == [".......", "..lll..", ".lbbbo.", ".lbbbo.", ".lbbbo.", "..ooo..", "......."]
+
+
+@pytest.mark.parametrize("light,want", [
+    # The normals at the ends of a side lean round the corner (the pull of the pixels within 2px), so under an
+    # axis light the lit edge wraps one pixel down each side: a small shape reads round.
+    ("n", [".......", "..lll..", ".lbbbl.", ".obbbo.", ".obbbo.", "..ooo..", "......."]),
+    ("s", [".......", "..ooo..", ".obbbo.", ".lbbbl.", ".lbbbl.", "..lll..", "......."]),
+    ("e", [".......", "..ool..", ".obbbl.", ".obbbl.", ".obbbl.", "..ool..", "......."]),
+    ("w", [".......", "..loo..", ".lbbbo.", ".lbbbo.", ".lbbbo.", "..loo..", "......."]),
+    ("se", [".......", "..ooo..", ".obbbl.", ".obbbl.", ".obbbl.", "..lll..", "......."]),
+])
+def test_selective_square_lights(tmp_path, light, want):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--light", light) == 0
+    assert grid_of(p) == want
+
+
+def test_lit_alone_means_selective(tmp_path):
+    p, q = shape_file(tmp_path, SQUARE), shape_file(tmp_path, SQUARE, "q.px")
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l") == 0
+    assert run("outline", f"{q}:a", "--key", "o", "--lit", "l", "--selective") == 0
+    assert grid_of(p) == grid_of(q)
+
+
+def test_selective_circle_lit_side_faces_the_light(tmp_path):
+    rows = pts_grid(pxart.ellipse_points(2, 2, 13, 13, fill=True), 16, 16)
+    p = shape_file(tmp_path, [r.replace("k", "b") for r in rows])
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l") == 0
+    g = grid_of(p)
+    lit = {(x, y) for y, r in enumerate(g) for x, c in enumerate(r) if c == "l"}
+    dark = {(x, y) for y, r in enumerate(g) for x, c in enumerate(r) if c == "o"}
+    assert lit and dark and all(x + y < 15 for x, y in lit) and all(x + y >= 15 for x, y in dark)
+    assert {(y, x) for x, y in lit} == lit  # symmetric about the light's diagonal
+
+
+def test_selective_inside(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--inside") == 0
+    assert grid_of(p) == [".......", ".......", "..llo..", "..lbo..", "..ooo..", ".......", "......."]
+
+
+def test_outline_counts(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l") == 0
+    assert capsys.readouterr().out.startswith("outlined 12 px (6 lit 'l', 6 'o'); wrote")
+
+
+def test_outline_count_plain(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    assert capsys.readouterr().out.startswith("outlined 12 px; wrote")
+
+
+def test_selective_needs_lit(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert "--selective needs --lit KEY" in run_err("outline", f"{p}:a", "--key", "o", "--selective")
+
+
+def test_outline_unknown_keys(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert "key 'q' not in palette" in run_err("outline", f"{p}:a", "--key", "q")
+    assert "key 'q' not in palette" in run_err("outline", f"{p}:a", "--key", "o", "--lit", "q")
+
+
+def test_outline_inside_and_outside_exclusive(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--inside", "--outside") == 2
+
+
+def test_outline_every_selected_frame(tmp_path):
+    p = write(tmp_path, "s.px", "b #406080\no #101018\n@frame w/0\n...\n.b.\n...\n@frame w/1\n...\n.b.\n...\n")
+    assert run("outline", f"{p}:w", "--key", "o") == 0
+    doc = pxart.parse(p)
+    assert doc.get("w/0").grid == doc.get("w/1").grid == [".o.", "obo", ".o."]
+
+
+def test_outline_twice_grows(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o") == 0 and run("outline", f"{p}:a", "--key", "o") == 0
+    assert grid_of(p)[0] == "..ooo.."
+
+
+def test_outline_no_change_inside_twice(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    capsys.readouterr()
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert "no change" in capsys.readouterr().out
+
+
+def test_normal_points_out():
+    shape = {(x, y) for x in range(5) for y in range(5)}
+    assert pxart.normal((2, 0), shape) == pytest.approx((0, -1))
+    assert pxart.normal((4, 2), shape) == pytest.approx((1, 0))
+    assert pxart.normal((2, 2), shape) == (0.0, 0.0) or abs(pxart.normal((2, 2), shape)[0]) < 1e-9
+    nx, ny = pxart.normal((0, 0), shape)
+    assert nx == pytest.approx(ny) and nx < 0
+    assert pxart.normal((2, -1), shape) == pytest.approx((0, -1))  # outside pixels too
+
+
+def test_help_documents_outline():
+    doc = pxart.__doc__
+    assert "outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]" in doc
+    assert "pixel-perfect" in doc and "--corners" in doc
