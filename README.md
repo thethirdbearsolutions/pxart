@@ -89,7 +89,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 `pxart -h` has the full reference.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
-  `onion`, `scene` (.px/.png items at x,y, negative allowed; `--map` text tilemaps;
+  `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
+  suffix as in `hero.px:walk/0+h@3,4`; `--map` text tilemaps;
   `--variant V` recolors the whole room; `--tint '#10183080'` lays a translucent color over
   the finished scene for night, and `tint` does the same to a PNG). A map legend line is `<char> <path>`: the rest
   of the line is the path, so a pack folder with spaces works as is (quotes optional),

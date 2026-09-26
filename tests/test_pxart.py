@@ -2884,3 +2884,130 @@ def test_mask_invert_still_checks_args(tmp_path):
 
 def test_help_documents_mask_invert():
     assert "--invert erases\n      the inside and keeps the outside" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop F: flipped scene items (+h / +v / +hv)
+
+ARROW = "k #ff0000\nj #0000ff\nkj.\nk..\n"  # red left column, blue top middle
+
+
+def test_split_flip():
+    assert pxart.split_flip("hero.px:walk/0%night+h") == ("hero.px:walk/0%night", "h")
+    assert pxart.split_flip("hero.px:walk/0+h%night") == ("hero.px:walk/0%night", "h")
+    assert pxart.split_flip("hero.px+v") == ("hero.px", "v")
+    assert pxart.split_flip("hero.png+hv") == ("hero.png", "hv")
+    assert pxart.split_flip("hero.png+vh") == ("hero.png", "vh")
+    assert pxart.split_flip("hero.px:walk/0") == ("hero.px:walk/0", "")
+    assert pxart.split_flip("dir+h/x.png") == ("dir+h/x.png", "")
+    assert pxart.split_flip("+h") == ("+h", "")
+    assert pxart.split_flip("a.px+x") == ("a.px+x", "")
+
+
+def scene_grid(path, w, h):
+    img = scene_px(path)
+    names = {(255, 0, 0): "k", (0, 0, 255): "j"}
+    return ["".join(names.get(img.getpixel((x, y))[:3], ".") for x in range(w)) for y in range(h)]
+
+
+@pytest.mark.parametrize("suffix,want", [("", ["kj.", "k.."]), ("+h", [".jk", "..k"]),
+                                         ("+v", ["k..", "kj."]), ("+hv", ["..k", ".jk"]), ("+vh", ["..k", ".jk"])])
+def test_scene_item_flip(tmp_path, suffix, want):
+    a = write(tmp_path, "a.px", ARROW)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "3x2", "--scale", "1", f"{a}{suffix}@0,0") == 0
+    assert scene_grid(tmp_path / "s.png", 3, 2) == want
+
+
+def test_scene_item_flip_with_frame_and_variant(tmp_path):
+    a = write(tmp_path, "a.px", "k #ff0000\nj #0000ff\n\n@variant swap\nk #0000ff\nj #ff0000\n\n@frame f\nkj.\nk..\n"
+              "@frame g\n...\n...\n")
+    for spec in (f"{a}:f%swap+h@0,0", f"{a}:f+h%swap@0,0"):
+        assert run("scene", "-o", tmp_path / "s.png", "--size", "3x2", "--scale", "1", spec) == 0
+        assert scene_grid(tmp_path / "s.png", 3, 2) == [".kj", "..j"]
+
+
+def test_scene_item_flip_png_and_negative_coords(tmp_path):
+    img = Image.new("RGBA", (3, 1)); img.putpixel((0, 0), (255, 0, 0, 255)); img.save(tmp_path / "p.png")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", f"{tmp_path / 'p.png'}+h@-1,0") == 0
+    assert scene_grid(tmp_path / "s.png", 2, 1) == [".k"]
+
+
+def test_scene_item_flip_uses_scene_variant(tmp_path):
+    hero = write(tmp_path, "hero.px", VHERO.replace("h\n", "h.\n"))
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", "--variant", "red",
+               f"{hero}+h@0,0") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((1, 0))[:3] == (255, 0, 0) and img.getpixel((0, 0))[:3] == (0x47, 0x2d, 0x3c)
+
+
+def test_scene_flip_after_at_says_where_it_goes(tmp_path):
+    a = write(tmp_path, "a.px", ARROW)
+    msg = run_err("scene", "-o", tmp_path / "s.png", f"{a}@0,0+h")
+    assert "E_BAD_ARG" in msg and "+h goes before @" in msg and f"{a}+h@0,0" in msg
+
+
+def test_split_at_leaves_flip_on_the_item():
+    assert pxart.split_at("a.px:w/0%n+hv@-2,3") == ("a.px:w/0%n+hv", -2, 3)
+
+
+def test_map_legend_flip(tmp_path):
+    write(tmp_path, "a.px", ARROW)
+    m = write(tmp_path, "r.map", "a a.px\nb a.px+h\n\nab\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "3x2", "--scale", "1") == 0
+    assert scene_grid(tmp_path / "s.png", 6, 2) == ["kj..jk", "k....k"]
+    assert run("check", m) == 0
+
+
+def test_map_legend_flip_with_spaces_and_quotes(tmp_path):
+    d = tmp_path / "my set"
+    d.mkdir()
+    write(d, "a.px", ARROW)
+    m = write(tmp_path, "r.map", 'b "my set/a.px+v"\nc my set/a.px+hv\n\nbc\n')
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "3x2", "--scale", "1") == 0
+    assert scene_grid(tmp_path / "s.png", 6, 2) == ["k....k", "kj..jk"]
+
+
+def test_compose_layer_flip(tmp_path):
+    a = write(tmp_path, "a.px", ARROW)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "6x2", f"{a}@0,0", f"{a}+h@3,0") == 0
+    assert pxart.parse(out).frames[0].grid == ["kj..jk", "k....k"]
+    assert run("compose", "-o", out, "--size", "3x2", f"{a}+hv@0,0") == 0
+    assert pxart.parse(out).frames[0].grid == ["..k", ".jk"]
+
+
+def test_compose_flip_crop_note_counts_flipped_layer(tmp_path, capsys):
+    a = write(tmp_path, "a.px", ARROW)
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "1x2", f"{a}+h@0,0") == 0
+    assert "3 px of a fall outside" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "o.px").frames[0].grid == [".", "."]
+
+
+def test_flip_suffix_does_not_touch_the_source(tmp_path):
+    a = write(tmp_path, "a.px", ARROW)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "3x2", f"{a}+h@0,0") == 0
+    assert a.read_text() == ARROW
+
+
+def test_flip_suffix_through_real_shells(tmp_path):
+    import shutil, subprocess
+    a = write(tmp_path, "a.px", ARROW)
+    script = pathlib.Path(pxart.__file__)
+    ran = 0
+    for shell in (["zsh", "-f", "-c"], ["zsh", "-f", "-o", "extendedglob", "-c"], ["bash", "-c"]):
+        if not shutil.which(shell[0]):
+            continue
+        h, v = tmp_path / f"h{ran}.png", tmp_path / f"v{ran}.png"
+        run_ = f'"{sys.executable}" "{script}" scene --size 3x2 --scale 1'
+        cmd = f'P={a}; {run_} -o {h} "${{P}}+h@0,0" && {run_} -o {v} $P+v@0,0'
+        r = subprocess.run(shell + [cmd], capture_output=True, text=True)
+        assert r.returncode == 0, (shell, r.stderr)
+        assert scene_grid(h, 3, 2) == [".jk", "..k"] and scene_grid(v, 3, 2) == ["k..", "kj."]
+        ran += 1
+    if not ran:
+        pytest.skip("no zsh or bash")
+
+
+def test_help_documents_flip_suffix():
+    doc = pxart.__doc__
+    assert "FILE[:frame][%variant][+h|+v|+hv]" in doc and "hero.px:walk/0+h@3,4" in doc
+    assert "history expansion" in doc

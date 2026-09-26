@@ -54,7 +54,10 @@ LOOKING
   onion A B -o x.png [--scale 8]    B drawn over a faded A
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
-      ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
+      ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
+      (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
+      where '!' would be history expansion). Map legend entries and compose layers take
+      +h/+v too. --map draws a text tilemap first: legend lines
       '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend chars ('.' =
       empty). In a legend line the rest of the line is the path, relative to the map file:
       spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes" optional. check and
@@ -653,12 +656,34 @@ def split_sel(arg):
     return arg, None
 
 
+FLIP_RE = re.compile(r"^(.+)\+(hv|vh|h|v)(%[A-Za-z0-9_\-]+)?$")
+
+
+def split_flip(arg):
+    """'hero.px:walk/0%night+h' -> ('hero.px:walk/0%night', 'h'); '+h%night' works too. No flip -> ''."""
+    m = FLIP_RE.match(arg)
+    return (m.group(1) + (m.group(3) or ""), m.group(2)) if m else (arg, "")
+
+
+def flipped(img, how):
+    T = getattr(Image, "Transpose", Image)
+    if "h" in how:
+        img = img.transpose(T.FLIP_LEFT_RIGHT)
+    if "v" in how:
+        img = img.transpose(T.FLIP_TOP_BOTTOM)
+    return img
+
+
 def split_at(arg):
     left, sep, right = arg.rpartition("@")
     m = re.match(r"^(-?\d+,-?\d+)%([A-Za-z0-9_\-]+)$", right)
     if sep and m:
         fail("E_BAD_ARG", f"%variant goes before @ (FILE:frame%variant@x,y): write "
              f"{left}%{m.group(2)}@{m.group(1)}, not {arg!r}")
+    m = re.match(r"^(-?\d+,-?\d+)\+(hv|vh|h|v)$", right)
+    if sep and m:
+        fail("E_BAD_ARG", f"+{m.group(2)} goes before @ (FILE:frame%variant+h@x,y): write "
+             f"{left}+{m.group(2)}@{m.group(1)}, not {arg!r}")
     if not sep or not re.match(r"^-?\d+,-?\d+$", right):
         fail("E_BAD_ARG", f"expected FILE[:frame][%variant]@x,y, got {arg!r}")
     x, y = map(int, right.split(","))
@@ -692,6 +717,19 @@ def one_frame(arg, what="input", variant=None):
     if len(got) != 1:
         fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id")
     return got[0]
+
+
+def place_item(arg, what, variant=None):
+    """One frame for scene/compose/maps, mirrored by a +h / +v / +hv suffix: the Item, with its image and
+    (for .px) a frame whose grid is flipped the same way."""
+    arg, how = split_flip(arg)
+    it = one_frame(arg, what, variant)
+    if how:
+        it.img = flipped(it.img, how)
+        if it.frame:
+            g = [r[::-1] for r in it.frame.grid] if "h" in how else list(it.frame.grid)
+            it.frame = Frame(it.frame.id, g[::-1] if "v" in how else g, it.frame.ms)
+    return it
 
 
 def pixels(img):
@@ -1063,7 +1101,7 @@ def load_legend(path, variant=None):
     for ch, arg in legend.items():
         n, written = where[ch]
         try:
-            imgs[arg] = one_frame(arg, f"legend {ch!r}", variant).img
+            imgs[arg] = place_item(arg, f"legend {ch!r}", variant).img
         except PxError as e:
             for i in e.issues:
                 at = f" ({i.path}:{i.line})" if i.line else ""
@@ -1127,7 +1165,7 @@ def cmd_scene(a):
         draw_at(sc, tiles[arg], x, y)
     for spec in a.specs:
         path, x, y = split_at(spec)
-        draw_at(sc, one_frame(path, "scene item", a.variant).img, x, y)
+        draw_at(sc, place_item(path, "scene item", a.variant).img, x, y)
     if tint:
         sc = tinted(sc, tint)
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
@@ -1504,7 +1542,7 @@ def cmd_fill(a):
 
 
 def cmd_compose(a):
-    layers = [(one_frame(p, "layer"), x, y) for p, x, y in (split_at(s) for s in a.layers)]
+    layers = [(place_item(p, "layer"), x, y) for p, x, y in (split_at(s) for s in a.layers)]
     for lay, _, _ in layers:
         if not lay.doc:
             fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
