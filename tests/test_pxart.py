@@ -1266,3 +1266,73 @@ def test_compose_negative_coordinates(tmp_path):
 
 def test_help_documents_negative_coords_and_png_items():
     assert "may be negative" in pxart.__doc__ and "hero.png@3,4" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop E: compose places new frames like dup
+
+GROUPS = "k #000000\n@frame idle/0\nk\n@frame walk/0\nk\n@frame walk/1\nk\n@frame shoot/0\nk\n"
+
+
+def ids(p):
+    return [f.id for f in pxart.parse(p).frames]
+
+
+def test_compose_new_frame_lands_after_its_animation(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{p}:walk/2", f"{layer}@0,0") == 0
+    assert ids(p) == ["idle/0", "walk/0", "walk/1", "walk/2", "shoot/0"]
+
+
+def test_compose_new_frame_first_group(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{p}:idle/1", f"{layer}@0,0") == 0
+    assert ids(p) == ["idle/0", "idle/1", "walk/0", "walk/1", "shoot/0"]
+
+
+def test_compose_new_group_goes_at_end(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{p}:jump/0", f"{layer}@0,0") == 0
+    assert ids(p) == ["idle/0", "walk/0", "walk/1", "shoot/0", "jump/0"]
+
+
+def test_compose_new_top_level_frame_goes_at_end(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{p}:icon", f"{layer}@0,0") == 0
+    assert ids(p)[-1] == "icon"
+
+
+def test_compose_replacing_frame_keeps_its_place(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nj #ffffff\nj\n")
+    assert run("compose", "-o", f"{p}:walk/0", f"{layer}@0,0") == 0
+    assert ids(p) == ["idle/0", "walk/0", "walk/1", "shoot/0"] and pxart.parse(p).get("walk/0").grid == ["j"]
+
+
+def test_compose_group_split_in_file_uses_its_last_frame(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a/0\nk\n@frame b/0\nk\n@frame a/1\nk\n@frame c/0\nk\n")
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{p}:a/2", f"{layer}@0,0") == 0
+    assert ids(p) == ["a/0", "b/0", "a/1", "a/2", "c/0"]
+
+
+def test_compose_repeated_adds_stay_in_order(tmp_path):
+    p = write(tmp_path, "h.px", GROUPS)
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    for n in (2, 3, 4):
+        assert run("compose", "-o", f"{p}:walk/{n}", f"{layer}@0,0") == 0
+    assert ids(p) == ["idle/0", "walk/0", "walk/1", "walk/2", "walk/3", "walk/4", "shoot/0"]
+
+
+def test_compose_new_frame_in_group_follows_spacing(tmp_path):
+    p = write(tmp_path, "a.px", TIGHT_FRAMES)
+    layer = write(tmp_path, "l.px", "k #3f2631\nkk\n")
+    assert run("compose", "-o", f"{p}:walk/2", "--size", "2x1", f"{layer}@0,0") == 0
+    assert p.read_text() == TIGHT_FRAMES.replace("@frame idle", "@frame walk/2\nkk\n@frame idle")
+
+
+def test_help_documents_compose_placement():
+    assert "after the last frame of its\n      animation (like dup)" in pxart.__doc__

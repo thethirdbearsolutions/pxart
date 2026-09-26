@@ -96,7 +96,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       unless the key already exists with the same color (a different color is
       E_KEY_CONFLICT).
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
-      (OUT may be a palette-only file). Canvas size: --size, else the frame being
+      (OUT may be a palette-only file). A new frame goes after the last frame of its
+      animation (like dup), or at the end when the animation is new. Canvas size: --size, else the frame being
       replaced, else the other frames of its animation, else the first layer. Pixels
       that land outside the canvas are cropped, with a note saying how many.
       compose and dup note an output path that doesn't end in .px (zsh "$OUT:frame").
@@ -1218,7 +1219,8 @@ def cmd_compose(a):
         target = doc.get(osel)
         if not target:
             target = Frame(osel)
-            doc.frames.append(target)
+            same = [f for f in doc.frames if f.group == target.group] if target.group else []
+            doc.frames.insert(doc.frames.index(same[-1]) + 1 if same else len(doc.frames), target)
     else:
         if doc.frames and not doc.implicit:
             fail("E_SELECT", f"{opath} has named frames; say which one: -o {opath}:<frame-id>")
