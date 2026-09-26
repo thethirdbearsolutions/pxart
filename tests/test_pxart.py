@@ -4398,3 +4398,308 @@ def test_help_documents_export_selection_and_id_order():
     assert "export FILE[:SEL]... [--frames DIR]" in doc and "several selectors of one file add up" in doc
     assert "each animation group contiguous" in doc and "a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2" in doc
     assert "gets ids in file order" in doc
+
+
+# ---------------------------------------------------------------- loop H: put (a frame's grid from stdin)
+
+import io  # noqa: E402
+
+PUT = BLANK_FRAMES  # walk/0, walk/1, idle, with blank lines between frames
+
+
+def put(monkeypatch, text, *argv):
+    """Run 'pxart put ...' with `text` on stdin; returns the exit code."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    return run("put", *argv)
+
+
+def put_err(monkeypatch, text, *argv):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    return run_err("put", *argv)
+
+
+def diff_lines(before, after):
+    import difflib
+    return [l for l in difflib.unified_diff(before.splitlines(), after.splitlines(), n=0, lineterm="")
+            if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+
+
+def touched_lines(before, after):
+    """Indexes of `before`'s lines that a diff to `after` replaces, deletes or inserts at."""
+    import difflib
+    sm = difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False)
+    return {i for op, i1, i2, _, _ in sm.get_opcodes() if op != "equal" for i in range(i1, max(i2, i1 + 1))}
+
+
+def test_put_replaces_one_frame(tmp_path, monkeypatch, capsys):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "kggk\n.kk.\n", f"{p}:walk/1") == 0
+    assert capsys.readouterr().out == f"wrote {p} frame walk/1\n"
+    doc = pxart.parse(p)
+    assert doc.get("walk/1").grid == ["kggk", ".kk."]
+    assert doc.get("walk/0").grid == [".kk.", "kggk"] and doc.get("idle").grid == ["kkkk"]
+
+
+def test_put_diff_is_only_that_frames_lines(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "kggk\n.kk.\n", f"{p}:walk/1") == 0
+    assert diff_lines(PUT, p.read_text()) == ["+kggk", "-kgkk"]  # .kk. stays, now the second row
+    before = PUT.splitlines()
+    rows = {i for i, l in enumerate(before) if i > before.index("@frame walk/1")} - \
+        {i for i, l in enumerate(before) if i >= before.index("@frame idle") - 1}
+    assert touched_lines(PUT, p.read_text()) <= rows
+    assert p.read_text() == PUT.replace("@frame walk/1\n.kk.\nkgkk\n", "@frame walk/1\nkggk\n.kk.\n")
+
+
+def test_put_one_changed_row_is_one_changed_line(tmp_path, monkeypatch):
+    for layout in (BLANK_FRAMES, TIGHT_FRAMES, MESSY):
+        p = write(tmp_path, "a.px", layout)
+        doc = pxart.parse(p)
+        grid = list(doc.get("walk/1").grid)
+        grid[-1] = grid[-1].replace(".", "k", 1) if "." in grid[-1] else grid[-1].replace("k", ".", 1)
+        assert put(monkeypatch, "\n".join(grid) + "\n", f"{p}:walk/1") == 0
+        before, after = layout.splitlines(), p.read_text().splitlines()
+        assert len(before) == len(after)
+        assert len([i for i, (x, y) in enumerate(zip(before, after)) if x != y]) == 1
+
+
+def test_put_keeps_comments_spacing_and_odd_spelling(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", MESSY)
+    assert put(monkeypatch, ".kk.\nkggk\nkggk\n", f"{p}:walk/0") == 0
+    got = p.read_text()
+    assert got == MESSY  # same grid as the file's: indented '  .kk.' and the mid-grid comment kept
+
+
+def test_put_same_grid_is_no_change(tmp_path, monkeypatch, capsys):
+    p = write(tmp_path, "a.px", PUT)
+    before, m = snap(p)
+    assert put(monkeypatch, ".kk.\nkgkk\n", f"{p}:walk/1") == 0
+    assert capsys.readouterr().out == f"no change: {p} frame walk/1\n" and untouched(p, before, m)
+
+
+def test_put_crlf_file_keeps_crlf(tmp_path, monkeypatch):
+    p = tmp_path / "a.px"
+    p.write_bytes(CRLF.encode())
+    assert put(monkeypatch, "k\n", f"{p}:b") == 0
+    assert p.read_bytes() == CRLF.encode()
+    assert put(monkeypatch, ".\n", f"{p}:b") == 0
+    assert p.read_bytes() == CRLF.replace("@frame b\r\nk\r\n", "@frame b\r\n.\r\n").encode()
+
+
+def test_put_rows_may_change_size_with_a_note(tmp_path, monkeypatch, capsys):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "kgk\nkgk\nkgk\n", f"{p}:idle") == 0
+    out = capsys.readouterr().out
+    assert "note: idle is now 3x3 (was 4x1)" in out
+    assert pxart.parse(p).get("idle").grid == ["kgk"] * 3
+
+
+def test_put_same_size_has_no_note(tmp_path, monkeypatch, capsys):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "gggg\n", f"{p}:idle") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_put_new_frame_lands_after_its_animation(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "kkkk\n", f"{p}:walk/2") == 0
+    assert ids(p) == ["walk/0", "walk/1", "walk/2", "idle"]
+    assert p.read_text() == PUT.replace("\n@frame idle", "\n@frame walk/2\nkkkk\n\n@frame idle")
+
+
+def test_put_new_frame_in_new_group_goes_at_the_end(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", TIGHT_FRAMES)
+    assert put(monkeypatch, "kk\n", f"{p}:run/0") == 0
+    assert ids(p) == ["walk/0", "walk/1", "idle", "run/0"]
+    assert p.read_text() == TIGHT_FRAMES + "@frame run/0\nkk\n"
+
+
+def test_put_new_frame_matches_new_and_compose_placement(tmp_path, monkeypatch):
+    for target in ("walk/2", "idle/1", "shoot/1", "zzz", "run/0", "walk/down/0"):
+        a, b = write(tmp_path, "a.px", GROUPS), write(tmp_path, "b.px", GROUPS)
+        assert put(monkeypatch, "k\n", f"{a}:{target}") == 0
+        assert run("new", f"{b}:{target}", "--size", "1x1", "--key", "k") == 0
+        assert ids(a) == ids(b)
+
+
+def test_put_creates_a_new_file(tmp_path, monkeypatch):
+    p = tmp_path / "n.px"
+    assert put(monkeypatch, "k #102030\n.k\nk.\n", f"{p}:idle/0") == 0
+    doc = pxart.parse(p)
+    assert [f.id for f in doc.frames] == ["idle/0"] and doc.get("idle/0").grid == [".k", "k."]
+    assert doc.palette == {"k": (0x10, 0x20, 0x30, 255)}
+
+
+def test_put_plain_file_replaces_its_one_grid(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", LEGACY)
+    assert put(monkeypatch, "gggg\nkkkk\ngggg\n", p) == 0
+    assert p.read_text() == LEGACY.replace(".kk.\nkggk\n.kk.\n", "gggg\nkkkk\ngggg\n")
+
+
+def test_put_plain_file_with_named_frames_needs_a_frame(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    before = p.read_text()
+    msg = put_err(monkeypatch, "kk\n", p)
+    assert "E_SELECT" in msg and "say which one" in msg and p.read_text() == before
+
+
+def test_put_new_plain_file(tmp_path, monkeypatch):
+    p = tmp_path / "n.px"
+    assert put(monkeypatch, "k #000000\nkk\n", p) == 0
+    assert p.read_text() == "pxart 1\nk #000000\n\nkk\n"
+
+
+def test_put_group_selector_is_select_error(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    before = p.read_text()
+    msg = put_err(monkeypatch, "kkkk\n", f"{p}:walk")
+    assert "E_SELECT" in msg and "'walk' is a group (walk/0, walk/1)" in msg and f"put {p}:walk/0" in msg
+    assert p.read_text() == before
+
+
+def test_put_stdin_palette_adds_used_keys(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "r #ff0000\nz #00ff00\nkrrk\n", f"{p}:idle") == 0
+    doc = pxart.parse(p)
+    assert doc.palette["r"] == (255, 0, 0, 255) and "z" not in doc.palette  # z is unused, like compose
+    assert doc.get("idle").grid == ["krrk"]
+    assert p.read_text() == PUT.replace("g #43e1b3\n", "g #43e1b3\nr #ff0000\n").replace("kkkk\n", "krrk\n")
+
+
+def test_put_stdin_palette_same_color_is_fine(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "k #3f2631\ng #43e1b3\n\ngkgk\n", f"{p}:idle") == 0
+    assert diff_lines(PUT, p.read_text()) == ["-kkkk", "+gkgk"]
+
+
+def test_put_stdin_palette_other_color_is_key_conflict(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    before, m = snap(p)
+    msg = put_err(monkeypatch, "# mine\nk #ffffff\nkkkk\n", f"{p}:idle")
+    assert "stdin:2: E_KEY_CONFLICT" in msg and "#ffffff" in msg and "#3f2631" in msg
+    assert untouched(p, before, m)
+
+
+def test_put_stdin_key_conflict_with_shared_palette(tmp_path, monkeypatch):
+    write(tmp_path, "base.px", "k #000000\n")
+    p = write(tmp_path, "a.px", "@palette base.px\n@frame a\nk\n")
+    before = p.read_text()
+    assert "E_KEY_CONFLICT" in put_err(monkeypatch, "k #111111\nk\n", f"{p}:a")
+    assert p.read_text() == before
+    assert put(monkeypatch, "k #000000\nkk\n", f"{p}:a") == 0  # the imported color: nothing added
+    assert p.read_text() == "@palette base.px\n@frame a\nkk\n"
+
+
+def test_put_uses_shared_palette_keys(tmp_path, monkeypatch):
+    write(tmp_path, "base.px", "k #000000\n")
+    p = write(tmp_path, "a.px", "@palette base.px\n@frame a\nk\n")
+    assert put(monkeypatch, "k.k\n", f"{p}:a") == 0
+    assert pxart.parse(p).get("a").grid == ["k.k"]
+
+
+def test_put_unknown_key_is_located_at_stdin(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    before, m = snap(p)
+    msg = put_err(monkeypatch, "kkkk\nkqkk\n", f"{p}:idle")
+    assert "stdin:2: E_UNKNOWN_KEY (row 1, x=[1]): keys 'q'" in msg and untouched(p, before, m)
+
+
+def test_put_row_width_is_located_at_stdin(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    before, m = snap(p)
+    msg = put_err(monkeypatch, "kkkk\nkkkk\nkkk\n", f"{p}:idle")
+    assert "stdin:3: E_ROW_WIDTH (row 2)" in msg and untouched(p, before, m)
+
+
+def test_put_reports_every_stdin_error_at_once(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    msg = put_err(monkeypatch, "z #12345\nkkkk\nkk\nkqkk\n", f"{p}:idle")
+    assert "stdin:1: E_BAD_COLOR" in msg and "stdin:3: E_ROW_WIDTH" in msg and "stdin:4: E_UNKNOWN_KEY" in msg
+
+
+@pytest.mark.parametrize("text,code", [
+    ("kk k\n", "E_BAD_ROW"),
+    ("kk\nk #000000\n", "E_PALETTE_AFTER_GRID"),
+    ("", "E_NO_FRAMES"),
+    ("# only a comment\n", "E_NO_FRAMES"),
+    (". #ffffff\nk\n", "E_DOT_RESERVED"),
+    ("k #000000\nk #000000\nk\n", "E_DUP_KEY"),
+    ("@frame x\nkk\n", "E_BAD_ARG"),
+    ("@anim walk ms=90\nkk\n", "E_BAD_ARG"),
+    ("@variant night\nk #000000\n\nkk\n", "E_BAD_ARG"),
+    ("@future\nkk\n", "E_BAD_ARG"),
+])
+def test_put_stdin_errors_write_nothing(tmp_path, monkeypatch, text, code):
+    p = write(tmp_path, "a.px", PUT)
+    before, m = snap(p)
+    assert code in put_err(monkeypatch, text, f"{p}:idle")
+    assert untouched(p, before, m)
+
+
+def test_put_stdin_errors_on_a_new_file_create_nothing(tmp_path, monkeypatch):
+    p = tmp_path / "n.px"
+    assert "E_UNKNOWN_KEY" in put_err(monkeypatch, "kq\n", f"{p}:a")
+    assert not p.exists()
+
+
+def test_put_from_a_terminal_is_bad_arg(tmp_path, monkeypatch):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+    p = write(tmp_path, "a.px", PUT)
+    monkeypatch.setattr(sys, "stdin", Tty("kk\n"))
+    msg = run_err("put", f"{p}:idle")
+    assert "E_BAD_ARG" in msg and "put reads the grid from stdin" in msg and f"< grid.txt" in msg
+
+
+def test_put_output_file_gets_the_whole_file(tmp_path, monkeypatch, capsys):
+    p = write(tmp_path, "a.px", PUT)
+    out = tmp_path / "o.px"
+    assert put(monkeypatch, "gggg\n", f"{p}:idle", "-o", out) == 0
+    assert p.read_text() == PUT
+    assert out.read_text() == PUT.replace("kkkk\n", "gggg\n")
+    assert f"note: {out} gets all of {p} with idle replaced" in capsys.readouterr().out
+
+
+def test_put_transparent_stdin_key(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "t transparent\nktkk\n", f"{p}:idle") == 0
+    doc = pxart.parse(p)
+    assert doc.palette["t"] == pxart.CLEAR and doc.get("idle").grid == ["ktkk"]
+
+
+def test_put_dot_transparent_line_is_accepted(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, ". transparent\nk..k\n", f"{p}:idle") == 0
+    assert diff_lines(PUT, p.read_text()) == ["-kkkk", "+k..k"]
+
+
+def test_put_variant_still_renders(tmp_path, monkeypatch):
+    p = write(tmp_path, "m.px", MULTI)
+    assert put(monkeypatch, "gggg\ngggg\n", f"{p}:idle") == 0
+    doc = pxart.parse(p)
+    assert doc.image(doc.get("idle"), "night").getpixel((0, 0))[:3] == (0x25, 0x95, 0x6A)
+
+
+def test_put_with_blank_lines_and_comments_on_stdin(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "# new idle\n\nr #ff0000\n\nrrrr\n", f"{p}:idle") == 0
+    assert pxart.parse(p).get("idle").grid == ["rrrr"] and "# new idle" not in p.read_text()
+
+
+def test_put_indented_stdin_rows(tmp_path, monkeypatch):
+    p = write(tmp_path, "a.px", PUT)
+    assert put(monkeypatch, "  gggg\n  gggg\n", f"{p}:idle") == 0
+    assert pxart.parse(p).get("idle").grid == ["gggg", "gggg"]
+
+
+def test_put_notes_non_px_output(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "herok"
+    assert put(monkeypatch, "k #000000\nk\n", p) == 0
+    assert "doesn't end in .px" in capsys.readouterr().out
+
+
+def test_help_documents_put():
+    doc = pxart.__doc__
+    assert "put FILE[:frame] [-o OUT] < grid.txt" in doc and "nothing is written on an error" in doc
+    assert "Only that frame's lines change" in doc

@@ -111,7 +111,10 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII;
   exits 1), `stats`, `frames` (`--rm`/`--move` print only what they did; with a selector,
   `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them).
-- **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
+- **Editing:** `new` (a blank or filled frame, in a new or existing file), `put`
+  (`put hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with
+  optional palette lines merged like `compose`'s; checked like a file, errors at stdin's
+  lines, nothing written on an error, and only that frame's lines change), `fill` (a
   region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor`
   (optionally within a region; `'a<>b'` swaps two keys, quoted for the shell; the key
   moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or

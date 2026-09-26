@@ -156,6 +156,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
       (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
       already exists is E_DUP_FRAME: fill it instead.
+  put FILE[:frame] [-o OUT] < grid.txt
+      Replace one frame's grid with the rows on stdin: 'pxart put hero.px:walk/1 < w1.txt'.
+      Stdin is rows, or palette lines then rows; the keys the rows use join FILE's palette
+      the way compose's layers do (a key FILE has in another color is E_KEY_CONFLICT), and
+      other keys must be FILE's. Rows are checked like a file's (widths, keys), errors point
+      at stdin's lines, and nothing is written on an error. Only that frame's lines change.
+      A frame that doesn't exist yet is added, placed like new; a new FILE is started.
   mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [--invert] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
@@ -478,7 +485,8 @@ def _int_arg(kw, name, issues, path, n, lo=None):
     return int(v)
 
 
-def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, _depth=0):
+def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, known=None, _depth=0):
+    """`known`: keys the rows may use without defining them (put's target file's palette)."""
     path = pathlib.Path(path)
     if text is None:
         with open(path, newline="") as fh:
@@ -674,7 +682,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             raise PxError(issues)
         return doc
 
-    pal = doc.resolved()
+    pal = {**(known or {}), **doc.resolved()}
     if not doc.frames and not allow_empty:
         err("E_NO_FRAMES", "no grid rows")
     for f in doc.frames:
@@ -1789,6 +1797,45 @@ def cmd_new(a):
     print(write_doc(doc, opath), f"frame {osel}" if osel else "")
 
 
+def cmd_put(a):
+    """One frame's grid from stdin (rows, or palette lines then rows) into FILE[:frame]; the file's other lines stay
+    as they were. A new frame is placed like new's; the stdin keys the rows use join the palette like compose's."""
+    path, sel = split_sel(a.target)
+    if sys.stdin is None or sys.stdin.isatty():
+        fail("E_BAD_ARG", f"put reads the grid from stdin: pxart put {a.target} < grid.txt")
+    out = pathlib.Path(a.o) if a.o else pathlib.Path(path)
+    note_suffix(out)
+    doc, target = frame_slot(path, sel, flag="put")
+    inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
+    if inside:
+        fail("E_SELECT", f"put writes one frame, and {sel!r} is a group ({', '.join(inside)}); name one frame: "
+             f"put {path}:{inside[0]}", path=path)
+    text = sys.stdin.read()
+    src = parse("stdin", text=text, allow_empty=True, known=doc.resolved())
+    if (src.frames and not src.implicit) or src.palette_refs or src.variants or src.anims or src.stills \
+            or src.extensions:
+        fail("E_BAD_ARG", f"put reads one grid from stdin: palette lines ('k #rrggbb') and rows, no @ lines (the "
+             f"frame is named on the command line: put {path}:FRAME)", path="stdin")
+    if not src.frames:
+        fail("E_NO_FRAMES", "no grid rows on stdin", path="stdin")
+    grid = src.frames[0].grid
+    for k in sorted(set("".join(grid))):
+        if k in src.palette:
+            have = doc.resolved().get(k)
+            if have and have != src.palette[k]:
+                n = next(n for n, l in enumerate(text.splitlines(), 1) if l.strip()[:1] == k and PAL_RE.match(l.strip()))
+                fail("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} it is "
+                     f"{fmt_color(have)}; use another key, or the file's color", path="stdin", line=n)
+            doc.add_key(k, src.palette[k])
+    was = target.size if target.grid else None
+    if was and was != (len(grid[0]), len(grid)):
+        print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
+    target.grid = list(grid)
+    if sel and out.resolve() != pathlib.Path(path).resolve():
+        print(f"note: {out} gets all of {path} with {sel} replaced")
+    print(write_doc(doc, out) + (f" frame {sel}" if sel else ""))
+
+
 def cmd_fill(a):
     doc, frames, out = edit_target(a.file, a.o)
     if a.key not in doc.resolved():
@@ -2120,6 +2167,7 @@ def main(argv=None):
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
+    p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
