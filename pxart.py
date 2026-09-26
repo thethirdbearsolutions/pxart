@@ -56,7 +56,9 @@ LOOKING
   sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A PNG whose
       four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
-      count that color: it's the backdrop.
+      count that color: it's the backdrop. Frames with the same id from different files are
+      labeled with their file's stem in front (hero:idle/0, beast:idle/0; the path as given
+      when the stems match too); render and anim label them the same way.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
@@ -993,11 +995,27 @@ def items(arg, variant=None, strict=False):
 
 
 def all_items(args, variant=None):
-    out = []
+    out, paths = [], []
     for n, a in enumerate(args, 1):
         with reading(f"file {n} ({a})"):
-            out += items(a, variant)
+            got = items(a, variant)
+        out += got
+        paths += [split_sel(a)[0]] * len(got)
+    tell_apart(out, paths)
     return out
+
+
+def tell_apart(its, paths):
+    """Frames with one label from different files (idle/0 of hero.px and of beast.px) are labeled 'hero:idle/0' and
+    'beast:idle/0'; files whose stems are the same too go by their path as given ('a/hero.px:idle/0')."""
+    files, stems = {}, {}
+    for it, p in zip(its, paths):
+        files.setdefault(it.label, set()).add(p)
+        stems.setdefault(pathlib.Path(p).stem, set()).add(p)
+    for it, p in zip(its, paths):
+        if len(files[it.label]) > 1:
+            stem = pathlib.Path(p).stem
+            it.label = f"{stem if len(stems[stem]) == 1 else p}:{it.label}"
 
 
 def one_frame(arg, what="input", variant=None):

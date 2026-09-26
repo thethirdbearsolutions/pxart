@@ -8310,3 +8310,112 @@ def test_compose_after_crop_in_same_process_still_notes(tmp_path, capsys):
 
 def test_help_documents_quiet_crop():
     assert "(quietly: the pixels outside the rectangle are what crop is for, so there's no note)" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop J: sheet tells same-id frames of several files apart
+
+SAME_IDS = "k #000000\n@frame idle/0\nk\n@frame idle/1\nkk\n"
+
+
+def labels_of(*args):
+    return [it.label for it in pxart.all_items([str(a) for a in args])]
+
+
+def test_sheet_labels_colliding_ids_with_stems(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    assert labels_of(a, b) == ["hero:idle/0", "hero:idle/1", "beast:idle/0", "beast:idle/1"]
+
+
+def test_sheet_only_colliding_labels_get_a_stem(tmp_path):
+    a = write(tmp_path, "hero.px", SAME_IDS)
+    b = write(tmp_path, "beast.px", "k #000000\n@frame idle/0\nk\n@frame roar\nk\n")
+    assert labels_of(a, b) == ["hero:idle/0", "idle/1", "beast:idle/0", "roar"]
+
+
+def test_sheet_no_collision_no_prefix(tmp_path):
+    a = write(tmp_path, "hero.px", SAME_IDS)
+    b = write(tmp_path, "beast.px", "k #000000\n@frame roar/0\nk\n")
+    assert labels_of(a, b) == ["idle/0", "idle/1", "roar/0"]
+
+
+def test_sheet_single_file_never_prefixed(tmp_path):
+    a = write(tmp_path, "hero.px", SAME_IDS)
+    assert labels_of(a) == ["idle/0", "idle/1"]
+
+
+def test_sheet_same_file_twice_not_prefixed(tmp_path):
+    a = write(tmp_path, "hero.px", SAME_IDS)
+    assert labels_of(f"{a}:idle/0", f"{a}:idle") == ["idle/0", "idle/0", "idle/1"]
+
+
+def test_sheet_same_stem_different_dirs_uses_paths(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    a, b = write(tmp_path / "a", "hero.px", SAME_IDS), write(tmp_path / "b", "hero.px", SAME_IDS)
+    assert labels_of(a, b) == [f"{a}:idle/0", f"{a}:idle/1", f"{b}:idle/0", f"{b}:idle/1"]
+
+
+def test_sheet_selectors_of_different_files(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    assert labels_of(f"{a}:idle/1", f"{b}:idle/1") == ["hero:idle/1", "beast:idle/1"]
+
+
+def test_sheet_variant_suffix_uses_the_file_stem(tmp_path):
+    t = "k #000000\n\n@variant night\nk #000011\n@frame idle/0\nk\n"
+    a, b = write(tmp_path, "hero.px", t), write(tmp_path, "beast.px", t)
+    assert labels_of(f"{a}:idle/0%night", f"{b}:idle/0") == ["hero:idle/0", "beast:idle/0"]
+
+
+def test_sheet_unnamed_grids_with_the_same_stem(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    a, b = write(tmp_path / "a", "ant.px", "k #000000\nk\n"), write(tmp_path / "b", "ant.px", "k #000000\nk\n")
+    assert labels_of(a, b) == [f"{a}:ant", f"{b}:ant"]
+
+
+def test_sheet_png_and_px_with_one_name(tmp_path):
+    a = write(tmp_path, "ant.px", "k #000000\nk\n")
+    Image.new("RGBA", (1, 1), (0, 0, 0, 255)).save(tmp_path / "ant.png")
+    assert labels_of(a, tmp_path / "ant.png") == [f"{a}:ant", f"{tmp_path / 'ant.png'}:ant"]
+
+
+def test_sheet_three_files_two_collide(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    c = write(tmp_path, "cat.px", "k #000000\n@frame sit\nk\n")
+    assert labels_of(a, b, c) == ["hero:idle/0", "hero:idle/1", "beast:idle/0", "beast:idle/1", "sit"]
+
+
+def test_sheet_command_writes_with_prefixed_labels(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    assert run("sheet", a, b, "-o", tmp_path / "s.png") == 0
+    assert (tmp_path / "s.png").exists()
+
+
+def test_sheet_label_widens_the_cell(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beastlyname.px", SAME_IDS)
+    assert run("sheet", a, "-o", tmp_path / "one.png", "--cols", "1") == 0
+    assert run("sheet", a, b, "-o", tmp_path / "two.png", "--cols", "1") == 0
+    assert Image.open(tmp_path / "two.png").width > Image.open(tmp_path / "one.png").width
+
+
+def test_anim_lines_use_prefixed_labels(tmp_path, capsys):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    assert run("anim", f"{a}:idle/0", f"{b}:idle/0") == 0
+    out = capsys.readouterr().out
+    assert "hero:idle/0" in out and "vs beast:idle/0" in out
+
+
+def test_render_uses_prefixed_labels(tmp_path):
+    a, b = write(tmp_path, "hero.px", SAME_IDS), write(tmp_path, "beast.px", SAME_IDS)
+    assert run("render", a, b, "-o", tmp_path / "r.png") == 0
+
+
+def test_tell_apart_directly():
+    its = [pxart.Item("x", None, 1), pxart.Item("x", None, 1), pxart.Item("y", None, 1)]
+    pxart.tell_apart(its, ["p/one.px", "q/two.px", "q/two.px"])
+    assert [it.label for it in its] == ["one:x", "two:x", "y"]
+
+
+def test_help_documents_sheet_prefix():
+    doc = " ".join(pxart.__doc__.split())
+    assert "Frames with the same id from different files are labeled with their file's stem in front" in doc
