@@ -5076,3 +5076,209 @@ def test_extract_inline_palette_orders_anims_too(tmp_path):
 
 def test_help_documents_extract_anim_order():
     assert "@anim lines in the order of the frames' groups" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop H: errors name the command and the input
+
+BROKEN = "k #000000\n@frame hat\nkk\nk\n@frame body\nkq\n"  # line 4: E_ROW_WIDTH, line 6: E_UNKNOWN_KEY
+
+
+def broken_lines(msg):
+    return [l for l in msg.splitlines() if "E_ROW_WIDTH" in l or "E_UNKNOWN_KEY" in l]
+
+
+def test_compose_error_names_the_layer(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{ok}@0,0", f"{bad}:hat@0,0")
+    lines = broken_lines(msg)
+    assert len(lines) == 2 and all(l.startswith(f"compose: layer 2 ({bad}:hat): {bad}:") for l in lines)
+    assert f"compose: layer 2 ({bad}:hat): {bad}:4: E_ROW_WIDTH (frame hat, row 1)" in msg
+    assert f"compose: layer 2 ({bad}:hat): {bad}:6: E_UNKNOWN_KEY (frame body, row 0, x=[1])" in msg
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_compose_error_names_the_first_layer_too(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    assert run_err("compose", "-o", tmp_path / "o.px", f"{bad}:hat@1,1", f"{ok}@0,0").startswith(
+        f"compose: layer 1 ({bad}:hat): ")
+
+
+def test_compose_select_error_names_the_layer(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\n@frame a\nkk\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{ok}:a@0,0", f"{ok}:zz@0,0")
+    assert msg.startswith(f"compose: layer 2 ({ok}:zz): {ok}: E_SELECT: no frame 'zz'")
+
+
+def test_compose_key_conflict_names_the_layer(tmp_path):
+    a, b = write(tmp_path, "a.px", "k #000000\nk\n"), write(tmp_path, "b.px", "k #ffffff\nk\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
+    assert msg.startswith(f"compose: layer 2 ({b}): ") and "E_KEY_CONFLICT" in msg
+
+
+def test_compose_bad_layer_arg_names_the_layer(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\nk\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{a}@0,0", f"{a}")
+    assert msg.startswith(f"compose: layer 2 ({a}): E_BAD_ARG: expected FILE[:frame][%variant]@x,y")
+
+
+def test_compose_png_layer_names_the_layer(tmp_path):
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "p.png")
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{tmp_path / 'p.png'}@0,0")
+    assert msg.startswith(f"compose: layer 1 ({tmp_path / 'p.png'}): E_BAD_ARG: compose layers must be .px frames")
+
+
+def test_compose_broken_output_file_is_named(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\nk\n")
+    out = write(tmp_path, "out.px", BROKEN)
+    msg = run_err("compose", "-o", f"{out}:hat", f"{ok}@0,0")
+    assert all(l.startswith(f"compose: -o ({out}:hat): {out}:") for l in broken_lines(msg))
+
+
+def test_crop_error_names_its_input(tmp_path):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("crop", f"{bad}:hat", "0,0,1,1", "-o", tmp_path / "o.px")
+    assert all(l.startswith(f"crop: FILE ({bad}:hat): ") for l in broken_lines(msg)) and broken_lines(msg)
+
+
+def test_scene_error_names_the_item(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("scene", "-o", tmp_path / "s.png", f"{ok}@0,0", f"{bad}:body@1,1")
+    assert len(broken_lines(msg)) == 2
+    assert all(l.startswith(f"scene: item 2 ({bad}:body): {bad}:") for l in broken_lines(msg))
+    assert not (tmp_path / "s.png").exists()
+
+
+def test_scene_variant_error_names_the_item(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
+    msg = run_err("scene", "-o", tmp_path / "s.png", "--variant", "night", f"{ok}@0,0")
+    assert msg.startswith(f"scene: item 1 ({ok}): {ok}: E_SELECT: no @variant 'night'")
+
+
+def test_scene_map_error_names_the_map(tmp_path):
+    write(tmp_path, "parts.px", BROKEN)
+    m = write(tmp_path, "room.map", "h parts.px:hat\n\nh\n")
+    msg = run_err("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2")
+    assert msg.startswith(f"scene: --map ({m}): {m}:1: E_ROW_WIDTH: legend 'h'")
+    bad = write(tmp_path, "bad.map", "h parts.px:hat\n\nhq\n")
+    assert run_err("scene", "-o", tmp_path / "s.png", "--map", bad).startswith(
+        f"scene: --map ({bad}): {bad}:3: E_UNKNOWN_KEY")
+
+
+def test_paste_errors_name_src_or_into(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("paste", f"{bad}:hat", "--into", ok, "--at", "0,0")
+    assert broken_lines(msg) and all(l.startswith(f"paste: SRC ({bad}:hat): ") for l in broken_lines(msg))
+    msg = run_err("paste", ok, "--into", f"{bad}:hat", "--at", "0,0")
+    assert broken_lines(msg) and all(l.startswith(f"paste: --into ({bad}:hat): ") for l in broken_lines(msg))
+
+
+def test_paste_key_conflict_names_src(tmp_path):
+    a, b = write(tmp_path, "a.px", "k #000000\nkk\n"), write(tmp_path, "b.px", "k #ffffff\nk\n")
+    msg = run_err("paste", b, "--into", a, "--at", "0,0")
+    assert msg.startswith(f"paste: SRC ({b}): ") and "E_KEY_CONFLICT" in msg
+
+
+@pytest.mark.parametrize("argv", [
+    ["flip", "{b}:hat"], ["shift", "{b}", "--dx", "1"], ["set", "{b}:hat", "k", "0,0"], ["fill", "{b}", "k"],
+    ["mask", "{b}", "--keep", "0,0,1,1"], ["recolor", "{b}", "k=k"], ["extract", "{b}:hat", "-o", "{t}/o.px"],
+    ["frames", "{b}"], ["dup", "{b}:hat", "hat2"], ["anim-set", "{b}:hat", "ms=90"], ["palette", "{b}"],
+    ["export", "{b}", "--frames", "{t}/f"], ["new", "{b}:x", "--size", "1x1"],
+])
+def test_one_input_commands_name_command_and_input(tmp_path, argv):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    args = [a.format(b=bad, t=tmp_path) for a in argv]
+    before = bad.read_text()
+    msg = run_err(*args)
+    lines = broken_lines(msg)
+    label = "OUT" if argv[0] == "new" else "FILE"
+    assert len(lines) == 2 and all(l.startswith(f"{argv[0]}: {label} ({args[1]}): {bad}:") for l in lines), msg
+    assert bad.read_text() == before
+
+
+@pytest.mark.parametrize("cmd", ["render", "sheet", "anim", "stats"])
+def test_several_file_commands_name_which_file(tmp_path, cmd):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    out = ["-o", tmp_path / "x.png"] if cmd != "stats" else []
+    msg = run_err(cmd, ok, bad, *out)
+    assert len(broken_lines(msg)) == 2 and all(l.startswith(f"{cmd}: file 2 ({bad}): ") for l in broken_lines(msg))
+
+
+def test_onion_names_a_or_b(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    assert run_err("onion", ok, f"{bad}:hat", "-o", tmp_path / "o.png").startswith(f"onion: B ({bad}:hat): ")
+    assert run_err("onion", f"{bad}:hat", ok, "-o", tmp_path / "o.png").startswith(f"onion: A ({bad}:hat): ")
+
+
+def test_export_select_error_names_the_selector(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\n@frame a\nk\n")
+    msg = run_err("export", f"{ok}:a", f"{ok}:zz", "--frames", tmp_path / "f")
+    assert msg.startswith(f"export: FILE ({ok}:zz): {ok}: E_SELECT")
+
+
+def test_put_errors_name_the_command(tmp_path, monkeypatch):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    msg = put_err(monkeypatch, "k\n", f"{bad}:hat")
+    assert broken_lines(msg) and all(l.startswith(f"put: FILE ({bad}:hat): ") for l in broken_lines(msg))
+    ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
+    assert put_err(monkeypatch, "kk\nk\n", ok).startswith("put: stdin:2: E_ROW_WIDTH")  # stdin isn't said twice
+    assert put_err(monkeypatch, "@frame x\nk\n", ok).startswith("put: stdin: E_BAD_ARG")
+
+
+def test_check_palette_error_names_the_flag(tmp_path):
+    ok, bad = write(tmp_path, "ok.px", "k #000000\nkk\n"), write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("check", ok, "--palette", bad)
+    assert msg.startswith(f"check: --palette ({bad}): ")
+
+
+def test_from_png_broken_output_is_named(tmp_path):
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "i.png")
+    bad = write(tmp_path, "parts.px", BROKEN)
+    msg = run_err("from-png", tmp_path / "i.png", "-o", bad)
+    assert broken_lines(msg) and all(l.startswith(f"from-png: -o ({bad}): ") for l in broken_lines(msg))
+
+
+def test_check_output_is_unchanged_by_error_prefixes(tmp_path, capsys):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    assert run("check", bad) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[1] == f"     {bad}:4: E_ROW_WIDTH (frame hat, row 1): row is 1 wide, but 1 of 2 rows are 2 wide: 'k'"
+    assert "check:" not in out and "FILE (" not in out
+
+
+def test_argument_errors_have_no_input_prefix(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
+    msg = run_err("set", ok, "k", "9,9")
+    assert msg.startswith("E_BAD_ARG") or msg.startswith(": E_BAD_ARG")
+    assert "FILE (" not in msg
+
+
+def test_parse_errors_outside_a_command_are_unchanged(tmp_path):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(bad)
+    assert str(e.value).startswith(f"{bad}:4: E_ROW_WIDTH") and all(i.ctx is None for i in e.value.issues)
+
+
+def test_reading_innermost_label_wins():
+    with pytest.raises(pxart.PxError) as e:
+        with pxart.reading("outer"):
+            with pxart.reading("inner"):
+                pxart.fail("E_BAD_ARG", "x", path="a.px")
+    assert str(e.value) == "inner: a.px: E_BAD_ARG: x"
+
+
+def test_reading_without_path_has_no_empty_where():
+    with pytest.raises(pxart.PxError) as e:
+        with pxart.reading("layer 1 (a.px)"):
+            pxart.fail("E_SELECT", "nope")
+    assert str(e.value) == "layer 1 (a.px): E_SELECT: nope"
+
+
+def test_missing_input_file_is_still_plain_e_file(tmp_path):
+    ok = write(tmp_path, "ok.px", "k #000000\nk\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{ok}@0,0", f"{tmp_path / 'nope.px'}@0,0")
+    assert msg.startswith(f"{tmp_path / 'nope.px'}: E_FILE")
+
+
+def test_help_documents_error_prefixes():
+    assert "compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH" in pxart.__doc__

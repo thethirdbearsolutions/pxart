@@ -86,6 +86,12 @@ Every problem in a file is reported at once with a stable code and a location:
 hero.px:14: E_UNKNOWN_KEY (frame walk/down/1, row 2, x=[3]): keys 'q' aren't in the palette
 ```
 
+A command that fails on one of its input files also says which command and which input:
+
+```
+compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, row 1): row is 1 wide, ...
+```
+
 Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 ## Commands

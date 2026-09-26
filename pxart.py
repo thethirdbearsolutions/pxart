@@ -253,9 +253,13 @@ ERROR CODES
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
   E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_UNKNOWN_SECTION
   E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
+  An error in an input file says which command and which input it came from, then where
+  in the file: 'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
+  Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
+  file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, json, math, os, pathlib, re, string, sys, unicodedata
+import argparse, contextlib, json, math, os, pathlib, re, string, sys, unicodedata
 from PIL import Image, ImageDraw
 
 FORMAT_VERSION = 1
@@ -277,8 +281,12 @@ class Issue:
     def __init__(self, code, msg, path=None, line=None, frame=None, row=None, cols=None):
         self.code, self.msg, self.path, self.line = code, msg, path, line
         self.frame, self.row, self.cols = frame, row, cols
+        self.ctx = None  # which input of the command it came from: 'layer 2 (parts.px:hat)' (see reading())
 
     def __str__(self):
+        if self.ctx and self.ctx != str(self.path):
+            here = Issue(self.code, self.msg, self.path, self.line, self.frame, self.row, self.cols)
+            return f"{self.ctx}: {here}" if self.path else f"{self.ctx}: {str(here)[2:]}"
         where = str(self.path or "")
         if self.line:
             where += f":{self.line}"
@@ -295,11 +303,26 @@ class Issue:
 class PxError(Exception):
     def __init__(self, issues):
         self.issues = issues if isinstance(issues, list) else [issues]
-        super().__init__("\n".join(str(i) for i in self.issues))
+        super().__init__()
+
+    def __str__(self):
+        return "\n".join(str(i) for i in self.issues)
 
 
 def fail(code, msg, **kw):
     raise PxError(Issue(code, msg, **kw))
+
+
+@contextlib.contextmanager
+def reading(label):
+    """Errors inside name the input they came from: 'layer 2 (parts.px:hat)'; main adds the command in front.
+    The innermost label wins."""
+    try:
+        yield
+    except PxError as e:
+        for i in e.issues:
+            i.ctx = i.ctx or label
+        raise
 
 
 # ---------------------------------------------------------------------------- model
@@ -793,8 +816,9 @@ def items(arg, variant=None, strict=False):
 
 def all_items(args, variant=None):
     out = []
-    for a in args:
-        out += items(a, variant)
+    for n, a in enumerate(args, 1):
+        with reading(f"file {n} ({a})"):
+            out += items(a, variant)
     return out
 
 
@@ -1039,12 +1063,13 @@ def write_doc(doc, path=None):
     return f"wrote {doc.save(path)}"
 
 
-def edit_target(arg, out):
+def edit_target(arg, out, label="FILE"):
     """The shared edit path: (doc, selected frames, where to write). -o gets the whole file with the selection
     edited, never just the selection (that's extract)."""
     path, sel = split_sel(arg)
-    doc = parse(path)
-    frames = doc.select(sel)
+    with reading(f"{label} ({arg})"):
+        doc = parse(path)
+        frames = doc.select(sel)
     out = pathlib.Path(out) if out else doc.path
     if sel and out.resolve() != doc.path.resolve():
         print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
@@ -1138,7 +1163,10 @@ def cmd_anim(a):
 
 
 def cmd_onion(a):
-    A, B = one_frame(a.a).img, one_frame(a.b).img
+    with reading(f"A ({a.a})"):
+        A = one_frame(a.a).img
+    with reading(f"B ({a.b})"):
+        B = one_frame(a.b).img
     w, h = max(A.width, B.width), max(A.height, B.height)
     base = on_bg(Image.new("RGBA", (1, 1), CLEAR), w, h)
     faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
@@ -1288,17 +1316,21 @@ def cmd_scene(a):
     tile = tuple(map(int, a.tile.split("x")))
     if a.map:
         notes = []
-        placed, msize = read_map(a.map, tile, notes)
+        with reading(f"--map ({a.map})"):
+            placed, msize = read_map(a.map, tile, notes)
         for n in notes:
             print("note:", n)
     W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
     sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
-    tiles = load_legend(a.map, a.variant) if a.map else {}
+    with reading(f"--map ({a.map})"):
+        tiles = load_legend(a.map, a.variant) if a.map else {}
     for arg, x, y in placed:
         draw_at(sc, tiles[arg], *cell_spot(arg, tiles[arg], x, y, tile))
-    for spec in a.specs:
-        path, x, y = split_at(spec)
-        draw_at(sc, place_item(path, "scene item", a.variant).img, x, y)
+    for n, spec in enumerate(a.specs, 1):
+        with reading(f"item {n} ({spec.rpartition('@')[0] or spec})"):
+            path, x, y = split_at(spec)
+            img = place_item(path, "scene item", a.variant).img
+        draw_at(sc, img, x, y)
     if tint:
         sc = tinted(sc, tint)
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
@@ -1382,7 +1414,8 @@ def lookalike_notes(path):
 
 
 def cmd_check(a):
-    allowed = load_palette(a.palette) if a.palette else None
+    with reading(f"--palette ({a.palette})"):
+        allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     for arg in dict.fromkeys(a.files):
@@ -1449,8 +1482,10 @@ def cmd_check(a):
 
 
 def cmd_stats(a):
-    for arg in a.files:
-        for it in items(arg):
+    for n, arg in enumerate(a.files, 1):
+        with reading(f"file {n} ({arg})"):
+            its = items(arg)
+        for it in its:
             cs = colors(it.img)
             print(f"{arg if not (it.frame and it.frame.id) else split_sel(arg)[0] + ':' + it.label}: "
                   f"{it.img.width}x{it.img.height} bbox={it.img.getchannel('A').getbbox()} colors={len(cs)} "
@@ -1459,8 +1494,9 @@ def cmd_stats(a):
 
 def cmd_frames(a):
     path, sel = split_sel(a.file)
-    doc = parse(path, allow_empty=True)
-    picked = doc.select(sel) if sel else doc.frames
+    with reading(f"FILE ({a.file})"):
+        doc = parse(path, allow_empty=True)
+        picked = doc.select(sel) if sel else doc.frames
     if a.rm is not None or a.move or a.after or a.before:
         if doc.implicit:
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
@@ -1720,18 +1756,21 @@ def cmd_set(a):
 
 
 def cmd_crop(a):
-    src = one_frame(a.src, "crop source")
+    with reading(f"FILE ({a.src})"):
+        src = one_frame(a.src, "crop source")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
     a.layers, a.size, a.size_from = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", "the crop rectangle"
     cmd_compose(a)
 
 
 def cmd_paste(a):
-    src = one_frame(a.src, "--src")
-    ddoc, dframes, out = edit_target(a.into, a.o)
+    with reading(f"SRC ({a.src})"):
+        src = one_frame(a.src, "--src")
+    ddoc, dframes, out = edit_target(a.into, a.o, "--into")
     ax, ay = map(int, a.at.split(","))
     for f in dframes:
-        stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region)
+        with reading(f"SRC ({a.src})"):
+            stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region)
     print(write_doc(ddoc, out))
 
 
@@ -1739,8 +1778,9 @@ def cmd_extract(a):
     """Only the selected frames, with the file's palette, @palette imports (re-pointed from OUT's directory),
     variants, and @anim/@still lines except those of groups the selection left behind."""
     path, sel = split_sel(a.file)
-    doc = parse(path)
-    keep = doc.select(sel)
+    with reading(f"FILE ({a.file})"):
+        doc = parse(path)
+        keep = doc.select(sel)
     gone = {f.group for f in doc.frames} - {f.group for f in keep}  # groups the selection leaves behind
     doc.frames = keep
     out = pathlib.Path(a.o)
@@ -1836,8 +1876,9 @@ def cmd_new(a):
     if a.palette and pathlib.Path(opath).exists():
         fail("E_BAD_ARG", f"--palette starts a new file, and {opath} exists (it keeps its own palette)")
     w, h = parse_size(a.size)
-    had_grid = not osel and pathlib.Path(opath).exists() and parse(opath, allow_empty=True).implicit
-    doc, target = frame_slot(opath, osel, a.palette, flag="new")
+    with reading(f"OUT ({a.out})"):
+        had_grid = not osel and pathlib.Path(opath).exists() and parse(opath, allow_empty=True).implicit
+        doc, target = frame_slot(opath, osel, a.palette, flag="new")
     if target.grid or had_grid:
         fail("E_DUP_FRAME", f"{opath} already has " + (f"frame {osel!r}" if osel else "its grid")
              + f"; repaint it with 'pxart fill {a.out} KEY'")
@@ -1856,28 +1897,31 @@ def cmd_put(a):
         fail("E_BAD_ARG", f"put reads the grid from stdin: pxart put {a.target} < grid.txt")
     out = pathlib.Path(a.o) if a.o else pathlib.Path(path)
     note_suffix(out)
-    doc, target = frame_slot(path, sel, flag="put")
-    inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
-    if inside:
-        fail("E_SELECT", f"put writes one frame, and {sel!r} is a group ({', '.join(inside)}); name one frame: "
-             f"put {path}:{inside[0]}", path=path)
+    with reading(f"FILE ({a.target})"):
+        doc, target = frame_slot(path, sel, flag="put")
+        inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
+        if inside:
+            fail("E_SELECT", f"put writes one frame, and {sel!r} is a group ({', '.join(inside)}); name one frame: "
+                 f"put {path}:{inside[0]}", path=path)
     text = sys.stdin.read()
-    src = parse("stdin", text=text, allow_empty=True, known=doc.resolved())
-    if (src.frames and not src.implicit) or src.palette_refs or src.variants or src.anims or src.stills \
-            or src.extensions:
-        fail("E_BAD_ARG", f"put reads one grid from stdin: palette lines ('k #rrggbb') and rows, no @ lines (the "
-             f"frame is named on the command line: put {path}:FRAME)", path="stdin")
-    if not src.frames:
-        fail("E_NO_FRAMES", "no grid rows on stdin", path="stdin")
-    grid = src.frames[0].grid
-    for k in sorted(set("".join(grid))):
-        if k in src.palette:
-            have = doc.resolved().get(k)
-            if have and have != src.palette[k]:
-                n = next(n for n, l in enumerate(text.splitlines(), 1) if l.strip()[:1] == k and PAL_RE.match(l.strip()))
-                fail("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} it is "
-                     f"{fmt_color(have)}; use another key, or the file's color", path="stdin", line=n)
-            doc.add_key(k, src.palette[k])
+    with reading("stdin"):
+        src = parse("stdin", text=text, allow_empty=True, known=doc.resolved())
+        if (src.frames and not src.implicit) or src.palette_refs or src.variants or src.anims or src.stills \
+                or src.extensions:
+            fail("E_BAD_ARG", f"put reads one grid from stdin: palette lines ('k #rrggbb') and rows, no @ lines (the "
+                 f"frame is named on the command line: put {path}:FRAME)", path="stdin")
+        if not src.frames:
+            fail("E_NO_FRAMES", "no grid rows on stdin", path="stdin")
+        grid = src.frames[0].grid
+        for k in sorted(set("".join(grid))):
+            if k in src.palette:
+                have = doc.resolved().get(k)
+                if have and have != src.palette[k]:
+                    n = next(n for n, l in enumerate(text.splitlines(), 1)
+                             if l.strip()[:1] == k and PAL_RE.match(l.strip()))
+                    fail("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} it is "
+                         f"{fmt_color(have)}; use another key, or the file's color", path="stdin", line=n)
+                doc.add_key(k, src.palette[k])
     was = target.size if target.grid else None
     if was and was != (len(grid[0]), len(grid)):
         print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
@@ -1899,13 +1943,19 @@ def cmd_fill(a):
 
 
 def cmd_compose(a):
-    layers = [(place_item(p, "layer"), x, y) for p, x, y in (split_at(s) for s in a.layers)]
-    for lay, _, _ in layers:
-        if not lay.doc:
-            fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
+    layers = []
+    for n, spec in enumerate(a.layers, 1):
+        label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
+        with reading(label):
+            p, x, y = split_at(spec)
+            lay = place_item(p, "layer")
+            if not lay.doc:
+                fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
+        layers.append((lay, x, y, label))
     opath, osel = split_sel(a.o)
     note_suffix(opath)
-    doc, target = frame_slot(opath, osel)
+    with reading(f"-o ({a.o})"):
+        doc, target = frame_slot(opath, osel)
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), getattr(a, "size_from", "--size")
     elif target.grid:
@@ -1916,7 +1966,7 @@ def cmd_compose(a):
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
-    for lay, x, y in layers:
+    for lay, x, y, label in layers:
         w, h = lay.frame.size
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
                   if ch != "." and lay.doc.resolved()[ch][3]
@@ -1924,13 +1974,15 @@ def cmd_compose(a):
         if cut:
             print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                   f"(size from {why}) and were cropped")
-        stamp(doc, target, lay.doc, lay.frame, (x, y))
+        with reading(label):
+            stamp(doc, target, lay.doc, lay.frame, (x, y))
     print(write_doc(doc, opath), f"frame {osel}" if osel else "")
 
 
 def cmd_dup(a):
     path, sel = split_sel(a.src)
-    doc = parse(path)
+    with reading(f"FILE ({a.src})"):
+        doc = parse(path)
     src = doc.get(sel) if sel else None
     if not src:
         fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame; frames: "
@@ -1969,7 +2021,8 @@ def timing_value(k, v):
 def cmd_anim_set(a):
     """Timing: FILE:GROUP updates or adds '@anim GROUP ...'; FILE:GROUP/ID sets that frame's ms=. One line changes."""
     path, sel = split_sel(a.target)
-    doc = parse(path)
+    with reading(f"FILE ({a.target})"):
+        doc = parse(path)
     out = pathlib.Path(a.o) if a.o else doc.path
     if not sel:
         fail("E_SELECT", f"anim-set needs FILE:GROUP (an animation's @anim line) or FILE:GROUP/ID (one frame's ms=); "
@@ -2005,7 +2058,8 @@ def cmd_anim_set(a):
 
 
 def cmd_palette(a):
-    doc = parse(a.file, palette_only=not _has_grid(a.file))
+    with reading(f"FILE ({a.file})"):
+        doc = parse(a.file, palette_only=not _has_grid(a.file))
     for m in a.add or []:
         k, _, v = m.partition("=")
         if not COLOR_RE.match(v):
@@ -2050,11 +2104,15 @@ def export_frames(args):
     if len(paths) > 1:
         fail("E_BAD_ARG", f"export reads one file, got {', '.join(paths)}; pick parts of one file with "
              f"FILE:SEL FILE:SEL ...")
-    doc = parse(paths[0])
+    with reading(f"FILE ({paths[0]})"):
+        doc = parse(paths[0])
     sels = [split_sel(f)[1] for f in args]
     if None in sels:
         return doc, list(doc.frames)
-    chosen = {id(f) for sel in sels for f in doc.select(sel)}
+    chosen = set()
+    for arg, sel in zip(args, sels):
+        with reading(f"FILE ({arg})"):
+            chosen |= {id(f) for f in doc.select(sel)}
     return doc, [f for f in doc.frames if id(f) in chosen]
 
 
@@ -2136,13 +2194,15 @@ def cmd_from_png(a):
     imgs = [(pathlib.Path(p), Image.open(p).convert("RGBA")) for p in a.pngs]
     out = pathlib.Path(a.o) if a.o else None
     if out and out.exists():
-        doc = parse(out, allow_empty=True)
+        with reading(f"-o ({a.o})"):
+            doc = parse(out, allow_empty=True)
     else:
         doc = Doc(out or imgs[0][0].with_suffix(".px"))
         doc.version = FORMAT_VERSION
         if a.palette:
             ref = os.path.relpath(a.palette, (out or imgs[0][0]).resolve().parent)
-            doc = parse(doc.path, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
+            with reading(f"--palette ({a.palette})"):
+                doc = parse(doc.path, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
     named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
     if named and doc.implicit:
         fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid; import into a new file or one with @frame ids")
@@ -2238,8 +2298,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
-    except PxError as e:
-        sys.exit(str(e))
+    except PxError as e:  # an input's errors say which command and which input: 'compose: layer 2 (x.px): ...'
+        sys.exit("\n".join(f"{a.cmd}: {i}" if i.ctx else str(i) for i in e.issues))
     except OSError as e:
         sys.exit(file_error(e))
 
