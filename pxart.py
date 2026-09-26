@@ -46,12 +46,15 @@ LOOKING
       to stdout, one line per frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given.
   onion A B -o x.png [--scale 8]    B drawn over a faded A
-  scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] ITEM@x,y ...
+  scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
+        ITEM@x,y ...
       ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
       '<char> <FILE[:frame][%variant]>' (paths relative to the map file), a blank line, then
       rows of legend chars ('.' = empty). Items are then drawn on top. '#' lines are
       comments only before the first row; after that every non-blank line is a row, so
       '#' works as a map char (a wall row '####'), defined by a legend line '# wall.px'.
+      --variant V renders every map tile and .px item with V (a whole dark room), except
+      those with their own %variant, which wins; a .px without V is an E_SELECT error.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
 
@@ -566,8 +569,8 @@ def all_items(args, variant=None):
     return out
 
 
-def one_frame(arg, what="input"):
-    got = items(arg)
+def one_frame(arg, what="input", variant=None):
+    got = items(arg, variant)
     if len(got) != 1:
         fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id")
     return got[0]
@@ -869,11 +872,11 @@ def cmd_scene(a):
     cache = {}
     for arg, x, y in placed:
         if arg not in cache:
-            cache[arg] = one_frame(arg, "map tile").img
+            cache[arg] = one_frame(arg, "map tile", a.variant).img
         sc.alpha_composite(cache[arg], (x, y))
     for spec in a.specs:
         path, x, y = split_at(spec)
-        sc.alpha_composite(one_frame(path, "scene item").img, (x, y))
+        sc.alpha_composite(one_frame(path, "scene item", a.variant).img, (x, y))
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
     print("wrote", a.o)
 
@@ -1313,6 +1316,7 @@ def main(argv=None):
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
     p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>', blank line, rows")
     p.add_argument("--tile", default="16x16", help="tile size for --map")
+    p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")

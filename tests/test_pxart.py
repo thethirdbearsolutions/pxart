@@ -609,3 +609,71 @@ def test_scene_and_compose_report_variant_after_at(tmp_path, capsys):
     p = write(tmp_path, "m.px", MULTI)
     assert run("scene", "-o", tmp_path / "s.png", f"{p}:idle@0,0%night") == 1
     assert run("compose", "-o", tmp_path / "o.px", f"{p}:idle@0,0%night") == 1
+
+
+# ---------------------------------------------------------------- scene --variant
+
+VTILES = ("k #000000\nw #ffffff\n\n@variant dark\nk #010101\nw #222222\n\n@variant red\nw #ff0000\n\n"
+          "@frame floor\nkk\nkk\n@frame wall\nww\nww\n")
+VHERO = "h #00ff00\n\n@variant dark\nh #003300\n\n@variant red\nh #ff0000\n\nh\n"
+
+
+def test_scene_variant_applies_to_map_tiles(tmp_path):
+    write(tmp_path, "tiles.px", VTILES)
+    m = write(tmp_path, "room.map", "f tiles.px:floor\nW tiles.px:wall\n\nWf\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1",
+               "--variant", "dark") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (0x22, 0x22, 0x22) and img.getpixel((2, 0))[:3] == (1, 1, 1)
+
+
+def test_scene_variant_applies_to_items(tmp_path):
+    hero = write(tmp_path, "hero.px", VHERO)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", "--variant", "dark",
+               f"{hero}@0,0") == 0
+    assert scene_px(tmp_path / "s.png").getpixel((0, 0))[:3] == (0, 0x33, 0)
+
+
+def test_scene_item_own_variant_wins(tmp_path):
+    hero = write(tmp_path, "hero.px", VHERO)
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", "--variant", "dark",
+               f"{hero}@0,0", f"{hero}%red@1,0") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (0, 0x33, 0) and img.getpixel((1, 0))[:3] == (255, 0, 0)
+
+
+def test_scene_map_legend_own_variant_wins(tmp_path):
+    write(tmp_path, "tiles.px", VTILES)
+    m = write(tmp_path, "room.map", "f tiles.px:floor\nW tiles.px:wall%red\n\nWf\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1",
+               "--variant", "dark") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (255, 0, 0) and img.getpixel((2, 0))[:3] == (1, 1, 1)
+
+
+def test_scene_without_variant_uses_base(tmp_path):
+    write(tmp_path, "tiles.px", VTILES)
+    hero = write(tmp_path, "hero.px", VHERO)
+    m = write(tmp_path, "room.map", "W tiles.px:wall\n\nW\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1",
+               f"{hero}@0,0") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (0, 255, 0) and img.getpixel((1, 1))[:3] == (255, 255, 255)
+
+
+def test_scene_variant_missing_in_a_file_is_an_error(tmp_path):
+    hero = write(tmp_path, "hero.px", "h #00ff00\nh\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--variant", "dark", f"{hero}@0,0") == 1
+
+
+def test_scene_variant_leaves_png_items_alone(tmp_path):
+    Image.new("RGBA", (1, 1), (9, 8, 7, 255)).save(tmp_path / "p.png")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "1x1", "--scale", "1", "--variant", "dark",
+               f"{tmp_path / 'p.png'}@0,0") == 0
+    assert scene_px(tmp_path / "s.png").getpixel((0, 0))[:3] == (9, 8, 7)
+
+
+def test_one_frame_takes_a_variant(tmp_path):
+    hero = write(tmp_path, "hero.px", VHERO)
+    assert pxart.one_frame(str(hero), variant="dark").img.getpixel((0, 0))[:3] == (0, 0x33, 0)
+    assert pxart.one_frame(f"{hero}%red", variant="dark").img.getpixel((0, 0))[:3] == (255, 0, 0)
