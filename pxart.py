@@ -242,6 +242,30 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A path that is both a group and a frame means the group. Only that one line changes.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
+DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
+  are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
+  says how many px fell outside); x,y may be negative. Each prints "painted N px".
+  line FILE[:frame] KEY x0,y0 x1,y1 [--width N]
+      Bresenham: one pixel per step along the longer axis, 8-connected, no doubled corners;
+      the same pixels whichever end comes first (0,0 8,2 is three runs of 3). --width N
+      paints N px across the line (down for a mostly-horizontal line, right for a mostly-
+      vertical one), centered, the odd pixel down/right.
+  rect FILE[:frame] KEY x,y,w,h [--fill]          a 1px border, or filled
+  ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]
+      The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
+      center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
+      (3.5,3.5,3.5,2.5 is 8x6 at 0,1). A thin 8-connected outline (Zingl's algorithm), mirror-
+      symmetric, no stray pixels; boxes 1 or 2 px across are filled.
+  arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]
+      Part of the circle ellipse cx,cy,r,r draws, from angle a0 to a1 in degrees, counter-
+      clockwise, 0 = right, 90 = up (0,90 is the upper-right quarter; 300,60 wraps through 0;
+      a1 - a0 >= 360 is the whole circle). A pixel is on the arc when the direction from the
+      center to it is in the range, ends included. --width N thickens it inward: a smear or
+      swoosh ('arc hero.px:attack/2 W 16,20,14 20,160 --width 3').
+  flood FILE[:frame] KEY x,y [--diagonal]
+      Bucket fill: repaint the region of x,y's key that touches x,y through sides (4-connected),
+      or corners too with --diagonal. A hole of another key stops it.
+
 CONVERTING
   export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
       --frames: one PNG per frame at DIR/<frame id>.png
@@ -2061,6 +2085,206 @@ def cmd_fill(a):
     print(write_doc(doc, out))
 
 
+# ---------------------------------------------------------------------------- drawing primitives
+
+def coords(s, names, what, half=False):
+    """'3,-4' -> (3, -4): len(names) comma-separated integers; with half, 3.5 too (a center or radius on a pixel
+    edge, for an even-sized ellipse)."""
+    num = r"-?\d+(\.[05])?" if half else r"-?\d+"
+    parts = (s or "").split(",")
+    if len(parts) != len(names) or not all(re.fullmatch(num, p) for p in parts):
+        fail("E_BAD_ARG", f"{what} wants {','.join(names)} (integers{', or halves like 3.5' if half else ''}), got {s!r}")
+    return tuple(float(p) if half else int(p) for p in parts)
+
+
+def line_points(x0, y0, x1, y1):
+    """Bresenham's line from x0,y0 to x1,y1: one pixel per step along the longer axis, so it is 8-connected with no
+    doubled corners. The same pixels whichever end comes first, and the same turned 180 degrees: 0,0 -> 8,2 is
+    three runs of 3."""
+    if (x1, y1) < (x0, y0):
+        x0, y0, x1, y1 = x1, y1, x0, y0
+    dx, dy = x1 - x0, y1 - y0
+    n = max(abs(dx), abs(dy))
+    if not n:
+        return [(x0, y0)]
+    sx, sy = (dx > 0) - (dx < 0), (dy > 0) - (dy < 0)
+
+    def minor(d, t):  # rounded, ties toward the nearer end, so the line is the same turned 180 degrees
+        return (2 * d * t + n - 1) // (2 * n) if 2 * t <= n else d - (2 * d * (n - t) + n - 1) // (2 * n)
+    if abs(dx) >= abs(dy):
+        return [(x0 + sx * t, y0 + sy * minor(abs(dy), t)) for t in range(n + 1)]
+    return [(x0 + sx * minor(abs(dx), t), y0 + sy * t) for t in range(n + 1)]
+
+
+def widened(pts, width, across_y):
+    """A brush `width` px across the line: down (across_y) or right from each point, centered, odd pixel after."""
+    lo = -((width - 1) // 2)
+    return [(x, y + k) if across_y else (x + k, y) for x, y in pts for k in range(lo, lo + width)]
+
+
+def ellipse_points(x0, y0, x1, y1, fill=False):
+    """The ellipse inscribed in the box x0..x1, y0..y1 (inclusive): Alois Zingl's integer algorithm ('A Rasterizing
+    Algorithm for Drawing Curves'), a thin 8-connected outline, mirror-symmetric both ways. fill adds every pixel
+    between the outline's ends on each row."""
+    a, b = abs(x1 - x0), abs(y1 - y0)
+    x0, x1, y0, y1 = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+    if a < 2 or b < 2:  # 1 or 2 px across: the whole box (the algorithm would drop the tips)
+        return {(x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)}
+    b1 = b & 1
+    dx, dy = 4 * (1 - a) * b * b, 4 * (b1 + 1) * a * a
+    err = dx + dy + b1 * a * a
+    y0 += (b + 1) // 2
+    y1 = y0 - b1
+    aa, bb = 8 * a * a, 8 * b * b
+    pts = set()
+    while True:
+        pts |= {(x1, y0), (x0, y0), (x0, y1), (x1, y1)}
+        e2 = 2 * err
+        if e2 <= dy:
+            y0, y1 = y0 + 1, y1 - 1
+            dy += aa
+            err += dy
+        if e2 >= dx or 2 * err > dy:
+            x0, x1 = x0 + 1, x1 - 1
+            dx += bb
+            err += dx
+        if x0 > x1:
+            break
+    while y0 - y1 <= b:  # a narrow ellipse stops early: finish its tips (Zingl has < b, which drops the last row)
+        pts |= {(x0 - 1, y0), (x1 + 1, y0), (x0 - 1, y1), (x1 + 1, y1)}
+        y0, y1 = y0 + 1, y1 - 1
+    if fill:
+        rows = {}
+        for x, y in pts:
+            lo, hi = rows.get(y, (x, x))
+            rows[y] = (min(lo, x), max(hi, x))
+        pts = {(x, y) for y, (lo, hi) in rows.items() for x in range(lo, hi + 1)}
+    return pts
+
+
+def ellipse_box(cx, cy, rx, ry, what):
+    """cx,cy,rx,ry -> the inclusive box cx-rx..cx+rx, cy-ry..cy+ry, which must fall on whole pixels."""
+    box = (cx - rx, cy - ry, cx + rx, cy + ry)
+    if rx < 0 or ry < 0 or any(v != int(v) for v in box):
+        fail("E_BAD_ARG", f"{what}: the shape spans cx-r..cx+r, which must be whole pixels: give cx and r both whole "
+             f"(7,7,3: 7 wide) or both ending in .5 (7.5,7.5,3.5: 8 wide), radii >= 0")
+    return tuple(int(v) for v in box)
+
+
+def arc_points(cx, cy, r, a0, a1, width=1):
+    """The circle of radius r around cx,cy (as ellipse draws it) from angle a0 to a1 degrees, counter-clockwise, 0 =
+    right (east), 90 = up. width > 1 thickens it inward: the pixels of the filled circle r that aren't in the filled
+    circle r - width. A pixel is on the arc when the direction from the center to its center is in the range."""
+    x0, y0, x1, y1 = ellipse_box(cx, cy, r, r, "arc")
+    if width <= 1:
+        ring = ellipse_points(x0, y0, x1, y1)
+    else:
+        ring = ellipse_points(x0, y0, x1, y1, fill=True)
+        if r - width >= 0:
+            ring -= ellipse_points(x0 + width, y0 + width, x1 - width, y1 - width, fill=True)
+    span = a1 - a0
+    if span >= 360 or span <= -360:
+        return ring
+    span %= 360
+
+    def on(x, y):
+        if x == cx and y == cy:
+            return True
+        ang = round(math.degrees(math.atan2(cy - y, x - cx)), 9)
+        return round((ang - a0) % 360, 9) <= span
+    return {p for p in ring if on(*p)}
+
+
+def flood_points(grid, x, y, diagonal=False):
+    """The pixels reachable from x,y through pixels of the same key (4-connected, or 8 with diagonal)."""
+    w, h = len(grid[0]), len(grid)
+    key, seen, todo = grid[y][x], {(x, y)}, [(x, y)]
+    steps = [(1, 0), (-1, 0), (0, 1), (0, -1)] + ([(1, 1), (1, -1), (-1, 1), (-1, -1)] if diagonal else [])
+    while todo:
+        px, py = todo.pop()
+        for sx, sy in steps:
+            q = (px + sx, py + sy)
+            if q not in seen and 0 <= q[0] < w and 0 <= q[1] < h and grid[q[1]][q[0]] == key:
+                seen.add(q)
+                todo.append(q)
+    return seen
+
+
+def paint(f, pts, key):
+    """Set f's pixels at pts to key, dropping those outside the frame: (px changed, px clipped)."""
+    w, h = f.size
+    g = [list(r) for r in f.grid]
+    changed, clipped = 0, 0
+    for x, y in dict.fromkeys(pts):
+        if not (0 <= x < w and 0 <= y < h):
+            clipped += 1
+        elif g[y][x] != key:
+            g[y][x], changed = key, changed + 1
+    f.grid = ["".join(r) for r in g]
+    return changed, clipped
+
+
+def draw(a, shape):
+    """The drawing commands' shared edit: paint shape(frame) -> pixels with a.key in each selected frame."""
+    doc, frames, out = edit_target(a.file, a.o)
+    if a.key not in doc.resolved():
+        fail("E_SELECT", f"{a.cmd}: key {a.key!r} not in palette (add it with palette --add)")
+    changed = 0
+    for f in frames:
+        c, cut = paint(f, shape(f), a.key)
+        changed += c
+        if cut:
+            print(f"note: {cut} px of the {a.cmd} fall outside {doc.label(f)} ({f.size[0]}x{f.size[1]}) and were "
+                  "clipped")
+    print(f"painted {changed} px;", write_doc(doc, out))
+
+
+def cmd_line(a):
+    x0, y0 = coords(a.p0, "xy", "line: the start")
+    x1, y1 = coords(a.p1, "xy", "line: the end")
+    if a.width < 1:
+        fail("E_BAD_ARG", "--width wants N >= 1")
+    pts = line_points(x0, y0, x1, y1)
+    draw(a, lambda f: widened(pts, a.width, abs(x1 - x0) >= abs(y1 - y0)))
+
+
+def cmd_rect(a):
+    x, y, w, h = coords(a.rect, ("x", "y", "w", "h"), "rect")
+    if w < 1 or h < 1:
+        fail("E_BAD_ARG", f"rect: w and h must be >= 1, got {a.rect!r}")
+    pts = [(xx, yy) for yy in range(y, y + h) for xx in range(x, x + w)
+           if a.fill or xx in (x, x + w - 1) or yy in (y, y + h - 1)]
+    draw(a, lambda f: pts)
+
+
+def cmd_ellipse(a):
+    cx, cy, rx, ry = coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True)
+    pts = ellipse_points(*ellipse_box(cx, cy, rx, ry, "ellipse"), fill=a.fill)
+    draw(a, lambda f: sorted(pts, key=lambda p: (p[1], p[0])))
+
+
+def cmd_arc(a):
+    cx, cy, r = coords(a.circle, ("cx", "cy", "r"), "arc", half=True)
+    try:
+        a0, a1 = (float(v) for v in a.angles.split(","))
+    except ValueError:
+        fail("E_BAD_ARG", f"arc: angles are a0,a1 in degrees (0 = right, 90 = up, counter-clockwise), got {a.angles!r}")
+    if a.width < 1:
+        fail("E_BAD_ARG", "--width wants N >= 1")
+    pts = arc_points(cx, cy, r, a0, a1, a.width)
+    draw(a, lambda f: sorted(pts, key=lambda p: (p[1], p[0])))
+
+
+def cmd_flood(a):
+    x, y = coords(a.at, "xy", "flood: the start")
+
+    def region(f):
+        if not (0 <= x < f.size[0] and 0 <= y < f.size[1]):
+            fail("E_BAD_ARG", f"flood: {x},{y} is outside {f.id or 'the frame'} ({f.size[0]}x{f.size[1]})")
+        return flood_points(f.grid, x, y, a.diagonal)
+    draw(a, region)
+
+
 def cmd_compose(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
@@ -2401,6 +2625,20 @@ def main(argv=None):
     p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
+    coord = re.compile(r"^-\d+(\.\d+)?(,-?\d+(\.\d+)?)*$")  # a negative x,y is an argument, not an option
+    ap._negative_number_matcher = coord
+    p = sub.add_parser("line"); p.add_argument("file"); p.add_argument("key"); p.add_argument("p0"); p.add_argument("p1")
+    p.add_argument("--width", type=int, default=1); p.add_argument("-o")
+    p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key"); p.add_argument("rect")
+    p.add_argument("--fill", action="store_true"); p.add_argument("-o")
+    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape")
+    p.add_argument("--fill", action="store_true"); p.add_argument("-o")
+    p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
+    p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")
+    p = sub.add_parser("flood"); p.add_argument("file"); p.add_argument("key"); p.add_argument("at")
+    p.add_argument("--diagonal", action="store_true"); p.add_argument("-o")
+    for name in ("line", "rect", "ellipse", "arc", "flood"):
+        sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)

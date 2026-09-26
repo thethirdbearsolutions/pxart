@@ -1,4 +1,5 @@
 import json
+import math
 import pathlib
 import sys
 
@@ -5828,3 +5829,419 @@ def test_percent_in_rows_still_line_is_the_unshifted_count(tmp_path, capsys):
 
 def test_help_documents_identical_rows():
     assert "rows Y down identical, 0 px changed" in pxart.__doc__ and "even 1px keeps the shift" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop I: drawing primitives (golden grids)
+
+def canvas(tmp_path, w, h, name="d.px", extra=""):
+    """A file with one blank frame 'a' of w x h and keys k (black) and w (white)."""
+    return write(tmp_path, name, "k #000000\nw #ffffff\n" + extra + "@frame a\n" + ("." * w + "\n") * h)
+
+
+def grid_of(p, fid="a"):
+    return pxart.parse(p).get(fid).grid
+
+
+def pts_grid(pts, w, h):
+    return ["".join("k" if (x, y) in set(pts) else "." for x in range(w)) for y in range(h)]
+
+
+LINE_OCTANTS = {
+    (8, 3): ['kk.......', '..kkk....', '.....kk..', '.......kk'],
+    (3, 8): ['k...', 'k...', '.k..', '.k..', '.k..', '..k.', '..k.', '...k', '...k'],
+    (-3, 8): ['...k', '...k', '..k.', '..k.', '.k..', '.k..', '.k..', 'k...', 'k...'],
+    (-8, 3): ['.......kk', '.....kk..', '..kkk....', 'kk.......'],
+    (-8, -3): ['kk.......', '..kkk....', '.....kk..', '.......kk'],
+    (-3, -8): ['k...', 'k...', '.k..', '.k..', '.k..', '..k.', '..k.', '...k', '...k'],
+    (3, -8): ['...k', '...k', '..k.', '..k.', '.k..', '.k..', '.k..', 'k...', 'k...'],
+    (8, -3): ['.......kk', '.....kk..', '..kkk....', 'kk.......'],
+    (8, 0): ['kkkkkkkkk'],
+    (0, 8): ['k'] * 9,
+    (8, 8): ['k........', '.k.......', '..k......', '...k.....', '....k....', '.....k...', '......k..', '.......k.', '........k'],
+    (-8, 8): ['........k', '.......k.', '......k..', '.....k...', '....k....', '...k.....', '..k......', '.k.......', 'k........'],
+}
+
+
+@pytest.mark.parametrize("end", list(LINE_OCTANTS))
+def test_line_octants_golden(tmp_path, end):
+    p = canvas(tmp_path, 17, 17)
+    assert run("line", f"{p}:a", "k", "8,8", f"{8 + end[0]},{8 + end[1]}") == 0
+    g = grid_of(p)
+    ys = [y for y, r in enumerate(g) if "k" in r]
+    xs = [x for r in g for x, c in enumerate(r) if c == "k"]
+    assert [r[min(xs):max(xs) + 1] for r in g[min(ys):max(ys) + 1]] == LINE_OCTANTS[end]
+
+
+@pytest.mark.parametrize("end", list(LINE_OCTANTS))
+def test_line_is_the_same_drawn_backwards(end):
+    assert set(pxart.line_points(0, 0, *end)) == set(pxart.line_points(*end, 0, 0))
+
+
+@pytest.mark.parametrize("dx,dy", [(a, b) for a in range(-7, 8) for b in range(-7, 8)])
+def test_line_is_8_connected_one_pixel_per_step(dx, dy):
+    pts = pxart.line_points(0, 0, dx, dy)
+    assert len(pts) == len(set(pts)) == max(abs(dx), abs(dy)) + 1
+    assert pts[0] in {(0, 0), (dx, dy)} and pts[-1] in {(0, 0), (dx, dy)}
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        assert max(abs(x1 - x0), abs(y1 - y0)) == 1  # no gaps and no doubled (L) corners
+
+
+@pytest.mark.parametrize("dx,dy", [(a, b) for a in range(-7, 8) for b in range(-7, 8)
+                                   if not (max(abs(a), abs(b)) % 2 == 0 and min(abs(a), abs(b)) % 2 == 1)])
+def test_line_is_symmetric_turned_180(dx, dy):
+    # Except where the middle pixel is a true tie (even length, odd rise), the line looks the same upside down.
+    pts = set(pxart.line_points(0, 0, dx, dy))
+    assert {(dx - x, dy - y) for x, y in pts} == pts
+
+
+def test_line_even_runs():
+    assert pts_grid(pxart.line_points(0, 0, 8, 2), 9, 3) == ["kkk......", "...kkk...", "......kkk"]
+    assert pts_grid(pxart.line_points(0, 0, 7, 3), 8, 4) == ["kk......", "..kk....", "....kk..", "......kk"]
+    assert pts_grid(pxart.line_points(0, 0, 5, 2), 6, 3) == ["kk....", "..kk..", "....kk"]
+
+
+def test_line_single_point(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert run("line", f"{p}:a", "k", "1,1", "1,1") == 0
+    assert grid_of(p) == ["...", ".k.", "..."]
+
+
+def test_line_width_2_goes_down(tmp_path):
+    p = canvas(tmp_path, 7, 6)
+    assert run("line", f"{p}:a", "k", "0,1", "6,3", "--width", "2") == 0
+    assert grid_of(p) == [".......", "kk.....", "kkkkk..", "..kkkkk", ".....kk", "......."]
+
+
+def test_line_width_3_steep_goes_across(tmp_path):
+    p = canvas(tmp_path, 6, 7)
+    assert run("line", f"{p}:a", "k", "1,0", "3,6", "--width", "3") == 0
+    assert grid_of(p) == ["kkk...", "kkk...", ".kkk..", ".kkk..", ".kkk..", "..kkk.", "..kkk."]
+
+
+def test_line_width_must_be_positive(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert "E_BAD_ARG" in run_err("line", f"{p}:a", "k", "0,0", "2,2", "--width", "0")
+
+
+def test_line_negative_start_is_clipped_with_a_note(tmp_path, capsys):
+    p = canvas(tmp_path, 4, 4)
+    assert run("line", f"{p}:a", "k", "-2,0", "3,0") == 0
+    out = capsys.readouterr().out
+    assert "note: 2 px of the line fall outside a (4x4) and were clipped" in out and "painted 4 px" in out
+    assert grid_of(p)[0] == "kkkk"
+
+
+def test_line_bad_point_is_bad_arg(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    msg = run_err("line", f"{p}:a", "k", "0,0", "2")
+    assert "E_BAD_ARG" in msg and "line: the end wants x,y" in msg
+
+
+def test_line_unknown_key(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    before = p.read_text()
+    msg = run_err("line", f"{p}:a", "q", "0,0", "2,2")
+    assert "E_SELECT" in msg and "key 'q' not in palette" in msg and p.read_text() == before
+
+
+def test_line_dot_erases(tmp_path):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\nkkk\n")
+    assert run("line", f"{p}:a", ".", "0,0", "1,0") == 0
+    assert grid_of(p) == ["..k"]
+
+
+def test_line_on_every_selected_frame(tmp_path):
+    p = write(tmp_path, "d.px", "k #000000\n@frame w/0\n...\n@frame w/1\n...\n@frame other\n...\n")
+    assert run("line", f"{p}:w", "k", "0,0", "2,0") == 0
+    doc = pxart.parse(p)
+    assert doc.get("w/0").grid == doc.get("w/1").grid == ["kkk"] and doc.get("other").grid == ["..."]
+
+
+def test_line_rewrites_only_changed_rows(tmp_path):
+    p = write(tmp_path, "d.px", "# hi\nk #000000\n\n@frame a\n...\n# keep\n...\n")
+    assert run("line", f"{p}:a", "k", "0,1", "2,1") == 0
+    assert p.read_text() == "# hi\nk #000000\n\n@frame a\n...\n# keep\nkkk\n"
+
+
+def test_line_no_change(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\nkkk\n")
+    assert run("line", f"{p}:a", "k", "0,0", "2,0") == 0
+    assert capsys.readouterr().out == f"painted 0 px; no change: {p}\n"
+
+
+def test_line_dash_o_writes_a_copy(tmp_path):
+    p = canvas(tmp_path, 3, 1)
+    before = p.read_text()
+    assert run("line", f"{p}:a", "k", "0,0", "2,0", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == before and grid_of(tmp_path / "o.px") == ["kkk"]
+
+
+def test_negative_coordinates_are_not_options(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert run("line", f"{p}:a", "k", "-1,-1", "1,1") == 0
+    assert run("rect", f"{p}:a", "w", "-1,-1,2,2", "--fill") == 0
+    assert run("ellipse", f"{p}:a", "k", "-1,-1,1,1") == 0
+    assert run("arc", f"{p}:a", "k", "-1,1,2", "-90,90") == 0
+
+
+# rect
+
+def test_rect_outline_golden(tmp_path):
+    p = canvas(tmp_path, 6, 5)
+    assert run("rect", f"{p}:a", "k", "1,1,4,3") == 0
+    assert grid_of(p) == ["......", ".kkkk.", ".k..k.", ".kkkk.", "......"]
+
+
+def test_rect_fill_golden(tmp_path):
+    p = canvas(tmp_path, 4, 3)
+    assert run("rect", f"{p}:a", "k", "1,0,2,3", "--fill") == 0
+    assert grid_of(p) == [".kk.", ".kk.", ".kk."]
+
+
+def test_rect_one_pixel(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert run("rect", f"{p}:a", "k", "1,1,1,1") == 0
+    assert grid_of(p) == ["...", ".k.", "..."]
+
+
+def test_rect_clipped(tmp_path, capsys):
+    p = canvas(tmp_path, 3, 3)
+    assert run("rect", f"{p}:a", "k", "1,1,4,4") == 0
+    assert grid_of(p) == ["...", ".kk", ".k."]
+    assert "px of the rect fall outside" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("spec", ["1,1,0,2", "1,1,2", "a,b,c,d", "1,1,-2,2"])
+def test_rect_bad(tmp_path, spec):
+    p = canvas(tmp_path, 3, 3)
+    assert "E_BAD_ARG" in run_err("rect", f"{p}:a", "k", spec)
+
+
+# ellipse
+
+ELLIPSES = {
+    (1, 1): ['k'],
+    (2, 2): ['kk', 'kk'],
+    (3, 3): ['.k.', 'k.k', '.k.'],
+    (4, 4): ['.kk.', 'k..k', 'k..k', '.kk.'],
+    (5, 5): ['.kkk.', 'k...k', 'k...k', 'k...k', '.kkk.'],
+    (6, 6): ['..kk..', '.k..k.', 'k....k', 'k....k', '.k..k.', '..kk..'],
+    (7, 7): ['..kkk..', '.k...k.', 'k.....k', 'k.....k', 'k.....k', '.k...k.', '..kkk..'],
+    (8, 8): ['..kkkk..', '.k....k.', 'k......k', 'k......k', 'k......k', 'k......k', '.k....k.', '..kkkk..'],
+    (8, 4): ['..kkkk..', 'kk....kk', 'kk....kk', '..kkkk..'],
+    (4, 8): ['.kk.', '.kk.', 'k..k', 'k..k', 'k..k', 'k..k', '.kk.', '.kk.'],
+    (7, 3): ['.kkkkk.', 'k.....k', '.kkkkk.'],
+    (6, 5): ['.kkkk.', 'k....k', 'k....k', 'k....k', '.kkkk.'],
+    (1, 4): ['k', 'k', 'k', 'k'],
+    (2, 5): ['kk'] * 5,
+    (5, 2): ['kkkkk'] * 2,
+}
+
+
+def ellipse_arg(w, h, x=0, y=0):
+    """cx,cy,rx,ry for the w x h ellipse with its box at x,y."""
+    f = lambda v: str(int(v)) if v == int(v) else str(v)
+    rx, ry = (w - 1) / 2, (h - 1) / 2
+    return ",".join(f(v) for v in (x + rx, y + ry, rx, ry))
+
+
+@pytest.mark.parametrize("size", list(ELLIPSES))
+def test_ellipse_golden(tmp_path, size):
+    w, h = size
+    p = canvas(tmp_path, w, h)
+    assert run("ellipse", f"{p}:a", "k", ellipse_arg(w, h)) == 0
+    assert grid_of(p) == ELLIPSES[size]
+
+
+@pytest.mark.parametrize("size", list(ELLIPSES))
+def test_ellipse_fill_golden_is_the_outline_filled_in(tmp_path, size):
+    w, h = size
+    p = canvas(tmp_path, w, h)
+    assert run("ellipse", f"{p}:a", "k", ellipse_arg(w, h), "--fill") == 0
+    want = [r[:r.find("k")] + "k" * (r.rfind("k") - r.find("k") + 1) + r[r.rfind("k") + 1:] for r in ELLIPSES[size]]
+    assert grid_of(p) == want
+
+
+@pytest.mark.parametrize("w", range(1, 25))
+@pytest.mark.parametrize("h", range(1, 25))
+def test_ellipse_properties(w, h):
+    o = pxart.ellipse_points(0, 0, w - 1, h - 1)
+    f = pxart.ellipse_points(0, 0, w - 1, h - 1, fill=True)
+    assert o <= f and all(0 <= x < w and 0 <= y < h for x, y in f)          # inside its box
+    assert {x for x, _ in o} == set(range(w)) and {y for _, y in o} == set(range(h))  # touches every side
+    assert {(w - 1 - x, y) for x, y in o} == o and {(x, h - 1 - y) for x, y in o} == o  # mirror-symmetric
+    if w > 2 and h > 2:
+        for x, y in o:  # thin: no L-shaped doubled corner (a pixel with a side neighbor each way and no diagonal)
+            for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+                assert not ((x + dx, y) in o and (x, y + dy) in o and (x + dx, y + dy) not in o), (x, y)
+    seen, todo = set(), [min(o)]
+    while todo:  # 8-connected: no stray pixels
+        q = todo.pop()
+        if q in seen:
+            continue
+        seen.add(q)
+        todo += [(q[0] + a, q[1] + b) for a in (-1, 0, 1) for b in (-1, 0, 1) if (q[0] + a, q[1] + b) in o]
+    assert seen == o
+    rows = {}
+    for x, y in f:
+        rows.setdefault(y, []).append(x)
+    assert all(sorted(xs) == list(range(min(xs), max(xs) + 1)) for xs in rows.values())  # fill has no holes
+
+
+def test_ellipse_even_size_with_halves(tmp_path):
+    p = canvas(tmp_path, 8, 8)
+    assert run("ellipse", f"{p}:a", "k", "3.5,4.5,3.5,2.5") == 0
+    assert grid_of(p) == ["........", "........", "..kkkk..", ".k....k.", "k......k", "k......k", ".k....k.",
+                          "..kkkk.."]
+
+
+def test_ellipse_off_the_frame_is_clipped(tmp_path, capsys):
+    p = canvas(tmp_path, 4, 4)
+    assert run("ellipse", f"{p}:a", "k", "0,0,3,3", "--fill") == 0
+    assert grid_of(p)[0] == "kkkk" and "fall outside a (4x4)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("spec", ["1.5,1,1,1", "1,1,1.5,1", "1,1,-1,1", "1,1,1", "1,1,1.25,1", "x,1,1,1"])
+def test_ellipse_bad(tmp_path, spec):
+    p = canvas(tmp_path, 3, 3)
+    assert "E_BAD_ARG" in run_err("ellipse", f"{p}:a", "k", spec)
+
+
+def test_ellipse_half_spec_message_explains(tmp_path):
+    p = canvas(tmp_path, 3, 3)
+    assert "both ending in .5" in run_err("ellipse", f"{p}:a", "k", "1.5,1,1,1")
+
+
+# arc
+
+ARCS = {
+    (0, 90): ['....kk...', '......k..', '.......k.', '........k', '........k', '.........', '.........', '.........', '.........'],
+    (90, 180): ['...kk....', '..k......', '.k.......', 'k........', 'k........', '.........', '.........', '.........', '.........'],
+    (180, 270): ['.........', '.........', '.........', '.........', 'k........', 'k........', '.k.......', '..k......', '...kk....'],
+    (270, 360): ['.........', '.........', '.........', '.........', '........k', '........k', '.......k.', '......k..', '....kk...'],
+    (300, 60): ['.........', '......k..', '.......k.', '........k', '........k', '........k', '.......k.', '......k..', '.........'],
+    (45, 135): ['...kkk...', '..k...k..', '.........', '.........', '.........', '.........', '.........', '.........', '.........'],
+    (0, 360): ['...kkk...', '..k...k..', '.k.....k.', 'k.......k', 'k.......k', 'k.......k', '.k.....k.', '..k...k..', '...kkk...'],
+}
+
+
+@pytest.mark.parametrize("angles", list(ARCS))
+def test_arc_quadrants_golden(tmp_path, angles):
+    p = canvas(tmp_path, 9, 9)
+    assert run("arc", f"{p}:a", "k", "4,4,4", f"{angles[0]},{angles[1]}") == 0
+    assert grid_of(p) == ARCS[angles]
+
+
+def test_arc_quadrants_make_the_circle():
+    quads = [pxart.arc_points(4, 4, 4, a, a + 90) for a in (0, 90, 180, 270)]
+    assert set().union(*quads) == pxart.ellipse_points(0, 0, 8, 8)
+
+
+def test_arc_full_turn_is_the_ellipse():
+    assert pxart.arc_points(6, 6, 6, 10, 370) == pxart.ellipse_points(0, 0, 12, 12)
+    assert pxart.arc_points(6, 6, 6, 0, -360) == pxart.ellipse_points(0, 0, 12, 12)
+
+
+def test_arc_negative_start_wraps():
+    assert pxart.arc_points(4, 4, 4, -60, 60) == pxart.arc_points(4, 4, 4, 300, 60)
+
+
+def test_arc_width_golden(tmp_path):
+    p = canvas(tmp_path, 11, 11)
+    assert run("arc", f"{p}:a", "k", "5,5,5", "0,180", "--width", "2") == 0
+    assert grid_of(p)[:6] == ['...kkkkk...', '..kkkkkkk..', '.kkk...kkk.', 'kkk.....kkk', 'kk.......kk', 'kk.......kk']
+    assert grid_of(p)[6:] == ["." * 11] * 5
+
+
+def test_arc_width_ring_has_no_gaps():
+    ring = pxart.arc_points(10, 10, 10, 0, 360, 3)
+    for y in range(21):
+        for x in range(21):
+            d = math.hypot(x - 10, y - 10)
+            if 8.6 <= d <= 9.4:
+                assert (x, y) in ring, (x, y)
+
+
+def test_arc_even_circle_with_halves(tmp_path):
+    p = canvas(tmp_path, 8, 8)
+    assert run("arc", f"{p}:a", "k", "3.5,3.5,3.5", "0,180") == 0
+    assert grid_of(p)[:4] == ['..kkkk..', '.k....k.', 'k......k', 'k......k'] and grid_of(p)[4] == "........"
+
+
+@pytest.mark.parametrize("args", [["4,4,4", "0"], ["4,4,4", "a,b"], ["4,4", "0,90"], ["4,4,1.5", "0,90"]])
+def test_arc_bad(tmp_path, args):
+    p = canvas(tmp_path, 9, 9)
+    assert "E_BAD_ARG" in run_err("arc", f"{p}:a", "k", *args)
+
+
+# flood
+
+HOLEY = ["kkkkkk", "k....k", "k.kk.k", "k.k..k", "kkkkkk"]
+
+
+def holey(tmp_path, rows=HOLEY):
+    return write(tmp_path, "h.px", "k #000000\nw #ffffff\n@frame a\n" + "\n".join(rows) + "\n")
+
+
+def test_flood_fills_around_a_hole(tmp_path):
+    p = holey(tmp_path)
+    assert run("flood", f"{p}:a", "w", "1,1") == 0
+    assert grid_of(p) == ["kkkkkk", "kwwwwk", "kwkkwk", "kwkwwk", "kkkkkk"]
+
+
+def test_flood_the_border_key(tmp_path):
+    p = holey(tmp_path)
+    assert run("flood", f"{p}:a", "w", "0,0") == 0
+    assert grid_of(p) == ["wwwwww", "w....w", "w.ww.w", "w.w..w", "wwwwww"]  # the kk/k spur touches the bottom
+
+
+def test_flood_island_diagonal(tmp_path):
+    rows = ["k...", ".k..", "..k.", "...k"]
+    p = holey(tmp_path, rows)
+    assert run("flood", f"{p}:a", "w", "0,0") == 0
+    assert grid_of(p) == ["w...", ".k..", "..k.", "...k"]
+    p = holey(tmp_path, rows)
+    assert run("flood", f"{p}:a", "w", "0,0", "--diagonal") == 0
+    assert grid_of(p) == ["w...", ".w..", "..w.", "...w"]
+
+
+def test_flood_diagonal_leaks_through_corners(tmp_path):
+    rows = ["..k.", ".k..", "k...", "...."]
+    p = holey(tmp_path, rows)
+    assert run("flood", f"{p}:a", "w", "0,0") == 0
+    assert grid_of(p) == ["wwk.", "wk..", "k...", "...."]
+    p = holey(tmp_path, rows)
+    assert run("flood", f"{p}:a", "w", "0,0", "--diagonal") == 0
+    assert grid_of(p) == ["wwkw", "wkww", "kwww", "wwww"]
+
+
+def test_flood_same_key_is_no_change(tmp_path, capsys):
+    p = holey(tmp_path)
+    assert run("flood", f"{p}:a", "k", "0,0") == 0
+    assert capsys.readouterr().out == f"painted 0 px; no change: {p}\n"
+
+
+def test_flood_with_dot_erases_a_region(tmp_path):
+    p = holey(tmp_path, ["kkkk", "k..k", "k.wk", "kkkk"])
+    assert run("flood", f"{p}:a", ".", "0,0") == 0
+    assert grid_of(p) == ["....", "....", "..w.", "...."]
+
+
+def test_flood_outside_is_bad_arg(tmp_path):
+    p = holey(tmp_path)
+    msg = run_err("flood", f"{p}:a", "w", "6,0")
+    assert "E_BAD_ARG" in msg and "6,0 is outside a (6x5)" in msg
+
+
+def test_flood_count(tmp_path, capsys):
+    p = holey(tmp_path)
+    assert run("flood", f"{p}:a", "w", "1,1") == 0
+    assert capsys.readouterr().out.startswith("painted 9 px; wrote")
+
+
+def test_help_documents_drawing():
+    doc = pxart.__doc__
+    for s in ("DRAWING", "line FILE[:frame] KEY x0,y0 x1,y1 [--width N]", "rect FILE[:frame] KEY x,y,w,h [--fill]",
+              "ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
+              "flood FILE[:frame] KEY x,y [--diagonal]"):
+        assert s in doc, s
