@@ -42,7 +42,11 @@ LOOKING
   anim FILE... -o walk.gif [--scale 8] [--fps N] [--variant V]
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
-      shift ("shift dx,dy then N px"; a walk that's only a bob shows "then 0px").
+      shift ("shift dx,dy then N px (no shift: M px)"; a walk that's only a bob shows
+      "then 0px"). When the bottom of the sprite stays put and only the part above it
+      moves (an idle breathing: chest up 1px, legs still), moving the whole sprite would
+      light up the legs, so the strip shows the unshifted diff instead:
+      "no shift then M px (rows Y+ still; shift dx,dy: N px)". Both counts are always shown.
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
       to stdout, one line per frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given.
@@ -753,6 +757,25 @@ def best_shift(prev, cur, reach=2):
     return best[1], best[2]
 
 
+def motion(prev, cur):
+    """How cur differs from prev: the whole-sprite shift (dx, dy), px changed after it, px changed with
+    no shift, and `still`: the row from which down the sprite stayed put, when that explains cur far
+    better than moving everything (an idle whose chest rises while the legs stay), else None."""
+    dx, dy = best_shift(prev, cur)
+    w, h = cur.size
+    C, P, M = pixels(cur), pixels(prev), pixels(shifted(prev, dx, dy))
+    moved = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
+    kept = [sum(P[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
+    n_shift, n_none, still = sum(moved), sum(kept), None
+    if (dx, dy) != (0, 0):
+        # Rows above y moved by (dx, dy), rows from y down stayed put: the best y, and what it leaves changed.
+        split = [sum(moved[:y]) + sum(kept[y:]) for y in range(h)]
+        y = min(range(h), key=lambda y: (split[y], -y))
+        if 3 * split[y] < n_shift and any(c[3] for c in C[y * w:]):
+            still = y
+    return dx, dy, n_shift, n_none, still
+
+
 def diff_frame(prev, cur):
     out = Image.new("RGBA", cur.size, CLEAR)
     pp, cp = prev.load(), cur.load()
@@ -898,9 +921,9 @@ def cmd_anim(a):
         canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
         gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
     gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
-    pad, lab = 8, 14
+    pad, lab, lab2 = 8, 14, 26
     n = len(framed)
-    strip = Image.new("RGBA", (pad + n * (w * S + pad), pad + 2 * (h * S + lab + pad)), (30, 30, 36, 255))
+    strip = Image.new("RGBA", (pad + n * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2), (30, 30, 36, 255))
     d = ImageDraw.Draw(strip)
     for i, fr in enumerate(framed):
         x = pad + i * (w * S + pad)
@@ -908,13 +931,18 @@ def cmd_anim(a):
         d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
         # Compare on a shared canvas, bottom-centered as drawn, so frames of different sizes diff too.
         prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
-        dx, dy = best_shift(prev, cur)
-        moved = shifted(prev, dx, dy)
+        dx, dy, n_shift, n_none, still = motion(prev, cur)
+        if still is None:
+            base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {n_shift}px"
+            alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
+        else:
+            base, head = prev, f"no shift then {n_none}px"
+            alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         y2 = pad * 2 + h * S + lab
-        strip.alpha_composite(upscale(on_bg(diff_frame(moved, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
-        changed = sum(1 for p, c in zip(pixels(moved), pixels(cur)) if p != c)
-        d.text((x, y2 + h * S + 1), f"shift {dx:+d},{dy:+d} then {changed}px", fill=(255, 120, 220, 255))
-        print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: shift {dx:+d},{dy:+d} then {changed}px")
+        strip.alpha_composite(upscale(on_bg(diff_frame(base, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
+        d.text((x, y2 + h * S + 1), head, fill=(255, 120, 220, 255))
+        d.text((x, y2 + h * S + 13), alt, fill=(200, 140, 190, 255))
+        print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
     strip.save(sp)
     print("wrote", a.o, "and", sp)

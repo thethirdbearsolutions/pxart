@@ -1910,3 +1910,155 @@ def test_help_documents_map_hash_rule():
     assert "'# FILE.px[:frame][%variant]' or '# FILE.png' (one token after '#', no spaces)" in doc
     assert "check and scene print a note" in doc and "('# see wall.px' too)" in doc
     assert "A .map (scene --map) is checked too" in doc
+
+
+# ---------------------------------------------------------------- loop E: anim strip, breathing vs bob
+
+BODY = [
+    "...kkkk...",
+    "..kyyyyk..",
+    "..kysysk..",
+    "..kssssk..",
+    ".kkyyyykk.",
+    "kyykyykyyk",
+    "kyyyyyyyyk",
+    "kyykyykyyk",
+    ".kyyyyyyk.",
+]
+LEGS = ["..kbbbbk..", "..kbkkbk..", "..kbkkbk..", "..kkk.kkk."]
+LEGS_WIDE = ["..kbbbbk..", ".kbk..kbk.", "kbk....kbk", "kk......kk"]
+EMPTY = "." * 10
+PAL = "k #1a1020\ny #f0c040\ns #f0c0a0\nb #3050a0\n"
+
+
+def anim_file(tmp_path, *frames, name="a.px"):
+    text = PAL + "@anim idle ms=200\n" + "".join(f"@frame idle/{i}\n" + "\n".join(g) + "\n" for i, g in enumerate(frames))
+    return write(tmp_path, name, text)
+
+
+BREATHE_0 = [EMPTY] + BODY + LEGS          # chest down
+BREATHE_1 = BODY + [BODY[-1]] + LEGS       # chest up 1px, legs where they were
+BOB_0 = BODY + LEGS + [EMPTY]
+BOB_1 = [EMPTY] + BODY + LEGS              # everything down 1px
+WALK_0 = [EMPTY] + BODY + LEGS
+WALK_1 = BODY + LEGS_WIDE + [EMPTY]        # body up 1px and the legs change pose
+
+
+def motion_of(tmp_path, a, b):
+    doc = pxart.parse(anim_file(tmp_path, a, b, name="mo.px"))
+    return pxart.motion(doc.image(doc.frames[0]), doc.image(doc.frames[1]))
+
+
+def anim_lines(tmp_path, capsys, *frames):
+    p = anim_file(tmp_path, *frames)
+    assert run("anim", f"{p}:idle", "-o", tmp_path / "a.gif") == 0
+    return [l for l in capsys.readouterr().out.splitlines() if " vs " in l]
+
+
+def magenta_rows(tmp_path, frame_i, h=14, w=10, S=8):
+    """Which sprite rows of the strip's second-row cell for frame_i have magenta (changed) pixels."""
+    strip = Image.open(tmp_path / "a.strip.png").convert("RGBA")
+    pad, lab = 8, 14
+    x0, y0 = pad + frame_i * (w * S + pad), pad * 2 + h * S + lab
+    return {r for r in range(h) for c in range(w)
+            if strip.getpixel((x0 + c * S + S // 2, y0 + r * S + S // 2))[:3] == (255, 40, 200)}
+
+
+def test_breathing_idle_whole_shift_is_fewer_pixels(tmp_path):
+    # The trap: moving the whole sprite really does leave fewer pixels changed, which is why a
+    # "fewest pixels" rule alone would keep lighting up the legs.
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, BREATHE_0, BREATHE_1)
+    assert (dx, dy) == (0, -1) and n_shift < n_none
+
+
+def test_breathing_idle_reports_unshifted(tmp_path):
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, BREATHE_0, BREATHE_1)
+    assert still == 9 and n_none > 0
+
+
+def test_breathing_idle_stdout_shows_both_numbers(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, BREATHE_0, BREATHE_1)
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, BREATHE_0, BREATHE_1)
+    assert lines[1].endswith(f"vs idle/0: no shift then {n_none}px (rows 9+ still; shift +0,-1: {n_shift}px)")
+    _, _, n_shift, n_none, still = motion_of(tmp_path, BREATHE_1, BREATHE_0)  # chest back down
+    assert lines[0].endswith(f"vs idle/1: no shift then {n_none}px (rows {still}+ still; shift +0,+1: {n_shift}px)")
+    assert n_shift < n_none
+
+
+def test_breathing_idle_strip_lights_the_chest_not_the_legs(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, BREATHE_0, BREATHE_1)
+    for i in (0, 1):
+        rows = magenta_rows(tmp_path, i)
+        assert rows and max(rows) < 10, rows  # legs (rows 10-13) unlit
+        assert rows & {0, 1, 2}               # the lifted head is what changed
+
+
+def test_bob_reports_shift(tmp_path):
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, BOB_0, BOB_1)
+    assert (dx, dy) == (0, 1) and n_shift == 0 and n_none > 0 and still is None
+
+
+def test_bob_stdout_shows_both_numbers(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, BOB_0, BOB_1)
+    n_none = motion_of(tmp_path, BOB_0, BOB_1)[3]
+    assert lines[1].endswith(f"vs idle/0: shift +0,+1 then 0px (no shift: {n_none}px)")
+    assert lines[0].endswith(f"vs idle/1: shift +0,-1 then 0px (no shift: {n_none}px)")
+
+
+def test_bob_strip_shows_nothing_changed(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, BOB_0, BOB_1)
+    assert magenta_rows(tmp_path, 1) == set() and magenta_rows(tmp_path, 0) == set()
+
+
+def test_walk_with_bob_and_new_leg_pose_reports_shift(tmp_path, capsys):
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, WALK_0, WALK_1)
+    assert (dx, dy) == (0, -1) and still is None and 0 < n_shift < n_none
+    lines = anim_lines(tmp_path, capsys, WALK_0, WALK_1)
+    assert f"shift +0,-1 then {n_shift}px (no shift: {n_none}px)" in lines[1]
+
+
+def test_walk_strip_lights_the_legs_not_the_body(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, WALK_0, WALK_1)
+    rows = magenta_rows(tmp_path, 1)
+    assert rows and min(rows) >= 8, rows  # only the leg rows changed once the bob is removed
+
+
+def test_no_shift_line_has_no_alternative(tmp_path, capsys):
+    same = [EMPTY] + BODY + LEGS
+    lines = anim_lines(tmp_path, capsys, same, same)
+    assert lines[1].endswith("vs idle/0: shift +0,+0 then 0px")
+
+
+def test_motion_zero_shift_is_never_still(tmp_path):
+    a = [EMPTY] + BODY + LEGS
+    b = [EMPTY] + BODY[:-1] + ["kyyyyyyyyk"] + LEGS
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, a, b)
+    assert (dx, dy) == (0, 0) and n_shift == n_none and still is None
+
+
+def test_head_nod_is_not_a_whole_sprite_shift(tmp_path):
+    # Only the head moves: rows below it stay put, so the report is unshifted either way.
+    a = [EMPTY] + BODY + LEGS
+    b = BODY[:4] + [BODY[3]] + BODY[4:] + LEGS
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, a, b)
+    assert (dx, dy) == (0, 0) or still is not None
+
+
+def test_big_upper_body_lift_is_unshifted(tmp_path):
+    # Everything but the feet rises 1px: still reported as the feet staying put.
+    a = [EMPTY] + BODY + LEGS
+    b = BODY + LEGS[:3] + [LEGS[2], LEGS[3]]
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, a, b)
+    assert (dx, dy) == (0, -1) and still is not None and still >= 12
+
+
+def test_strip_png_is_taller_for_the_second_label_line(tmp_path, capsys):
+    anim_lines(tmp_path, capsys, BOB_0, BOB_1)
+    strip = Image.open(tmp_path / "a.strip.png")
+    assert strip.height == 8 + 2 * (14 * 8 + 8) + 14 + 26
+
+
+def test_help_documents_breathing_strip():
+    doc = pxart.__doc__
+    assert '"shift dx,dy then N px (no shift: M px)"' in doc
+    assert '"no shift then M px (rows Y+ still; shift dx,dy: N px)"' in doc and "Both counts are always shown" in doc
