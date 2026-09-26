@@ -43,7 +43,7 @@ LOOKING
       PNG beside each single-frame .px.
   sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count.
-  anim FILE... -o walk.gif [--scale 8] [--fps N] [--variant V]
+  anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
       shift ("shift dx,dy then N px (no shift: M px)"; a walk that's only a bob shows
@@ -52,8 +52,8 @@ LOOKING
       light up the legs, so the strip shows the unshifted diff instead:
       "no shift then M px (rows Y+ still; shift dx,dy: N px)". Both counts are always shown.
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
-      to stdout, one line per frame. Durations come from the file (@anim/@frame ms)
-      unless --fps is given.
+      to stdout, one line per frame; without -o, anim prints only those lines and writes
+      nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
   onion A B -o x.png [--scale 8]    B drawn over a faded A
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
@@ -1087,28 +1087,27 @@ def cmd_sheet(a):
 
 
 def cmd_anim(a):
+    """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written)."""
     its = all_items(a.files, a.variant)
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     w, h = max(f.width for f in frames), max(f.height for f in frames)
     framed = [on_bg(f, w, h) for f in frames]
     S, gap = a.scale, 8
-    gif = []
-    for f in framed:
-        canvas = Image.new("RGBA", (w * S + gap * 3 + w * 3, max(h * S, h * 3 + gap)), (30, 30, 36, 255))
-        canvas.alpha_composite(f.resize((w * S, h * S), Image.NEAREST), (0, 0))
-        canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
-        canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
-        gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-    gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
-    pad, lab, lab2 = 8, 14, 26
-    n = len(framed)
-    strip = Image.new("RGBA", (pad + n * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2), (30, 30, 36, 255))
-    d = ImageDraw.Draw(strip)
+    if a.o:
+        gif = []
+        for f in framed:
+            canvas = Image.new("RGBA", (w * S + gap * 3 + w * 3, max(h * S, h * 3 + gap)), (30, 30, 36, 255))
+            canvas.alpha_composite(f.resize((w * S, h * S), Image.NEAREST), (0, 0))
+            canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
+            canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
+            gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
+        gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
+        pad, lab, lab2 = 8, 14, 26
+        size = (pad + len(framed) * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2)
+        strip = Image.new("RGBA", size, (30, 30, 36, 255))
+        d = ImageDraw.Draw(strip)
     for i, fr in enumerate(framed):
-        x = pad + i * (w * S + pad)
-        strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
-        d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
         # Compare on a shared canvas, bottom-centered as drawn, so frames of different sizes diff too.
         prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
         dx, dy, n_shift, n_none, still = motion(prev, cur)
@@ -1118,11 +1117,18 @@ def cmd_anim(a):
         else:
             base, head = prev, f"no shift then {n_none}px"
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
+        print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
+        if not a.o:
+            continue
+        x = pad + i * (w * S + pad)
+        strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
+        d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
         y2 = pad * 2 + h * S + lab
         strip.alpha_composite(upscale(on_bg(diff_frame(base, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
         d.text((x, y2 + h * S + 1), head, fill=(255, 120, 220, 255))
         d.text((x, y2 + h * S + 13), alt, fill=(200, 140, 190, 255))
-        print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
+    if not a.o:
+        return
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
     strip.save(sp)
     print("wrote", a.o, "and", sp)
@@ -2155,7 +2161,7 @@ def main(argv=None):
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
     p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
-    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
+    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=8)

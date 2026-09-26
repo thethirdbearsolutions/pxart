@@ -92,7 +92,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 `pxart -h` has the full reference.
 
-- **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
+- **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip;
+  without `-o` it prints only the per-frame numbers and writes nothing),
   `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
   suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
   `--tint '#10183080'` lays a translucent color over the finished scene for night), and

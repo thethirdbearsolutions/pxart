@@ -4901,3 +4901,49 @@ def test_help_documents_mask_union():
     doc = pxart.__doc__
     assert "--keep and --keep-circle repeat" in doc and "the kept area is their union" in doc
     assert "--dither and --invert\n      work over the union" in doc
+
+
+# ---------------------------------------------------------------- loop H: anim without -o prints only the numbers
+
+def test_anim_without_output_prints_numbers_and_writes_nothing(tmp_path, capsys, monkeypatch):
+    p = write(tmp_path, "m.px", MULTI)
+    monkeypatch.chdir(tmp_path)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    assert run("anim", f"{p}:walk/down") == 0
+    out = capsys.readouterr().out
+    assert sorted(x.name for x in tmp_path.iterdir()) == before
+    assert "wrote" not in out and len(out.splitlines()) == 2 and all(" vs " in l for l in out.splitlines())
+
+
+@pytest.mark.parametrize("frames", [(BOB_0, BOB_1), (BREATHE_0, BREATHE_1), (WALK_0, WALK_1), (WALK_0, WALK_0)])
+def test_anim_without_output_prints_the_same_lines(tmp_path, capsys, frames):
+    p = anim_file(tmp_path, *frames)
+    assert run("anim", f"{p}:idle", "-o", tmp_path / "a.gif") == 0
+    with_o = capsys.readouterr().out.splitlines()
+    assert with_o[-1].startswith("wrote ")
+    assert run("anim", f"{p}:idle") == 0
+    assert capsys.readouterr().out.splitlines() == with_o[:-1]
+
+
+def test_anim_without_output_fps_and_variant(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("anim", f"{p}:walk/down", "--fps", "5", "--variant", "night") == 0
+    out = capsys.readouterr().out
+    assert out.count("  200ms") == 2 and not list(tmp_path.glob("*.gif"))
+
+
+def test_anim_without_output_still_reports_errors(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert "E_SELECT" in run_err("anim", f"{p}:nope")
+
+
+def test_anim_with_output_still_writes_gif_and_strip(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("anim", f"{p}:walk/down", "-o", tmp_path / "w.gif") == 0
+    assert (tmp_path / "w.gif").exists() and (tmp_path / "w.strip.png").exists()
+    assert capsys.readouterr().out.splitlines()[-1] == f"wrote {tmp_path / 'w.gif'} and {tmp_path / 'w.strip.png'}"
+
+
+def test_help_documents_anim_without_output():
+    doc = pxart.__doc__
+    assert "anim FILE... [-o walk.gif]" in doc and "without -o, anim prints only those lines" in doc
