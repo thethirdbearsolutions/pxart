@@ -53,7 +53,10 @@ LOOKING
       '<char> <FILE[:frame][%variant]>' (paths relative to the map file), a blank line, then
       rows of legend chars ('.' = empty). Items are then drawn on top. '#' lines are
       comments only before the first row; after that every non-blank line is a row, so
-      '#' works as a map char (a wall row '####'), defined by a legend line '# wall.px'.
+      '#' works as a map char (a wall row '####'). Before the rows, a line that is exactly
+      '# FILE.px[:frame][%variant]' or '# FILE.png' (one token after '#', no spaces) is the
+      legend line for '#', not a comment; check and scene print a note for it. Any other
+      line starting with '#' is a comment ('# see wall.px' too).
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
@@ -66,6 +69,8 @@ CHECKING
       Every format error with a code and location, then size / off-palette colors /
       color budget / unused keys per frame. P is a .px, .gpl, .hex, or text of
       #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
+      A .map (scene --map) is checked too: every row char has a legend line and every
+      legend entry loads as one frame.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE [--rm ID...] [--move ID --after|--before ID]
       List frames, sizes, durations ('still' for @still groups) and animations; or delete /
@@ -927,25 +932,39 @@ def cmd_onion(a):
     print("wrote", a.o)
 
 
-def read_map(path, tile):
+MAP_HASH_RE = re.compile(r"^\S+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?$")
+
+
+def parse_map(path):
     """Tilemap file: legend lines '<char> <FILE[:frame][%variant]>' (paths relative to the map), a blank
-    line, then rows of legend chars ('.' = empty). Returns [(item_arg, x, y)] and the map size in px."""
+    line, then rows of legend chars. Returns {char: item_arg}, [(line, row)] and notes."""
     path = pathlib.Path(path)
-    legend, rows, in_rows = {}, [], False
+    legend, rows, notes, in_rows = {}, [], [], False
     for n, line in enumerate(path.read_text().splitlines(), 1):
         s = line.strip()
         if not s:
             in_rows = in_rows or bool(legend)
             continue
         parts = s.split()
-        if not in_rows and len(parts) == 2 and len(parts[0]) == 1 and (
-                parts[0] != "#" or pathlib.Path(split_sel(parts[1])[0]).suffix in (".px", ".png")):
+        if not in_rows and len(parts) == 2 and len(parts[0]) == 1 and (parts[0] != "#" or MAP_HASH_RE.match(parts[1])):
             legend[parts[0]] = str(path.parent / parts[1])
+            if parts[0] == "#":
+                notes.append(f"{path}:{n}: {s!r} is the legend line for '#', not a comment: '#' in the rows "
+                             f"draws {parts[1]}")
             continue
         if not in_rows and s.startswith("#"):
             continue  # comments only before the rows; after that '#' is a map char (a wall row '####')
         in_rows = True
         rows.append((n, s))
+    return legend, rows, notes
+
+
+def read_map(path, tile, notes=None):
+    """Returns [(item_arg, x, y)] and the map size in px; '#' legend notes go to `notes`."""
+    path = pathlib.Path(path)
+    legend, rows, found = parse_map(path)
+    if notes is not None:
+        notes += found
     out = []
     for y, (n, row) in enumerate(rows):
         for x, ch in enumerate(row):
@@ -973,7 +992,10 @@ def cmd_scene(a):
     placed = []
     tile = tuple(map(int, a.tile.split("x")))
     if a.map:
-        placed, msize = read_map(a.map, tile)
+        notes = []
+        placed, msize = read_map(a.map, tile, notes)
+        for n in notes:
+            print("note:", n)
     W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
     sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
     cache = {}
@@ -988,12 +1010,44 @@ def cmd_scene(a):
     print("wrote", a.o)
 
 
+def check_map(path):
+    """check for a scene tilemap: every legend entry loads as one frame and every row char has one."""
+    issues, legend, rows, notes = [], {}, [], []
+    try:
+        legend, rows, notes = parse_map(path)
+        read_map(path, (1, 1))
+    except PxError as e:
+        issues += e.issues
+    except OSError as e:
+        issues.append(Issue("E_FILE", e.strerror or str(e), path))
+    for ch, arg in legend.items():
+        try:
+            one_frame(arg, f"legend {ch!r}")
+        except PxError as e:
+            issues += e.issues
+        except OSError as e:
+            issues.append(Issue("E_FILE", f"legend {ch!r}: {e.strerror or e}", e.filename or arg))
+    if issues:
+        print(f"FAIL {path}: {len(issues)} error(s)")
+        for i in issues:
+            print(f"     {i}")
+    else:
+        w = max((len(r) for _, r in rows), default=0)
+        print(f"ok   {path}: map {w}x{len(rows)} tiles, {len(legend)} legend char(s)")
+    for n in notes:
+        print(f"     note: {n}")
+    return not issues
+
+
 def cmd_check(a):
     allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     for arg in dict.fromkeys(a.files):
         path, sel = split_sel(arg)
+        if path.endswith(".map"):
+            failed |= not check_map(path)
+            continue
         if path.endswith(".px") and not sel and not _has_grid(path):
             try:
                 pdoc = parse(path, a.strict, palette_only=True)

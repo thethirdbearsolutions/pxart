@@ -1781,3 +1781,132 @@ def test_mask_png_lights_a_rendered_scene(tmp_path):
 
 def test_help_documents_mask_png():
     assert "FILE may be a PNG" in pxart.__doc__ and "--scale 1" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop E: the map '#' rule, stated and noted
+
+def hash_map(tmp_path, head, rows="ff\n"):
+    write(tmp_path, "tiles.px", TILES)
+    png(tmp_path, "wall.png", (2, 2), (7, 7, 7, 255))
+    return write(tmp_path, "room.map", head + "f tiles.px:floor\n\n" + rows)
+
+
+@pytest.mark.parametrize("line", ["# tiles.px", "# tiles.px:wall", "# tiles.px:wall%dark", "# wall.png",
+                                  "# wall.png%dark", "#   tiles.px:wall", "# sub/dir/t.px:a/b/0",
+                                  "# ../up.px", "# t.v2.px:x.y"])
+def test_map_hash_legend_forms(tmp_path, line):
+    m = hash_map(tmp_path, line + "\n")
+    legend, _, notes = pxart.parse_map(m)
+    assert "#" in legend and legend["#"] == str(tmp_path / line.split()[1])
+    assert len(notes) == 1 and "legend line for '#'" in notes[0]
+
+
+@pytest.mark.parametrize("line", ["# a room", "# see tiles.px", "# tiles.px is the tileset", "#tiles.px",
+                                  "# tiles.pxx", "# tiles.px.bak", "# tiles", "# wall.PNG", "# wall.png:frame",
+                                  "# tiles.px: wall", "# (tiles.px)", "# tiles.px:wall extra", "#", "##",
+                                  "# tiles.px:bad id", "# tiles.gif"])
+def test_map_hash_comment_forms(tmp_path, line):
+    m = hash_map(tmp_path, line + "\n")
+    legend, rows, notes = pxart.parse_map(m)
+    assert "#" not in legend and notes == [] and [r for _, r in rows] == ["ff"]
+
+
+def test_map_hash_comment_that_names_a_path_is_a_comment(tmp_path):
+    m = hash_map(tmp_path, "# walls come from tiles.px:wall\n", "ff\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (4, 2) and len(placed) == 2
+
+
+def test_map_hash_comment_with_path_then_hash_row_errors(tmp_path):
+    m = hash_map(tmp_path, "# see tiles.px:wall\n", "##\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert codes(e) == ["E_UNKNOWN_KEY"]
+
+
+def test_read_map_collects_hash_notes(tmp_path):
+    m = hash_map(tmp_path, "# tiles.px:wall\n", "#f\n")
+    notes = []
+    placed, _ = pxart.read_map(m, (2, 2), notes)
+    assert len(notes) == 1 and ":1:" in notes[0] and "'# tiles.px:wall'" in notes[0]
+    assert "draws tiles.px:wall" in notes[0] and len(placed) == 2
+
+
+def test_read_map_without_notes_list_still_works(tmp_path):
+    m = hash_map(tmp_path, "# tiles.px:wall\n", "#f\n")
+    assert len(pxart.read_map(m, (2, 2))[0]) == 2
+
+
+def test_scene_prints_hash_legend_note(tmp_path, capsys):
+    m = hash_map(tmp_path, "# tiles.px:wall\n", "#f\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("note: ") and "legend line for '#'" in out and "wrote" in out
+
+
+def test_scene_no_note_without_hash_legend(tmp_path, capsys):
+    m = hash_map(tmp_path, "# a room made of tiles.px\n", "ff\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_check_map_ok_with_note(tmp_path, capsys):
+    m = hash_map(tmp_path, "# tiles.px:wall\n", "#f\n##\n")
+    assert run("check", m) == 0
+    out = capsys.readouterr().out
+    assert f"ok   {m}: map 2x2 tiles, 2 legend char(s)" in out
+    assert "note:" in out and "legend line for '#'" in out
+
+
+def test_check_map_ok_without_note(tmp_path, capsys):
+    m = hash_map(tmp_path, "# just a comment\n", "ff\n")
+    assert run("check", m) == 0
+    out = capsys.readouterr().out
+    assert "ok" in out and "note:" not in out
+
+
+def test_check_map_unknown_char_fails(tmp_path, capsys):
+    m = hash_map(tmp_path, "# see tiles.px:wall\n", "#f\n")
+    assert run("check", m) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {m}" in out and "E_UNKNOWN_KEY" in out
+
+
+def test_check_map_bad_legend_entry_fails(tmp_path, capsys):
+    m = hash_map(tmp_path, "q nope.px\nz tiles.px:missing\nw tiles.px\n", "ff\n")
+    assert run("check", m) == 1
+    out = capsys.readouterr().out
+    assert "3 error(s)" in out and "E_FILE" in out and "E_SELECT" in out
+
+
+def test_check_map_missing_png_legend_fails(tmp_path, capsys):
+    m = hash_map(tmp_path, "q gone.png\n", "ff\n")
+    assert run("check", m) == 1
+    assert "E_FILE" in capsys.readouterr().out
+
+
+def test_check_map_missing_file_fails(tmp_path, capsys):
+    assert run("check", tmp_path / "nope.map") == 1
+    assert "FAIL" in capsys.readouterr().out
+
+
+def test_check_map_alongside_px(tmp_path, capsys):
+    m = hash_map(tmp_path, "", "ff\n")
+    assert run("check", m, tmp_path / "tiles.px") == 0
+    out = capsys.readouterr().out
+    assert "map 2x1 tiles" in out and "tiles.px:floor" in out
+
+
+def test_map_hash_rule_existing_behaviour_kept(tmp_path):
+    # the loop D forms keep working
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# a room\nf tiles.px:floor\n# tiles.px:wall\n\n###\nf.f\n###\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (6, 6) and len(placed) == 8
+
+
+def test_help_documents_map_hash_rule():
+    doc = pxart.__doc__
+    assert "'# FILE.px[:frame][%variant]' or '# FILE.png' (one token after '#', no spaces)" in doc
+    assert "check and scene print a note" in doc and "('# see wall.px' too)" in doc
+    assert "A .map (scene --map) is checked too" in doc
