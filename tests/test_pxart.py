@@ -1057,3 +1057,126 @@ def test_still_star_with_other_args_is_bad(tmp_path):
 
 def test_still_star_works_in_strict_mode(tmp_path):
     pxart.parse(write(tmp_path, "p.px", PARTS), strict=True)
+
+
+# ---------------------------------------------------------------- mask
+
+def square(tmp_path, n=8, name="sq.px", extra=""):
+    return write(tmp_path, name, "k #000000\n" + extra + ("k" * n + "\n") * n)
+
+
+def test_mask_keep_rect(tmp_path):
+    p = square(tmp_path, 4)
+    assert run("mask", p, "--keep", "1,1,2,2") == 0
+    assert pxart.parse(p).frames[0].grid == ["....", ".kk.", ".kk.", "...."]
+
+
+def test_mask_keep_rect_partly_outside(tmp_path):
+    p = square(tmp_path, 3)
+    assert run("mask", p, "--keep=-1,-1,3,3") == 0
+    assert pxart.parse(p).frames[0].grid == ["kk.", "kk.", "..."]
+
+
+def test_mask_keep_rect_whole_frame_changes_nothing(tmp_path):
+    p = square(tmp_path, 3)
+    before = p.read_text()
+    assert run("mask", p, "--keep", "0,0,3,3") == 0
+    assert p.read_text() == before
+
+
+def test_mask_keep_circle_hard_edge(tmp_path):
+    p = square(tmp_path, 7)
+    assert run("mask", p, "--keep-circle", "3,3,2") == 0
+    assert pxart.parse(p).frames[0].grid == [
+        ".......",
+        "...k...",
+        "..kkk..",
+        ".kkkkk.",
+        "..kkk..",
+        "...k...",
+        ".......",
+    ]
+
+
+def test_mask_keep_circle_matches_distance_rule(tmp_path):
+    p = square(tmp_path, 16)
+    assert run("mask", p, "--keep-circle", "7.5,7.5,6") == 0
+    g = pxart.parse(p).frames[0].grid
+    for y in range(16):
+        for x in range(16):
+            assert (g[y][x] == "k") == ((x - 7.5) ** 2 + (y - 7.5) ** 2 <= 36)
+
+
+def test_mask_dither_band(tmp_path):
+    p = square(tmp_path, 24)
+    assert run("mask", p, "--keep-circle", "12,12,10", "--dither", "4") == 0
+    g = pxart.parse(p).frames[0].grid
+    for y in range(24):
+        for x in range(24):
+            d = ((x - 12) ** 2 + (y - 12) ** 2) ** 0.5
+            if d <= 6:
+                assert g[y][x] == "k"  # solid core
+            if d > 10:
+                assert g[y][x] == "."  # nothing past the radius
+    band = [(x, y) for y in range(24) for x in range(24) if 6 < ((x - 12) ** 2 + (y - 12) ** 2) ** 0.5 <= 10]
+    kept = sum(g[y][x] == "k" for x, y in band)
+    assert 0 < kept < len(band)  # partly kept: a dither, not a hard edge
+
+
+def test_mask_dither_falls_off_outward(tmp_path):
+    p = square(tmp_path, 40)
+    assert run("mask", p, "--keep-circle", "20,20,18", "--dither", "8") == 0
+    g = pxart.parse(p).frames[0].grid
+
+    def density(lo, hi):
+        ring = [(x, y) for y in range(40) for x in range(40) if lo < ((x - 20) ** 2 + (y - 20) ** 2) ** 0.5 <= hi]
+        return sum(g[y][x] == "k" for x, y in ring) / len(ring)
+    assert density(10, 12) > density(12, 14) > density(14, 16) > density(16, 18)
+
+
+def test_mask_dither_is_bayer_ordered(tmp_path):
+    # The dither is deterministic: the same input masks the same way twice.
+    a, b = square(tmp_path, 16, "a.px"), square(tmp_path, 16, "b.px")
+    assert run("mask", a, "--keep-circle", "8,8,7", "--dither", "3") == 0
+    assert run("mask", b, "--keep-circle", "8,8,7", "--dither", "3") == 0
+    assert pxart.parse(a).frames[0].grid == pxart.parse(b).frames[0].grid
+    assert pxart.BAYER4 == ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+
+
+def test_mask_one_frame_leaves_others(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nkk\nkk\n@frame b\nkk\nkk\n")
+    assert run("mask", f"{p}:a", "--keep", "0,0,1,1") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a").grid == ["k.", ".."] and doc.get("b").grid == ["kk", "kk"]
+
+
+def test_mask_output_file(tmp_path):
+    p = square(tmp_path, 2)
+    before = p.read_text()
+    assert run("mask", p, "--keep", "0,0,1,1", "-o", tmp_path / "out.px") == 0
+    assert p.read_text() == before and pxart.parse(tmp_path / "out.px").frames[0].grid == ["k.", ".."]
+
+
+def test_mask_reports_erased_count(tmp_path, capsys):
+    p = square(tmp_path, 3)
+    assert run("mask", p, "--keep", "0,0,1,1") == 0
+    assert "erased 8 px" in capsys.readouterr().out
+
+
+def test_mask_bad_args(tmp_path):
+    p = square(tmp_path, 3)
+    assert run("mask", p, "--keep", "1,2,3") == 1
+    assert run("mask", p, "--keep-circle", "1,x,3") == 1
+    assert run("mask", p, "--keep", "0,0,1,1", "--dither", "2") == 1  # dither is for circles
+    assert run("mask", p, "--keep-circle", "1,1,1", "--dither", "0") == 1
+    with pytest.raises(SystemExit):
+        pxart.main(["mask", str(p)])  # one of --keep / --keep-circle is required
+    with pytest.raises(SystemExit):
+        pxart.main(["mask", str(p), "--keep", "0,0,1,1", "--keep-circle", "1,1,1"])
+
+
+def test_mask_keeps_layout(tmp_path):
+    text = "# lamp\npxart 1\nk #000000\n\n@frame a\nkkk\nkkk\n\n@frame b\nkkk\n"
+    p = write(tmp_path, "m.px", text)
+    assert run("mask", f"{p}:a", "--keep", "0,0,3,1") == 0
+    assert p.read_text() == text.replace("kkk\nkkk\n\n", "kkk\n...\n\n")

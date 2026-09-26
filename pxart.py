@@ -78,6 +78,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap]
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
+  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [-o OUT]
+      Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
+      the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
+      with a 4x4 ordered (Bayer) dither: a light radius in one command.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
   recolor FILE a=b [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region);
@@ -1086,6 +1090,42 @@ def cmd_shift(a):
     print("wrote", doc.save(out))
 
 
+BAYER4 = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+
+
+def cmd_mask(a):
+    doc, frames, out = edit_target(a.file, a.o)
+    if a.dither is not None and (a.dither < 1 or not a.keep_circle):
+        fail("E_BAD_ARG", "--dither N wants N >= 1 and --keep-circle")
+    try:
+        if a.keep_circle:
+            cx, cy, r = (float(v) for v in a.keep_circle.split(","))
+        else:
+            x0, y0, w, h = (int(v) for v in a.keep.split(","))
+    except ValueError:
+        fail("E_BAD_ARG", f"--keep wants x,y,w,h; --keep-circle wants cx,cy,r; got {a.keep or a.keep_circle!r}")
+
+    def keep(x, y):
+        if not a.keep_circle:
+            return x0 <= x < x0 + w and y0 <= y < y0 + h
+        d = math.hypot(x - cx, y - cy)
+        if d > r:
+            return False
+        if not a.dither or d <= r - a.dither:
+            return True
+        return (r - d) / a.dither > (BAYER4[y % 4][x % 4] + 0.5) / 16  # ordered-dither falloff
+
+    erased = 0
+    for f in frames:
+        g = [list(row) for row in f.grid]
+        for y, row in enumerate(g):
+            for x, ch in enumerate(row):
+                if ch != "." and not keep(x, y):
+                    row[x], erased = ".", erased + 1
+        f.grid = ["".join(row) for row in g]
+    print(f"erased {erased} px;", "wrote", doc.save(out))
+
+
 def cmd_recolor(a):
     doc, frames, out = edit_target(a.file, a.o)
     pal = doc.resolved()
@@ -1400,6 +1440,10 @@ def main(argv=None):
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")
+    p = sub.add_parser("mask"); p.add_argument("file"); p.add_argument("-o")
+    k = p.add_mutually_exclusive_group(required=True)
+    k.add_argument("--keep", help="x,y,w,h"); k.add_argument("--keep-circle", help="cx,cy,r")
+    p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside the circle's edge")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
