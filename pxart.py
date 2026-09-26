@@ -219,6 +219,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
+      (quietly: the pixels outside the rectangle are what crop is for, so there's no note)
   extract FILE:SEL -o OUT [--inline-palette]
       Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
@@ -2146,7 +2147,7 @@ def cmd_crop(a):
     with reading(f"FILE ({a.src})"):
         src = one_frame(a.src, "crop source")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
-    a.layers, a.size, a.size_from = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", "the crop rectangle"
+    a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     cmd_compose(a)
 
 
@@ -2790,7 +2791,7 @@ def cmd_compose(a):
             print(f"note: keys {''.join(left)!r} of a later layer aren't in {opath}: an earlier layer has them in "
                   "another color, and no layer uses them")
     if a.size:
-        size, why = tuple(map(int, a.size.split("x"))), getattr(a, "size_from", "--size")
+        size, why = tuple(map(int, a.size.split("x"))), "--size"
     elif target.grid:
         size, why = target.size, "the frame being replaced"
     elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):
@@ -2804,7 +2805,7 @@ def cmd_compose(a):
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
                   if ch != "." and lay.doc.resolved()[ch][3]
                   and not (0 <= x + xx < size[0] and 0 <= y + yy < size[1]))
-        if cut:
+        if cut and getattr(a, "cut_note", True):
             print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                   f"(size from {why}) and were cropped")
         with reading(label):

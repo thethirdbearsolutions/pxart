@@ -1419,12 +1419,12 @@ def test_help_documents_frames_still_and_output():
 
 # ---------------------------------------------------------------- loop E: crop's note names the crop rectangle
 
-def test_crop_note_names_crop_rectangle(tmp_path, capsys):
+def test_crop_has_no_cropped_note(tmp_path, capsys):
+    # Loop J: the pixels outside the rectangle are what crop cuts away; saying so was noise.
     p = write(tmp_path, "a.px", "k #000000\n@frame f\nkkk\nkkk\nkkk\n")
     assert run("crop", f"{p}:f", "1,1,2,2", "-o", f"{p}:g") == 0
     out = capsys.readouterr().out
-    assert "(size from the crop rectangle)" in out and "--size" not in out
-    assert "5 px of f fall outside the 2x2 canvas" in out
+    assert "note:" not in out and "fall outside" not in out and "were cropped" not in out
     assert pxart.parse(p).get("g").grid == ["kk", "kk"]
 
 
@@ -8272,3 +8272,41 @@ def test_said_drops_a_repeated_command_name():
 def test_help_documents_error_prefix():
     doc = " ".join(pxart.__doc__.split())
     assert "Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...')" in doc
+
+
+# ---------------------------------------------------------------- loop J: crop doesn't note the pixels it cuts away
+
+@pytest.mark.parametrize("rect", ["0,0,1,1", "1,1,2,2", "2,2,1,1", "0,0,3,1", "2,2,3,3", "0,0,3,3"])
+def test_crop_never_prints_the_cropped_note(tmp_path, capsys, rect):
+    p = write(tmp_path, "a.px", "k #000000\n@frame f\nkkk\nkkk\nkkk\n")
+    assert run("crop", f"{p}:f", rect, "-o", tmp_path / "o.px") == 0
+    assert "fall outside" not in capsys.readouterr().out
+
+
+def test_crop_output_line_is_all_it_prints(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame f\nkkk\nkkk\n")
+    assert run("crop", f"{p}:f", "0,0,1,1", "-o", f"{p}:g") == 0
+    assert capsys.readouterr().out == f"wrote {p} frame g\n"
+
+
+def test_crop_result_unchanged_by_the_quiet(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\ng #00ff00\n@frame f\nkgk\ngkg\nkgk\n")
+    assert run("crop", f"{p}:f", "1,0,2,2", "-o", f"{p}:c") == 0
+    assert pxart.parse(p).get("c").grid == ["gk", "kg"]
+
+
+def test_compose_still_notes_cropped_layers(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nkkk\n")
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{layer}@0,0") == 0
+    assert "note: 1 px of l fall outside the 2x1 canvas (size from --size) and were cropped" in capsys.readouterr().out
+
+
+def test_compose_after_crop_in_same_process_still_notes(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame f\nkkk\n")
+    assert run("crop", f"{p}:f", "0,0,1,1", "-o", tmp_path / "c.px") == 0
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "1x1", f"{p}:f@0,0") == 0
+    assert "fall outside" in capsys.readouterr().out
+
+
+def test_help_documents_quiet_crop():
+    assert "(quietly: the pixels outside the rectangle are what crop is for, so there's no note)" in pxart.__doc__
