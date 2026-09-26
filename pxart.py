@@ -122,7 +122,9 @@ LOOKING
       The same on a PNG (a rendered scene); each pixel keeps its alpha, so transparent
       pixels stay transparent. Without -o, IN is rewritten.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
-  pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
+  pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene, and
+  takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
+  --tint, tint, palette --add k=transparent; the '#' may be left off).
 
 CHECKING
   check FILE... [--palette P] [--size WxH] [--max-colors N] [--strict]
@@ -335,6 +337,22 @@ def reading(label):
 def hex2rgba(h):
     h = h.lstrip("#")
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), int(h[6:8], 16) if len(h) == 8 else 255)
+
+
+def parse_color(s, what="color"):
+    """A color given on the command line: #rrggbb, #rrggbbaa (the '#' may be left off) or 'transparent'."""
+    if s == "transparent":
+        return CLEAR
+    v = s if s.startswith("#") else "#" + s
+    if not COLOR_RE.match(v):
+        fail("E_BAD_COLOR", f"{what} {s!r} isn't #rrggbb, #rrggbbaa or transparent (in a script, quote it: "
+             "'#10183080'; an unquoted word starting with # is a comment there)")
+    return hex2rgba(v)
+
+
+def rgba(c):
+    """A color as rgba: a tuple as is, else a '#rrggbb[aa]' / 'transparent' string."""
+    return c if isinstance(c, tuple) else parse_color(c)
 
 
 def rgba2hex(c):
@@ -928,7 +946,7 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
     d = ImageDraw.Draw(s)
     for n, (it, big) in enumerate(tiles):
         x, y = pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad)
-        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=hex2rgba(bg))
+        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg))
         s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
         if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
@@ -939,7 +957,7 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
 
 
 def on_bg(img, w, h, bg="#3a3a44"):
-    b = Image.new("RGBA", (w, h), hex2rgba(bg))
+    b = Image.new("RGBA", (w, h), rgba(bg))
     b.alpha_composite(img, ((w - img.width) // 2, h - img.height))
     return b
 
@@ -1138,6 +1156,7 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None):
 # ---------------------------------------------------------------------------- commands
 
 def cmd_render(a):
+    a.bg = parse_color(a.bg, "--bg")
     its = all_items(a.files, a.variant)
     for f in a.files:
         path, sel = split_sel(f)
@@ -1149,6 +1168,7 @@ def cmd_render(a):
 
 
 def cmd_sheet(a):
+    a.bg = parse_color(a.bg, "--bg")
     print("wrote", sheet(all_items(a.files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid))
 
 
@@ -1327,12 +1347,8 @@ def draw_at(canvas, img, x, y):
 
 
 def parse_tint(s):
-    """'#rrggbbaa' (or #rrggbb, or without the '#') -> rgba."""
-    v = s if s.startswith("#") else "#" + s
-    if not COLOR_RE.match(v):
-        fail("E_BAD_COLOR", f"tint {s!r} isn't #rrggbbaa or #rrggbb (in a script, quote it: '#10183080'; "
-             "an unquoted word starting with # is a comment there)")
-    return hex2rgba(v)
+    """'#rrggbbaa' (or #rrggbb, or without the '#', or 'transparent': no change) -> rgba."""
+    return parse_color(s, "tint")
 
 
 def tinted(img, color):
@@ -1354,6 +1370,7 @@ def cmd_tint(a):
 
 def cmd_scene(a):
     tint = parse_tint(a.tint) if a.tint else None
+    bg = parse_color(a.bg, "--bg")
     placed = []
     tile = tuple(map(int, a.tile.split("x")))
     if a.map:
@@ -1363,7 +1380,7 @@ def cmd_scene(a):
         for n in notes:
             print("note:", n)
     W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
-    sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
+    sc = Image.new("RGBA", (W, H), bg)
     with reading(f"--map ({a.map})"):
         tiles = load_legend(a.map, a.variant) if a.map else {}
     for arg, x, y in placed:
@@ -2104,11 +2121,11 @@ def cmd_palette(a):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
     for m in a.add or []:
         k, _, v = m.partition("=")
-        if not COLOR_RE.match(v):
-            fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb")
+        if not COLOR_RE.match(v) and v != "transparent":
+            fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent")
         if len(k) != 1:
             fail("E_BAD_KEY", f"{k!r}: keys are one character")
-        doc.add_key(k, hex2rgba(v))
+        doc.add_key(k, CLEAR if v == "transparent" else hex2rgba(v))
     if a.add:
         print(write_doc(doc))
     pal = doc.resolved()

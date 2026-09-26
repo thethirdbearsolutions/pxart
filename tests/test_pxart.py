@@ -5453,3 +5453,73 @@ def test_help_documents_wrap_in_the_strip():
     doc = pxart.__doc__
     assert '"shift dx,dy (wrap) then N px (no shift: M px)"' in doc and "A character sprite never wraps" in doc
     assert "strictly fewer pixels changed" in doc
+
+
+# ---------------------------------------------------------------- loop I: 'transparent' wherever a color is typed
+
+def test_scene_bg_transparent(tmp_path):
+    p = write(tmp_path, "a.px", "k #102030\nk.\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "3x2", "--scale", "1", "--bg", "transparent",
+               f"{p}@0,0") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    assert img.getpixel((0, 0)) == (0x10, 0x20, 0x30, 255)
+    assert img.getpixel((1, 0)) == (0, 0, 0, 0) and img.getpixel((2, 1)) == (0, 0, 0, 0)
+
+
+def test_scene_bg_transparent_with_map_and_tint(tmp_path):
+    write(tmp_path, "t.px", "k #000000\n@frame a\nk\n")
+    m = write(tmp_path, "r.map", "a t.px:a\n\na.\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "1x1", "--scale", "1", "--bg", "transparent",
+               "--tint", "#ff000080") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    assert img.getpixel((1, 0)) == (0, 0, 0, 0) and img.getpixel((0, 0))[3] == 255
+
+
+@pytest.mark.parametrize("bg", ["#00000000", "transparent", "00000000"])
+def test_scene_bg_spellings_of_clear_agree(tmp_path, bg):
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x2", "--scale", "1", "--bg", bg) == 0
+    assert set(pxart.pixels(Image.open(tmp_path / "s.png").convert("RGBA"))) == {(0, 0, 0, 0)}
+
+
+def test_scene_bg_without_hash(tmp_path):
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "1x1", "--scale", "1", "--bg", "ff0000") == 0
+    assert Image.open(tmp_path / "s.png").convert("RGBA").getpixel((0, 0)) == (255, 0, 0, 255)
+
+
+@pytest.mark.parametrize("cmd", ["scene", "render", "sheet"])
+def test_bad_bg_is_a_coded_error_not_a_crash(tmp_path, cmd):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    msg = run_err(cmd, p if cmd != "scene" else f"{p}@0,0", "-o", tmp_path / "x.png", "--bg", "red")
+    assert "E_BAD_COLOR" in msg and "--bg 'red'" in msg and "transparent" in msg
+    assert not (tmp_path / "x.png").exists()
+
+
+@pytest.mark.parametrize("cmd", ["render", "sheet"])
+def test_render_and_sheet_bg_transparent(tmp_path, cmd):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    assert run(cmd, p, "-o", tmp_path / "x.png", "--bg", "transparent", "--scale", "1") == 0
+    img = Image.open(tmp_path / "x.png").convert("RGBA")
+    assert (0, 0, 0, 0) in set(pxart.pixels(img))
+
+
+def test_tint_transparent_changes_nothing(tmp_path):
+    img = Image.new("RGBA", (2, 1), (10, 20, 30, 255))
+    img.save(tmp_path / "a.png")
+    assert run("tint", tmp_path / "a.png", "transparent", "-o", tmp_path / "b.png") == 0
+    assert pxart.pixels(Image.open(tmp_path / "b.png").convert("RGBA")) == pxart.pixels(img)
+
+
+def test_palette_add_transparent_key(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "t=transparent") == 0
+    assert pxart.parse(p).palette["t"] == (0, 0, 0, 0) and "t transparent" in p.read_text()
+    assert "E_BAD_COLOR" in run_err("palette", p, "--add", "z=clear")
+
+
+def test_parse_color_spellings():
+    assert pxart.parse_color("transparent") == (0, 0, 0, 0)
+    assert pxart.parse_color("#010203") == (1, 2, 3, 255) == pxart.parse_color("010203")
+    assert pxart.parse_color("#01020304") == (1, 2, 3, 4)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse_color("#12345", "--bg")
+    assert codes(e) == ["E_BAD_COLOR"]
