@@ -3716,3 +3716,187 @@ def test_help_documents_map_placement():
     assert "draws with its top-left at its cell's top-left" in doc
     assert "A legend entry ending in +b (with flips: +hb, +vb, +hvb)" in doc
     assert "x = cell x + (tile w - w) // 2" in doc and "y = cell y + tile h - h" in doc
+
+
+# ---------------------------------------------------------------- loop G: recolor 'a<>b', moves apply together
+
+SWAP = "k #000000\nj #ffffff\nr #ff0000\ng #00ff00\n@frame a\nkjrg\njkgr\n@frame b\nkkjj\n"
+
+
+def grids(p):
+    return {f.id: f.grid for f in pxart.parse(p).frames}
+
+
+def test_recolor_swap(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j") == 0
+    assert grids(p) == {"a": ["jkrg", "kjgr"], "b": ["jjkk"]}
+
+
+def test_recolor_swap_twice_is_the_original(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j") == 0
+    assert run("recolor", p, "j<>k") == 0
+    assert p.read_text() == SWAP
+
+
+def test_recolor_swap_selection_only(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", f"{p}:b", "k<>j") == 0
+    assert grids(p) == {"a": ["kjrg", "jkgr"], "b": ["jjkk"]}
+
+
+def test_recolor_swap_region_only(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", f"{p}:a", "k<>j", "--region", "0,0,2,1") == 0
+    assert grids(p)["a"] == ["jkrg", "jkgr"]
+
+
+def test_recolor_swap_region_and_selection(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "r<>g", "--region", "2,1,2,1") == 0
+    assert grids(p) == {"a": ["kjrg", "jkrg"], "b": ["kkjj"]}
+
+
+def test_recolor_swap_does_not_interfere_with_a_move(tmp_path):
+    # c=a moves c's own pixels to a; the swap doesn't then carry them on to b.
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j", "r=k") == 0
+    assert grids(p) == {"a": ["jkkg", "kjgk"], "b": ["jjkk"]}
+
+
+def test_recolor_move_before_swap_same_result(tmp_path):
+    p, q = write(tmp_path, "s.px", SWAP), write(tmp_path, "t.px", SWAP)
+    assert run("recolor", p, "k<>j", "r=k") == 0
+    assert run("recolor", q, "r=k", "k<>j") == 0
+    assert grids(p) == grids(q)
+
+
+def test_recolor_two_swaps_in_one_call(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j", "r<>g") == 0
+    assert grids(p) == {"a": ["jkgr", "kjrg"], "b": ["jjkk"]}
+
+
+def test_recolor_rotation_with_moves(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k=j", "j=r", "r=k") == 0
+    assert grids(p) == {"a": ["jrkg", "rjgk"], "b": ["jjrr"]}
+
+
+def test_recolor_moves_apply_together_not_in_a_chain(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k=j", "j=r") == 0
+    assert grids(p)["b"] == ["jjrr"]  # k went to j and stopped there
+
+
+def test_recolor_equals_pair_is_a_swap(tmp_path):
+    p, q = write(tmp_path, "s.px", SWAP), write(tmp_path, "t.px", SWAP)
+    assert run("recolor", p, "k=j", "j=k") == 0
+    assert run("recolor", q, "k<>j") == 0
+    assert p.read_text() == q.read_text()
+
+
+def test_recolor_swap_with_a_color_change(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j", "r=#123456") == 0
+    doc = pxart.parse(p)
+    assert doc.get("b").grid == ["jjkk"] and doc.palette["r"] == (0x12, 0x34, 0x56, 255)
+    assert doc.get("a").grid == ["jkrg", "kjgr"]
+
+
+def test_recolor_swap_and_color_of_a_swapped_key(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", p, "k<>j", "k=#111111") == 0
+    doc = pxart.parse(p)
+    assert doc.get("b").grid == ["jjkk"] and doc.palette["k"] == (0x11, 0x11, 0x11, 255)
+
+
+def test_recolor_swap_with_transparent(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n@frame a\nk..k\n")
+    assert run("recolor", p, ".<>k") == 0
+    assert grids(p)["a"] == [".kk."]
+
+
+def test_recolor_swap_with_itself_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWAP)
+    before, m = snap(p)
+    assert run("recolor", p, "k<>k") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_swap_of_keys_with_no_pixels_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWAP)
+    before, m = snap(p)
+    assert run("recolor", f"{p}:b", "r<>g") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_swap_keeps_layout(tmp_path):
+    p = write(tmp_path, "a.px", MESSY)
+    assert run("recolor", f"{p}:walk/0", "k<>g") == 0
+    assert p.read_text() == MESSY.replace("  .kk.\nkggk\n# mid-grid comment\nkggk\n",
+                                          ".gg.\ngkkg\n# mid-grid comment\ngkkg\n")
+
+
+def test_recolor_key_moved_twice_is_bad_arg(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    before = p.read_text()
+    for maps in (["k<>j", "k=r"], ["k=r", "k<>j"], ["k<>j", "j<>r"], ["k=j", "k=r"]):
+        msg = run_err("recolor", p, *maps)
+        assert "E_BAD_ARG" in msg and "moved twice" in msg, maps
+    assert p.read_text() == before
+
+
+def test_recolor_two_colors_for_one_key_is_bad_arg(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert "two colors" in run_err("recolor", p, "k=#111111", "k=#222222")
+
+
+def test_recolor_swap_unknown_key(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    assert "E_SELECT" in run_err("recolor", p, "k<>q")
+    assert "E_SELECT" in run_err("recolor", p, "q<>k")
+
+
+def test_recolor_swap_with_color_is_bad_arg(tmp_path):
+    p = write(tmp_path, "s.px", SWAP)
+    msg = run_err("recolor", p, "k<>#ffffff")
+    assert "E_BAD_ARG" in msg and "k=#ffffff" in msg
+
+
+def test_recolor_unquoted_swap_gets_a_hint(tmp_path):
+    # 'recolor s.px k<>j' unquoted: the shell passes only 'k' (and redirects stdin from j)
+    p = write(tmp_path, "s.px", SWAP)
+    msg = run_err("recolor", p, "k")
+    assert "E_BAD_ARG" in msg and "quote a swap" in msg and "shell redirections" in msg
+
+
+def test_recolor_swap_through_a_real_shell(tmp_path):
+    import shutil, subprocess
+    p = write(tmp_path, "s.px", SWAP)
+    script = pathlib.Path(pxart.__file__)
+    ran = 0
+    for shell in (["zsh", "-f", "-c"], ["bash", "-c"]):
+        if not shutil.which(shell[0]):
+            continue
+        p.write_text(SWAP)
+        r = subprocess.run(shell + [f'"{sys.executable}" "{script}" recolor "{p}" \'k<>j\''], capture_output=True,
+                           text=True, cwd=tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert grids(p)["b"] == ["jjkk"] and not (tmp_path / "j").exists()
+        ran += 1
+    if not ran:
+        pytest.skip("no zsh or bash")
+
+
+def test_recolor_swap_with_output(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWAP)
+    assert run("recolor", f"{p}:a", "k<>j", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == SWAP and grids(tmp_path / "o.px") == {"a": ["jkrg", "kjgr"], "b": ["kkjj"]}
+
+
+def test_help_documents_recolor_swap_and_order():
+    doc = pxart.__doc__
+    assert "'a<>b' swaps" in doc and "quote it, since unquoted < and > are shell" in doc
+    assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc

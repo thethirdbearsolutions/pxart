@@ -169,9 +169,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
       of groups left behind): 'extract hero.px:walk/down -o walk.px'.
-  recolor FILE a=b [c=#rrggbb] [-o OUT] [--region x,y,w,h]
-      a=b repaints key a's pixels as key b (optionally only inside --region);
-      c=#hex changes key c's color everywhere. '.' works as a source key.
+  recolor FILE a=b ['a<>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h]
+      a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
+      keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
+      redirections. c=#hex changes key c's color everywhere. '.' works as a source key.
+      Order: the key moves of one call apply together, each pixel by the key it had before
+      the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
+      to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
+      the palette and don't move pixels, so c=#hex and c=d can share a call.
   paste SRC --into DST[:frame] --at x,y [--region x,y,w,h] [-o OUT]
   compose -o OUT[:frame] [--size WxH] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
@@ -1586,10 +1591,23 @@ def cmd_mask(a):
 
 
 def cmd_recolor(a):
+    """Key moves (a=b, 'a<>b') apply together: each pixel is repainted by the move of the key it had before the
+    call, so they can't feed each other. Color changes (c=#hex) set the palette and are independent of moves."""
     doc, frames, out = edit_target(a.file, a.o)
     pal = doc.resolved()
+    moves, said = {}, {}
     for m in a.maps:
-        k, _, v = m.partition("=")
+        if "<>" in m:
+            k, _, v = m.partition("<>")
+            if v.startswith("#") or v == "transparent":
+                fail("E_BAD_ARG", f"recolor: {m!r}: '<>' swaps two keys; to change a color write {k}={v}")
+            pairs = [(k, v), (v, k)] if k != v else [(k, v)]
+        elif "=" in m:
+            k, _, v = m.partition("=")
+            pairs = [(k, v)]
+        else:
+            fail("E_BAD_ARG", f"recolor: {m!r} isn't a=b, c=#rrggbb or 'a<>b' (quote a swap: unquoted, < and > "
+                 "are shell redirections, and the shell hands pxart only the part before them)")
         if k not in pal:
             fail("E_SELECT", f"recolor: key {k!r} not in palette")
         if v.startswith("#") or v == "transparent":
@@ -1598,15 +1616,23 @@ def cmd_recolor(a):
                      "of that key. Add a new key (palette --add) and repaint the region to it instead.")
             if v != "transparent" and not COLOR_RE.match(v):
                 fail("E_BAD_COLOR", f"{v!r} isn't #rrggbb or #rrggbbaa")
+            if ("#", k) in said:
+                fail("E_BAD_ARG", f"recolor: key {k!r} gets two colors ({said[('#', k)]} and {m})")
+            said[("#", k)] = m
             # A shared key recolored here becomes a local override for this file only.
             doc.palette[k] = CLEAR if v == "transparent" else hex2rgba(v)
-        else:
-            if v not in pal:
-                fail("E_SELECT", f"recolor: key {v!r} not in palette (add it with palette --add)")
-            for f in frames:
-                x0, y0, w, h = parse_rect(a.region, f.size)
-                f.grid = ["".join(v if c == k and x0 <= x < x0 + w and y0 <= y < y0 + h else c
-                                  for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
+            continue
+        if v not in pal:
+            fail("E_SELECT", f"recolor: key {v!r} not in palette (add it with palette --add)")
+        for k, v in pairs:
+            if k in moves:
+                fail("E_BAD_ARG", f"recolor: key {k!r} is moved twice ({said[k]} and {m}); key moves apply "
+                     "together, so each key can go one place")
+            moves[k], said[k] = v, m
+    for f in frames:
+        x0, y0, w, h = parse_rect(a.region, f.size)
+        f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
+                          for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     print(write_doc(doc, out))
 
 

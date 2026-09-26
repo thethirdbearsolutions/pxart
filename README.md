@@ -110,7 +110,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
   region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor`
-  (optionally within a region), `mask` (erase outside `--keep x,y,w,h` or
+  (optionally within a region; `'a<>b'` swaps two keys, quoted for the shell; the key
+  moves of one call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame;
   a new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
