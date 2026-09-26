@@ -1336,3 +1336,74 @@ def test_compose_new_frame_in_group_follows_spacing(tmp_path):
 
 def test_help_documents_compose_placement():
     assert "after the last frame of its\n      animation (like dup)" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop E: frames --rm/--move output, still groups
+
+THREE = "k #000000\n@frame a/0\nk\n@frame a/1\nk\n@frame a/2\nk\n"
+
+
+def test_frames_rm_prints_only_what_it_did(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    assert run("frames", p, "--rm", "a/0") == 0
+    out = capsys.readouterr().out
+    assert out == f"removed a/0; wrote {p}\n"
+    assert "frame(s)" not in out and "(line" not in out
+
+
+def test_frames_rm_several(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    assert run("frames", p, "--rm", "a/0", "a/2") == 0
+    assert capsys.readouterr().out == f"removed a/0, a/2; wrote {p}\n"
+    assert ids(p) == ["a/1"]
+
+
+def test_frames_move_after_prints_only_what_it_did(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    assert run("frames", p, "--move", "a/0", "--after", "a/2") == 0
+    assert capsys.readouterr().out == f"moved a/0 after a/2; wrote {p}\n"
+    assert ids(p) == ["a/1", "a/2", "a/0"]
+
+
+def test_frames_move_before_prints_only_what_it_did(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    assert run("frames", p, "--move", "a/2", "--before", "a/0") == 0
+    assert capsys.readouterr().out == f"moved a/2 before a/0; wrote {p}\n"
+
+
+def test_frames_rm_and_move_together(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    assert run("frames", p, "--rm", "a/1", "--move", "a/2", "--before", "a/0") == 0
+    assert capsys.readouterr().out == f"removed a/1; moved a/2 before a/0; wrote {p}\n"
+    assert ids(p) == ["a/2", "a/0"]
+
+
+def test_frames_listing_unchanged_without_edits(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "walk/down: 2 frame(s) [direction=pingpong, repeat=2, ms=120]" in out
+    assert "walk/down/1  4x2  200ms" in out and "idle  4x2  100ms" in out and "variants: night" in out
+
+
+def test_frames_still_group_shows_still_not_ms(tmp_path, capsys):
+    p = write(tmp_path, "ui.px", "k #000000\n@still life\n@frame life/full\nk\n@frame life/empty\nk\n"
+              "@frame walk/0\nk\n")
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "life: 2 frame(s) [still]" in out
+    assert "life/full  1x1  still  (line" in out and "life/empty  1x1  still" in out
+    assert "walk/0  1x1  100ms" in out and "walk: 1 frame(s)\n" in out
+
+
+def test_frames_still_star_shows_still_everywhere(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PARTS)
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "ms" not in out.replace("(no group)", "").split("loose")[0]
+    assert "hat/big  2x1  still" in out and "body/a  3x1  still" in out
+    assert "loose  1x1  100ms" in out  # top-level frames aren't a @still group
+
+
+def test_help_documents_frames_still_and_output():
+    assert "'still' for @still groups" in pxart.__doc__ and "not the listing" in pxart.__doc__

@@ -68,7 +68,8 @@ CHECKING
       #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE [--rm ID...] [--move ID --after|--before ID]
-      List frames, sizes, durations and animations; or delete / reorder frames.
+      List frames, sizes, durations ('still' for @still groups) and animations; or delete /
+      reorder frames (prints what it removed or moved, not the listing).
 
 EDITING (writes .px; -o defaults to editing the input in place)
   Edits rewrite only what changed: other lines keep their spelling and the blank lines and
@@ -1043,11 +1044,14 @@ def cmd_frames(a):
     if a.rm or a.move:
         if doc.implicit:
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
+        did = []
         for fid in a.rm or []:
             f = doc.get(fid)
             if not f:
                 fail("E_SELECT", f"--rm {fid!r}: no such frame")
             doc.frames.remove(f)
+        if a.rm:
+            did.append("removed " + ", ".join(a.rm))
         if a.move:
             f = doc.get(a.move)
             anchor = doc.get(a.after or a.before or "")
@@ -1055,15 +1059,17 @@ def cmd_frames(a):
                 fail("E_SELECT", "--move ID needs an existing frame and --after/--before another existing frame")
             doc.frames.remove(f)
             doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
-        doc.save()
-        print("wrote", doc.path)
+            did.append(f"moved {a.move} {'after' if a.after else 'before'} {anchor.id}")
+        print("; ".join(did + [f"wrote {doc.save()}"]))
+        return
     for g, fs in doc.groups().items():
         meta = doc.anims.get(g, {})
-        head = f"{g or '(no group)'}: {len(fs)} frame(s)"
+        still = g and not doc.animated(g)
+        head = f"{g or '(no group)'}: {len(fs)} frame(s)" + (" [still]" if still else "")
         extra = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
         print(head + (f" [{extra}]" if extra else ""))
         for f in fs:
-            print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {doc.ms(f)}ms  (line {f.line})")
+            print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}  (line {f.line})")
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
 
