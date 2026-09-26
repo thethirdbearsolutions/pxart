@@ -361,3 +361,28 @@ def test_aseprite_and_tiled_share_identical_sheet(tmp_path):
     first = pxart.pixels(Image.open(tmp_path / "x.png").convert("RGBA"))
     assert run("export", p, "--tiled", tmp_path / "x.tsj") == 0
     assert pxart.pixels(Image.open(tmp_path / "x.png").convert("RGBA")) == first
+
+
+def test_from_png_multi_frame_shares_keys_across_runs(tmp_path):
+    a = Image.new("RGBA", (2, 1)); a.putpixel((0, 0), (1, 1, 1, 255)); a.putpixel((1, 0), (2, 2, 2, 255))
+    b = Image.new("RGBA", (2, 1)); b.putpixel((0, 0), (2, 2, 2, 255)); b.putpixel((1, 0), (3, 3, 3, 255))
+    a.save(tmp_path / "000.png"); b.save(tmp_path / "001.png")
+    out = tmp_path / "w.px"
+    assert run("from-png", tmp_path / "000.png", "-o", out, "--id", "walk/down") == 0
+    assert run("from-png", tmp_path / "001.png", "-o", out, "--id", "walk/down") == 0
+    doc = pxart.parse(out)
+    assert [f.id for f in doc.frames] == ["walk/down/000", "walk/down/001"]
+    assert pxart.pixels(doc.image(doc.get("walk/down/000"))) == pxart.pixels(a)
+    assert pxart.pixels(doc.image(doc.get("walk/down/001"))) == pxart.pixels(b)
+    assert len(doc.palette) == 3  # the shared color reused its key
+    assert run("from-png", tmp_path / "000.png", tmp_path / "001.png", "-o", tmp_path / "x.px") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "x.px").frames] == ["000", "001"]
+
+
+def test_from_png_into_palette_file_reuses_its_keys(tmp_path):
+    write(tmp_path, "pal.px", "o #010101\n")
+    img = Image.new("RGBA", (1, 1), (1, 1, 1, 255)); img.save(tmp_path / "i.png")
+    out = write(tmp_path, "o.px", "@palette pal.px\n")
+    assert run("from-png", tmp_path / "i.png", "-o", out, "--id", "idle") == 0
+    doc = pxart.parse(out)
+    assert doc.get("idle/i").grid == ["o"] and doc.palette == {}

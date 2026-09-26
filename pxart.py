@@ -77,7 +77,11 @@ CONVERTING
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
       (--aseprite x.json and --tiled x.tsj share one identical x.png)
-  from-png ref.png [-o ref.px]      PNG -> .px (reads exact pixels)
+  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX]
+      PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
+      Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
+      to OUT (replacing same-id frames). Colors already in OUT keep their keys, so
+      frames imported in separate runs share one palette.
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
@@ -1105,19 +1109,40 @@ def cmd_export(a):
 
 
 def cmd_from_png(a):
-    img = Image.open(a.png).convert("RGBA")
-    cs = colors(img)
-    if len(cs) > len(KEYS):
-        fail("E_BAD_ARG", f"{a.png}: {len(cs)} colors, more than the {len(KEYS)} available keys")
-    keyof = {c: KEYS[i] for i, c in enumerate(cs)}
-    doc = Doc(a.o or pathlib.Path(a.png).with_suffix(".px"))
-    doc.version = FORMAT_VERSION
-    doc.palette = {k: c for c, k in keyof.items()}
-    doc.implicit = True
-    doc.frames = [Frame(None, ["".join(keyof.get(img.getpixel((x, y)), ".") if img.getpixel((x, y))[3] else "."
-                                       for x in range(img.width)) for y in range(img.height)])]
-    if a.o:
-        print("wrote", doc.save(a.o))
+    """PNG(s) -> .px. Colors already in OUT's palette keep their keys; new colors get free keys."""
+    imgs = [(pathlib.Path(p), Image.open(p).convert("RGBA")) for p in a.pngs]
+    out = pathlib.Path(a.o) if a.o else None
+    if out and out.exists():
+        doc = parse(out, allow_empty=True)
+    else:
+        doc = Doc(out or imgs[0][0].with_suffix(".px"))
+        doc.version = FORMAT_VERSION
+    named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
+    if named and doc.implicit:
+        fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid; import into a new file or one with @frame ids")
+    keyof = {c: k for k, c in doc.resolved().items() if c[3]}
+    free = [k for k in KEYS if k not in doc.resolved()]
+    for path, img in imgs:
+        for c in colors(img):
+            if c not in keyof:
+                if not free:
+                    fail("E_BAD_ARG", f"{path}: out of palette keys ({len(KEYS)} max)")
+                keyof[c] = free.pop(0)
+                doc.palette[keyof[c]] = c
+        grid = ["".join(keyof[p] if p[3] else "." for p in (img.getpixel((x, y)) for x in range(img.width)))
+                for y in range(img.height)]
+        if not named:
+            doc.implicit, doc.frames = True, [Frame(None, grid)]
+            continue
+        fid = f"{a.id}/{path.stem}" if a.id else path.stem
+        fid = re.sub(r"[^A-Za-z0-9_\-./]", "_", fid)
+        old = doc.get(fid)
+        if old:
+            old.grid = grid
+        else:
+            doc.frames.append(Frame(fid, grid))
+    if out:
+        print("wrote", doc.save(out), f"({len(imgs)} frame(s))" if named else "")
     else:
         print(doc.text(), end="")
 
@@ -1159,7 +1184,7 @@ def main(argv=None):
     p.add_argument("--used", action="store_true")
     p = sub.add_parser("export"); p.add_argument("file"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
-    p = sub.add_parser("from-png"); p.add_argument("png"); p.add_argument("-o")
+    p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     a = ap.parse_args(argv)
     try:
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
