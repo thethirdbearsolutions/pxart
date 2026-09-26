@@ -90,9 +90,12 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
   `onion`, `scene` (.px/.png items at x,y, negative allowed; `--map` text tilemaps;
-  `--variant V` recolors the whole room). In a map, a `#` line before the rows is a
-  comment unless it is exactly `# FILE.px[:frame][%variant]` or `# FILE.png`, which
-  makes `#` a map char (a wall row `####`); `check` and `scene` note it.
+  `--variant V` recolors the whole room). A map legend line is `<char> <path>`: the rest
+  of the line is the path, so a pack folder with spaces works as is (quotes optional),
+  and a legend entry that can't load is an error at its legend line. A `#` line before
+  the rows is a comment unless it is exactly `# FILE.px[:frame][%variant]` or
+  `# FILE.png` (or a quoted path), which makes `#` a map char (a wall row `####`);
+  `check` and `scene` note it.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
   they did).

@@ -54,13 +54,17 @@ LOOKING
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         ITEM@x,y ...
       ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
-      '<char> <FILE[:frame][%variant]>' (paths relative to the map file), a blank line, then
-      rows of legend chars ('.' = empty). Items are then drawn on top. '#' lines are
+      '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend chars ('.' =
+      empty). In a legend line the rest of the line is the path, relative to the map file:
+      spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes" optional. check and
+      scene load every legend entry; one that can't load is an error at its legend line.
+      Items are then drawn on top. '#' lines are
       comments only before the first row; after that every non-blank line is a row, so
       '#' works as a map char (a wall row '####'). Before the rows, a line that is exactly
       '# FILE.px[:frame][%variant]' or '# FILE.png' (one token after '#', no spaces) is the
-      legend line for '#', not a comment; check and scene print a note for it. Any other
-      line starting with '#' is a comment ('# see wall.px' too).
+      legend line for '#', not a comment, and so is a quoted path ('# "my tiles/wall.png"');
+      check and scene print a note for it. Any other line starting with '#' is a comment
+      ('# see wall.px' too).
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
@@ -74,7 +78,7 @@ CHECKING
       color budget / unused keys per frame. P is a .px, .gpl, .hex, or text of
       #rrggbb. --strict also rejects unknown @sections. Exit 1 on any failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
-      legend entry loads as one frame.
+      legend entry loads as one frame (errors point at the legend line).
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE [--rm ID...] [--move ID --after|--before ID]
       List frames, sizes, durations ('still' for @still groups) and animations; or delete /
@@ -961,36 +965,43 @@ def cmd_onion(a):
 
 
 MAP_HASH_RE = re.compile(r"^\S+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?$")
+MAP_QUOTED_RE = re.compile(r'^"(.+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?)"$')
+LEGEND_RE = re.compile(r"^(\S)\s+(.+)$")
 
 
 def parse_map(path):
-    """Tilemap file: legend lines '<char> <FILE[:frame][%variant]>' (paths relative to the map), a blank
-    line, then rows of legend chars. Returns {char: item_arg}, [(line, row)] and notes."""
+    """Tilemap file: legend lines '<char> <FILE[:frame][%variant]>' (the rest of the line is the path, relative
+    to the map; "quote it" if you like), a blank line, then rows of legend chars. Returns {char: item_arg},
+    [(line, row)], notes, and {char: (line, path as written)}."""
     path = pathlib.Path(path)
-    legend, rows, notes, in_rows = {}, [], [], False
+    legend, rows, notes, where, in_rows = {}, [], [], {}, False
     for n, line in enumerate(path.read_text().splitlines(), 1):
         s = line.strip()
         if not s:
             in_rows = in_rows or bool(legend)
             continue
-        parts = s.split()
-        if not in_rows and len(parts) == 2 and len(parts[0]) == 1 and (parts[0] != "#" or MAP_HASH_RE.match(parts[1])):
-            legend[parts[0]] = str(path.parent / parts[1])
-            if parts[0] == "#":
-                notes.append(f"{path}:{n}: {s!r} is the legend line for '#', not a comment: '#' in the rows "
-                             f"draws {parts[1]}")
-            continue
+        m = None if in_rows else LEGEND_RE.match(s)
+        if m:
+            ch, rest = m.group(1), m.group(2).strip()
+            q = MAP_QUOTED_RE.match(rest)
+            if ch != "#" or q or MAP_HASH_RE.match(rest):
+                target = rest[1:-1] if len(rest) > 1 and rest[0] == rest[-1] == '"' else rest
+                legend[ch], where[ch] = str(path.parent / target), (n, target)
+                if ch == "#":
+                    notes.append(f"{path}:{n}: {s!r} is the legend line for '#', not a comment: '#' in the rows "
+                                 f"draws {target}")
+                continue
         if not in_rows and s.startswith("#"):
             continue  # comments only before the rows; after that '#' is a map char (a wall row '####')
         in_rows = True
         rows.append((n, s))
-    return legend, rows, notes
+    return legend, rows, notes, where
 
 
 def read_map(path, tile, notes=None):
     """Returns [(item_arg, x, y)] and the map size in px; '#' legend notes go to `notes`."""
     path = pathlib.Path(path)
-    legend, rows, found = parse_map(path)
+    legend, rows, found, _ = parse_map(path)
     if notes is not None:
         notes += found
     out = []
@@ -998,13 +1009,37 @@ def read_map(path, tile, notes=None):
         for x, ch in enumerate(row):
             if ch == ".":
                 continue
+            if ch.isspace():
+                fail("E_BAD_ROW", f"map row {row!r} has spaces; a legend line is one char, a space, then the path "
+                     "(the rest of the line)", path=str(path), line=n, cols=[x])
             if ch not in legend:
                 hint = " (map rows start after the legend's blank line, so '#' there is a map char, not a comment; " \
-                    "define it with a legend line '# FILE')" if ch == "#" else ""
+                    "define it with a legend line '# FILE', or '# \"FILE\"' for a path with spaces)" if ch == "#" else ""
                 fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line{hint}", path=str(path), line=n, cols=[x])
             out.append((legend[ch], x * tile[0], y * tile[1]))
     width = max((len(r) for _, r in rows), default=0) * tile[0]
     return out, (width, len(rows) * tile[1])
+
+
+def load_legend(path, variant=None):
+    """Load every legend entry as one frame: {item_arg: image}. A target that can't be loaded is an error at
+    its legend line, naming the path as written."""
+    legend, _, _, where = parse_map(path)
+    imgs, issues = {}, []
+    for ch, arg in legend.items():
+        n, written = where[ch]
+        try:
+            imgs[arg] = one_frame(arg, f"legend {ch!r}", variant).img
+        except PxError as e:
+            for i in e.issues:
+                at = f" ({i.path}:{i.line})" if i.line else ""
+                issues.append(Issue(i.code, f"legend {ch!r}: {written!r}: {i.msg}{at}", str(path), n))
+        except OSError as e:
+            issues.append(Issue("E_FILE", f"legend {ch!r}: can't load {written!r} (relative to the map file): "
+                                f"{e.strerror or e}", str(path), n))
+    if issues:
+        raise PxError(issues)
+    return imgs
 
 
 def draw_at(canvas, img, x, y):
@@ -1026,11 +1061,9 @@ def cmd_scene(a):
             print("note:", n)
     W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
     sc = Image.new("RGBA", (W, H), hex2rgba(a.bg))
-    cache = {}
+    tiles = load_legend(a.map, a.variant) if a.map else {}
     for arg, x, y in placed:
-        if arg not in cache:
-            cache[arg] = one_frame(arg, "map tile", a.variant).img
-        draw_at(sc, cache[arg], x, y)
+        draw_at(sc, tiles[arg], x, y)
     for spec in a.specs:
         path, x, y = split_at(spec)
         draw_at(sc, one_frame(path, "scene item", a.variant).img, x, y)
@@ -1042,19 +1075,14 @@ def check_map(path):
     """check for a scene tilemap: every legend entry loads as one frame and every row char has one."""
     issues, legend, rows, notes = [], {}, [], []
     try:
-        legend, rows, notes = parse_map(path)
-        read_map(path, (1, 1))
-    except PxError as e:
-        issues += e.issues
+        legend, rows, notes, _ = parse_map(path)
     except OSError as e:
         issues.append(Issue("E_FILE", e.strerror or str(e), path))
-    for ch, arg in legend.items():
+    for step in (lambda: read_map(path, (1, 1)), lambda: load_legend(path)) if legend or rows else ():
         try:
-            one_frame(arg, f"legend {ch!r}")
+            step()
         except PxError as e:
             issues += e.issues
-        except OSError as e:
-            issues.append(Issue("E_FILE", f"legend {ch!r}: {e.strerror or e}", e.filename or arg))
     if issues:
         print(f"FAIL {path}: {len(issues)} error(s)")
         for i in issues:
@@ -1567,7 +1595,7 @@ def main(argv=None):
     p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
-    p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>', blank line, rows")
+    p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>' (rest of line = path), blank line, rows")
     p.add_argument("--tile", default="16x16", help="tile size for --map")
     p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")

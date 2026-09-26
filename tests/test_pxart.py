@@ -59,6 +59,14 @@ def run(*argv):
     return 0
 
 
+def run_err(*argv):
+    """Run the CLI expecting an error exit; returns the message it exits with."""
+    with pytest.raises(SystemExit) as e:
+        pxart.main([str(a) for a in argv])
+    assert not isinstance(e.value.code, int) or e.value.code != 0
+    return str(e.value.code)
+
+
 # ---------------------------------------------------------------- parsing
 
 def test_legacy_file_parses_as_one_unnamed_frame(tmp_path):
@@ -1796,7 +1804,7 @@ def hash_map(tmp_path, head, rows="ff\n"):
                                   "# ../up.px", "# t.v2.px:x.y"])
 def test_map_hash_legend_forms(tmp_path, line):
     m = hash_map(tmp_path, line + "\n")
-    legend, _, notes = pxart.parse_map(m)
+    legend, _, notes, _ = pxart.parse_map(m)
     assert "#" in legend and legend["#"] == str(tmp_path / line.split()[1])
     assert len(notes) == 1 and "legend line for '#'" in notes[0]
 
@@ -1807,7 +1815,7 @@ def test_map_hash_legend_forms(tmp_path, line):
                                   "# tiles.px:bad id", "# tiles.gif"])
 def test_map_hash_comment_forms(tmp_path, line):
     m = hash_map(tmp_path, line + "\n")
-    legend, rows, notes = pxart.parse_map(m)
+    legend, rows, notes, _ = pxart.parse_map(m)
     assert "#" not in legend and notes == [] and [r for _, r in rows] == ["ff"]
 
 
@@ -2062,3 +2070,175 @@ def test_help_documents_breathing_strip():
     doc = pxart.__doc__
     assert '"shift dx,dy then N px (no shift: M px)"' in doc
     assert '"no shift then M px (rows Y+ still; shift dx,dy: N px)"' in doc and "Both counts are always shown" in doc
+
+
+# ---------------------------------------------------------------- loop F: legend paths with spaces, located load errors
+
+def spaced_pack(tmp_path):
+    d = tmp_path / "refs" / "png" / "trees and bushes"
+    d.mkdir(parents=True)
+    Image.new("RGBA", (2, 2), (9, 99, 9, 255)).save(d / "bush.png")
+    (tmp_path / "rooms").mkdir()
+    return d
+
+
+@pytest.mark.parametrize("line", ["b ../refs/png/trees and bushes/bush.png",
+                                  'b "../refs/png/trees and bushes/bush.png"',
+                                  "b    ../refs/png/trees and bushes/bush.png   ",
+                                  "b\t../refs/png/trees and bushes/bush.png"])
+def test_map_legend_path_with_spaces(tmp_path, line):
+    spaced_pack(tmp_path)
+    m = write(tmp_path / "rooms", "r.map", f"# a clearing\n{line}\n\nb.\n.b\n")
+    legend, rows, notes, where = pxart.parse_map(m)
+    assert legend["b"] == str(tmp_path / "rooms" / "../refs/png/trees and bushes/bush.png")
+    assert where["b"] == (2, "../refs/png/trees and bushes/bush.png") and [r for _, r in rows] == ["b.", ".b"]
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (9, 99, 9) and img.getpixel((3, 3))[:3] == (9, 99, 9)
+    assert img.getpixel((2, 0))[:3] == pxart.hex2rgba("#472d3c")[:3]
+
+
+def test_map_legend_spaced_px_with_frame_and_variant(tmp_path):
+    d = tmp_path / "my tiles"
+    d.mkdir()
+    write(d, "set one.px", VTILES)
+    m = write(tmp_path, "r.map", "W my tiles/set one.px:wall%red\nf \"my tiles/set one.px:floor\"\n\nWf\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (255, 0, 0) and img.getpixel((2, 0))[:3] == (0, 0, 0)
+
+
+def test_map_legend_spaced_path_check_ok(tmp_path, capsys):
+    spaced_pack(tmp_path)
+    m = write(tmp_path / "rooms", "r.map", "b ../refs/png/trees and bushes/bush.png\n\nbb\n")
+    assert run("check", m) == 0
+    assert "map 2x1 tiles, 1 legend char(s)" in capsys.readouterr().out
+
+
+def test_map_legend_quoted_path_without_spaces(tmp_path):
+    png(tmp_path, "w.png", (2, 2), (1, 1, 1, 255))
+    m = write(tmp_path, "r.map", 'w "w.png"\n\nw\n')
+    placed, size = pxart.read_map(m, (2, 2))
+    assert placed == [(str(tmp_path / "w.png"), 0, 0)] and size == (2, 2)
+
+
+def test_map_legend_missing_file_errors_at_legend_line(tmp_path, capsys):
+    spaced_pack(tmp_path)
+    m = write(tmp_path / "rooms", "r.map", "# clearing\ng ../refs/png/trees and bushes/bush.png\n"
+              "b ../refs/png/trees and shrubs/bush.png\n\ngb\n")
+    err = run_err("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2")
+    assert f"{m}:3: E_FILE" in err and "legend 'b'" in err
+    assert "'../refs/png/trees and shrubs/bush.png'" in err and "relative to the map file" in err
+    assert "has no legend line" not in err and not (tmp_path / "s.png").exists()
+
+
+def test_map_legend_missing_file_check_names_line(tmp_path, capsys):
+    m = write(tmp_path, "r.map", "a gone one.png\nb \"also gone.px:x\"\n\nab\n")
+    assert run("check", m) == 1
+    out = capsys.readouterr().out
+    assert "2 error(s)" in out
+    assert f"{m}:1: E_FILE" in out and "'gone one.png'" in out
+    assert f"{m}:2: E_FILE" in out and "'also gone.px:x'" in out
+
+
+def test_map_legend_bad_frame_errors_at_legend_line(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "r.map", "f tiles.px:floor\nz tiles.px:missing\n\nfz\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.load_legend(m)
+    assert codes(e) == ["E_SELECT"] and e.value.issues[0].line == 2
+    assert "legend 'z': 'tiles.px:missing'" in str(e.value) and "no frame 'missing'" in str(e.value)
+
+
+def test_map_legend_multi_frame_errors_at_legend_line(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "r.map", "\n\nw tiles.px\n\nw\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.load_legend(m)
+    assert e.value.issues[0].line == 3 and "is 2 frames" in str(e.value)
+
+
+def test_map_legend_broken_px_errors_at_legend_line(tmp_path):
+    write(tmp_path, "bad.px", "k #000000\nkq\n")
+    m = write(tmp_path, "r.map", "b bad.px\n\nb\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.load_legend(m)
+    i = e.value.issues[0]
+    assert i.code == "E_UNKNOWN_KEY" and i.line == 1 and str(i.path) == str(m)
+    assert "legend 'b': 'bad.px'" in i.msg and "bad.px:2" in i.msg
+
+
+def test_map_unused_broken_legend_entry_still_errors(tmp_path):
+    png(tmp_path, "ok.png", (2, 2), (1, 1, 1, 255))
+    m = write(tmp_path, "r.map", "a ok.png\nz nope.png\n\naa\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2") == 1
+
+
+def test_map_legend_quoted_missing_file_names_unquoted_path(tmp_path, capsys):
+    m = write(tmp_path, "r.map", 'b "trees and bushes/bush.png"\n\nb\n')
+    err = run_err("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2")
+    assert "'trees and bushes/bush.png'" in err and '"trees' not in err
+
+
+def test_map_hash_legend_quoted_path_with_spaces(tmp_path, capsys):
+    d = tmp_path / "wall tiles"
+    d.mkdir()
+    png(d, "wall.png", (2, 2), (7, 7, 7, 255))
+    m = write(tmp_path, "r.map", '# a room\n# "wall tiles/wall.png"\n\n##\n')
+    legend, _, notes, _ = pxart.parse_map(m)
+    assert legend["#"] == str(tmp_path / "wall tiles/wall.png") and len(notes) == 1
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    assert scene_px(tmp_path / "s.png").getpixel((3, 1))[:3] == (7, 7, 7)
+
+
+@pytest.mark.parametrize("line", ["# wall tiles/wall.png", "# see wall tiles/wall.png", '# "a room"', '# wall.png"'])
+def test_map_hash_unquoted_spaces_stay_comments(tmp_path, line):
+    m = write(tmp_path, "r.map", f"{line}\nf x.png\n\nf\n")
+    legend, _, notes, _ = pxart.parse_map(m)
+    assert "#" not in legend and notes == []
+
+
+def test_map_hash_hint_mentions_quoting(tmp_path):
+    m = write(tmp_path, "r.map", "f x.png\n\n#f\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert "'# \"FILE\"' for a path with spaces" in str(e.value)
+
+
+def test_map_row_with_spaces_is_bad_row(tmp_path):
+    png(tmp_path, "a.png", (2, 2), (1, 1, 1, 255))
+    m = write(tmp_path, "r.map", "a a.png\n\naa aa\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert codes(e) == ["E_BAD_ROW"] and "legend line is one char" in str(e.value)
+
+
+def test_map_multichar_legend_like_line_is_a_bad_row(tmp_path):
+    png(tmp_path, "a.png", (2, 2), (1, 1, 1, 255))
+    m = write(tmp_path, "r.map", "a a.png\naa a.png\n\naa\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert codes(e) == ["E_BAD_ROW"] and e.value.issues[0].line == 2
+
+
+def test_map_legend_later_line_wins_and_keeps_its_line(tmp_path):
+    png(tmp_path, "a.png", (1, 1), (1, 1, 1, 255))
+    m = write(tmp_path, "r.map", "a nope.png\na a.png\n\na\n")
+    assert pxart.parse_map(m)[3]["a"] == (2, "a.png")
+    assert pxart.load_legend(m)
+
+
+def test_map_legend_old_forms_unchanged(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "r.map", "# c\nf tiles.px:floor\nW tiles.px:wall\n# tiles.px:wall\n\n#W\nf.\n")
+    legend, rows, notes, where = pxart.parse_map(m)
+    assert legend == {"f": str(tmp_path / "tiles.px:floor"), "W": str(tmp_path / "tiles.px:wall"),
+                      "#": str(tmp_path / "tiles.px:wall")}
+    assert where == {"f": (2, "tiles.px:floor"), "W": (3, "tiles.px:wall"), "#": (4, "tiles.px:wall")}
+    assert [r for _, r in rows] == ["#W", "f."]
+
+
+def test_help_documents_legend_paths():
+    doc = pxart.__doc__
+    assert "the rest of the line is the path" in doc and "'# \"my tiles/wall.png\"'" in doc
+    assert "error at its legend line" in doc
