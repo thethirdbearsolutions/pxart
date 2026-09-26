@@ -20,7 +20,8 @@ y #fee761
 The tool is built for an author–render–look loop: write rows, render a preview with a
 pixel grid and coordinate rulers, look at it, fix, and repeat. Animation strips show
 what actually moved between frames once the whole-body bob is removed, so a walk cycle
-that's secretly a bob shows up as a number.
+that's secretly a bob shows up as a number. When the feet stay put and only the body
+above them moves (an idle breathing), the strip shows that instead of lighting up the legs.
 
 ## Install
 
@@ -89,14 +90,18 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
   `onion`, `scene` (.px/.png items at x,y, negative allowed; `--map` text tilemaps;
-  `--variant V` recolors the whole room).
+  `--variant V` recolors the whole room). In a map, a `#` line before the rows is a
+  comment unless it is exactly `# FILE.px[:frame][%variant]` or `# FILE.png`, which
+  makes `#` a map char (a wall row `####`); `check` and `scene` note it.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; exits 1), `stats`, `frames`.
+  keys; `.map` tilemaps too; exits 1), `stats`, `frames` (`--rm`/`--move` print only what
+  they did).
 - **Editing:** `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
   `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a `--dither N`
-  edge), `paste`, `compose` (stack layers into a frame), `dup` (copy a frame),
-  `palette --add`. Edits rewrite only the lines that changed, keeping the file's blank
-  lines and comments.
+  edge; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
+  new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
+  rewrite only the lines that changed, keeping the file's blank lines and comments, and
+  an edit that changes nothing says `no change` and leaves the file alone.
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.
