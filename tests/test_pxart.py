@@ -677,3 +677,48 @@ def test_one_frame_takes_a_variant(tmp_path):
     hero = write(tmp_path, "hero.px", VHERO)
     assert pxart.one_frame(str(hero), variant="dark").img.getpixel((0, 0))[:3] == (0, 0x33, 0)
     assert pxart.one_frame(f"{hero}%red", variant="dark").img.getpixel((0, 0))[:3] == (255, 0, 0)
+
+
+# ---------------------------------------------------------------- zsh-mangled output notes
+
+def test_compose_notes_non_px_output(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    out = tmp_path / "herok"  # what zsh makes of "$OUT:k..."
+    assert run("compose", "-o", out, f"{layer}@0,0") == 0
+    got = capsys.readouterr().out
+    assert "doesn't end in .px" in got and '"${VAR}:sel"' in got and '"$VAR:sel"' in got
+    assert out.exists()  # it's only a note; the write still happens
+
+
+def test_compose_px_output_has_no_note(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    assert run("compose", "-o", f"{tmp_path / 'h.px'}:idle/0", f"{layer}@0,0") == 0
+    assert "doesn't end in .px" not in capsys.readouterr().out
+
+
+def test_compose_mangled_frame_selector_notes(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    out = f"{tmp_path / 'hero.pxalk'}/0"  # "$OUT:walk/0" after zsh's :w modifier
+    assert run("compose", "-o", out, f"{layer}@0,0") == 0
+    assert "doesn't end in .px" in capsys.readouterr().out
+
+
+def test_dup_notes_non_px_output(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("dup", f"{p}:idle", "idle2", "-o", tmp_path / "copy") == 0
+    assert "doesn't end in .px" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "copy").get("idle2")
+
+
+def test_dup_px_output_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("dup", f"{p}:idle", "idle2") == 0
+    assert run("dup", f"{p}:idle", "idle3", "-o", tmp_path / "c.px") == 0
+    assert "doesn't end in .px" not in capsys.readouterr().out
+
+
+def test_note_suffix_helper(capsys):
+    pxart.note_suffix("a.px")
+    assert capsys.readouterr().out == ""
+    pxart.note_suffix("a.pxalk/0")
+    assert capsys.readouterr().out.startswith("note: output 'a.pxalk/0'")

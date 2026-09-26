@@ -87,6 +87,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       (OUT may be a palette-only file). Canvas size: --size, else the frame being
       replaced, else the other frames of its animation, else the first layer. Pixels
       that land outside the canvas are cropped, with a note saying how many.
+      compose and dup note an output path that doesn't end in .px (zsh "$OUT:frame").
   dup FILE:ID NEWID [--after ID] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
@@ -737,6 +738,13 @@ def parse_rect(s, size):
 
 # ---------------------------------------------------------------------------- editing helpers
 
+def note_suffix(path):
+    """A .px output that doesn't end in .px is usually zsh reading "$VAR:sel" as a modifier."""
+    if not str(path).endswith(".px"):
+        print(f"note: output {str(path)!r} doesn't end in .px; if you wrote \"$VAR:sel\" in zsh, the :sel "
+              f"was read as a modifier; write \"${{VAR}}:sel\"")
+
+
 def edit_target(arg, out):
     path, sel = split_sel(arg)
     doc = parse(path)
@@ -1081,6 +1089,7 @@ def cmd_compose(a):
         if not lay.doc:
             fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
     opath, osel = split_sel(a.o)
+    note_suffix(opath)
     if pathlib.Path(opath).exists():
         doc = parse(opath, allow_empty=True)
     else:
@@ -1144,6 +1153,7 @@ def cmd_dup(a):
     doc.frames.insert(doc.frames.index(anchor) + 1, new)
     if new.group and new.group not in doc.anims and src.group in doc.anims:
         doc.anims[new.group] = dict(doc.anims[src.group])
+    note_suffix(a.o or doc.path)
     print("wrote", doc.save(a.o or doc.path), "frame", a.new)
 
 
