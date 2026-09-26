@@ -4112,7 +4112,7 @@ def test_anim_set_frames_listing_shows_it(tmp_path, capsys):
 
 def test_help_documents_anim_set():
     doc = pxart.__doc__
-    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [-o OUT]" in doc
+    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [-o OUT]" in doc
     assert "FILE:GROUP/ID (one frame) takes only ms=N" in doc and "Only that one line changes" in doc
 
 
@@ -6245,3 +6245,318 @@ def test_help_documents_drawing():
               "ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
               "flood FILE[:frame] KEY x,y [--diagonal]"):
         assert s in doc, s
+
+
+# ---------------------------------------------------------------- loop I: pivot=x,y on @frame and @anim
+
+PIV = ("k #000000\nj #ffffff\n@anim walk ms=90 pivot=1,2\n\n@frame walk/0\n.k.\n.k.\nkkk\n"
+       "@frame walk/1 pivot=2,1\n.kk\n.kk\n")
+
+
+def test_pivot_parses_on_frame_and_anim(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", PIV))
+    assert doc.anims["walk"] == {"repeat": None, "ms": 90, "pivot": (1, 2)}
+    assert doc.get("walk/1").pivot == (2, 1) and doc.get("walk/0").pivot is None
+    assert doc.pivot(doc.get("walk/0")) == (1, 2) and doc.pivot(doc.get("walk/1")) == (2, 1)
+
+
+def test_pivot_default_is_none(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", MULTI))
+    assert all(doc.pivot(f) is None for f in doc.frames) and "pivot" not in doc.anims["walk/down"]
+
+
+def test_pivot_round_trips_byte_identically(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert pxart.parse(p).text() == PIV
+
+
+@pytest.mark.parametrize("line", ["@frame a pivot=3,4 ms=20", "@frame a ms=20 pivot=3,4", "@frame a pivot=-1,-2",
+                                  "@frame a  pivot=0,0"])
+def test_pivot_spellings_round_trip(tmp_path, line):
+    text = f"k #000000\n{line}\nk\n"
+    assert pxart.parse(write(tmp_path, "p.px", text)).text() == text
+
+
+def test_pivot_canonical_order_when_rewritten(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@frame a pivot=0,0 ms=20\nk\n")
+    assert run("anim-set", f"{p}:a", "ms=30") == 0
+    assert "@frame a ms=30 pivot=0,0\n" in p.read_text()
+
+
+def test_pivot_negative_and_outside_parse(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", "k #000000\n@frame a pivot=-3,9\nk\n"))
+    assert doc.get("a").pivot == (-3, 9)
+
+
+@pytest.mark.parametrize("bad", ["pivot=1", "pivot=a,b", "pivot=1,2,3", "pivot=", "pivot=1.5,2", "pivot=1;2"])
+def test_pivot_bad_is_bad_arg(tmp_path, bad):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(write(tmp_path, "p.px", f"k #000000\n@frame a {bad}\nk\n"))
+    assert codes(e) == ["E_BAD_ARG"] and "must be x,y" in str(e.value)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(write(tmp_path, "q.px", f"k #000000\n@anim a {bad}\n@frame a/0\nk\n"))
+    assert codes(e) == ["E_BAD_ARG"]
+
+
+def test_check_notes_pivot_outside_the_frame(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "k #000000\n@anim w pivot=0,5\n@frame w/0\nkk\n@frame w/1 pivot=1,0\nkk\n")
+    assert run("check", p) == 0
+    out = capsys.readouterr().out
+    assert "frame w/0: pivot 0,5 (@anim w's) is outside its 2x1 frame" in out
+    assert "w/1" not in out.split("pivot 0,5")[1].split("\n")[0]
+    assert "frame w/1: pivot" not in out
+
+
+def test_check_strict_passes_outside_pivot(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@frame a pivot=5,5\nk\n")
+    assert run("check", "--strict", p) == 0
+
+
+def test_frames_lists_pivots(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "walk: 2 frame(s) [ms=90, pivot=1,2]" in out
+    assert "walk/0  3x3  90ms  pivot 1,2  (line 5)" in out and "walk/1  3x2  90ms  pivot 2,1  (line 9)" in out
+
+
+def test_frames_listing_without_pivots_is_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("frames", p) == 0
+    assert "pivot" not in capsys.readouterr().out
+
+
+def test_anim_set_group_pivot(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("anim-set", f"{p}:walk", "pivot=0,0") == 0
+    out = capsys.readouterr().out
+    assert "@anim walk ms=90 pivot=0,0; wrote" in out
+    assert f"note: walk/1 keeps its own pivot=2,1 (anim-set {p}:walk/1 pivot= clears it)" in out
+    assert p.read_text() == PIV.replace("@anim walk ms=90 pivot=1,2", "@anim walk ms=90 pivot=0,0")
+
+
+def test_anim_set_frame_pivot(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("anim-set", f"{p}:walk/0", "pivot=1,1") == 0
+    assert p.read_text() == PIV.replace("@frame walk/0\n", "@frame walk/0 pivot=1,1\n")
+
+
+def test_anim_set_frame_pivot_and_ms_together(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("anim-set", f"{p}:walk/0", "pivot=1,1", "ms=40") == 0
+    assert "@frame walk/0 ms=40 pivot=1,1\n" in p.read_text()
+
+
+def test_anim_set_pivot_clears(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("anim-set", f"{p}:walk/1", "pivot=") == 0
+    assert run("anim-set", f"{p}:walk", "pivot=") == 0
+    assert "pivot" not in p.read_text()
+
+
+def test_anim_set_pivot_on_a_new_anim_line(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@frame a/0\nk\n")
+    assert run("anim-set", f"{p}:a", "pivot=0,0") == 0
+    assert p.read_text() == "k #000000\n\n@anim a pivot=0,0\n@frame a/0\nk\n" or "@anim a pivot=0,0" in p.read_text()
+    assert pxart.parse(p).pivot(pxart.parse(p).get("a/0")) == (0, 0)
+
+
+@pytest.mark.parametrize("v", ["1", "a,b", "1,2,3", "1.5,1"])
+def test_anim_set_bad_pivot(tmp_path, v):
+    p = write(tmp_path, "p.px", PIV)
+    before = p.read_text()
+    msg = run_err("anim-set", f"{p}:walk", f"pivot={v}")
+    assert "E_BAD_ARG" in msg and "must be x,y" in msg and p.read_text() == before
+
+
+def test_anim_set_frame_still_refuses_direction(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    msg = run_err("anim-set", f"{p}:walk/0", "direction=reverse")
+    assert "takes only ms= and pivot=" in msg
+
+
+def test_dup_copies_the_frame_pivot(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("dup", f"{p}:walk/1", "walk/2") == 0
+    assert pxart.parse(p).get("walk/2").pivot == (2, 1)
+
+
+def test_flip_mirrors_the_frame_pivot(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("flip", f"{p}:walk/1") == 0
+    assert pxart.parse(p).get("walk/1").pivot == (0, 1)
+    assert run("flip", f"{p}:walk/1", "--v") == 0
+    assert pxart.parse(p).get("walk/1").pivot == (0, 0)
+
+
+def test_flip_turns_an_inherited_pivot_into_the_frames_own(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@anim w pivot=0,1\n@frame w/0\nk.\nkk\n@frame w/1\nk.\nkk\n")
+    assert run("flip", f"{p}:w/0") == 0
+    doc = pxart.parse(p)
+    assert doc.get("w/0").pivot == (1, 1) and doc.get("w/1").pivot is None and doc.anims["w"]["pivot"] == (0, 1)
+
+
+def test_flip_keeps_a_symmetric_inherited_pivot_inherited(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@anim w pivot=1,2\n@frame w/0\n.k.\nkkk\nk.k\n")
+    assert run("flip", f"{p}:w/0") == 0
+    assert "@frame w/0\n" in p.read_text()
+
+
+def test_flip_without_pivots_is_unchanged(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("flip", f"{p}:walk/down/1") == 0
+    assert "pivot" not in p.read_text()
+
+
+# alignment
+
+def pivot_anim_file(tmp_path, p0="pivot=1,3", p1="pivot=1,1"):
+    # A 3x4 frame and a 3x2 frame: bottom-centered they share a bottom row; by pivot they line up another way.
+    return write(tmp_path, "pa.px", f"k #000000\n@anim a ms=100\n@frame a/0 {p0}\nk..\nk..\nk..\nk..\n"
+                                    f"@frame a/1 {p1}\n.k.\n.k.\n")
+
+
+def test_pivot_layout_lines_up_pivots(tmp_path):
+    doc = pxart.parse(pivot_anim_file(tmp_path))
+    its = [pxart.Item(f.id, doc.image(f), 100, doc, f) for f in doc.frames]
+    w, h, spots = pxart.pivot_layout(its)
+    assert spots == [(0, 0), (0, 2)] and (w, h) == (3, 4)  # pivots 1,3 and 1,1 both land at 1,3
+
+
+def test_pivot_layout_none_without_pivots(tmp_path):
+    doc = pxart.parse(write(tmp_path, "m.px", MULTI))
+    assert pxart.pivot_layout([pxart.Item(f.id, doc.image(f), 100, doc, f) for f in doc.frames]) is None
+
+
+def test_pivot_layout_mixed_uses_bottom_centre_pixel(tmp_path):
+    doc = pxart.parse(pivot_anim_file(tmp_path, p1=""))
+    its = [pxart.Item(f.id, doc.image(f), 100, doc, f) for f in doc.frames]
+    w, h, spots = pxart.pivot_layout(its)
+    assert spots == [(0, 0), (0, 2)]  # a/1's bottom-centre pixel 1,1 meets a/0's pivot 1,3
+
+
+def test_pivot_layout_grows_the_canvas(tmp_path):
+    doc = pxart.parse(pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=2,1"))
+    its = [pxart.Item(f.id, doc.image(f), 100, doc, f) for f in doc.frames]
+    w, h, spots = pxart.pivot_layout(its)
+    assert spots == [(2, 1), (0, 0)] and (w, h) == (5, 5)
+
+
+def test_pivot_layout_png_items_use_bottom_centre(tmp_path):
+    Image.new("RGBA", (3, 2), (1, 1, 1, 255)).save(tmp_path / "a.png")
+    doc = pxart.parse(pivot_anim_file(tmp_path))
+    its = [pxart.Item("png", Image.open(tmp_path / "a.png").convert("RGBA"), 100),
+           pxart.Item("a/0", doc.image(doc.get("a/0")), 100, doc, doc.get("a/0"))]
+    w, h, spots = pxart.pivot_layout(its)
+    assert spots == [(0, 2), (0, 0)]
+
+
+def same_frames(tmp_path, p0, p1):
+    return write(tmp_path, "sf.px", f"k #000000\n@frame a/0 {p0}\nk..\nkk.\n@frame a/1 {p1}\nk..\nkk.\n")
+
+
+def strip_of(tmp_path, capsys, p):
+    assert run("anim", f"{p}:a") == 0
+    return [l.split(": ", 1)[1] for l in capsys.readouterr().out.splitlines() if " vs " in l]
+
+
+def test_anim_aligns_by_pivot(tmp_path, capsys):
+    # The same pixels with pivots 1px apart: lined up by pivot, the second frame is drawn 1px to the left.
+    assert strip_of(tmp_path, capsys, same_frames(tmp_path, "pivot=0,1", "pivot=1,1"))[1] == \
+        "shift -1,+0 then 0px (0%) (no shift: 4px)"
+
+
+def test_anim_same_pivots_are_still(tmp_path, capsys):
+    assert strip_of(tmp_path, capsys, same_frames(tmp_path, "pivot=2,0", "pivot=2,0"))[1] == "shift +0,+0 then 0px (0%)"
+
+
+def test_anim_bottom_centre_without_pivots(tmp_path, capsys):
+    assert strip_of(tmp_path, capsys, same_frames(tmp_path, "", ""))[1] == "shift +0,+0 then 0px (0%)"
+
+
+def test_anim_anim_level_pivot_applies_to_every_frame(tmp_path, capsys):
+    p = write(tmp_path, "sf.px", "k #000000\n@anim a pivot=0,1\n@frame a/0\nk..\nkk.\n@frame a/1 pivot=1,1\nk..\nkk.\n")
+    assert strip_of(tmp_path, capsys, p)[1].startswith("shift -1,+0 then 0px")
+
+
+def test_anim_gif_with_pivots_is_the_pivot_canvas(tmp_path, capsys):
+    p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=2,1")
+    assert run("anim", f"{p}:a", "-o", tmp_path / "a.gif", "--scale", "1") == 0
+    gif = Image.open(tmp_path / "a.gif")
+    assert gif.size == (5 * 1 + 8 * 3 + 5 * 3, max(5 * 1, 5 * 3 + 8))  # w*S + 3 gaps + 1x and 2x copies
+
+
+def test_onion_aligns_by_pivot(tmp_path):
+    p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
+    assert run("onion", f"{p}:a/0", f"{p}:a/1", "-o", tmp_path / "o.png", "--scale", "1") == 0
+    img = Image.open(tmp_path / "o.png").convert("RGBA")
+    assert img.size == (4, 4)  # a/1's pivot 1,0 meets a/0's 0,0: a/1 starts 1px left, so the canvas is 4 wide
+
+
+def test_onion_without_pivots_is_unchanged(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("onion", f"{p}:walk/down/0", f"{p}:idle", "-o", tmp_path / "o.png", "--scale", "1") == 0
+    assert Image.open(tmp_path / "o.png").size == (4, 2)
+
+
+# export
+
+def test_export_aseprite_slices_pivots(tmp_path):
+    p = write(tmp_path, "p.px", PIV + "@frame icon\nj\n")
+    assert run("export", p, "--aseprite", tmp_path / "s.json") == 0
+    meta = json.loads((tmp_path / "s.json").read_text())["meta"]
+    assert meta["slices"] == [{"name": "pivot", "color": "#0000ffff", "keys": [
+        {"frame": 0, "bounds": {"x": 0, "y": 0, "w": 3, "h": 3}, "pivot": {"x": 1, "y": 2}},
+        {"frame": 1, "bounds": {"x": 0, "y": 0, "w": 3, "h": 2}, "pivot": {"x": 2, "y": 1}},
+        {"frame": 2, "bounds": {"x": 0, "y": 0, "w": 1, "h": 1}}]}]
+
+
+def test_export_aseprite_slice_keys_follow_sheet_order(tmp_path):
+    p = write(tmp_path, "p.px", "k #000000\n@frame b/0 pivot=0,0\nk\n@frame a/0\nk\n@frame b/1 pivot=0,1\nk\nk\n")
+    assert run("export", p, "--aseprite", tmp_path / "s.json") == 0
+    data = json.loads((tmp_path / "s.json").read_text())
+    assert [f["filename"] for f in data["frames"]] == ["b/0", "b/1", "a/0"]
+    keys = data["meta"]["slices"][0]["keys"]
+    assert [k["frame"] for k in keys] == [0, 1, 2]
+    assert [k.get("pivot") for k in keys] == [{"x": 0, "y": 0}, {"x": 0, "y": 1}, None]
+
+
+def test_export_aseprite_without_pivots_has_no_slices(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("export", p, "--aseprite", tmp_path / "s.json") == 0
+    assert json.loads((tmp_path / "s.json").read_text())["meta"]["slices"] == []
+
+
+def test_export_aseprite_selection_with_pivots(tmp_path):
+    p = write(tmp_path, "p.px", PIV + "@frame icon pivot=0,0\nj\n")
+    assert run("export", f"{p}:icon", "--aseprite", tmp_path / "s.json") == 0
+    keys = json.loads((tmp_path / "s.json").read_text())["meta"]["slices"][0]["keys"]
+    assert keys == [{"frame": 0, "bounds": {"x": 0, "y": 0, "w": 1, "h": 1}, "pivot": {"x": 0, "y": 0}}]
+
+
+def test_export_frames_writes_pivots_json(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PIV + "@frame icon\nj\n")
+    assert run("export", p, "--frames", tmp_path / "f") == 0
+    assert json.loads((tmp_path / "f" / "pivots.json").read_text()) == {"walk/0": {"x": 1, "y": 2},
+                                                                         "walk/1": {"x": 2, "y": 1}}
+    assert str(tmp_path / "f" / "pivots.json") in capsys.readouterr().out
+
+
+def test_export_frames_without_pivots_writes_no_json(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("export", p, "--frames", tmp_path / "f") == 0
+    assert not (tmp_path / "f" / "pivots.json").exists()
+
+
+def test_extract_keeps_pivots(tmp_path):
+    p = write(tmp_path, "p.px", PIV)
+    assert run("extract", f"{p}:walk", "-o", tmp_path / "o.px") == 0
+    assert "@anim walk ms=90 pivot=1,2" in (tmp_path / "o.px").read_text()
+    assert "@frame walk/1 pivot=2,1" in (tmp_path / "o.px").read_text()
+
+
+def test_help_documents_pivots():
+    doc = pxart.__doc__
+    assert "pivot=x,y (optional) on '@frame ID' or '@anim GROUP'" in doc
+    assert "meta.slices = one slice \"pivot\"" in doc and "pivots.json" in doc
+    assert "[pivot=X,Y]" in doc

@@ -19,6 +19,13 @@ FORMAT (.px)
     @frame walk/down/1 ms=250          per-frame duration overrides the anim's
     ...
   An animation plays its frames in file order (not by the number in the id).
+  pivot=x,y (optional) on '@frame ID' or '@anim GROUP' is the frame's anchor pixel, counted
+  from its top-left (the feet: pivot=8,23 on a 16x24 frame). A frame's own wins over its
+  anim's; no pivot is the default. anim and onion line frames up by pivot instead of bottom-
+  centre (a frame without one then uses its bottom-centre pixel, w // 2, h - 1); export
+  writes pivots (Aseprite slices, --frames pivots.json). A pivot may lie outside the frame (a
+  hand, the ground under a jump); check notes that in case it's a typo. flip, rotate and
+  transpose move a frame's pivot with its pixels. Set it with anim-set ... pivot=8,23.
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
   'anim-set hero.px:walk/down ms=125' writes these (and 'hero.px:walk/down/1 ms=250' a frame's).
@@ -235,10 +242,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
-  anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [-o OUT]
+  anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [-o OUT]
       Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
-      FILE:GROUP/ID (one frame) takes only ms=N and sets that frame's own duration
-      ('@frame ID ms=N'), which wins over the group's. KEY= with no value clears a setting.
+      FILE:GROUP/ID (one frame) takes only ms=N and pivot=X,Y and sets that frame's own
+      ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears a setting.
       A path that is both a group and a frame means the group. Only that one line changes.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
@@ -268,8 +275,12 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
 
 CONVERTING
   export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
-      --frames: one PNG per frame at DIR/<frame id>.png
-      --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags)
+      --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
+        pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
+      --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
+        Aseprite writes them: meta.slices = one slice "pivot" with a key per frame index,
+        {"frame": N, "bounds": {"x": 0, "y": 0, "w": W, "h": H}, "pivot": {"x": X, "y": Y}},
+        bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
       (--aseprite x.json and --tiled x.tsj share one identical x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
@@ -398,9 +409,18 @@ def fmt_color(c):
     return "transparent" if c[3] == 0 else rgba2hex(c)
 
 
+def fmt_setting(v):
+    """An @anim/@frame setting as written: pivot (8, 23) -> '8,23'; others as they are."""
+    return ",".join(map(str, v)) if isinstance(v, tuple) else str(v)
+
+
+PIVOT_RE = re.compile(r"^-?\d+,-?\d+$")
+
+
 class Frame:
-    def __init__(self, id, grid=None, ms=None, line=None):
+    def __init__(self, id, grid=None, ms=None, line=None, pivot=None):
         self.id, self.grid, self.ms, self.line = id, grid if grid is not None else [], ms, line
+        self.pivot = pivot          # (x, y) set on its @frame line, or None (then the @anim's, if any)
         self.row_lines = []
 
     @property
@@ -466,6 +486,10 @@ class Doc:
     def ms(self, f):
         return f.ms or self.anims.get(f.group, {}).get("ms") or DEFAULT_MS
 
+    def pivot(self, f):
+        """The frame's pivot (x, y): its own, else its @anim's, else None."""
+        return f.pivot or self.anims.get(f.group, {}).get("pivot")
+
     def select(self, sel):
         if not sel:
             return list(self.frames)
@@ -522,14 +546,16 @@ class Doc:
             for k, v in over.items():
                 yield ("vkey", name, k), 0, f"{k} {fmt_color(v)}"
         for i, (g, a) in enumerate(self.anims.items()):
-            parts = [f"@anim {g}"] + [f"{k}={a[k]}" for k in ("direction", "repeat", "ms") if a.get(k) is not None]
+            parts = [f"@anim {g}"] + [f"{k}={fmt_setting(a[k])}" for k in ("direction", "repeat", "ms", "pivot")
+                                      if a.get(k) is not None]
             yield ("anim", g), int(i == 0), " ".join(parts)
         for i, g in enumerate(self.stills):
             yield ("still", g), int(i == 0 and not self.anims), f"@still {g}"
         for i, f in enumerate(self.frames):
             if not self.implicit:
                 gap = 1 if i == 0 or self.frame_gap is None else self.frame_gap
-                yield ("frame", f.id), gap, f"@frame {f.id}" + (f" ms={f.ms}" if f.ms else "")
+                yield ("frame", f.id), gap, f"@frame {f.id}" + (f" ms={f.ms}" if f.ms else "") \
+                    + (f" pivot={fmt_setting(f.pivot)}" if f.pivot else "")
             for j, row in enumerate(f.grid):
                 yield ("row", f.id, j), int(self.implicit and j == 0), row
         for i, e in enumerate(self.extensions):
@@ -565,6 +591,16 @@ def _kwargs(tokens, issues, path, n):
         else:
             pos.append(t)
     return pos, kw
+
+
+def _pivot_arg(kw, issues, path, n):
+    if "pivot" not in kw:
+        return None
+    v = kw.pop("pivot")
+    if not PIVOT_RE.match(v):
+        issues.append(Issue("E_BAD_ARG", f"pivot={v!r} must be x,y (integers, e.g. pivot=8,23)", path, n))
+        return None
+    return tuple(map(int, v.split(",")))
 
 
 def _int_arg(kw, name, issues, path, n, lo=None):
@@ -633,9 +669,10 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 if doc.get(pos[0]):
                     err("E_DUP_FRAME", f"frame {pos[0]!r} already defined", n)
                 ms = _int_arg(kw, "ms", issues, str(path), n, lo=1)
+                pivot = _pivot_arg(kw, issues, str(path), n)
                 for k in kw:
                     err("E_BAD_ARG", f"@frame doesn't take {k}=", n)
-                cur = Frame(pos[0], ms=ms, line=n)
+                cur = Frame(pos[0], ms=ms, line=n, pivot=pivot)
                 doc.frames.append(cur)
                 keep(("frame", cur.id))
                 state = "frame"
@@ -689,6 +726,9 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     a["direction"] = d
                 a["repeat"] = _int_arg(kw, "repeat", issues, str(path), n)
                 a["ms"] = _int_arg(kw, "ms", issues, str(path), n, lo=1)
+                pivot = _pivot_arg(kw, issues, str(path), n)
+                if pivot is not None:
+                    a["pivot"] = pivot
                 for k in kw:
                     err("E_BAD_ARG", f"@anim doesn't take {k}=", n)
                 doc.anims[pos[0]] = a
@@ -1008,6 +1048,28 @@ def on_bg(img, w, h, bg="#3a3a44"):
     return b
 
 
+def pivot_layout(its):
+    """Where frames draw on one canvas when any of them has a pivot: every pivot lands on the same pixel (a frame
+    without one uses its bottom-centre pixel, x = w // 2, y = h - 1). (W, H, [(x, y)]) with the canvas just big
+    enough, or None when no frame has a pivot (then frames are bottom-centered as always)."""
+    pvs = [it.doc.pivot(it.frame) if it.doc and it.frame else None for it in its]
+    if not any(pvs):
+        return None
+    pvs = [p or (it.img.width // 2, it.img.height - 1) for p, it in zip(pvs, its)]
+    spots = [(-px, -py) for px, py in pvs]
+    x0, y0 = min(x for x, _ in spots), min(y for _, y in spots)
+    spots = [(x - x0, y - y0) for x, y in spots]
+    return (max(x + it.img.width for (x, _), it in zip(spots, its)),
+            max(y + it.img.height for (_, y), it in zip(spots, its)), spots)
+
+
+def placed(img, w, h, at, bg):
+    """img on a w x h canvas of bg at `at` (a pivot_layout spot)."""
+    b = Image.new("RGBA", (w, h), rgba(bg))
+    b.alpha_composite(img, at)
+    return b
+
+
 def shifted(img, dx, dy):
     out = Image.new("RGBA", img.size, CLEAR)
     out.paste(img, (dx, dy))
@@ -1225,8 +1287,12 @@ def cmd_anim(a):
     its = all_items(a.files, a.variant)
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
-    w, h = max(f.width for f in frames), max(f.height for f in frames)
-    framed = [on_bg(f, w, h) for f in frames]
+    lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered
+    w, h = lay[:2] if lay else (max(f.width for f in frames), max(f.height for f in frames))
+
+    def fit(i, bg="#3a3a44"):
+        return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
+    framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
     if a.o:
         gif = []
@@ -1242,8 +1308,8 @@ def cmd_anim(a):
         strip = Image.new("RGBA", size, (30, 30, 36, 255))
         d = ImageDraw.Draw(strip)
     for i, fr in enumerate(framed):
-        # Compare on a shared canvas, bottom-centered as drawn, so frames of different sizes diff too.
-        prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
+        # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
+        prev, cur = fit(i - 1, "#00000000"), fit(i, "#00000000")
         tile = frames[i - 1].size == frames[i].size == (w, h) and may_wrap(prev, cur)
         dx, dy, n_shift, n_none, still, wrapped = motion(prev, cur, wrap=tile)
         opaque = sum(cur.getchannel("A").histogram()[1:])
@@ -1278,15 +1344,18 @@ def cmd_anim(a):
 
 def cmd_onion(a):
     with reading(f"A ({a.a})"):
-        A = one_frame(a.a).img
+        ia = one_frame(a.a)
     with reading(f"B ({a.b})"):
-        B = one_frame(a.b).img
-    w, h = max(A.width, B.width), max(A.height, B.height)
+        ib = one_frame(a.b)
+    A, B = ia.img, ib.img
+    lay = pivot_layout([ia, ib])
+    w, h = lay[:2] if lay else (max(A.width, B.width), max(A.height, B.height))
+    spots = lay[2] if lay else [((w - A.width) // 2, h - A.height), ((w - B.width) // 2, h - B.height)]
     base = on_bg(Image.new("RGBA", (1, 1), CLEAR), w, h)
     faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
-    base.alpha_composite(faded, ((w - A.width) // 2, h - A.height))
+    base.alpha_composite(faded, spots[0])
     top = B.copy(); top.putalpha(B.getchannel("A").point(lambda v: v * 80 // 100))
-    base.alpha_composite(top, ((w - B.width) // 2, h - B.height))
+    base.alpha_composite(top, spots[1])
     upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
     print("wrote", a.o)
 
@@ -1560,6 +1629,13 @@ def cmd_check(a):
                 over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
                 if over:
                     notes.append("local keys override @palette colors: " + "".join(over))
+                for f in doc.frames:
+                    pv = doc.pivot(f)
+                    if pv and not (0 <= pv[0] < f.size[0] and 0 <= pv[1] < f.size[1]):
+                        whose = "its own" if f.pivot else f"@anim {f.group}'s"
+                        notes.append(f"frame {f.id}: pivot {fmt_setting(pv)} ({whose}) is outside its {f.size[0]}x"
+                                     f"{f.size[1]} frame (allowed: a hand or the ground below the feet; check it's "
+                                     "not a typo)")
                 if "base" in doc.variants or "base" in doc.shared_variants:
                     notes.append("'@variant base' can't be picked: %base and --variant base mean the base palette; "
                                  "rename it")
@@ -1633,10 +1709,11 @@ def cmd_frames(a):
         whole = len(doc.groups()[g])
         head = f"{g or '(no group)'}: {len(fs)} frame(s)" + (f" (of {whole})" if len(fs) < whole else "") \
             + (" [still]" if still else "")
-        extra = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
+        extra = ", ".join(f"{k}={fmt_setting(v)}" for k, v in meta.items() if v is not None)
         print(head + (f" [{extra}]" if extra else ""))
         for f in fs:
-            print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}  (line {f.line})")
+            pv = f"  pivot {fmt_setting(doc.pivot(f))}" if doc.pivot(f) else ""
+            print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}{pv}  (line {f.line})")
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
 
@@ -1726,9 +1803,22 @@ def frames_sel_edit(a, doc, sel, picked):
     return [f"already in place: {where}" if doc.frames == was else f"moved {where}"]
 
 
+def move_pivot(doc, f, fn):
+    """The frame's pixels moved by fn(x, y) -> (x, y): its pivot moves with them. A pivot it inherits from its @anim
+    becomes its own when the move changes it (the @anim line is left for the other frames)."""
+    was = doc.pivot(f)
+    if was is None:
+        return
+    new = fn(*was)
+    if f.pivot is not None or new != was:
+        f.pivot = new
+
+
 def cmd_flip(a):
     doc, frames, out = edit_target(a.file, a.o)
     for f in frames:
+        w, h = f.size
+        move_pivot(doc, f, (lambda x, y: (x, h - 1 - y)) if a.v else (lambda x, y: (w - 1 - x, y)))
         f.grid = f.grid[::-1] if a.v else [r[::-1] for r in f.grid]
     print(write_doc(doc, out))
 
@@ -2332,7 +2422,7 @@ def cmd_dup(a):
              f"{', '.join(doc.label(f) for f in doc.frames)}")
     if doc.get(a.new) or not ID_RE.match(a.new):
         fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
-    new = Frame(a.new, list(src.grid), src.ms)
+    new = Frame(a.new, list(src.grid), src.ms, pivot=src.pivot)
     if a.after:
         anchor = doc.get(a.after)
         if not anchor:
@@ -2352,6 +2442,10 @@ def timing_value(k, v):
     """An anim-set value as the file would hold it: None to clear (KEY=), else checked like the parser does."""
     if v == "":
         return None
+    if k == "pivot":
+        if not PIVOT_RE.match(v):
+            fail("E_BAD_ARG", f"pivot={v!r} must be x,y (integers, e.g. pivot=8,23)")
+        return tuple(map(int, v.split(",")))
     if k == "direction":
         if v not in DIRECTIONS:
             fail("E_BAD_ARG", f"direction={v!r}; use one of {', '.join(DIRECTIONS)}")
@@ -2373,29 +2467,32 @@ def cmd_anim_set(a):
     kw = {}
     for arg in a.settings:
         k, eq, v = arg.partition("=")
-        if not eq or k not in ("ms", "direction", "repeat"):
-            fail("E_BAD_ARG", f"anim-set: {arg!r}; settings are ms=N, direction=D, repeat=N (KEY= clears one)", path=doc.path)
+        if not eq or k not in ("ms", "direction", "repeat", "pivot"):
+            fail("E_BAD_ARG", f"anim-set: {arg!r}; settings are ms=N, direction=D, repeat=N, pivot=X,Y (KEY= clears "
+                 "one)", path=doc.path)
         kw[k] = timing_value(k, v)
     if not kw:
-        fail("E_BAD_ARG", "anim-set: give ms=N, direction=D and/or repeat=N", path=doc.path)
+        fail("E_BAD_ARG", "anim-set: give ms=N, direction=D, repeat=N and/or pivot=X,Y", path=doc.path)
     groups = doc.groups()
     if sel in groups and sel:
         anim = doc.anims.setdefault(sel, {})
         anim.update(kw)
         line = next(text for anchor, _, text in doc.lines() if anchor == ("anim", sel))
-        if kw.get("ms"):
-            for f in groups[sel]:
-                if f.ms:
-                    print(f"note: {f.id} keeps its own ms={f.ms} (anim-set {doc.path}:{f.id} ms= clears it)")
+        for k in ("ms", "pivot"):
+            for f in groups[sel] if kw.get(k) else []:
+                if getattr(f, k):
+                    print(f"note: {f.id} keeps its own {k}={fmt_setting(getattr(f, k))} (anim-set {doc.path}:{f.id} "
+                          f"{k}= clears it)")
     else:
         f = doc.get(sel)
         if not f:
             fail("E_SELECT", f"{sel!r} is neither an animation nor a frame; animations: "
                  f"{', '.join(g for g in groups if g) or 'none'}", path=doc.path)
-        if set(kw) - {"ms"}:
-            fail("E_BAD_ARG", f"{sel!r} is one frame, which takes only ms=; direction= and repeat= belong to its "
-                 f"animation: anim-set {doc.path}:{f.group or 'GROUP'} ...", path=doc.path)
-        f.ms = kw["ms"]
+        if set(kw) - {"ms", "pivot"}:
+            fail("E_BAD_ARG", f"{sel!r} is one frame, which takes only ms= and pivot=; direction= and repeat= belong "
+                 f"to its animation: anim-set {doc.path}:{f.group or 'GROUP'} ...", path=doc.path)
+        for k, v in kw.items():
+            setattr(f, k, v)
         line = next(text for anchor, _, text in doc.lines() if anchor == ("frame", f.id))
     print(f"{line}; {write_doc(doc, out)}")
 
@@ -2459,6 +2556,22 @@ def export_frames(args):
     return doc, [f for f in doc.frames if id(f) in chosen]
 
 
+def pivot_slices(doc, its):
+    """Pivots as Aseprite's JSON has them (meta.slices, the same shape Aseprite's own sheet export writes): one slice
+    named 'pivot' with a key for every frame, in sheet order. A key holds from its frame on, so every frame gets one:
+    bounds = the whole frame (its sourceSize, since spriteSourceSize is 0,0), and 'pivot' relative to those bounds, left
+    out for a frame without a pivot. No pivots in the file: no slices, as before."""
+    if not any(doc.pivot(it.frame) for it in its):
+        return []
+    keys = []
+    for n, it in enumerate(its):
+        key = {"frame": n, "bounds": {"x": 0, "y": 0, "w": it.img.width, "h": it.img.height}}
+        if doc.pivot(it.frame):
+            key["pivot"] = dict(zip("xy", doc.pivot(it.frame)))
+        keys.append(key)
+    return [{"name": "pivot", "color": "#0000ffff", "keys": keys}]
+
+
 def cmd_export(a):
     doc, picked = export_frames(a.files)
     variants = {split_variant(f)[1] for f in a.files} - {None}
@@ -2471,6 +2584,11 @@ def cmd_export(a):
         for it in its:
             p = outpath(pathlib.Path(a.frames) / (it.label + ".png"))
             it.img.save(p)
+            wrote.append(str(p))
+        pivots = {it.label: dict(zip("xy", doc.pivot(it.frame))) for it in its if doc.pivot(it.frame)}
+        if pivots:  # only when the file has pivots: {"walk/0": {"x": 8, "y": 23}, ...}, in export order
+            p = outpath(pathlib.Path(a.frames) / "pivots.json")
+            p.write_text(json.dumps(pivots, indent=1) + "\n")
             wrote.append(str(p))
     if a.aseprite:
         its2 = grouped(its)
@@ -2498,7 +2616,7 @@ def cmd_export(a):
         data = {"frames": frames, "meta": {
             "app": "https://github.com/thethirdbearsolutions/pxart", "version": str(FORMAT_VERSION),
             "image": ip.name, "format": "RGBA8888", "size": {"w": sheet_img.width, "h": sheet_img.height},
-            "scale": "1", "frameTags": tags, "layers": [], "slices": []}}
+            "scale": "1", "frameTags": tags, "layers": [], "slices": pivot_slices(doc, its2)}}
         jp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(jp)]
     if a.tiled:
