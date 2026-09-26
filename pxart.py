@@ -534,8 +534,12 @@ def split_sel(arg):
 
 def split_at(arg):
     left, sep, right = arg.rpartition("@")
+    m = re.match(r"^(-?\d+,-?\d+)%([A-Za-z0-9_\-]+)$", right)
+    if sep and m:
+        fail("E_BAD_ARG", f"%variant goes before @ (FILE:frame%variant@x,y): write "
+             f"{left}%{m.group(2)}@{m.group(1)}, not {arg!r}")
     if not sep or not re.match(r"^-?\d+,-?\d+$", right):
-        fail("E_BAD_ARG", f"expected FILE@x,y, got {arg!r}")
+        fail("E_BAD_ARG", f"expected FILE[:frame][%variant]@x,y, got {arg!r}")
     x, y = map(int, right.split(","))
     return left, x, y
 

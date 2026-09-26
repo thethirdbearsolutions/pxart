@@ -574,3 +574,38 @@ def test_map_row_count_matches_rows_with_hash_anywhere(tmp_path):
 
 def test_help_documents_map_hash_rows():
     assert "'####'" in pxart.__doc__ and "comments only before the first row" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- %variant after @
+
+def test_split_at_variant_after_at_says_where_it_goes():
+    with pytest.raises(pxart.PxError) as e:
+        pxart.split_at("player.px:walk/0@26,70%dark")
+    assert codes(e) == ["E_BAD_ARG"]
+    msg = str(e.value)
+    assert "%variant goes before @" in msg and "FILE:frame%variant@x,y" in msg
+    assert "player.px:walk/0%dark@26,70" in msg
+
+
+def test_split_at_variant_after_at_negative_coords():
+    with pytest.raises(pxart.PxError) as e:
+        pxart.split_at("a.px@-3,-4%night")
+    assert "a.px%night@-3,-4" in str(e.value)
+
+
+def test_split_at_variant_before_at_is_fine():
+    assert pxart.split_at("player.px:walk/0%dark@26,70") == ("player.px:walk/0%dark", 26, 70)
+
+
+def test_split_at_plain_bad_arg_still_generic():
+    with pytest.raises(pxart.PxError) as e:
+        pxart.split_at("player.px")
+    assert "expected FILE[:frame][%variant]@x,y" in str(e.value)
+    with pytest.raises(pxart.PxError):
+        pxart.split_at("player.px@1")
+
+
+def test_scene_and_compose_report_variant_after_at(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    assert run("scene", "-o", tmp_path / "s.png", f"{p}:idle@0,0%night") == 1
+    assert run("compose", "-o", tmp_path / "o.px", f"{p}:idle@0,0%night") == 1
