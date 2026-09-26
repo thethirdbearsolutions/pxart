@@ -175,6 +175,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
+  rotate FILE 90|180|270 [-o OUT]   turn selected frames clockwise (a WxH frame becomes HxW)
+  transpose FILE [-o OUT]           mirror across the top-left/bottom-right diagonal: x,y -> y,x
+      For deriving path edges and corners from one tile. The shading turns with the pixels
+      (after rotate 90 a top-left light is top-right; transpose keeps top-left but swaps
+      top-right and bottom-left), so re-light with shade and outline --selective after. A
+      frame's pivot turns with it.
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap] [--fill KEY]
       Move the frame's pixels (or only the region's) by dx,dy. Pixels moved past the frame's
       edge are dropped, and the pixels the move leaves behind (vacated) become '.', or KEY
@@ -1823,6 +1829,49 @@ def cmd_flip(a):
     print(write_doc(doc, out))
 
 
+LIGHTS = {"n": (0, -1), "ne": (1, -1), "e": (1, 0), "se": (1, 1), "s": (0, 1), "sw": (-1, 1), "w": (-1, 0),
+          "nw": (-1, -1)}
+TURNS = {  # how rotate/transpose move a pixel of a w x h frame, and a direction vector
+    "90": (lambda x, y, w, h: (h - 1 - y, x), lambda dx, dy: (-dy, dx)),
+    "180": (lambda x, y, w, h: (w - 1 - x, h - 1 - y), lambda dx, dy: (-dx, -dy)),
+    "270": (lambda x, y, w, h: (y, w - 1 - x), lambda dx, dy: (dy, -dx)),
+    "transpose": (lambda x, y, w, h: (y, x), lambda dx, dy: (dy, dx)),
+}
+
+
+def turn(a, how):
+    """rotate / transpose: each selected frame's pixels (and its pivot) move by TURNS[how]."""
+    doc, frames, out = edit_target(a.file, a.o)
+    move, vec = TURNS[how]
+    for f in frames:
+        w, h = f.size
+        g = [["."] * (w if how == "180" else h) for _ in range(h if how == "180" else w)]
+        for y, row in enumerate(f.grid):
+            for x, ch in enumerate(row):
+                nx, ny = move(x, y, w, h)
+                g[ny][nx] = ch
+        move_pivot(doc, f, lambda x, y: move(x, y, w, h))
+        f.grid = ["".join(r) for r in g]
+        if f.size != (w, h):
+            print(f"note: {doc.label(f)} is now {f.size[0]}x{f.size[1]} (was {w}x{h})")
+    names = {"nw": "top-left", "ne": "top-right", "se": "bottom-right", "sw": "bottom-left"}
+    now = {k: next(n for n, v in LIGHTS.items() if v == vec(*LIGHTS[k])) for k in ("nw", "ne")}
+    said = f"a top-left light is now {names[now['nw']]} (--light {now['nw']})" if now["nw"] != "nw" else \
+        f"a top-left light stays top-left, a top-right one is now {names[now['ne']]} (--light {now['ne']})"
+    msg = write_doc(doc, out)
+    if not msg.startswith("no change"):
+        print(f"note: the shading turned with the pixels ({said}); re-light with 'shade' and 'outline --selective'")
+    print(msg)
+
+
+def cmd_rotate(a):
+    turn(a, a.angle)
+
+
+def cmd_transpose(a):
+    turn(a, "transpose")
+
+
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
     doc, frames, out = edit_target(a.file, a.o)
@@ -2722,6 +2771,9 @@ def main(argv=None):
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
+    p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
+    p.add_argument("-o")
+    p = sub.add_parser("transpose"); p.add_argument("file"); p.add_argument("-o")
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")

@@ -6560,3 +6560,126 @@ def test_help_documents_pivots():
     assert "pivot=x,y (optional) on '@frame ID' or '@anim GROUP'" in doc
     assert "meta.slices = one slice \"pivot\"" in doc and "pivots.json" in doc
     assert "[pivot=X,Y]" in doc
+
+
+# ---------------------------------------------------------------- loop I: rotate and transpose
+
+ROT = "k #000000\nj #ffffff\n@frame a\nkkj\nk..\n"
+
+
+@pytest.mark.parametrize("angle,want", [
+    ("90", ["kk", ".k", ".j"]),
+    ("180", ["..k", "jkk"]),
+    ("270", ["j.", "k.", "kk"]),
+])
+def test_rotate_golden(tmp_path, angle, want):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("rotate", f"{p}:a", angle) == 0
+    assert grid_of(p) == want
+
+
+def test_transpose_golden(tmp_path):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("transpose", f"{p}:a") == 0
+    assert grid_of(p) == ["kk", "k.", "j."]
+
+
+def test_rotate_four_times_is_identity(tmp_path):
+    p = write(tmp_path, "r.px", ROT)
+    for _ in range(4):
+        assert run("rotate", p, "90") == 0
+    assert p.read_text() == ROT
+
+
+@pytest.mark.parametrize("a,b", [("90", "270"), ("180", "180"), ("270", "90")])
+def test_rotate_and_back(tmp_path, a, b):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("rotate", p, a) == 0 and run("rotate", p, b) == 0
+    assert p.read_text() == ROT
+
+
+def test_transpose_twice_is_identity(tmp_path):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("transpose", p) == 0 and run("transpose", p) == 0
+    assert p.read_text() == ROT
+
+
+def test_rotate_90_is_transpose_then_flip(tmp_path):
+    p, q = write(tmp_path, "r.px", ROT), write(tmp_path, "q.px", ROT)
+    assert run("rotate", p, "90") == 0
+    assert run("transpose", q) == 0 and run("flip", q) == 0
+    assert grid_of(p) == grid_of(q)
+
+
+def test_rotate_notes_size_and_light(tmp_path, capsys):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("rotate", f"{p}:a", "90") == 0
+    out = capsys.readouterr().out
+    assert "note: a is now 2x3 (was 3x2)" in out
+    assert "a top-left light is now top-right (--light ne)" in out and "re-light with 'shade'" in out
+
+
+@pytest.mark.parametrize("cmd,said", [(["rotate", "180"], "now bottom-right (--light se)"),
+                                      (["rotate", "270"], "now bottom-left (--light sw)"),
+                                      (["transpose"], "stays top-left, a top-right one is now bottom-left (--light sw)")])
+def test_rotate_light_notes(tmp_path, capsys, cmd, said):
+    p = write(tmp_path, "r.px", ROT)
+    assert run(cmd[0], f"{p}:a", *cmd[1:]) == 0
+    assert said in capsys.readouterr().out
+
+
+def test_rotate_square_has_no_size_note(tmp_path, capsys):
+    p = write(tmp_path, "r.px", "k #000000\nk.\n..\n")
+    assert run("rotate", p, "90") == 0
+    assert "(was " not in capsys.readouterr().out and grid_of(p, None) == [".k", ".."]
+
+
+def test_rotate_symmetric_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "r.px", "k #000000\n.k.\nkkk\n.k.\n")
+    assert run("rotate", p, "90") == 0
+    out = capsys.readouterr().out
+    assert out == f"no change: {p}\n"
+
+
+def test_rotate_selection_only(tmp_path):
+    p = write(tmp_path, "r.px", "k #000000\n@frame t/a\nk.\n..\n@frame t/b\nk.\n..\n@frame c\nk.\n..\n")
+    assert run("rotate", f"{p}:t", "180") == 0
+    doc = pxart.parse(p)
+    assert doc.get("t/a").grid == doc.get("t/b").grid == ["..", ".k"] and doc.get("c").grid == ["k.", ".."]
+
+
+def test_rotate_moves_pivots(tmp_path):
+    p = write(tmp_path, "r.px", "k #000000\nj #ffffff\n@frame a pivot=0,1\nkkj\nk..\n")
+    assert run("rotate", f"{p}:a", "90") == 0
+    assert pxart.parse(p).get("a").pivot == (0, 0)  # the bottom-left pixel is now the top-left one
+    assert run("rotate", f"{p}:a", "180") == 0
+    assert pxart.parse(p).get("a").pivot == (1, 2)
+    assert run("transpose", f"{p}:a") == 0
+    assert pxart.parse(p).get("a").pivot == (2, 1)
+
+
+def test_rotate_pixel_follows_pivot(tmp_path):
+    # Wherever the pivot goes, it stays on the same pixel.
+    p = write(tmp_path, "r.px", "k #000000\nj #ffffff\n@frame a pivot=2,0\nkkj\nk..\n")
+    for cmd in (["rotate", "90"], ["rotate", "270"], ["transpose"], ["rotate", "180"]):
+        assert run(cmd[0], f"{p}:a", *cmd[1:]) == 0
+        doc = pxart.parse(p)
+        x, y = doc.get("a").pivot
+        assert doc.get("a").grid[y][x] == "j"
+
+
+def test_rotate_bad_angle(tmp_path):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("rotate", p, "45") == 2  # argparse: choices 90|180|270
+
+
+def test_rotate_dash_o(tmp_path):
+    p = write(tmp_path, "r.px", ROT)
+    assert run("rotate", f"{p}:a", "90", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == ROT and grid_of(tmp_path / "o.px") == ["kk", ".k", ".j"]
+
+
+def test_help_documents_rotate():
+    doc = pxart.__doc__
+    assert "rotate FILE 90|180|270 [-o OUT]" in doc and "transpose FILE [-o OUT]" in doc
+    assert "re-light with shade and outline --selective" in doc
