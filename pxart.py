@@ -56,6 +56,8 @@ LOOKING
       '#' works as a map char (a wall row '####'), defined by a legend line '# wall.px'.
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
+      Items and legend entries can be PNGs (hero.png@3,4). x,y may be negative (drawn
+      partly off the left/top edge), in scene and in compose.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
 
@@ -938,6 +940,15 @@ def read_map(path, tile):
     return out, (width, len(rows) * tile[1])
 
 
+def draw_at(canvas, img, x, y):
+    """alpha_composite at x,y, where x,y may be negative (older Pillow refuses a negative dest)."""
+    if x < 0 or y < 0:
+        if -x >= img.width or -y >= img.height:
+            return
+        img, x, y = img.crop((max(0, -x), max(0, -y), img.width, img.height)), max(0, x), max(0, y)
+    canvas.alpha_composite(img, (x, y))
+
+
 def cmd_scene(a):
     placed = []
     tile = tuple(map(int, a.tile.split("x")))
@@ -949,10 +960,10 @@ def cmd_scene(a):
     for arg, x, y in placed:
         if arg not in cache:
             cache[arg] = one_frame(arg, "map tile", a.variant).img
-        sc.alpha_composite(cache[arg], (x, y))
+        draw_at(sc, cache[arg], x, y)
     for spec in a.specs:
         path, x, y = split_at(spec)
-        sc.alpha_composite(one_frame(path, "scene item", a.variant).img, (x, y))
+        draw_at(sc, one_frame(path, "scene item", a.variant).img, x, y)
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
     print("wrote", a.o)
 

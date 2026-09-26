@@ -1180,3 +1180,89 @@ def test_mask_keeps_layout(tmp_path):
     p = write(tmp_path, "m.px", text)
     assert run("mask", f"{p}:a", "--keep", "0,0,3,1") == 0
     assert p.read_text() == text.replace("kkk\nkkk\n\n", "kkk\n...\n\n")
+
+
+# ---------------------------------------------------------------- PNG items, negative coordinates
+
+def png(tmp_path, name, size, color):
+    Image.new("RGBA", size, color).save(tmp_path / name)
+    return tmp_path / name
+
+
+def test_scene_png_item(tmp_path):
+    p = png(tmp_path, "hero.png", (2, 2), (10, 20, 30, 255))
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "4x4", "--scale", "1", f"{p}@1,1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((1, 1))[:3] == (10, 20, 30) and img.getpixel((2, 2))[:3] == (10, 20, 30)
+    assert img.getpixel((0, 0))[:3] == pxart.hex2rgba("#472d3c")[:3]
+
+
+def test_scene_png_and_px_items_together(tmp_path):
+    p = png(tmp_path, "hero.png", (1, 1), (10, 20, 30, 255))
+    px = write(tmp_path, "k.px", "k #ffffff\nk\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x1", "--scale", "1", f"{p}@0,0", f"{px}@1,0") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (10, 20, 30) and img.getpixel((1, 0))[:3] == (255, 255, 255)
+
+
+def test_scene_png_translucent_item_blends(tmp_path):
+    p = png(tmp_path, "glow.png", (1, 1), (255, 255, 255, 128))
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "1x1", "--scale", "1", "--bg", "#000000",
+               f"{p}@0,0") == 0
+    assert 120 <= scene_px(tmp_path / "s.png").getpixel((0, 0))[0] <= 135
+
+
+def test_scene_map_png_tile(tmp_path):
+    png(tmp_path, "floor.png", (2, 2), (1, 2, 3, 255))
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "f floor.png\nW tiles.px:wall\n\nfW\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (1, 2, 3) and img.getpixel((2, 0))[:3] == (255, 255, 255)
+
+
+def test_scene_map_png_hash_legend(tmp_path):
+    png(tmp_path, "wall.png", (2, 2), (7, 7, 7, 255))
+    m = write(tmp_path, "room.map", "# wall.png\n\n##\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (4, 2) and img.getpixel((3, 1))[:3] == (7, 7, 7)
+
+
+def test_scene_negative_coordinates(tmp_path):
+    px = write(tmp_path, "b.px", "k #ffffff\nj #ff0000\nkj\njj\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x2", "--scale", "1", f"{px}@-1,-1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 0))[:3] == (255, 0, 0)  # the bottom-right pixel lands at 0,0
+    assert img.getpixel((1, 1))[:3] == pxart.hex2rgba("#472d3c")[:3]
+
+
+def test_scene_item_fully_offscreen_is_fine(tmp_path):
+    px = write(tmp_path, "b.px", "k #ffffff\nk\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "2x2", "--scale", "1", f"{px}@-5,0", f"{px}@0,-5") == 0
+
+
+def test_scene_png_negative_coordinates(tmp_path):
+    p = png(tmp_path, "hero.png", (3, 3), (10, 20, 30, 255))
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "3x3", "--scale", "1", f"{p}@-2,1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.getpixel((0, 1))[:3] == (10, 20, 30) and img.getpixel((1, 1))[:3] != (10, 20, 30)
+
+
+def test_draw_at_matches_alpha_composite_for_positive(tmp_path):
+    a, b = Image.new("RGBA", (4, 4)), Image.new("RGBA", (4, 4))
+    s = Image.new("RGBA", (2, 2), (1, 2, 3, 255))
+    pxart.draw_at(a, s, 1, 2)
+    b.alpha_composite(s, (1, 2))
+    assert pxart.pixels(a) == pxart.pixels(b)
+
+
+def test_compose_negative_coordinates(tmp_path):
+    layer = write(tmp_path, "l.px", "k #000000\nj #ffffff\nkj\njk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{layer}@-1,0") == 0
+    assert pxart.parse(out).frames[0].grid == ["j.", "k."]
+
+
+def test_help_documents_negative_coords_and_png_items():
+    assert "may be negative" in pxart.__doc__ and "hero.png@3,4" in pxart.__doc__
