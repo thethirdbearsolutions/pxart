@@ -7439,3 +7439,204 @@ def test_help_documents_the_breath_symmetry():
     doc = " ".join(pxart.__doc__.split())
     assert "rows Y down are identical in every frame of the animation" in doc
     assert "the rise and the fall of a breath read alike" in doc
+
+
+# ---------------------------------------------------------------- loop J: -o in another directory re-points @palette
+
+REPOINT_PAL = "k #101010\nr #c02020\ng #20c020\nw #f0f0f0\n\n@variant night\nr #400000\n"
+REPOINT_SPRITE = "pxart 1\n# shared colors\n@palette ../pal.px\n\n@anim walk ms=90\n\n@frame walk/0\nkr..\nkrg.\n.kkr\nkkkk\n@frame walk/1\nrk..\nkgr.\n.kkr\nkkkk\n"
+
+# Every command that writes a .px with -o: argv with {p} for the sprite, {s} for a second sprite.
+REPOINT_CMDS = {
+    "flip": ["flip", "{p}"],
+    "flip-sel": ["flip", "{p}:walk/0"],
+    "flip-v": ["flip", "{p}", "--v"],
+    "rotate": ["rotate", "{p}", "90"],
+    "transpose": ["transpose", "{p}"],
+    "shift": ["shift", "{p}", "--dx", "1"],
+    "shift-wrap": ["shift", "{p}", "--dx", "1", "--wrap"],
+    "mask": ["mask", "{p}", "--keep", "0,0,2,2"],
+    "recolor": ["recolor", "{p}", "k=r"],
+    "recolor-color": ["recolor", "{p}", "g=#00ff00"],
+    "set": ["set", "{p}:walk/0", "w", "0,0"],
+    "fill": ["fill", "{p}", "w", "--region", "0,0,1,1"],
+    "line": ["line", "{p}", "w", "0,0", "3,3"],
+    "rect": ["rect", "{p}", "w", "0,0,2,2"],
+    "ellipse": ["ellipse", "{p}", "w", "1,1,1,1"],
+    "arc": ["arc", "{p}", "w", "2,2,2", "0,90"],
+    "flood": ["flood", "{p}", "w", "3,0"],
+    "outline": ["outline", "{p}", "--key", "w"],
+    "shade": ["shade", "{p}", "--ramp", "krw", "--keys", "k"],
+    "paste": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1"],
+    "dup": ["dup", "{p}:walk/0", "walk/2"],
+    "anim-set": ["anim-set", "{p}:walk", "ms=50"],
+    "anim-set-frame": ["anim-set", "{p}:walk/1", "ms=50"],
+    "extract": ["extract", "{p}:walk/1"],
+}
+
+
+def repoint_setup(tmp_path):
+    write(tmp_path, "pal.px", REPOINT_PAL)
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", REPOINT_SPRITE)
+    s = write(tmp_path / "sprites", "s.px", "@palette ../pal.px\n@frame walk/0\nww\nw.\n")
+    return p, s
+
+
+def repoint_run(tmp_path, name, out):
+    p, s = repoint_setup(tmp_path)
+    argv = [a.format(p=p, s=s) for a in REPOINT_CMDS[name]] + ["-o", out]
+    assert run(*argv) == 0
+    return p
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_deeper_directory(tmp_path, name):
+    out = tmp_path / "out" / "deep" / "x.px"
+    repoint_run(tmp_path, name, out)
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../../pal.px"]
+    assert "@palette ../../pal.px\n" in out.read_text() and "@palette ../pal.px" not in out.read_text()
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_parent_directory(tmp_path, name):
+    out = tmp_path / "x.px"
+    repoint_run(tmp_path, name, out)
+    assert pxart.parse(out).palette_refs == ["pal.px"]
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_sibling_directory(tmp_path, name):
+    out = tmp_path / "art" / "x.px"
+    repoint_run(tmp_path, name, out)
+    assert pxart.parse(out).palette_refs == ["../pal.px"]
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_same_directory_keeps_the_line(tmp_path, name):
+    out = tmp_path / "sprites" / "x.px"
+    repoint_run(tmp_path, name, out)
+    assert pxart.parse(out).palette_refs == ["../pal.px"]
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_output_renders_like_the_source_palette(tmp_path, name):
+    out = tmp_path / "out" / "deep" / "x.px"
+    repoint_run(tmp_path, name, out)
+    doc = pxart.parse(out)
+    pal = pxart.parse(tmp_path / "pal.px", palette_only=True)
+    assert doc.shared == pal.palette and doc.shared_variants == pal.variants
+    for f in doc.frames:
+        doc.image(f), doc.image(f, "night")  # every key resolves, in every variant
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_leaves_the_source_alone(tmp_path, name):
+    p = repoint_run(tmp_path, name, tmp_path / "out" / "x.px")
+    assert p.read_text() == REPOINT_SPRITE
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_keeps_the_comment_above_the_import(tmp_path, name):
+    out = tmp_path / "out" / "x.px"
+    repoint_run(tmp_path, name, out)
+    assert "# shared colors\n@palette ../../pal.px\n" not in out.read_text()  # one level down, not two
+    assert "# shared colors\n@palette ../pal.px\n" in out.read_text()
+
+
+@pytest.mark.parametrize("name", sorted(REPOINT_CMDS))
+def test_repoint_output_can_be_edited_in_place_after(tmp_path, name):
+    out = tmp_path / "out" / "x.px"
+    repoint_run(tmp_path, name, out)
+    assert run("flip", out) == 0
+    assert pxart.parse(out).palette_refs == ["../pal.px"]
+
+
+def test_repoint_recolor_is_the_reported_case(tmp_path):
+    p, _ = repoint_setup(tmp_path)
+    out = tmp_path / "other" / "dir" / "x.px"
+    assert run("recolor", p, "k=r", "-o", out) == 0
+    assert out.read_text().startswith("pxart 1\n# shared colors\n@palette ../../pal.px\n\n@anim walk ms=90\n")
+    assert run("check", out) == 0
+
+
+def test_repoint_recolor_exact_text(tmp_path):
+    p, _ = repoint_setup(tmp_path)
+    out = tmp_path / "art" / "x.px"
+    assert run("recolor", p, "k=r", "-o", out) == 0
+    assert out.read_text() == ("pxart 1\n# shared colors\n@palette ../pal.px\n\n@anim walk ms=90\n\n@frame walk/0\n"
+                               "rr..\nrrg.\n.rrr\nrrrr\n@frame walk/1\nrr..\nrgr.\n.rrr\nrrrr\n")
+
+
+def test_repoint_absolute_palette_path_stays(tmp_path):
+    pal = write(tmp_path, "pal.px", REPOINT_PAL)
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", f"@palette {pal}\n@frame a\nkr\n")
+    out = tmp_path / "out" / "deep" / "x.px"
+    assert run("flip", p, "-o", out) == 0
+    assert pxart.parse(out).palette_refs == [str(pal)]
+
+
+def test_repoint_two_imports_both_move(tmp_path):
+    write(tmp_path, "a.px", "k #000000\n")
+    (tmp_path / "pals").mkdir()
+    write(tmp_path / "pals", "b.px", "r #ff0000\n")
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", "@palette ../a.px\n@palette ../pals/b.px\n@frame a\nkr\n")
+    out = tmp_path / "x" / "y" / "z.px"
+    assert run("recolor", p, "k=r", "-o", out) == 0
+    assert pxart.parse(out).palette_refs == ["../../a.px", "../../pals/b.px"]
+
+
+def test_repoint_into_the_palettes_own_directory(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\nr #ff0000\n")
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", "@palette ../pal.px\n@frame a\nkr\n")
+    assert run("set", p, "r", "0,0", "-o", tmp_path / "h2.px") == 0
+    assert (tmp_path / "h2.px").read_text() == "@palette pal.px\n@frame a\nrr\n"
+
+
+def test_repoint_relative_cwd_paths(tmp_path, monkeypatch):
+    write(tmp_path, "pal.px", "k #000000\nr #ff0000\n")
+    (tmp_path / "sprites").mkdir()
+    write(tmp_path / "sprites", "h.px", "@palette ../pal.px\n@frame a\nkr\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("recolor", "sprites/h.px", "k=r", "-o", "art/deep/x.px") == 0
+    assert pxart.parse(tmp_path / "art" / "deep" / "x.px").palette_refs == ["../../pal.px"]
+
+
+def test_repoint_no_palette_is_untouched(tmp_path):
+    (tmp_path / "sprites").mkdir()
+    p = write(tmp_path / "sprites", "h.px", "k #000000\n@frame a\nk.\n")
+    assert run("flip", p, "-o", tmp_path / "o" / "x.px") == 0
+    assert (tmp_path / "o" / "x.px").read_text() == "k #000000\n@frame a\n.k\n"
+
+
+def test_repoint_put_to_another_directory(tmp_path, monkeypatch):
+    p, _ = repoint_setup(tmp_path)
+    out = tmp_path / "art" / "deep" / "x.px"
+    assert put(monkeypatch, "ww\nww\n", f"{p}:walk/1", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../../pal.px"] and doc.get("walk/1").grid == ["ww", "ww"]
+
+
+def test_repoint_mask_png_unaffected(tmp_path):
+    img = Image.new("RGBA", (2, 2), (9, 9, 9, 255))
+    img.save(tmp_path / "a.png")
+    assert run("mask", tmp_path / "a.png", "--keep", "0,0,1,1", "-o", tmp_path / "d" / "b.png") == 0
+    assert Image.open(tmp_path / "d" / "b.png").getpixel((1, 1))[3] == 0
+
+
+def test_repoint_helper_directly(tmp_path):
+    p, _ = repoint_setup(tmp_path)
+    doc = pxart.parse(p)
+    pxart.repoint(doc, tmp_path / "a" / "b" / "c.px")
+    assert doc.palette_refs == ["../../pal.px"] and ("palref", "../../pal.px") in doc.lead
+    pxart.repoint(doc, tmp_path / "sprites" / "same.px")  # doc.path's own directory: nothing to do
+    assert doc.palette_refs == ["../../pal.px"]
+
+
+def test_help_documents_repointing():
+    doc = " ".join(pxart.__doc__.split())
+    assert "An OUT in another directory gets its @palette lines re-pointed from there" in doc

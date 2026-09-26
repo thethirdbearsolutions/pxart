@@ -171,7 +171,9 @@ CHECKING
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
   frames edited and every other frame as it was (like editing a copy), and a note says so.
-  To get only some frames, extract them first (or after).
+  To get only some frames, extract them first (or after). An OUT in another directory gets
+  its @palette lines re-pointed from there (-o art/x.px of a file with '@palette pal.px'
+  writes '@palette ../pal.px'), so it imports the same palette file; an absolute path stays.
   Edits rewrite only what changed: other lines keep their spelling and the blank lines and
   comments above them, and new frames get the file's spacing between @frame blocks.
   An edit that changes nothing (set to the same key, flip of a symmetric frame) prints
@@ -1277,9 +1279,24 @@ def note_suffix(path):
               f"was read as a modifier; write \"${{VAR}}:sel\"")
 
 
+def repoint(doc, out):
+    """doc is about to be written to `out`: its relative @palette paths are re-pointed from out's directory, so the
+    copy imports the same palette file. An absolute path stays as written."""
+    if doc.path is None or pathlib.Path(out).resolve().parent == doc.path.resolve().parent:
+        return
+    for i, ref in enumerate(doc.palette_refs):
+        if os.path.isabs(ref):
+            continue
+        new = pathlib.Path(os.path.relpath((doc.path.parent / ref).resolve(), pathlib.Path(out).resolve().parent)).as_posix()
+        doc.palette_refs[i] = new
+        doc.lead[("palref", new)] = doc.lead.pop(("palref", ref), [])
+
+
 def write_doc(doc, path=None):
-    """Save doc unless the file already holds exactly its text; returns what to print."""
+    """Save doc unless the file already holds exactly its text; returns what to print. Written somewhere else, its
+    @palette lines are re-pointed from there (repoint)."""
     path = pathlib.Path(path or doc.path)
+    repoint(doc, path)
     text = doc.text()
     try:
         with open(path, newline="") as fh:
@@ -2134,11 +2151,6 @@ def cmd_extract(a):
     doc.stills = [g for g in doc.stills if g not in gone]
     if a.inline_palette:
         inline_palette(doc)
-    elif out.resolve().parent != doc.path.resolve().parent:
-        for i, ref in enumerate(doc.palette_refs):
-            new = pathlib.Path(os.path.relpath((doc.path.parent / ref).resolve(), out.resolve().parent)).as_posix()
-            doc.palette_refs[i] = new
-            doc.lead[("palref", new)] = doc.lead.pop(("palref", ref), [])
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
 
 
