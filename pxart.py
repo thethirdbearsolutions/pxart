@@ -32,7 +32,9 @@ FORMAT (.px)
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. Add
   %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
-  modifier; write "${F}:walk" or quote the whole argument.
+  modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
+  letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
+  An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
@@ -386,8 +388,7 @@ class Doc:
         return self.newline.join(out) + (self.newline if self.final_newline else "")
 
     def save(self, path=None):
-        path = pathlib.Path(path or self.path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path = outpath(path or self.path)
         with open(path, "w", newline="") as fh:  # the file's own line endings, untranslated
             fh.write(self.text())
         return path
@@ -775,10 +776,27 @@ def text_w(d, s):
 
 
 def outpath(p):
-    """Output path with its directory created."""
+    """Output path with its directory created; a file where a directory should be is a clear E_FILE."""
     p = pathlib.Path(p)
+    for d in reversed(p.parents):
+        if d.exists() and not d.is_dir():
+            hint = f" (a frame goes after ':', as in {d}:{p.relative_to(d).as_posix()})" if d.suffix == ".px" else ""
+            fail("E_FILE", f"can't write {p}: {d} is a file, not a directory{hint}")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
+
+
+def file_error(e):
+    """An OSError as an E_FILE line; a missing input like 'hero.pxalk/0' gets the zsh-modifier hint."""
+    name = e.filename or ""
+    msg = f"{name}: E_FILE: {e.strerror or e}"
+    if isinstance(e, FileNotFoundError) and any(ZSH_EATEN_RE.search(part) for part in pathlib.Path(name).parts):
+        msg += (f"\n  {name!r} looks like zsh ate a ':' as a modifier (\"$F:walk/0\" applies :w to $F, \"$F:t\" "
+                "applies :t). Write \"${F}:walk/0\" or quote the whole argument.")
+    return msg
 
 
 def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
@@ -1826,7 +1844,7 @@ def main(argv=None):
     except PxError as e:
         sys.exit(str(e))
     except OSError as e:
-        sys.exit(f"{e.filename or ''}: E_FILE: {e.strerror or e}")
+        sys.exit(file_error(e))
 
 
 if __name__ == "__main__":

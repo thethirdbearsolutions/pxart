@@ -3132,3 +3132,96 @@ def test_map_layers_with_variant_and_flip(tmp_path):
 
 def test_help_documents_map_layers():
     assert "a line '---' after the rows starts another" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop F: zsh-eaten ':' on inputs, -o under a file
+
+@pytest.mark.parametrize("name", ["hero.pxalk/0", "hero.pxidle", "hero.pxidle:walk", "sub/hero.pxt",
+                                  "scene.pngalk", "scene.pngx/y"])
+def test_missing_mangled_input_mentions_zsh(tmp_path, name):
+    msg = run_err("render", tmp_path / name, "-o", tmp_path / "x.png")
+    assert "E_FILE" in msg and "zsh ate a ':'" in msg and '"${F}:walk/0"' in msg
+
+
+@pytest.mark.parametrize("name", ["nope.px", "nope.png", "dir/nope.px", "nope.px:walk/0", "a.px.bak", "pngs/x.px"])
+def test_missing_plain_input_has_no_zsh_hint(tmp_path, name):
+    msg = run_err("render", tmp_path / name, "-o", tmp_path / "x.png")
+    assert "E_FILE" in msg and "zsh" not in msg
+
+
+@pytest.mark.parametrize("cmd", [["flip", "{f}"], ["check", "{f}"], ["stats", "{f}"], ["frames", "{f}"],
+                                 ["set", "{f}", "k", "0,0"], ["mask", "{f}", "--keep", "0,0,1,1"],
+                                 ["fill", "{f}", "k"], ["extract", "{f}", "-o", "{o}"],
+                                 ["scene", "-o", "{o}", "{f}@0,0"], ["anim", "{f}", "-o", "{o}"]])
+def test_mangled_input_hint_on_every_command(tmp_path, cmd):
+    f, o = tmp_path / "hero.pxalk" / "0", tmp_path / "o.png"
+    msg = run_err(*[a.format(f=f, o=o) for a in cmd])
+    assert "zsh ate a ':'" in msg
+
+
+def test_existing_file_with_glued_letters_is_fine(tmp_path):
+    p = write(tmp_path, "tiles.pxbak", "k #000000\nk\n")  # exists: no hint, it just loads
+    assert run("render", p, "-o", tmp_path / "x.png") == 0
+
+
+def test_real_zsh_mangling_gets_the_hint(tmp_path):
+    import shutil, subprocess
+    if not shutil.which("zsh"):
+        pytest.skip("no zsh")
+    p = write(tmp_path, "hero.px", "k #000000\n@frame walk/0\nk.\n")
+    script = pathlib.Path(pxart.__file__)
+    for arg in ('"$P:walk/0"', '$P:twalk/0', '"$P:tidle"', '"$P:aidle"'):
+        r = subprocess.run(["zsh", "-f", "-c", f'P={p}; "{sys.executable}" "{script}" flip {arg}'],
+                           capture_output=True, text=True)
+        assert r.returncode == 1 and "zsh ate a ':'" in r.stderr, (arg, r.stderr)
+    # ':i' isn't a modifier: zsh leaves it, and the real problem (no such frame) is what's reported
+    r = subprocess.run(["zsh", "-f", "-c", f'P={p}; "{sys.executable}" "{script}" flip "$P:idle"'],
+                       capture_output=True, text=True)
+    assert "E_SELECT" in r.stderr and "zsh ate" not in r.stderr
+    r = subprocess.run(["zsh", "-f", "-c", f'P={p}; "{sys.executable}" "{script}" flip "${{P}}:walk/0"'],
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "wrote" in r.stdout
+
+
+@pytest.mark.parametrize("cmd", [
+    ["flip", "{p}", "-o", "{p}/walk.px"],
+    ["render", "{p}", "-o", "{p}/r.png"],
+    ["scene", "-o", "{p}/s.png", "{p}@0,0"],
+    ["sheet", "{p}", "-o", "{p}/deep/s.png"],
+    ["anim", "{p}", "-o", "{p}/a.gif"],
+    ["mask", "{png}", "--keep", "0,0,1,1", "-o", "{p}/m.png"],
+    ["tint", "{png}", "#00000080", "-o", "{p}/t.png"],
+    ["extract", "{p}", "-o", "{p}/e.px"],
+    ["export", "{p}", "--frames", "{p}/frames"],
+    ["palette", "{p}", "--export", "{p}/p.gpl"],
+    ["new", "{p}/n.px", "--size", "1x1"],
+])
+def test_output_under_a_file_is_a_clear_error(tmp_path, cmd):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    png_ = solid_png(tmp_path, "s.png", (2, 2))
+    msg = run_err(*[a.format(p=p, png=png_) for a in cmd])
+    assert "E_FILE" in msg and f"{p} is a file, not a directory" in msg
+    assert p.read_text() == "k #000000\nk\n"
+
+
+def test_output_under_a_px_file_suggests_a_frame(tmp_path):
+    p = write(tmp_path, "hero.px", "k #000000\n@frame a\nk\n")
+    src = write(tmp_path, "l.px", "k #000000\nk\n")
+    msg = run_err("flip", src, "-o", tmp_path / "hero.px" / "walk" / "0")
+    assert f"a frame goes after ':', as in {p}:walk/0" in msg
+
+
+def test_output_under_a_png_file_has_no_frame_hint(tmp_path):
+    q = solid_png(tmp_path, "s.png", (2, 2))
+    msg = run_err("tint", q, "#000000", "-o", tmp_path / "s.png" / "x.png")
+    assert "is a file, not a directory" in msg and "a frame goes" not in msg
+
+
+def test_outpath_still_creates_directories(tmp_path):
+    assert pxart.outpath(tmp_path / "a" / "b" / "c.png") == tmp_path / "a" / "b" / "c.png"
+    assert (tmp_path / "a" / "b").is_dir()
+
+
+def test_help_documents_mangled_inputs_and_file_parents():
+    doc = pxart.__doc__
+    assert "hero.pxalk/0" in doc and "-o hero.px/walk/0" in doc
