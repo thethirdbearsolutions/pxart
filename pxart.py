@@ -175,12 +175,6 @@ EDITING (writes .px; -o defaults to editing the input in place)
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
-  rotate FILE 90|180|270 [-o OUT]   turn selected frames clockwise (a WxH frame becomes HxW)
-  transpose FILE [-o OUT]           mirror across the top-left/bottom-right diagonal: x,y -> y,x
-      For deriving path edges and corners from one tile. The shading turns with the pixels
-      (after rotate 90 a top-left light is top-right; transpose keeps top-left but swaps
-      top-right and bottom-left), so re-light with shade and outline --selective after. A
-      frame's pivot turns with it.
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap] [--fill KEY]
       Move the frame's pixels (or only the region's) by dx,dy. Pixels moved past the frame's
       edge are dropped, and the pixels the move leaves behind (vacated) become '.', or KEY
@@ -251,13 +245,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
   anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [-o OUT]
       Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
       FILE:GROUP/ID (one frame) takes only ms=N and pivot=X,Y and sets that frame's own
-      ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears a setting.
+      ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears
+      a setting.
       A path that is both a group and a frame means the group. Only that one line changes.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
   are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
-  says how many px fell outside); x,y may be negative. Each prints "painted N px".
+  says how many px fell outside); x,y may be negative. line, rect, ellipse, arc and flood
+  print "painted N px".
   line FILE[:frame] KEY x0,y0 x1,y1 [--width N]
       Bresenham: one pixel per step along the longer axis, 8-connected, no doubled corners;
       the same pixels whichever end comes first (0,0 8,2 is three runs of 3). --width N
@@ -278,7 +274,12 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
   flood FILE[:frame] KEY x,y [--diagonal]
       Bucket fill: repaint the region of x,y's key that touches x,y through sides (4-connected),
       or corners too with --diagonal. A hole of another key stops it.
-
+  rotate FILE[:SEL] 90|180|270 [-o OUT]    turn frames clockwise (a WxH frame becomes HxW)
+  transpose FILE[:SEL] [-o OUT]            mirror across the top-left/bottom-right diagonal
+      For deriving path edges and corners from one tile. The shading turns with the pixels
+      (after rotate 90 a top-left light is top-right; transpose keeps top-left but swaps
+      top-right and bottom-left), so re-light with shade and outline --selective after. A
+      frame's pivot turns with it.
   shade FILE[:frame] --ramp d2,d1,base,l1[,l2] [--keys k1,k2] [--base K] [--light nw]
         [--strength N] [--region x,y,w,h] [--dither] [--preview P.png]
       Re-shade a material: the pixels whose key is in --keys (default: the ramp's keys, so a

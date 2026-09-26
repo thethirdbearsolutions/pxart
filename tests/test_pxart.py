@@ -6681,7 +6681,7 @@ def test_rotate_dash_o(tmp_path):
 
 def test_help_documents_rotate():
     doc = pxart.__doc__
-    assert "rotate FILE 90|180|270 [-o OUT]" in doc and "transpose FILE [-o OUT]" in doc
+    assert "rotate FILE[:SEL] 90|180|270 [-o OUT]" in doc and "transpose FILE[:SEL] [-o OUT]" in doc
     assert "re-light with shade and outline --selective" in doc
 
 
@@ -7206,3 +7206,43 @@ def test_help_documents_shade():
     for s in ("vector distance transform", "(normal . light direction) * (1 - depth / strength)", "--dither",
               "--preview P.png", "Nothing outside the material changes"):
         assert s in doc, s
+
+
+# ---------------------------------------------------------------- loop I: the new edits name the command and the input
+
+@pytest.mark.parametrize("argv", [
+    ["line", "{b}:hat", "k", "0,0", "1,1"], ["rect", "{b}:hat", "k", "0,0,1,1"], ["ellipse", "{b}:hat", "k", "1,1,1,1"],
+    ["arc", "{b}:hat", "k", "1,1,1", "0,90"], ["flood", "{b}:hat", "k", "0,0"], ["rotate", "{b}:hat", "90"],
+    ["transpose", "{b}"], ["outline", "{b}", "--key", "k"], ["shade", "{b}", "--ramp", "k"],
+])
+def test_drawing_commands_name_command_and_input(tmp_path, argv):
+    bad = write(tmp_path, "parts.px", BROKEN)
+    args = [a.format(b=bad) for a in argv]
+    before = bad.read_text()
+    lines = broken_lines(run_err(*args))
+    assert len(lines) == 2 and all(l.startswith(f"{argv[0]}: FILE ({args[1]}): {bad}:") for l in lines)
+    assert bad.read_text() == before
+
+
+@pytest.mark.parametrize("argv", [
+    ["line", "{p}:zz", "k", "0,0", "1,1"], ["shade", "{p}:zz", "--ramp", "k"], ["outline", "{p}:zz", "--key", "k"],
+    ["rotate", "{p}:zz", "90"],
+])
+def test_drawing_commands_bad_selector(tmp_path, argv):
+    p = write(tmp_path, "ok.px", "k #000000\n@frame a\nk\n")
+    msg = run_err(*[a.format(p=p) for a in argv])
+    assert f"{argv[0]}: FILE ({p}:zz): {p}: E_SELECT: no frame 'zz'" in msg
+
+
+@pytest.mark.parametrize("cmd", ["line", "rect", "ellipse", "arc", "flood", "shade", "outline", "rotate", "transpose"])
+def test_new_commands_are_in_help_usage(cmd, capsys):
+    with pytest.raises(SystemExit):
+        pxart.main([cmd, "-h"])
+    assert f"usage: pxart {cmd}" in capsys.readouterr().out
+
+
+def test_help_keeps_new_commands_under_drawing():
+    doc = pxart.__doc__
+    drawing = doc[doc.index("\nDRAWING"):doc.index("\nCONVERTING")]
+    for cmd in ("line ", "rect ", "ellipse ", "arc ", "flood ", "rotate ", "transpose ", "shade ", "outline "):
+        assert f"\n  {cmd}" in drawing, cmd

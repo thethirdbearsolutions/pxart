@@ -64,9 +64,13 @@ pxart 1
 - **`@anim`:** sets a group's `direction` (`forward`, `reverse`, `pingpong`,
   `pingpong_reverse`, the same words Aseprite uses), `repeat` and default `ms`.
 - **`@frame … ms=`:** overrides the duration for that frame.
+- **`pivot=x,y`** on `@frame` or `@anim` (optional; a frame's own wins): the frame's anchor
+  pixel from its top-left, say the feet. `anim` and `onion` line frames up by pivot instead
+  of bottom-centre, and `export` writes it (`--aseprite` as Aseprite's own slice keys,
+  `--frames` as `pivots.json`). `anim-set hero.px:walk pivot=8,23` sets it.
 - **`anim-set`** writes both: `anim-set hero.px:walk/down ms=125 direction=pingpong`
   updates (or adds) the `@anim` line, and `anim-set hero.px:walk/down/1 ms=250` sets one
-  frame's `ms`. Only that line changes; `ms=` with no value clears it.
+  frame's `ms` (or `pivot`). Only that line changes; `ms=` with no value clears it.
 - **`@palette file.px`:** imports keys from a palette-only file, so a whole sprite set
   shares one palette. Keys defined locally win.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
@@ -99,11 +103,14 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 `pxart -h` has the full reference.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip;
-  without `-o` it prints only the per-frame numbers and writes nothing; a ground tile or a
+  without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and
+  writes nothing; "rows Y+ still" only when those rows are pixel-identical; a ground tile or a
   sparse overlay like falling snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`),
   `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
   suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
-  `--tint '#10183080'` lays a translucent color over the finished scene for night), and
+  `--tint '#10183080'` lays a translucent color over the finished scene for night; an item
+  or legend entry ending in `%base` keeps its base palette, a lamp in a night room;
+  `--bg transparent` works, as does `transparent` anywhere a color is typed), and
   `tint`, which does the same to a PNG.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
@@ -116,10 +123,12 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   legend entry ending in `+b` (`+hb` with a flip) stands it on its cell instead,
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart -h` has a worked map.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII;
-  exits 1), `stats`, `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
+  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII and
+  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats`, `frames`
+  (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector,
-  `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them).
+  `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them;
+  removing a group's last frame removes its `@anim`/`@still` line).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `put`
   (`put hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with
   optional palette lines merged like `compose`'s; checked like a file, errors at stdin's
@@ -139,9 +148,26 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   the frames' groups); `--inline-palette` copies the imported keys
   they use (and the variants' colors for them) into the file and drops `@palette`, so the
   hand-off renders the same with nothing beside it.
+- **Drawing** (for 32x48 heroes, 64x64 beasts and 256-wide layers, where typing every
+  pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
+  and rewrites only the rows it changed):
+  - `line hero.px:attack/2 W 3,40 28,12 --width 2`: Bresenham, no doubled corners.
+  - `rect … x,y,w,h [--fill]`, `ellipse … cx,cy,rx,ry [--fill]` (clean, symmetric pixel
+    ellipses; `.5` centers and radii for even sizes), `flood … x,y [--diagonal]`.
+  - `arc … cx,cy,r a0,a1 --width 3`: a smear or swoosh (degrees, 0 = right, counter-clockwise).
+  - `shade hero.px:idle/0 --ramp XxcCw --keys c --light nw`: re-shades a material with a
+    darkest-to-lightest ramp. Each pixel's tone comes from its outward normal against the
+    light, fading to the base tone `--strength` px in from the edge: banded, deterministic,
+    no noise (`--dither` for an ordered blend at band boundaries, `--preview p.png` to look first).
+  - `outline beast.px:idle --key o --lit m`: an outline around the shape (or `--inside` on
+    its edge), pixel-perfect by default (`--corners` keeps square corners), and selective:
+    the edges facing the light get the lighter `--lit` key.
+  - `rotate FILE 90|180|270` and `transpose` turn path tiles into their edges and corners
+    (then re-light with `shade` and `outline --lit`, since the light turned too).
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
-  - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.
+  - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags (and pivots as
+    `meta.slices`, the shape Aseprite's own export uses).
   - `export --tiled x.tsj` writes a tileset with tile animations.
   - `export harbor.px:cobble harbor.px:water --tiled t.tsj` exports only those frames
     (selectors of one file add up), so a tileset can leave out the big props.
