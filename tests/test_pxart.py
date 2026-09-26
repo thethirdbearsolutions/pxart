@@ -2784,3 +2784,103 @@ def test_help_documents_tint():
     doc = pxart.__doc__
     assert "--tint '#10183080'" in doc and "those with their own %variant too" in doc
     assert "tint IN.png '#rrggbbaa' [-o OUT.png]" in doc and "Quote the color in scripts" in doc
+
+
+# ---------------------------------------------------------------- loop F: mask --invert
+
+def test_mask_invert_rect(tmp_path, capsys):
+    p = square(tmp_path, 4)
+    assert run("mask", p, "--keep", "1,1,2,2", "--invert") == 0
+    assert pxart.parse(p).frames[0].grid == ["kkkk", "k..k", "k..k", "kkkk"]
+    assert "erased 4 px" in capsys.readouterr().out
+
+
+def test_mask_invert_circle_hard_edge(tmp_path):
+    p = square(tmp_path, 7)
+    assert run("mask", p, "--keep-circle", "3,3,2", "--invert") == 0
+    assert pxart.parse(p).frames[0].grid == [
+        "kkkkkkk",
+        "kkk.kkk",
+        "kk...kk",
+        "k.....k",
+        "kk...kk",
+        "kkk.kkk",
+        "kkkkkkk",
+    ]
+
+
+@pytest.mark.parametrize("args", [["--keep-circle", "7.5,7.5,6"], ["--keep-circle", "12,12,10", "--dither", "4"],
+                                  ["--keep-circle", "20,20,18", "--dither", "8"], ["--keep", "3,2,9,11"],
+                                  ["--keep=-3,-3,50,50"], ["--keep-circle", "0,0,5", "--dither", "5"]])
+def test_mask_invert_is_the_exact_complement_px(tmp_path, args):
+    a, b = square(tmp_path, 40, "a.px"), square(tmp_path, 40, "b.px")
+    assert run("mask", a, *args) == 0
+    assert run("mask", b, *args, "--invert") == 0
+    ga, gb = pxart.parse(a).frames[0].grid, pxart.parse(b).frames[0].grid
+    for y in range(40):
+        for x in range(40):
+            assert (ga[y][x] == "k") != (gb[y][x] == "k"), (x, y)
+
+
+def test_mask_invert_dither_falls_off_inward(tmp_path):
+    p = square(tmp_path, 40)
+    assert run("mask", p, "--keep-circle", "20,20,18", "--dither", "8", "--invert") == 0
+    g = pxart.parse(p).frames[0].grid
+
+    def density(lo, hi):
+        ring = [(x, y) for y in range(40) for x in range(40) if lo < ((x - 20) ** 2 + (y - 20) ** 2) ** 0.5 <= hi]
+        return sum(g[y][x] == "k" for x, y in ring) / len(ring)
+    assert density(0, 10) == 0 and density(18, 30) == 1
+    assert density(10, 12) < density(12, 14) < density(14, 16) < density(16, 18)
+
+
+@pytest.mark.parametrize("args", [["--keep-circle", "12,12,10", "--dither", "4"], ["--keep", "3,2,9,11"]])
+def test_mask_invert_png_complements_and_matches_px(tmp_path, args):
+    n = 24
+    solid_png(tmp_path, "s.png", (n, n), (0, 0, 0, 255))
+    pxf = square(tmp_path, n, "sq.px")
+    assert run("mask", tmp_path / "s.png", *args, "--invert", "-o", tmp_path / "inv.png") == 0
+    assert run("mask", tmp_path / "s.png", *args, "-o", tmp_path / "keep.png") == 0
+    assert run("mask", pxf, *args, "--invert") == 0
+    inv, keep = alpha_grid(tmp_path / "inv.png"), alpha_grid(tmp_path / "keep.png")
+    assert inv == pxart.parse(pxf).frames[0].grid
+    assert all((inv[y][x] == "k") != (keep[y][x] == "k") for y in range(n) for x in range(n))
+
+
+def test_mask_invert_png_restacks_to_the_original(tmp_path):
+    img = Image.new("RGBA", (10, 10))
+    for y in range(10):
+        for x in range(10):
+            img.putpixel((x, y), (x * 20, y * 20, 99, 255))
+    img.save(tmp_path / "s.png")
+    for flag in ([], ["--invert"]):
+        assert run("mask", tmp_path / "s.png", "--keep-circle", "5,5,4", "--dither", "2", *flag,
+                   "-o", tmp_path / f"m{len(flag)}.png") == 0
+    assert run("scene", "-o", tmp_path / "re.png", "--size", "10x10", "--scale", "1", "--bg", "#00000000",
+               f"{tmp_path / 'm0.png'}@0,0", f"{tmp_path / 'm1.png'}@0,0") == 0
+    assert pxart.pixels(scene_px(tmp_path / "re.png")) == pxart.pixels(img)
+
+
+def test_mask_invert_nothing_inside_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk...\n....\n")
+    before, m = snap(p)
+    assert run("mask", p, "--keep", "2,0,2,2", "--invert") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_mask_invert_one_frame_leaves_others(tmp_path):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nkk\nkk\n@frame b\nkk\nkk\n")
+    assert run("mask", f"{p}:a", "--keep", "0,0,1,1", "--invert") == 0
+    doc = pxart.parse(p)
+    assert doc.get("a").grid == [".k", "kk"] and doc.get("b").grid == ["kk", "kk"]
+
+
+def test_mask_invert_still_checks_args(tmp_path):
+    p = square(tmp_path, 3)
+    assert run("mask", p, "--keep", "0,0,1,1", "--dither", "2", "--invert") == 1
+    with pytest.raises(SystemExit):
+        pxart.main(["mask", str(p), "--invert"])
+
+
+def test_help_documents_mask_invert():
+    assert "--invert erases\n      the inside and keeps the outside" in pxart.__doc__

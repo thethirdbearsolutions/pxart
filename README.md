@@ -103,7 +103,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `fill` (a
   region or the whole frame with one key), `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
   `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a `--dither N`
-  edge; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
+  edge; `--invert` erases the inside instead; works on a rendered PNG too), `paste`, `compose` (stack layers into a frame; a
   new frame lands after its animation), `dup` (copy a frame), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`

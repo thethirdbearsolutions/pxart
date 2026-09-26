@@ -113,10 +113,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
       (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
       already exists is E_DUP_FRAME: fill it instead.
-  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [-o OUT]
+  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r [--dither N] [--invert] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
-      with a 4x4 ordered (Bayer) dither: a light radius in one command.
+      with a 4x4 ordered (Bayer) dither: a light radius in one command. --invert erases
+      the inside and keeps the outside: exactly the pixels the plain mask erases, dither
+      band mirrored, so a mask and its --invert split the image with no overlap or gap.
       FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
@@ -1317,7 +1319,10 @@ def cmd_mask(a):
     except ValueError:
         fail("E_BAD_ARG", f"--keep wants x,y,w,h; --keep-circle wants cx,cy,r; got {a.keep or a.keep_circle!r}")
 
-    def keep(x, y):
+    def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither band included
+        return inside(x, y) != a.invert
+
+    def inside(x, y):
         if not a.keep_circle:
             return x0 <= x < x0 + w and y0 <= y < y0 + h
         d = math.hypot(x - cx, y - cy)
@@ -1738,6 +1743,7 @@ def main(argv=None):
     k = p.add_mutually_exclusive_group(required=True)
     k.add_argument("--keep", help="x,y,w,h"); k.add_argument("--keep-circle", help="cx,cy,r")
     p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside the circle's edge")
+    p.add_argument("--invert", action="store_true", help="erase inside the shape, keep the outside")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
