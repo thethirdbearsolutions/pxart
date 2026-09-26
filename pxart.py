@@ -87,6 +87,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
       with a 4x4 ordered (Bayer) dither: a light radius in one command.
+      FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
+      pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
+      with --scale 1. -o, if given, must be a .png too.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
   recolor FILE a=b [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region);
@@ -1127,7 +1130,12 @@ BAYER4 = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
 
 
 def cmd_mask(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    path, sel = split_sel(a.file)
+    png = path.endswith(".png")
+    if png and sel:
+        fail("E_SELECT", f"a PNG has no frames to pick: {a.file!r}")
+    if png != str(a.o or path).endswith(".png"):
+        fail("E_BAD_ARG", "mask writes what it reads: a .px from a .px, a .png from a .png (-o OUT.png)")
     if a.dither is not None and (a.dither < 1 or not a.keep_circle):
         fail("E_BAD_ARG", "--dither N wants N >= 1 and --keep-circle")
     try:
@@ -1149,6 +1157,21 @@ def cmd_mask(a):
         return (r - d) / a.dither > (BAYER4[y % 4][x % 4] + 0.5) / 16  # ordered-dither falloff
 
     erased = 0
+    if png:
+        img = Image.open(path).convert("RGBA")
+        px = img.load()
+        for y in range(img.height):
+            for x in range(img.width):
+                if px[x, y][3] and not keep(x, y):
+                    px[x, y], erased = CLEAR, erased + 1
+        out = a.o or path
+        if not erased and pathlib.Path(out).resolve() == pathlib.Path(path).resolve():
+            print(f"erased 0 px; no change: {out}")
+            return
+        img.save(outpath(out))
+        print(f"erased {erased} px; wrote {out}")
+        return
+    doc, frames, out = edit_target(a.file, a.o)
     for f in frames:
         g = [list(row) for row in f.grid]
         for y, row in enumerate(g):

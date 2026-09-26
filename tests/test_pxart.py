@@ -1667,3 +1667,117 @@ def test_write_doc_helper(tmp_path):
 
 def test_help_documents_no_change():
     assert '"no change: FILE"' in pxart.__doc__
+
+
+# ---------------------------------------------------------------- loop E: mask a PNG directly
+
+def solid_png(tmp_path, name="scene.png", size=(8, 8), color=(200, 100, 50, 255)):
+    Image.new("RGBA", size, color).save(tmp_path / name)
+    return tmp_path / name
+
+
+def alpha_grid(path):
+    img = Image.open(path).convert("RGBA")
+    return ["".join("k" if img.getpixel((x, y))[3] else "." for x in range(img.width)) for y in range(img.height)]
+
+
+def test_mask_png_keep_rect(tmp_path, capsys):
+    p = solid_png(tmp_path, size=(4, 4))
+    assert run("mask", p, "--keep", "1,1,2,2", "-o", tmp_path / "lit.png") == 0
+    assert alpha_grid(tmp_path / "lit.png") == ["....", ".kk.", ".kk.", "...."]
+    assert capsys.readouterr().out == f"erased 12 px; wrote {tmp_path / 'lit.png'}\n"
+    assert alpha_grid(p) == ["kkkk"] * 4  # input untouched with -o
+
+
+def test_mask_png_keeps_colors_of_kept_pixels(tmp_path):
+    img = Image.new("RGBA", (3, 1))
+    img.putpixel((0, 0), (1, 2, 3, 255)); img.putpixel((1, 0), (4, 5, 6, 128)); img.putpixel((2, 0), (7, 8, 9, 255))
+    img.save(tmp_path / "s.png")
+    assert run("mask", tmp_path / "s.png", "--keep", "0,0,2,1", "-o", tmp_path / "o.png") == 0
+    out = Image.open(tmp_path / "o.png").convert("RGBA")
+    assert [out.getpixel((x, 0)) for x in range(3)] == [(1, 2, 3, 255), (4, 5, 6, 128), (0, 0, 0, 0)]
+
+
+def test_mask_png_circle_matches_px_mask(tmp_path):
+    """Same shape and same dither as masking the .px: the PNG path is the render -> from-png round trip."""
+    for args in (["--keep-circle", "7.5,7.5,6"], ["--keep-circle", "12,12,10", "--dither", "4"],
+                 ["--keep-circle", "20,20,18", "--dither", "8"], ["--keep", "3,2,9,11"]):
+        n = 40
+        pxf = square(tmp_path, n, "sq.px")
+        solid_png(tmp_path, "sq.png", (n, n), (0, 0, 0, 255))
+        assert run("mask", pxf, *args) == 0
+        assert run("mask", tmp_path / "sq.png", *args, "-o", tmp_path / "m.png") == 0
+        assert alpha_grid(tmp_path / "m.png") == pxart.parse(pxf).frames[0].grid, args
+
+
+def test_mask_png_in_place(tmp_path):
+    p = solid_png(tmp_path, size=(3, 3))
+    assert run("mask", p, "--keep", "0,0,1,1") == 0
+    assert alpha_grid(p) == ["k..", "...", "..."]
+
+
+def test_mask_png_count_ignores_already_transparent(tmp_path, capsys):
+    img = Image.new("RGBA", (3, 1)); img.putpixel((0, 0), (1, 1, 1, 255)); img.putpixel((2, 0), (1, 1, 1, 255))
+    img.save(tmp_path / "s.png")
+    assert run("mask", tmp_path / "s.png", "--keep", "0,0,1,1", "-o", tmp_path / "o.png") == 0
+    assert "erased 1 px" in capsys.readouterr().out
+
+
+def test_mask_png_nothing_erased_in_place_is_no_change(tmp_path, capsys):
+    p = solid_png(tmp_path, size=(2, 2))
+    before, m = snap(p)
+    assert run("mask", p, "--keep", "0,0,2,2") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_mask_png_nothing_erased_to_new_file_writes(tmp_path):
+    p = solid_png(tmp_path, size=(2, 2))
+    assert run("mask", p, "--keep", "0,0,2,2", "-o", tmp_path / "o.png") == 0
+    assert alpha_grid(tmp_path / "o.png") == ["kk", "kk"]
+
+
+def test_mask_png_output_dir_created(tmp_path):
+    p = solid_png(tmp_path, size=(2, 2))
+    assert run("mask", p, "--keep", "0,0,1,1", "-o", tmp_path / "out" / "o.png") == 0
+    assert (tmp_path / "out" / "o.png").exists()
+
+
+def test_mask_png_to_px_output_is_bad_arg(tmp_path, capsys):
+    p = solid_png(tmp_path, size=(2, 2))
+    assert run("mask", p, "--keep", "0,0,1,1", "-o", tmp_path / "o.px") == 1
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_mask_px_to_png_output_is_bad_arg(tmp_path):
+    p = square(tmp_path, 2)
+    assert run("mask", p, "--keep", "0,0,1,1", "-o", tmp_path / "o.png") == 1
+    assert not (tmp_path / "o.png").exists()
+
+
+def test_mask_png_with_frame_selector_is_select_error(tmp_path):
+    p = solid_png(tmp_path, size=(2, 2))
+    assert run("mask", f"{p}:idle", "--keep", "0,0,1,1", "-o", tmp_path / "o.png") == 1
+
+
+def test_mask_png_bad_args_still_checked(tmp_path):
+    p = solid_png(tmp_path, size=(2, 2))
+    assert run("mask", p, "--keep", "0,0,1", "-o", tmp_path / "o.png") == 1
+    assert run("mask", p, "--keep", "0,0,1,1", "--dither", "2", "-o", tmp_path / "o.png") == 1
+
+
+def test_mask_png_lights_a_rendered_scene(tmp_path):
+    """The loop E flow: render a scene at 1x, cut a dithered light radius out of it, stack it over the dark one."""
+    hero = write(tmp_path, "floor.px", "k #806040\n" + ("k" * 16 + "\n") * 16)
+    assert run("scene", "-o", tmp_path / "day.png", "--size", "16x16", "--scale", "1", f"{hero}@0,0") == 0
+    assert run("mask", tmp_path / "day.png", "--keep-circle", "8,8,6", "--dither", "2",
+               "-o", tmp_path / "light.png") == 0
+    lit = Image.open(tmp_path / "light.png").convert("RGBA")
+    assert lit.getpixel((8, 8)) == (0x80, 0x60, 0x40, 255) and lit.getpixel((0, 0))[3] == 0
+    assert run("scene", "-o", tmp_path / "night.png", "--size", "16x16", "--scale", "1", "--bg", "#000000",
+               f"{tmp_path / 'light.png'}@0,0") == 0
+    night = Image.open(tmp_path / "night.png").convert("RGBA")
+    assert night.getpixel((8, 8))[:3] == (0x80, 0x60, 0x40) and night.getpixel((0, 0))[:3] == (0, 0, 0)
+
+
+def test_help_documents_mask_png():
+    assert "FILE may be a PNG" in pxart.__doc__ and "--scale 1" in pxart.__doc__
