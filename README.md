@@ -67,6 +67,8 @@ pxart 1
   shares one palette. Keys defined locally win.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
   `--variant night`.
+- **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
+  group (a parts file).
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
 `file.px:walk/down/0` (one frame).
@@ -86,11 +88,15 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 `pxart -h` has the full reference.
 
 - **Looking:** `render`, `sheet`, `anim` (GIF with 1x and 2x copies, plus a motion strip),
-  `onion`, `scene`.
+  `onion`, `scene` (.px/.png items at x,y, negative allowed; `--map` text tilemaps;
+  `--variant V` recolors the whole room).
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; exits 1), `stats`, `frames`.
-- **Editing:** `flip`, `shift`, `recolor` (optionally within a region), `paste`,
-  `compose` (stack layers into a frame), `dup` (copy a frame), `palette --add`.
+- **Editing:** `flip`, `shift`, `set`, `crop`, `recolor` (optionally within a region),
+  `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a `--dither N`
+  edge), `paste`, `compose` (stack layers into a frame), `dup` (copy a frame),
+  `palette --add`. Edits rewrite only the lines that changed, keeping the file's blank
+  lines and comments.
 - **Converting:**
   - `export --frames DIR` writes one PNG per frame.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags.
