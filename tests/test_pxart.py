@@ -502,3 +502,75 @@ def test_sheet_of_big_pngs_does_not_overflow(tmp_path):
     img = Image.open(tmp_path / "s.png").convert("RGBA")
     red_rows = [y for y in range(img.height) if img.getpixel((img.width - 5, y))[:3] == (255, 0, 0)]
     assert len(red_rows) <= 2 * 120  # nothing extra below each cell
+
+
+# ---------------------------------------------------------------- loop D fixes: map '#' rows
+
+TILES = "k #000000\nw #ffffff\n@frame floor\nkk\nkk\n@frame wall\nww\nww\n"
+
+
+def scene_px(path):
+    return Image.open(path).convert("RGBA")
+
+
+def test_map_hash_row_is_a_row_not_a_comment(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# a room\nf tiles.px:floor\n# tiles.px:wall\n\n###\nf.f\n###\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2", "--scale", "1") == 0
+    img = scene_px(tmp_path / "s.png")
+    assert img.size == (6, 6)  # three rows, not two
+    assert img.getpixel((0, 0))[:3] == (255, 255, 255) and img.getpixel((0, 5))[:3] == (255, 255, 255)
+    assert img.getpixel((0, 2))[:3] == (0, 0, 0)
+
+
+def test_map_hash_legend_line_defines_hash(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# tiles.px:wall\n\n#\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (2, 2) and placed == [(str(tmp_path / "tiles.px:wall"), 0, 0)]
+
+
+def test_map_hash_legend_line_with_variant(tmp_path):
+    write(tmp_path, "tiles.px", TILES + "\n")
+    m = write(tmp_path, "room.map", "# tiles.px:wall%dark\n\n##\n")
+    placed, _ = pxart.read_map(m, (2, 2))
+    assert [p[0] for p in placed] == [str(tmp_path / "tiles.px:wall%dark")] * 2
+
+
+def test_map_comments_before_rows_still_skipped(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# header comment\n# another one here\nf tiles.px:floor\n# note\n\nff\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (4, 2) and len(placed) == 2
+
+
+def test_map_comment_after_blank_is_a_row(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "f tiles.px:floor\n\n# oops\nff\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.read_map(m, (2, 2))
+    assert codes(e) == ["E_UNKNOWN_KEY"] and "'#'" in str(e.value) and "legend line '# FILE'" in str(e.value)
+
+
+def test_map_undefined_hash_errors_clearly(tmp_path, capsys):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "f tiles.px:floor\n\n####\nffff\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--map", m, "--tile", "2x2") == 1
+
+
+def test_map_hash_comment_with_two_words_is_comment(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# walls\nf tiles.px:floor\n\nf\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (2, 2) and "#" not in [p[0] for p in placed]
+
+
+def test_map_row_count_matches_rows_with_hash_anywhere(tmp_path):
+    write(tmp_path, "tiles.px", TILES)
+    m = write(tmp_path, "room.map", "# tiles.px:wall\nf tiles.px:floor\n\n####\n#ff#\n#ff#\n####\n")
+    placed, size = pxart.read_map(m, (2, 2))
+    assert size == (8, 8) and len(placed) == 16
+
+
+def test_help_documents_map_hash_rows():
+    assert "'####'" in pxart.__doc__ and "comments only before the first row" in pxart.__doc__

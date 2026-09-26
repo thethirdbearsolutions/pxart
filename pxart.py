@@ -48,8 +48,10 @@ LOOKING
   onion A B -o x.png [--scale 8]    B drawn over a faded A
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] ITEM@x,y ...
       ITEM is FILE[:frame][%variant]. --map draws a text tilemap first: legend lines
-      '<char> <FILE[:frame]>' (paths relative to the map file), a blank line, then rows of
-      legend chars ('.' = empty). Items are then drawn on top.
+      '<char> <FILE[:frame][%variant]>' (paths relative to the map file), a blank line, then
+      rows of legend chars ('.' = empty). Items are then drawn on top. '#' lines are
+      comments only before the first row; after that every non-blank line is a row, so
+      '#' works as a map char (a wall row '####'), defined by a legend line '# wall.px'.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene.
 
@@ -827,15 +829,16 @@ def read_map(path, tile):
     legend, rows, in_rows = {}, [], False
     for n, line in enumerate(path.read_text().splitlines(), 1):
         s = line.strip()
-        if s.startswith("#"):
-            continue
         if not s:
             in_rows = in_rows or bool(legend)
             continue
         parts = s.split()
-        if not in_rows and len(parts) == 2 and len(parts[0]) == 1:
+        if not in_rows and len(parts) == 2 and len(parts[0]) == 1 and (
+                parts[0] != "#" or pathlib.Path(split_sel(parts[1])[0]).suffix in (".px", ".png")):
             legend[parts[0]] = str(path.parent / parts[1])
             continue
+        if not in_rows and s.startswith("#"):
+            continue  # comments only before the rows; after that '#' is a map char (a wall row '####')
         in_rows = True
         rows.append((n, s))
     out = []
@@ -844,7 +847,9 @@ def read_map(path, tile):
             if ch == ".":
                 continue
             if ch not in legend:
-                fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line", path=str(path), line=n, cols=[x])
+                hint = " (map rows start after the legend's blank line, so '#' there is a map char, not a comment; " \
+                    "define it with a legend line '# FILE')" if ch == "#" else ""
+                fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line{hint}", path=str(path), line=n, cols=[x])
             out.append((legend[ch], x * tile[0], y * tile[1]))
     width = max((len(r) for _, r in rows), default=0) * tile[0]
     return out, (width, len(rows) * tile[1])
