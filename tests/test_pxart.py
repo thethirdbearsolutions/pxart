@@ -1439,3 +1439,231 @@ def test_compose_size_note_other_reasons(tmp_path, capsys):
     assert "(size from the rest of 'w')" in capsys.readouterr().out
     assert run("compose", "-o", f"{out}:w/1", f"{big}@1,0") == 0
     assert "(size from the frame being replaced)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- loop E: no-op edits say so and don't write
+
+def untouched(p, before, mtime):
+    return p.read_bytes() == before and p.stat().st_mtime_ns == mtime
+
+
+def snap(p):
+    import os
+    os.utime(p, ns=(1_000_000_000, 1_000_000_000))  # a known mtime, so a rewrite would show
+    return p.read_bytes(), p.stat().st_mtime_ns
+
+
+def test_set_same_key_says_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
+    before, m = snap(p)
+    assert run("set", f"{p}:f", "k", "0,0") == 0
+    assert capsys.readouterr().out == f"no change: {p}\n" and untouched(p, before, m)
+
+
+def test_set_several_points_all_same_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\nkj\n")
+    before, m = snap(p)
+    assert run("set", f"{p}:f", "j", "1,0", "1,1") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_set_that_changes_still_writes(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
+    assert run("set", f"{p}:f", "j", "0,0") == 0
+    assert capsys.readouterr().out == f"wrote {p}\n" and pxart.parse(p).get("f").grid == ["jj"]
+
+
+def test_set_one_same_one_different_writes(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
+    assert run("set", f"{p}:f", "j", "0,0", "1,0") == 0
+    assert capsys.readouterr().out.startswith("wrote")
+
+
+def test_set_erase_already_empty_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    before, m = snap(p)
+    assert run("set", p, ".", "1,0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_flip_symmetric_frame_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\nkjk\njkj\n")
+    before, m = snap(p)
+    assert run("flip", p) == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_flip_v_symmetric_frame_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\nkj\nkk\nkj\n")
+    before, m = snap(p)
+    assert run("flip", p, "--v") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_flip_asymmetric_writes(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    assert run("flip", p) == 0
+    assert capsys.readouterr().out.startswith("wrote") and pxart.parse(p).frames[0].grid == [".k"]
+
+
+def test_shift_zero_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    before, m = snap(p)
+    assert run("shift", p, "--dx", "0", "--dy", "0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_shift_of_empty_region_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk...\n")
+    before, m = snap(p)
+    assert run("shift", p, "--dx", "1", "--region", "2,0,2,1") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_shift_wrap_full_cycle_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk..\n")
+    before, m = snap(p)
+    assert run("shift", p, "--dx", "3", "--wrap") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_same_color_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\nkj\n")
+    before, m = snap(p)
+    assert run("recolor", p, "k=#000000") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_same_color_other_spelling_is_no_change(tmp_path, capsys):
+    # Same color as '#FFFFFF': the line keeps its spelling, so the text is unchanged.
+    p = write(tmp_path, "a.px", "k #000000\nj #FFFFFF\nkj\n")
+    before, m = snap(p)
+    assert run("recolor", p, "j=#ffffff") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_key_with_no_pixels_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\nq #ff0000\nkj\n")
+    before, m = snap(p)
+    assert run("recolor", p, "q=k") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_recolor_region_missing_key_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\nkj\n")
+    before, m = snap(p)
+    assert run("recolor", p, "k=j", "--region", "1,0,1,1") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_mask_nothing_erased_says_no_change(tmp_path, capsys):
+    p = square(tmp_path, 3)
+    before, m = snap(p)
+    assert run("mask", p, "--keep", "0,0,3,3") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_mask_that_erases_still_writes(tmp_path, capsys):
+    p = square(tmp_path, 3)
+    assert run("mask", p, "--keep", "0,0,1,1") == 0
+    assert capsys.readouterr().out == f"erased 8 px; wrote {p}\n"
+
+
+def test_paste_transparent_source_is_no_change(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "k #000000\n..\n")
+    p = write(tmp_path, "d.px", "k #000000\nkk\n")
+    before, m = snap(p)
+    assert run("paste", src, "--into", p, "--at", "0,0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_paste_same_pixels_is_no_change(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "k #000000\nk\n")
+    p = write(tmp_path, "d.px", "k #000000\nkk\n")
+    before, m = snap(p)
+    assert run("paste", src, "--into", p, "--at", "1,0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_compose_identical_replacement_is_no_change(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    out = tmp_path / "h.px"
+    assert run("compose", "-o", f"{out}:a/0", f"{layer}@0,0") == 0
+    capsys.readouterr()
+    before, m = snap(out)
+    assert run("compose", "-o", f"{out}:a/0", f"{layer}@0,0") == 0
+    assert capsys.readouterr().out == f"no change: {out} frame a/0\n" and untouched(out, before, m)
+
+
+def test_palette_add_existing_same_color_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    before, m = snap(p)
+    assert run("palette", p, "--add", "k=#000000") == 0
+    assert capsys.readouterr().out == f"no change: {p}\n" and untouched(p, before, m)
+
+
+def test_frames_move_to_same_place_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "m.px", THREE)
+    before, m = snap(p)
+    assert run("frames", p, "--move", "a/1", "--after", "a/0") == 0
+    assert capsys.readouterr().out == f"moved a/1 after a/0; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_from_png_same_pixels_again_is_no_change(tmp_path, capsys):
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "i.png")
+    out = tmp_path / "o.px"
+    assert run("from-png", tmp_path / "i.png", "-o", out, "--id", "x") == 0
+    capsys.readouterr()
+    before, m = snap(out)
+    assert run("from-png", tmp_path / "i.png", "-o", out, "--id", "x") == 0
+    assert capsys.readouterr().out.startswith(f"no change: {out}") and untouched(out, before, m)
+
+
+def test_no_change_to_other_output_file_that_matches(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    o = write(tmp_path, "o.px", "k #000000\nk.\n")
+    before, m = snap(o)
+    assert run("set", p, "k", "0,0", "-o", o) == 0
+    assert capsys.readouterr().out == f"no change: {o}\n" and untouched(o, before, m)
+
+
+def test_no_op_to_new_output_file_still_writes_it(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    o = tmp_path / "new.px"
+    assert run("set", p, "k", "0,0", "-o", o) == 0
+    assert capsys.readouterr().out == f"wrote {o}\n" and o.read_text() == p.read_text()
+
+
+def test_no_op_to_different_output_file_overwrites_it(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    o = write(tmp_path, "o.px", "k #000000\nkk\n")
+    assert run("flip", p, "-o", o) == 0
+    assert capsys.readouterr().out == f"wrote {o}\n" and o.read_text() == "k #000000\n.k\n"
+
+
+def test_no_change_keeps_crlf_file_untouched(tmp_path, capsys):
+    p = tmp_path / "a.px"
+    p.write_bytes(CRLF.encode())
+    before, m = snap(p)
+    assert run("set", f"{p}:a", "k", "0,0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_no_change_with_output_over_a_binary_file_writes(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    o = tmp_path / "o.bin"
+    o.write_bytes(b"\xff\xfe\x00binary")
+    assert run("set", p, "k", "0,0", "-o", o) == 0
+    assert "wrote" in capsys.readouterr().out and o.read_text() == p.read_text()
+
+
+def test_write_doc_helper(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    doc = pxart.parse(p)
+    assert pxart.write_doc(doc) == f"no change: {p}"
+    doc.frames[0].grid = ["."]
+    assert pxart.write_doc(doc) == f"wrote {p}" and p.read_text() == "k #000000\n.\n"
+
+
+def test_help_documents_no_change():
+    assert '"no change: FILE"' in pxart.__doc__

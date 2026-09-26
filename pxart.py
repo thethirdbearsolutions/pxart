@@ -74,6 +74,8 @@ CHECKING
 EDITING (writes .px; -o defaults to editing the input in place)
   Edits rewrite only what changed: other lines keep their spelling and the blank lines and
   comments above them, and new frames get the file's spacing between @frame blocks.
+  An edit that changes nothing (set to the same key, flip of a symmetric frame) prints
+  "no change: FILE" and leaves the file untouched.
   Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
@@ -817,6 +819,19 @@ def note_suffix(path):
               f"was read as a modifier; write \"${{VAR}}:sel\"")
 
 
+def write_doc(doc, path=None):
+    """Save doc unless the file already holds exactly its text; returns what to print."""
+    path = pathlib.Path(path or doc.path)
+    text = doc.text()
+    try:
+        with open(path, newline="") as fh:
+            if fh.read() == text:
+                return f"no change: {path}"
+    except (OSError, ValueError):  # missing, or not text
+        pass
+    return f"wrote {doc.save(path)}"
+
+
 def edit_target(arg, out):
     path, sel = split_sel(arg)
     doc = parse(path)
@@ -1060,7 +1075,7 @@ def cmd_frames(a):
             doc.frames.remove(f)
             doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
             did.append(f"moved {a.move} {'after' if a.after else 'before'} {anchor.id}")
-        print("; ".join(did + [f"wrote {doc.save()}"]))
+        print("; ".join(did + [write_doc(doc)]))
         return
     for g, fs in doc.groups().items():
         meta = doc.anims.get(g, {})
@@ -1078,7 +1093,7 @@ def cmd_flip(a):
     doc, frames, out = edit_target(a.file, a.o)
     for f in frames:
         f.grid = f.grid[::-1] if a.v else [r[::-1] for r in f.grid]
-    print("wrote", doc.save(out))
+    print(write_doc(doc, out))
 
 
 def cmd_shift(a):
@@ -1105,7 +1120,7 @@ def cmd_shift(a):
                 if 0 <= tx < W and 0 <= ty < H and pal[ch][3]:
                     g[ty][tx] = ch
         f.grid = ["".join(r) for r in g]
-    print("wrote", doc.save(out))
+    print(write_doc(doc, out))
 
 
 BAYER4 = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
@@ -1141,7 +1156,7 @@ def cmd_mask(a):
                 if ch != "." and not keep(x, y):
                     row[x], erased = ".", erased + 1
         f.grid = ["".join(row) for row in g]
-    print(f"erased {erased} px;", "wrote", doc.save(out))
+    print(f"erased {erased} px;", write_doc(doc, out))
 
 
 def cmd_recolor(a):
@@ -1166,7 +1181,7 @@ def cmd_recolor(a):
                 x0, y0, w, h = parse_rect(a.region, f.size)
                 f.grid = ["".join(v if c == k and x0 <= x < x0 + w and y0 <= y < y0 + h else c
                                   for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
-    print("wrote", doc.save(out))
+    print(write_doc(doc, out))
 
 
 def cmd_set(a):
@@ -1184,7 +1199,7 @@ def cmd_set(a):
                 fail("E_BAD_ARG", f"set: {x},{y} is outside {doc.label(f)} ({f.size[0]}x{f.size[1]})")
             g[y][x] = a.key
         f.grid = ["".join(r) for r in g]
-    print("wrote", doc.save(out))
+    print(write_doc(doc, out))
 
 
 def cmd_crop(a):
@@ -1202,7 +1217,7 @@ def cmd_paste(a):
     ax, ay = map(int, a.at.split(","))
     for f in dframes:
         stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region)
-    print("wrote", ddoc.save(a.o or ddoc.path))
+    print(write_doc(ddoc, a.o))
 
 
 def cmd_compose(a):
@@ -1252,7 +1267,7 @@ def cmd_compose(a):
             print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                   f"(size from {why}) and were cropped")
         stamp(doc, target, lay.doc, lay.frame, (x, y))
-    print("wrote", doc.save(opath), f"frame {osel}" if osel else "")
+    print(write_doc(doc, opath), f"frame {osel}" if osel else "")
 
 
 def cmd_dup(a):
@@ -1277,7 +1292,7 @@ def cmd_dup(a):
     if new.group and new.group not in doc.anims and src.group in doc.anims:
         doc.anims[new.group] = dict(doc.anims[src.group])
     note_suffix(a.o or doc.path)
-    print("wrote", doc.save(a.o or doc.path), "frame", a.new)
+    print(write_doc(doc, a.o), "frame", a.new)
 
 
 def cmd_palette(a):
@@ -1290,7 +1305,7 @@ def cmd_palette(a):
             fail("E_BAD_KEY", f"{k!r}: keys are one character")
         doc.add_key(k, hex2rgba(v))
     if a.add:
-        print("wrote", doc.save())
+        print(write_doc(doc))
     pal = doc.resolved()
     used = {}
     for f in doc.frames:
@@ -1425,7 +1440,7 @@ def cmd_from_png(a):
         else:
             doc.frames.append(Frame(fid, grid))
     if out:
-        print("wrote", doc.save(out), f"({len(imgs)} frame(s))" if named else "")
+        print(write_doc(doc, out), f"({len(imgs)} frame(s))" if named else "")
     else:
         print(doc.text(), end="")
 
