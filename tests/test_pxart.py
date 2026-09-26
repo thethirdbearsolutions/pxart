@@ -1956,6 +1956,12 @@ def motion_of(tmp_path, a, b):
     return pxart.motion(doc.image(doc.frames[0]), doc.image(doc.frames[1]))[:5]  # [5]: wrapped (loop H)
 
 
+def pc(n, grid):
+    """'24px (27%)': n and n as a percent of grid's opaque pixels, as the strip prints it (loop I)."""
+    op = sum(c != "." for r in grid for c in r)
+    return f"{n}px ({(200 * n + op) // (2 * op)}%)"
+
+
 def anim_lines(tmp_path, capsys, *frames):
     p = anim_file(tmp_path, *frames)
     assert run("anim", f"{p}:idle", "-o", tmp_path / "a.gif") == 0
@@ -1986,9 +1992,10 @@ def test_breathing_idle_reports_unshifted(tmp_path):
 def test_breathing_idle_stdout_shows_both_numbers(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, BREATHE_0, BREATHE_1)
     _, _, n_shift, n_none, _ = motion_of(tmp_path, BREATHE_0, BREATHE_1)
-    assert lines[1].endswith(f"vs idle/0: no shift then {n_none}px (rows 9+ still; shift +0,-1: {n_shift}px)")
+    assert lines[1].endswith(f"vs idle/0: no shift then {pc(n_none, BREATHE_1)} (rows 9+ still; shift +0,-1: {n_shift}px)")
     _, _, n_shift, n_none, still = motion_of(tmp_path, BREATHE_1, BREATHE_0)  # chest back down
-    assert lines[0].endswith(f"vs idle/1: no shift then {n_none}px (rows {still}+ still; shift +0,+1: {n_shift}px)")
+    assert lines[0].endswith(f"vs idle/1: no shift then {pc(n_none, BREATHE_0)} (rows {still}+ still; "
+                             f"shift +0,+1: {n_shift}px)")
     assert n_shift < n_none
 
 
@@ -2008,8 +2015,8 @@ def test_bob_reports_shift(tmp_path):
 def test_bob_stdout_shows_both_numbers(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, BOB_0, BOB_1)
     n_none = motion_of(tmp_path, BOB_0, BOB_1)[3]
-    assert lines[1].endswith(f"vs idle/0: shift +0,+1 then 0px (no shift: {n_none}px)")
-    assert lines[0].endswith(f"vs idle/1: shift +0,-1 then 0px (no shift: {n_none}px)")
+    assert lines[1].endswith(f"vs idle/0: shift +0,+1 then 0px (0%) (no shift: {n_none}px)")
+    assert lines[0].endswith(f"vs idle/1: shift +0,-1 then 0px (0%) (no shift: {n_none}px)")
 
 
 def test_bob_strip_shows_nothing_changed(tmp_path, capsys):
@@ -2021,7 +2028,7 @@ def test_walk_with_bob_and_new_leg_pose_reports_shift(tmp_path, capsys):
     dx, dy, n_shift, n_none, still = motion_of(tmp_path, WALK_0, WALK_1)
     assert (dx, dy) == (0, -1) and still is None and 0 < n_shift < n_none
     lines = anim_lines(tmp_path, capsys, WALK_0, WALK_1)
-    assert f"shift +0,-1 then {n_shift}px (no shift: {n_none}px)" in lines[1]
+    assert f"shift +0,-1 then {pc(n_shift, WALK_1)} (no shift: {n_none}px)" in lines[1]
 
 
 def test_walk_strip_lights_the_legs_not_the_body(tmp_path, capsys):
@@ -2033,7 +2040,7 @@ def test_walk_strip_lights_the_legs_not_the_body(tmp_path, capsys):
 def test_no_shift_line_has_no_alternative(tmp_path, capsys):
     same = [EMPTY] + BODY + LEGS
     lines = anim_lines(tmp_path, capsys, same, same)
-    assert lines[1].endswith("vs idle/0: shift +0,+0 then 0px")
+    assert lines[1].endswith("vs idle/0: shift +0,+0 then 0px (0%)")
 
 
 def test_motion_zero_shift_is_never_still(tmp_path):
@@ -2067,8 +2074,8 @@ def test_strip_png_is_taller_for_the_second_label_line(tmp_path, capsys):
 
 def test_help_documents_breathing_strip():
     doc = pxart.__doc__
-    assert '"shift dx,dy then N px (no shift: M px)"' in doc
-    assert '"no shift then M px (rows Y+ still; shift dx,dy: N px)"' in doc and "Both counts are always shown" in doc
+    assert '"shift dx,dy then N px (P%) (no shift: M px)"' in doc
+    assert '"no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)"' in doc and "Both counts are always shown" in doc
 
 
 # ---------------------------------------------------------------- loop F: legend paths with spaces, located load errors
@@ -5320,8 +5327,8 @@ def test_snowfall_wrap_is_found(tmp_path, capsys):
     # The loop H case: a sparse snow overlay scrolled -1,+4 with wrap read as 'shift -1,-2 then 17px'.
     p = tile_file(tmp_path, SNOW_PAL, SNOW_0, roll_grid(SNOW_0, -1, 4))
     lines = strip_lines(tmp_path, capsys, p)
-    assert lines[1].startswith("shift -1,+4 (wrap) then 0px (no shift: ")
-    assert lines[0].startswith("shift +1,-4 (wrap) then 0px (no shift: ")
+    assert lines[1].startswith("shift -1,+4 (wrap) then 0px (0%) (no shift: ")
+    assert lines[0].startswith("shift +1,-4 (wrap) then 0px (0%) (no shift: ")
 
 
 def test_loop_h_snowfall_frames(tmp_path, capsys):
@@ -5364,19 +5371,19 @@ WATER_0 = ["aaaabbbaaaaacaaa", "aabbbaaaaccaaaaa", "abbaaaaacaaaaabb", "bbaaaaaa
 def test_wrap_scroll_of_a_ground_tile(tmp_path, capsys, dx, dy):
     p = tile_file(tmp_path, WATER_PAL, WATER_0, roll_grid(WATER_0, dx, dy), group="water")
     lines = strip_lines(tmp_path, capsys, p, "water")
-    assert lines[1].startswith(f"shift {dx:+d},{dy:+d} (wrap) then 0px (no shift: ")
+    assert lines[1].startswith(f"shift {dx:+d},{dy:+d} (wrap) then 0px (0%) (no shift: ")
 
 
 def test_ground_tile_still_frame_is_no_shift(tmp_path, capsys):
     p = tile_file(tmp_path, WATER_PAL, WATER_0, WATER_0, group="water")
-    assert strip_lines(tmp_path, capsys, p, "water") == ["shift +0,+0 then 0px"] * 2
+    assert strip_lines(tmp_path, capsys, p, "water") == ["shift +0,+0 then 0px (0%)"] * 2
 
 
 def test_ground_tile_with_a_changed_pixel_and_no_scroll(tmp_path, capsys):
     other = list(WATER_0)
     other[3] = "c" + other[3][1:]
     p = tile_file(tmp_path, WATER_PAL, WATER_0, other, group="water")
-    assert strip_lines(tmp_path, capsys, p, "water")[1] == "shift +0,+0 then 1px"
+    assert strip_lines(tmp_path, capsys, p, "water")[1] == "shift +0,+0 then 1px (1%)"  # 1 of 128
 
 
 def test_wrap_needs_strictly_fewer_pixels(tmp_path, capsys):
@@ -5385,7 +5392,7 @@ def test_wrap_needs_strictly_fewer_pixels(tmp_path, capsys):
     b = ["." * 8] * 4 + ["....s..."] + ["." * 8] * 3
     p = tile_file(tmp_path, SNOW_PAL, a, b)
     lines = strip_lines(tmp_path, capsys, p)
-    assert lines[1] == "shift +1,+1 then 0px (no shift: 2px)" and "(wrap)" not in lines[0]
+    assert lines[1] == "shift +1,+1 then 0px (0%) (no shift: 2px)" and "(wrap)" not in lines[0]
 
 
 def test_character_sprite_never_wraps(tmp_path, capsys):
@@ -5451,7 +5458,7 @@ def test_rolled_matches_shift_wrap(tmp_path):
 
 def test_help_documents_wrap_in_the_strip():
     doc = pxart.__doc__
-    assert '"shift dx,dy (wrap) then N px (no shift: M px)"' in doc and "A character sprite never wraps" in doc
+    assert '"shift dx,dy (wrap) then N px (P%) (no shift: M px)"' in doc and "A character sprite never wraps" in doc
     assert "strictly fewer pixels changed" in doc
 
 
@@ -5739,3 +5746,85 @@ def test_sheet_label_uses_the_count(tmp_path):
     assert run("sheet", tmp_path / "s.png", "-o", tmp_path / "b.png") == 0
     a, b = (pxart.pixels(Image.open(tmp_path / n).convert("RGBA")) for n in ("a.png", "b.png"))
     assert a != b
+
+
+# ---------------------------------------------------------------- loop I: 'rows Y+ still' needs identical rows; percents
+
+LEGS_NUDGED = ["..kbbbbk..", "..kbkkbk..", "..kbkkbk..", "..kkk.kkkk"]  # one foot pixel more than LEGS
+
+
+def test_breathing_with_identical_legs_is_still(tmp_path):
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, BREATHE_0, BREATHE_1)
+    assert still == 9 and (dx, dy) == (0, -1)
+
+
+def test_one_changed_pixel_below_the_split_keeps_the_shift(tmp_path):
+    # The loop I walk: the body bobbed and a leg moved 1px. Under the old near-still rule this read
+    # 'rows 10+ still'; with the legs not identical, the shift is the honest reading.
+    b = BODY + [BODY[-1]] + LEGS[:3] + [LEGS_NUDGED[3]]
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, BREATHE_0, b)
+    assert (dx, dy) == (0, -1) and still is None and n_shift < n_none
+
+
+def test_identical_tail_below_changed_rows_picks_the_first_identical_row(tmp_path):
+    a = [EMPTY] + BODY + LEGS
+    b = BODY + [BODY[-1]] + ["..kbbbbk..", "..kbkkbk..", "..kbkkbk..", "..kkk.kkk."]
+    b[10] = "..kbbbbbk."  # a changed pixel in row 10: rows 11+ are the identical tail
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, a, b)
+    assert still is None or still >= 11
+
+
+def test_motion_still_rows_are_pixel_identical(tmp_path):
+    doc = pxart.parse(anim_file(tmp_path, BREATHE_0, BREATHE_1, name="st.px"))
+    a, b = (doc.image(f) for f in doc.frames)
+    still = pxart.motion(a, b)[4]
+    w = a.width
+    assert pxart.pixels(a)[still * w:] == pxart.pixels(b)[still * w:]
+
+
+def test_no_opaque_identical_tail_is_not_still(tmp_path):
+    # Identical rows that are all transparent (empty space under the feet) don't make 'rows still'.
+    a = BODY + LEGS + [EMPTY, EMPTY]
+    b = [EMPTY] + BODY + LEGS + [EMPTY]
+    assert motion_of(tmp_path, a, b)[4] is None
+
+
+def test_walk_line_after_nudged_leg_prints_the_shift(tmp_path, capsys):
+    b = BODY + [BODY[-1]] + LEGS[:3] + [LEGS_NUDGED[3]]
+    lines = anim_lines(tmp_path, capsys, BREATHE_0, b)
+    assert "vs idle/0: shift +0,-1 then " in lines[1] and "rows" not in lines[1]
+
+
+def test_percent_is_of_the_frames_opaque_pixels(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, WALK_0, WALK_1)
+    n_shift = motion_of(tmp_path, WALK_0, WALK_1)[2]
+    op = sum(c != "." for r in WALK_1 for c in r)
+    assert f"then {n_shift}px ({round(100 * n_shift / op)}%)" in lines[1]
+
+
+def test_percent_rounds_half_up(tmp_path, capsys):
+    # 1 changed of 8 opaque = 12.5% -> 13%
+    a = ["kkkk", "kkkk"]
+    b = ["kkkk", "kkky"]
+    lines = anim_lines(tmp_path, capsys, a, b)
+    assert lines[1].endswith("shift +0,+0 then 1px (13%)")
+
+
+def test_percent_of_an_empty_frame_is_left_out(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, ["k."], [".."])
+    assert "then 0px (no shift: 1px)" in lines[1] and "%" not in lines[1]  # pushing k off the edge empties it
+
+
+def test_percent_on_the_strip_label(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, BOB_0, BOB_1)
+    assert all("then 0px (0%)" in l for l in lines)
+
+
+def test_percent_in_rows_still_line_is_the_unshifted_count(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, BREATHE_0, BREATHE_1)
+    n_none = motion_of(tmp_path, BREATHE_0, BREATHE_1)[3]
+    assert f"no shift then {pc(n_none, BREATHE_1)} (rows 9+ still;" in lines[1]
+
+
+def test_help_documents_identical_rows():
+    assert "rows Y down identical, 0 px changed" in pxart.__doc__ and "even 1px keeps the shift" in pxart.__doc__

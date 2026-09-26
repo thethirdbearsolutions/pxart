@@ -49,16 +49,18 @@ LOOKING
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
-      shift ("shift dx,dy then N px (no shift: M px)"; a walk that's only a bob shows
-      "then 0px"). When the bottom of the sprite stays put and only the part above it
-      moves (an idle breathing: chest up 1px, legs still), moving the whole sprite would
-      light up the legs, so the strip shows the unshifted diff instead:
-      "no shift then M px (rows Y+ still; shift dx,dy: N px)". Both counts are always shown.
+      shift ("shift dx,dy then N px (P%) (no shift: M px)"; P is N as a percent of the
+      frame's opaque pixels; a walk that's only a bob shows "then 0px (0%)"). When the
+      bottom of the sprite stays exactly put (rows Y down identical, 0 px changed) and only
+      the part above it moves (an idle breathing: chest up 1px, legs still), moving the
+      whole sprite would light up the legs, so the strip shows the unshifted diff instead:
+      "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)". A walk whose leg moved
+      even 1px keeps the shift. Both counts are always shown.
       Tiles and overlays scroll with wrap-around (shift --wrap): for frames that fill the
       canvas and are a ground tile (every pixel opaque) or a sparse overlay (at most 1/4
       of the pixels opaque: snow, rain), every scroll is tried too, and one that leaves
       strictly fewer pixels changed than the best plain shift is shown as
-      "shift dx,dy (wrap) then N px (no shift: M px)". A character sprite never wraps.
+      "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
       to stdout, one line per frame; without -o, anim prints only those lines and writes
       nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
@@ -1034,9 +1036,10 @@ def best_shift(prev, cur, reach=2, wrap=False):
 
 def motion(prev, cur, wrap=False):
     """How cur differs from prev: the whole-sprite shift (dx, dy), px changed after it, px changed with
-    no shift, `still`: the row from which down the sprite stayed put, when that explains cur far
-    better than moving everything (an idle whose chest rises while the legs stay), else None, and whether
-    the shift wraps around the edges (only tried with wrap: frames that fill the canvas)."""
+    no shift, `still`: the row from which down the sprite stayed exactly put (0 px changed there), when
+    that explains cur far better than moving everything (an idle whose chest rises while the legs stay),
+    else None, and whether the shift wraps around the edges (only tried with wrap: frames that fill the
+    canvas). A walk whose leg moved 1px has no identical lower rows, so it keeps its shift."""
     dx, dy, wrapped = best_shift(prev, cur, wrap=wrap)
     w, h = cur.size
     C, P, M = pixels(cur), pixels(prev), pixels((rolled if wrapped else shifted)(prev, dx, dy))
@@ -1044,10 +1047,11 @@ def motion(prev, cur, wrap=False):
     kept = [sum(P[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
     n_shift, n_none, still = sum(moved), sum(kept), None
     if (dx, dy) != (0, 0) and not wrapped:
-        # Rows above y moved by (dx, dy), rows from y down stayed put: the best y, and what it leaves changed.
-        split = [sum(moved[:y]) + sum(kept[y:]) for y in range(h)]
-        y = min(range(h), key=lambda y: (split[y], -y))
-        if 3 * split[y] < n_shift and any(c[3] for c in C[y * w:]):
+        # Rows above y moved by (dx, dy), rows from y down are identical to prev (not one pixel changed there, so
+        # a leg that moved 1px rules y out): the best such y, and what it leaves changed.
+        ys = [y for y in range(h) if not any(kept[y:]) and any(c[3] for c in C[y * w:])]
+        y = min(ys, key=lambda y: (sum(moved[:y]), -y), default=None)
+        if y is not None and 3 * sum(moved[:y]) < n_shift:
             still = y
     return dx, dy, n_shift, n_none, still, wrapped
 
@@ -1218,14 +1222,18 @@ def cmd_anim(a):
         prev, cur = on_bg(frames[i - 1], w, h, "#00000000"), on_bg(frames[i], w, h, "#00000000")
         tile = frames[i - 1].size == frames[i].size == (w, h) and may_wrap(prev, cur)
         dx, dy, n_shift, n_none, still, wrapped = motion(prev, cur, wrap=tile)
+        opaque = sum(cur.getchannel("A").histogram()[1:])
+
+        def px(n):  # '72px (9%)': of the frame's opaque pixels
+            return f"{n}px ({(200 * n + opaque) // (2 * opaque)}%)" if opaque else f"{n}px"
         if wrapped:
-            base, head = rolled(prev, dx, dy), f"shift {dx:+d},{dy:+d} (wrap) then {n_shift}px"
+            base, head = rolled(prev, dx, dy), f"shift {dx:+d},{dy:+d} (wrap) then {px(n_shift)}"
             alt = f"(no shift: {n_none}px)"
         elif still is None:
-            base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {n_shift}px"
+            base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {px(n_shift)}"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:
-            base, head = prev, f"no shift then {n_none}px"
+            base, head = prev, f"no shift then {px(n_none)}"
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         if not a.o:
