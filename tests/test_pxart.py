@@ -6899,3 +6899,310 @@ def test_help_documents_outline():
     doc = pxart.__doc__
     assert "outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]" in doc
     assert "pixel-perfect" in doc and "--corners" in doc
+
+
+# ---------------------------------------------------------------- loop I: shade (ramp by light direction)
+
+SHADE_PAL = "A #201028\nB #403050\nC #6060a0\nD #90a0d0\nE #d0e0f0\no #000000\ng #00ff00\n"
+RAMP = "A,B,C,D,E"
+
+
+def material_file(tmp_path, rows, name="m.px"):
+    return write(tmp_path, name, SHADE_PAL + "@frame a\n" + "\n".join(rows) + "\n")
+
+
+def circle_rows(n, key="C", pad=1):
+    pts = pxart.ellipse_points(pad, pad, pad + n - 1, pad + n - 1, fill=True)
+    return ["".join(key if (x, y) in pts else "." for x in range(n + 2 * pad)) for y in range(n + 2 * pad)]
+
+
+def square_rows(n, key="C", pad=1):
+    return ["." * (n + 2 * pad)] * pad + ["." * pad + key * n + "." * pad] * n + ["." * (n + 2 * pad)] * pad
+
+
+def tones(p):
+    g = grid_of(p)
+    return {(x, y): c for y, r in enumerate(g) for x, c in enumerate(r) if c in "ABCDE"}
+
+
+def components(pts):
+    pts, n = set(pts), 0
+    while pts:
+        n += 1
+        todo = [pts.pop()]
+        while todo:
+            x, y = todo.pop()
+            for q in [(x + a, y + b) for a in (-1, 0, 1) for b in (-1, 0, 1)]:
+                if q in pts:
+                    pts.remove(q)
+                    todo.append(q)
+    return n
+
+
+def half_means(t, light):
+    """Mean ramp index of the pixels on the light's side of the shape's center vs the far side."""
+    lx, ly = pxart.LIGHTS[light]
+    cx = sum(x for x, _ in t) / len(t)
+    cy = sum(y for _, y in t) / len(t)
+    near = [RAMP.index(k) / 2 for (x, y), k in t.items() if (x - cx) * lx + (y - cy) * ly > 0.5]
+    far = [RAMP.index(k) / 2 for (x, y), k in t.items() if (x - cx) * lx + (y - cy) * ly < -0.5]
+    return sum(near) / len(near), sum(far) / len(far)
+
+
+@pytest.mark.parametrize("shape", ["circle", "square"])
+@pytest.mark.parametrize("light", list(pxart.LIGHTS))
+@pytest.mark.parametrize("size", [8, 12, 16, 24])
+def test_shade_lit_side_is_lighter(tmp_path, shape, light, size):
+    p = material_file(tmp_path, (circle_rows if shape == "circle" else square_rows)(size))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", light) == 0
+    near, far = half_means(tones(p), light)
+    assert near > far
+
+
+@pytest.mark.parametrize("shape", ["circle", "square"])
+@pytest.mark.parametrize("light", list(pxart.LIGHTS))
+@pytest.mark.parametrize("size", [8, 11, 16, 23, 32])
+@pytest.mark.parametrize("strength", [2, 3, 4])
+@pytest.mark.parametrize("ramp", ["A,B,C", "A,B,C,D", "A,B,C,D,E"])
+def test_shade_bands_are_contiguous(tmp_path, shape, light, size, strength, ramp):
+    rows = (circle_rows if shape == "circle" else square_rows)(size)
+    shape_px = {(x, y) for y, r in enumerate(rows) for x, c in enumerate(r) if c == "C"}
+    got = pxart.shade_tones(shape_px, ramp.split(","), len(ramp.split(",")) // 2, light, strength)
+    for k in set(got.values()):
+        assert components([q for q, v in got.items() if v == k]) == 1, k
+
+
+@pytest.mark.parametrize("shape", ["circle", "square"])
+@pytest.mark.parametrize("light", list(pxart.LIGHTS))
+def test_shade_strength_1_is_a_1px_rim(shape, light):
+    # --strength 1 shades only the edge pixels. With one step each way every band is one piece; with two dark
+    # steps the rim runs d1 d2 d1 around the dark side (two d1 pieces flanking d2), as a hand-shaded rim does.
+    rows = (circle_rows if shape == "circle" else square_rows)(16)
+    shape_px = {(x, y) for y, r in enumerate(rows) for x, c in enumerate(r) if c == "C"}
+    got = pxart.shade_tones(shape_px, list("ABC"), 1, light, 1)
+    edge = {p for p, (d, _) in pxart.nearest_edge(shape_px).items() if d == 0}
+    assert all(got[p] == "B" for p in shape_px - edge)
+    for k in "ABC":
+        assert components([q for q, v in got.items() if v == k]) == 1, k
+
+
+def test_shade_bands_contiguous_through_the_cli(tmp_path):
+    p = material_file(tmp_path, circle_rows(20))
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    t = tones(p)
+    for k in "ABCDE":
+        assert components([q for q, v in t.items() if v == k]) == 1, k
+
+
+@pytest.mark.parametrize("shape", ["circle", "square"])
+def test_shade_no_dither_means_no_stray_pixels(tmp_path, shape):
+    p = material_file(tmp_path, (circle_rows if shape == "circle" else square_rows)(16))
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    t = tones(p)
+    for (x, y), k in t.items():
+        near = [t[q] for q in [(x + a, y + b) for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b] if q in t]
+        assert k in near, (x, y)
+
+
+def test_shade_dither_mixes_band_boundaries(tmp_path):
+    p, q = material_file(tmp_path, circle_rows(20)), material_file(tmp_path, circle_rows(20), "q.px")
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--strength", "6") == 0
+    assert run("shade", f"{q}:a", "--ramp", RAMP, "--strength", "6", "--dither") == 0
+    plain, dith = tones(p), tones(q)
+    assert plain != dith
+    differ = [xy for xy in plain if plain[xy] != dith[xy]]
+    assert all(abs(RAMP.index(plain[xy]) - RAMP.index(dith[xy])) <= 2 for xy in differ)  # one ramp step apart
+    stray = sum(1 for (x, y), k in dith.items()
+                if k not in [dith.get((x + a, y + b)) for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b])
+    assert stray > 0  # a dither pattern is what makes lone pixels
+
+
+def test_shade_dither_uses_the_bayer_pattern():
+    # A lighting value exactly on a boundary (0.5 of a step) splits pixels by the 4x4 Bayer thresholds: half each.
+    got = [pxart.ramp_key(0.25, list("ABCDE"), 2, x, y, dither=True) for y in range(4) for x in range(4)]
+    assert got.count("C") == 8 and got.count("D") == 8
+    assert pxart.ramp_key(0.25, list("ABCDE"), 2, 0, 0) == "C"  # a tie goes to the base without dither
+
+
+def test_ramp_key_bands():
+    ramp = list("ABCDE")
+    assert [pxart.ramp_key(v, ramp, 2, 0, 0) for v in (-1, -0.8, -0.74, -0.3, -0.2, 0, 0.2, 0.3, 0.74, 0.8, 1)] == \
+        ["A", "A", "B", "B", "C", "C", "C", "D", "D", "E", "E"]
+    assert [pxart.ramp_key(v, list("ABCD"), 2, 0, 0) for v in (-1, -0.3, 0, 0.4, 0.6, 1)] == \
+        ["A", "B", "C", "C", "D", "D"]
+    assert [pxart.ramp_key(v, list("AB"), 1, 0, 0) for v in (-1, -0.6, -0.4, 0.9)] == ["A", "A", "B", "B"]
+
+
+def test_shade_never_touches_other_keys(tmp_path):
+    rows = circle_rows(12)
+    rows = [r.replace(".", "g") for r in rows]
+    rows[6] = rows[6][:6] + "oo" + rows[6][8:]
+    p = material_file(tmp_path, rows)
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--keys", "C") == 0
+    for r0, r1 in zip(rows, grid_of(p)):
+        for c0, c1 in zip(r0, r1):
+            assert c0 == c1 if c0 != "C" else c1 in "ABCDE"
+
+
+def test_shade_keys_default_to_the_ramp(tmp_path):
+    p = material_file(tmp_path, circle_rows(12))
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    first = grid_of(p)
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "se") == 0  # re-shade the shaded material
+    second = grid_of(p)
+    p2 = material_file(tmp_path, circle_rows(12), "p2.px")
+    assert run("shade", f"{p2}:a", "--ramp", RAMP, "--light", "se") == 0
+    assert second == grid_of(p2) and first != second
+
+
+def test_shade_is_deterministic(tmp_path):
+    a, b = material_file(tmp_path, circle_rows(17)), material_file(tmp_path, circle_rows(17), "b.px")
+    assert run("shade", f"{a}:a", "--ramp", RAMP, "--strength", "3") == 0
+    assert run("shade", f"{b}:a", "--ramp", RAMP, "--strength", "3") == 0
+    assert a.read_text() == b.read_text()
+
+
+def test_shade_twice_is_no_change(tmp_path, capsys):
+    p = material_file(tmp_path, circle_rows(12))
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    capsys.readouterr()
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    assert "no change" in capsys.readouterr().out
+
+
+def test_shade_symmetric_under_its_light(tmp_path):
+    p = material_file(tmp_path, circle_rows(15, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
+    g = grid_of(p)
+    assert all(r == r[::-1] for r in g)  # a north light on a circle: mirror-symmetric left-right
+    p = material_file(tmp_path, circle_rows(15, pad=0), "d.px")
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "nw") == 0
+    g = grid_of(p)
+    assert all(g[y][x] == g[x][y] for y in range(15) for x in range(15))  # nw: symmetric across the diagonal
+
+
+def test_shade_square_north_light_golden(tmp_path):
+    p = material_file(tmp_path, square_rows(6, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", "A,B,C,D,E", "--light", "n") == 0
+    # Lit top, dark bottom, base sides; the corners' normals lean round them (one step toward the base).
+    assert grid_of(p) == ["DEEEED", "DDDDDD", "CCCCCC", "CCCCCC", "BBBBBB", "BAAAAB"]
+
+
+def test_shade_rim_then_base(tmp_path):
+    p = material_file(tmp_path, square_rows(12, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--strength", "2") == 0
+    g = grid_of(p)
+    assert all(c == "C" for r in g[3:9] for c in r[3:9])  # deeper than strength: the base tone
+
+
+def test_shade_strength_reaches_deeper(tmp_path):
+    p, q = material_file(tmp_path, circle_rows(20)), material_file(tmp_path, circle_rows(20), "q.px")
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--strength", "2") == 0
+    assert run("shade", f"{q}:a", "--ramp", RAMP, "--strength", "8") == 0
+    assert list(tones(p).values()).count("C") > list(tones(q).values()).count("C")
+
+
+def test_shade_region_limits_the_shape(tmp_path):
+    rows = square_rows(10, pad=0)
+    p = material_file(tmp_path, rows)
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,5,10") == 0
+    g = grid_of(p)
+    assert all(r[5:] == "CCCCC" for r in g)          # outside the region: untouched
+    assert g[5][4] in "AB"                           # the region's cut is an edge (facing away from nw)
+    assert g[5][0] in "DE"                           # the lit left edge
+
+
+def test_shade_base_option(tmp_path):
+    p = material_file(tmp_path, square_rows(10, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", "A,B,C,D", "--base", "B") == 0
+    g = grid_of(p)
+    assert g[5][5] == "B" and "A" in "".join(g) and "D" in "".join(g)
+
+
+def test_shade_base_must_be_in_ramp(tmp_path):
+    p = material_file(tmp_path, square_rows(4))
+    assert "--base 'o' isn't in --ramp" in run_err("shade", f"{p}:a", "--ramp", RAMP, "--base", "o")
+
+
+def test_shade_ramp_forms(tmp_path):
+    p, q = material_file(tmp_path, circle_rows(12)), material_file(tmp_path, circle_rows(12), "q.px")
+    assert run("shade", f"{p}:a", "--ramp", "A,B,C,D,E") == 0 and run("shade", f"{q}:a", "--ramp", "ABCDE") == 0
+    assert grid_of(p) == grid_of(q)
+
+
+@pytest.mark.parametrize("ramp,err", [("A,,B", "wants keys"), ("A,B,A", "names a key twice"), ("A,q", "not in palette"),
+                                      ("A,.,B", "can't be a ramp tone")])
+def test_shade_bad_ramps(tmp_path, ramp, err):
+    p = material_file(tmp_path, square_rows(4))
+    assert err in run_err("shade", f"{p}:a", "--ramp", ramp)
+
+
+def test_shade_bad_strength(tmp_path):
+    p = material_file(tmp_path, square_rows(4))
+    assert "E_BAD_ARG" in run_err("shade", f"{p}:a", "--ramp", RAMP, "--strength", "0")
+
+
+def test_shade_key_list_comma_key():
+    assert pxart.key_list(",,a", "--ramp") == [",", "a"]
+    assert pxart.key_list("abc", "--ramp") == ["a", "b", "c"] == pxart.key_list("a,b,c", "--ramp")
+    assert pxart.key_list("a", "--keys") == ["a"]
+
+
+def test_shade_prints_counts(tmp_path, capsys):
+    p = material_file(tmp_path, square_rows(6, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("shaded 24 px (A 4, B 8, C 12, D 8, E 4, darkest to lightest); wrote")
+
+
+def test_shade_preview_writes_only_the_png(tmp_path, capsys):
+    p = material_file(tmp_path, circle_rows(10))
+    before = p.read_text()
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--preview", tmp_path / "prev.png") == 0
+    assert p.read_text() == before and (tmp_path / "prev.png").exists()
+    out = capsys.readouterr().out
+    assert "(preview;" in out and "unchanged" in out
+    img = Image.open(tmp_path / "prev.png").convert("RGBA")
+    assert (0xD0, 0xE0, 0xF0, 255) in set(pxart.pixels(img))  # the lightest tone is in the render
+
+
+def test_shade_preview_and_o_conflict(tmp_path):
+    p = material_file(tmp_path, circle_rows(6))
+    assert "drop -o or --preview" in run_err("shade", f"{p}:a", "--ramp", RAMP, "--preview", tmp_path / "x.png",
+                                             "-o", tmp_path / "o.px")
+
+
+def test_shade_every_selected_frame(tmp_path):
+    body = "\n".join(square_rows(6, pad=0))
+    p = write(tmp_path, "m.px", SHADE_PAL + f"@frame w/0\n{body}\n@frame w/1\n{body}\n@frame x\n{body}\n")
+    assert run("shade", f"{p}:w", "--ramp", RAMP) == 0
+    doc = pxart.parse(p)
+    assert doc.get("w/0").grid == doc.get("w/1").grid != doc.get("x").grid
+
+
+def test_shade_thin_line_is_base(tmp_path):
+    # A 1px horizontal line has outside on both sides: no way is out, so it stays the base tone (ends aside).
+    p = material_file(tmp_path, [".........", ".CCCCCCC.", "........."])
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
+    assert grid_of(p)[1][3:6] == "CCC"
+
+
+def test_shade_empty_material_is_no_change(tmp_path, capsys):
+    p = material_file(tmp_path, ["...", "..."])
+    assert run("shade", f"{p}:a", "--ramp", RAMP) == 0
+    assert "no change" in capsys.readouterr().out
+
+
+def test_nearest_edge_distances():
+    sq = {(x, y) for x in range(7) for y in range(7)}
+    ne = pxart.nearest_edge(sq)
+    assert ne[(0, 3)][0] == 0 and ne[(1, 3)][0] == 1 and ne[(3, 3)][0] == 3
+    assert ne[(3, 3)][1] in {(0, 3), (3, 0), (6, 3), (3, 6)}
+
+
+def test_help_documents_shade():
+    doc = pxart.__doc__
+    assert "shade FILE[:frame] --ramp d2,d1,base,l1[,l2]" in doc
+    for s in ("vector distance transform", "(normal . light direction) * (1 - depth / strength)", "--dither",
+              "--preview P.png", "Nothing outside the material changes"):
+        assert s in doc, s

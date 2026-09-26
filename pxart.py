@@ -279,6 +279,29 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       Bucket fill: repaint the region of x,y's key that touches x,y through sides (4-connected),
       or corners too with --diagonal. A hole of another key stops it.
 
+  shade FILE[:frame] --ramp d2,d1,base,l1[,l2] [--keys k1,k2] [--base K] [--light nw]
+        [--strength N] [--region x,y,w,h] [--dither] [--preview P.png]
+      Re-shade a material: the pixels whose key is in --keys (default: the ramp's keys, so a
+      shaded material re-shades) get ramp tones by how they face the light. The ramp runs
+      darkest to lightest; the base is its middle key (d2,d1,base,l1: the extra key goes
+      dark), or --base K. Keys are 'a,b,c' or 'abc'. Nothing outside the material changes.
+      Algorithm, per pixel of the material (the shape: those pixels, inside --region if
+      given; everything else, and off the frame, is outside):
+        1. depth: its distance to the shape's edge (a vector distance transform from the
+           edge pixels, those with an outside side neighbor; ~Euclidean, 0 on the edge);
+        2. normal: which way is out from it: the pull of the outside pixels within depth + 4
+           px minus that of the shape's, 1/distance-weighted (a staircase reads as its slope);
+        3. lighting = (normal . light direction) * (1 - depth / strength), in -1..1: an edge
+           facing the light is +1, one facing away -1, and the value fades to 0 (the base
+           tone) --strength px in (default 2: a rim; the shape's radius: full form shading);
+        4. banding: 0..1 splits evenly over the lights, -1..0 over the darks, rounding to the
+           nearest step, ties toward the base; then a stray pixel (no 8-neighbor of its own
+           tone) takes its neighbors' commonest tone. Deterministic, no noise.
+      --dither mixes adjacent tones with a 4x4 ordered (Bayer) pattern where the lighting is
+      within a quarter step of a band boundary (and skips the stray-pixel pass). --light: n
+      ne e se s sw w nw (default nw). --preview P.png renders the result (render's grid and
+      rulers) and writes nothing else. Prints the count per tone.
+      'shade hero.px:idle/0 --ramp XxcCw --keys c' shades the cloak c with the ramp X x c C w.
   outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
           [--corners]
       Outline the frame's shape (every pixel whose color isn't transparent). --outside (the
@@ -2505,6 +2528,134 @@ def cmd_outline(a):
     print(f"{said};", write_doc(doc, out))
 
 
+def nearest_edge(shape):
+    """For each pixel of shape: (its distance to the shape's edge in px, 0 on the edge, and the edge pixel it is
+    nearest to). Edge pixels are those with an empty side neighbor (off the frame is empty). Distances spread from
+    the edge 8-connected, each pixel taking its neighbors' nearest edge pixel when that is nearer (a vector
+    distance transform: close to Euclidean, and deterministic: ties go to the edge pixel first in (y, x) order)."""
+    import heapq
+    best, todo = {}, []
+    for p in sorted(shape, key=lambda p: (p[1], p[0])):
+        if any((p[0] + dx, p[1] + dy) not in shape for dx, dy in SIDES):
+            best[p] = (0, p[1], p[0])
+            heapq.heappush(todo, (0, p[1], p[0], p))
+    while todo:
+        d2, ey, ex, p = heapq.heappop(todo)
+        if best[p] != (d2, ey, ex):
+            continue
+        for dx, dy in SIDES + CORNERS:
+            q = (p[0] + dx, p[1] + dy)
+            if q in shape:
+                cand = ((q[0] - ex) ** 2 + (q[1] - ey) ** 2, ey, ex)
+                if q not in best or cand < best[q]:
+                    best[q] = cand
+                    heapq.heappush(todo, cand + (q,))
+    return {p: (math.sqrt(d2), (ex, ey)) for p, (d2, ey, ex) in best.items()}
+
+
+def shade_levels(shape, light, strength=2):
+    """Each shape pixel's lighting in -1..1 (the shade algorithm, see -h): its outward normal (normal() over a window
+    reaching 2px past its depth, so it sees the edges it is near) dotted with the light direction, fading to 0 (the
+    base tone) at `strength` px in from the edge."""
+    L = light_vec(light)
+    out = {}
+    for p, (d, _) in nearest_edge(shape).items():
+        w = max(0.0, 1 - d / strength)
+        if w:
+            n = normal(p, shape, int(d) + 4)
+            out[p] = (n[0] * L[0] + n[1] * L[1]) * w
+        else:
+            out[p] = 0.0
+    return out
+
+
+def ramp_key(v, ramp, base, x, y, dither=False):
+    """The ramp key for lighting v in -1..1: lights above the base split 0..1 into equal bands, darks below it
+    split -1..0; a band's middle is its key, ties go toward the base. dither: in the middle half of the way from
+    one key to the next (a quarter band either side of the boundary), a 4x4 ordered (Bayer) pattern mixes them."""
+    steps = len(ramp) - 1 - base if v > 0 else base
+    m = abs(v) * steps
+    if not steps:
+        return ramp[base]
+    if dither:
+        lo = math.floor(m)
+        t = (m - lo - 0.25) / 0.5
+        k = lo + (1 if t > (BAYER4[y % 4][x % 4] + 0.5) / 16 else 0)
+    else:
+        k = math.ceil(m - 0.5)
+    k = min(k, steps)
+    return ramp[base + k] if v > 0 else ramp[base - k]
+
+
+def shade_tones(shape, ramp, base, light, strength=2, dither=False):
+    """{pixel: ramp key} for a material: shade_levels banded by ramp_key, then (without dither) a stray pixel, one
+    with no 8-neighbor of its own tone, takes the tone most of its neighbors have (the one nearer the base on a
+    tie), in one pass over the pixels as banded: hand-shaded bands, no specks where an edge's staircase wobbles
+    across a band boundary."""
+    tones = {(x, y): ramp_key(v, ramp, base, x, y, dither) for (x, y), v in shade_levels(shape, light, strength).items()}
+    if dither:
+        return tones
+    fixed = dict(tones)
+    for (x, y), k in sorted(tones.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        near = [tones[q] for q in ((x + dx, y + dy) for dx, dy in SIDES + CORNERS) if q in tones]
+        if near and k not in near:
+            fixed[(x, y)] = max(sorted(set(near)), key=lambda t: (near.count(t), -abs(ramp.index(t) - base)))
+    return fixed
+
+
+def key_list(s, what):
+    """'a,b,c' or 'abc' -> ['a', 'b', 'c'] (',' may itself be a key in the comma form: ',,a' is ',' and 'a')."""
+    if len(s) >= 3 and len(s) % 2 and all(c == "," for c in s[1::2]):
+        keys = list(s[::2])
+    elif "," not in s or len(s) == 1:
+        keys = list(s)
+    else:
+        fail("E_BAD_ARG", f"{what} wants keys like a,b,c (or abc), got {s!r}")
+    if len(set(keys)) < len(keys):
+        fail("E_BAD_ARG", f"{what} names a key twice: {s!r}")
+    return keys
+
+
+def cmd_shade(a):
+    """Re-shade a material (the pixels whose key is in --keys) with a ramp, lit from --light."""
+    if a.preview and a.o:
+        fail("E_BAD_ARG", "shade: --preview renders the result to a PNG and writes nothing; drop -o or --preview")
+    doc, frames, out = edit_target(a.file, a.o)
+    pal = doc.resolved()
+    ramp = key_list(a.ramp, "--ramp")
+    keys = key_list(a.keys, "--keys") if a.keys else list(ramp)
+    for k in ramp + keys:
+        if k not in pal:
+            fail("E_SELECT", f"shade: key {k!r} not in palette (add it with palette --add)")
+    if "." in ramp:
+        fail("E_BAD_ARG", "shade: '.' can't be a ramp tone (it's transparent)")
+    if a.base and a.base not in ramp:
+        fail("E_BAD_ARG", f"shade: --base {a.base!r} isn't in --ramp {a.ramp!r}")
+    base = ramp.index(a.base) if a.base else len(ramp) // 2
+    if a.strength <= 0:
+        fail("E_BAD_ARG", "shade: --strength wants N > 0 (px from the edge)")
+    counts = dict.fromkeys(ramp, 0)
+    changed = 0
+    for f in frames:
+        x0, y0, rw, rh = parse_rect(a.region, f.size)
+        shape = {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row)
+                 if ch in keys and x0 <= x < x0 + rw and y0 <= y < y0 + rh}
+        tones = shade_tones(shape, ramp, base, a.light, a.strength, a.dither)
+        g = [list(r) for r in f.grid]
+        for (x, y), k in sorted(tones.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+            counts[k] += 1
+            if g[y][x] != k:
+                g[y][x], changed = k, changed + 1
+        f.grid = ["".join(r) for r in g]
+    tally = ", ".join(f"{k} {n}" for k, n in counts.items())
+    if a.preview:
+        its = [Item(doc.label(f), doc.image(f), doc.ms(f), doc, f) for f in frames]
+        print(f"shade: {tally} (darkest to lightest); wrote {sheet(its, a.preview, 8, grid=True, rulers=True)} "
+              f"(preview; {doc.path} unchanged)")
+        return
+    print(f"shaded {changed} px ({tally}, darkest to lightest);", write_doc(doc, out))
+
+
 def cmd_compose(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
@@ -2893,6 +3044,11 @@ def main(argv=None):
     p.add_argument("--selective", action="store_true"); p.add_argument("--light", choices=list(LIGHTS), default="nw")
     g = p.add_mutually_exclusive_group(); g.add_argument("--inside", action="store_true")
     g.add_argument("--outside", action="store_true"); p.add_argument("--corners", action="store_true")
+    p.add_argument("-o")
+    p = sub.add_parser("shade"); p.add_argument("file"); p.add_argument("--ramp", required=True)
+    p.add_argument("--keys", help="the material's keys (default: the ramp's)"); p.add_argument("--base")
+    p.add_argument("--light", choices=list(LIGHTS), default="nw"); p.add_argument("--strength", type=float, default=2)
+    p.add_argument("--region"); p.add_argument("--dither", action="store_true"); p.add_argument("--preview")
     p.add_argument("-o")
     for name in ("line", "rect", "ellipse", "arc", "flood"):
         sub.choices[name]._negative_number_matcher = coord
