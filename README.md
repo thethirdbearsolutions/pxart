@@ -109,9 +109,12 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 ## Commands
 
-`pxart -h` has the full reference, and `pxart CMD -h` prints one command's part of it
-(`pxart poly -h`), then a see-also line naming the shared notes in `pxart -h` it relies on
-(EDITING, FORMAT: selecting frames, ...) rather than repeating them.
+`pxart -h` is a short overview: the format in a few lines and the commands by topic.
+`pxart help all` has the full reference, `pxart help TOPIC` one part of it (FORMAT,
+LOOKING, CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS), and `pxart CMD -h` (or
+`pxart help CMD`) prints one command's part (`pxart poly -h`), then a see-also line naming
+the shared notes of the reference it relies on (EDITING, FORMAT: selecting frames, ...)
+rather than repeating them.
 
 - **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; frames with one id from several files
@@ -125,11 +128,11 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   whose legs happen to stay put reads as its bob, `shift +0,+1 then 23px`), and for the
   rise and the fall of one breath alike; a ground tile or a sparse overlay like falling
   snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`), `onion` (B over A drawn
-  as a red silhouette, and a printed readout of how B's edges moved from A's, like `top -1, bottom +0`, for
-  a 1px jump too faint to see, and the best shift, or for two different characters
-  `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only that band, so a
-  weapon swing doesn't hide the feet; `--tint-a COLOR` picks the silhouette's color and
-  `--fade-a` draws A faded instead),
+  as a red silhouette, and a printed readout of how B's edges moved from A's, like `top -1,
+  bottom +0`, for a 1px jump too faint to see, and the best shift, or for two different
+  characters `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only
+  that band, so a weapon swing doesn't hide the feet; `--tint-a COLOR` picks the
+  silhouette's color and `--fade-a` draws A faded instead),
   `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v` suffix as in
   `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays
   a translucent color over the finished scene for night; an item or legend entry ending in
@@ -144,7 +147,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   tile and a sprite in one cell); later layers draw on top, and `.` is empty. Each item
   draws from its cell's top-left, so a prop bigger than a tile hangs right and down; a
   legend entry ending in `+b` (`+hb` with a flip) stands it on its cell instead,
-  bottom-aligned and centered (`L props/lamp.px+b`). `pxart -h` has a worked map.
+  bottom-aligned and centered (`L props/lamp.px+b`). `pxart help LOOKING` has a worked map.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
@@ -192,12 +195,12 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
-  from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g` moves a
-  sprite's own keys into the palette file it imports; `--comment k 'text'`, `--comment
-  @variant night 'text'` and `--comment-header 'text'` write the comment above a key line,
-  a variant or the file; `palette FILE` alone lists the keys,
-  then what each variant recolors, relists in its base color and inherits: `night:
-  recolors k w; relists unchanged: l g; inherits: e E q`). Edits rewrite only the lines
+  from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g`
+  moves a sprite's own keys into the palette file it imports; `--comment k 'text'`,
+  `--comment @variant night 'text'` and `--comment-header 'text'` write the comment above
+  a key line, a variant or the file; `palette FILE` alone lists the keys, then what each
+  variant recolors, relists in its base color and inherits: `night: recolors k w; relists
+  unchanged: l g; inherits: e E q`). Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and

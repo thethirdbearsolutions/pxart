@@ -4465,7 +4465,7 @@ def test_every_command_help_has_its_section(capsys, cmd):
     assert out.startswith(f"usage: pxart {cmd} ")
     assert ref in out and ref.startswith(f"  {cmd}")
     assert out.index(ref) < out.index("options:")
-    assert "pxart -h has the whole reference." in out
+    assert "pxart help all has the whole reference, pxart help TOPIC one part of it." in out
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
@@ -4476,7 +4476,7 @@ def test_every_command_help_long_flag_too(capsys, cmd):
 def see_also(text):
     """The see-also paragraph of a command's -h, as one line, or None."""
     for part in text.split("\n\n"):
-        if part.startswith("See also, in pxart -h: "):
+        if part.startswith("See also, in pxart help all: "):
             return " ".join(l.strip() for l in part.splitlines())
     return None
 
@@ -4487,10 +4487,10 @@ def test_every_command_help_is_sliced_from_the_top_level_text(cmd):
     # pxart -h.
     doc = pxart.__doc__.splitlines()
     for part in pxart.command_help(cmd).split("\n\n"):
-        if part.startswith("See also, in pxart -h: "):
+        if part.startswith("See also, in pxart help all: "):
             continue
         for line in part.splitlines():
-            if not line or line.endswith("(from pxart -h):") or line == "pxart -h has the whole reference.":
+            if not line or line.endswith("(from pxart help all):") or line == "pxart help all has the whole reference, pxart help TOPIC one part of it.":
                 continue
             assert line in doc, (cmd, line)
 
@@ -4513,7 +4513,7 @@ def test_every_command_help_points_at_shared_blocks_rather_than_pasting_them(cap
     for ref in pxart.SEE.get(cmd, []):
         text = pxart.note(ref) if ref in pxart.NOTES else pxart.reference(ref)
         assert text not in out, (cmd, ref)
-        assert f"{ref} (from pxart -h):" not in out
+        assert f"{ref} (from pxart help all):" not in out
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
@@ -11880,7 +11880,7 @@ def test_crop_help_has_the_full_story(capsys):
     assert "A plain OUT with one unnamed grid has the grid replaced" in out
     assert "A key the cut uses that OUT has in another color is E_KEY_CONFLICT" in out
     assert "--rekey gives the cut those keys in OUT and leaves FILE as it is" in out
-    assert "See also, in pxart -h: compose (" in out
+    assert "See also, in pxart help all: compose (" in out
 
 
 def test_crop_help_claims_hold(tmp_path):
@@ -11915,7 +11915,7 @@ def test_tint_help_stands_alone(capsys):
 
 def test_rotate_help_still_pastes_transposes_shared_paragraph(capsys):
     out = cmd_help(capsys, "rotate")
-    assert "transpose (from pxart -h):" in out and "For deriving path edges and corners" in out
+    assert "transpose (from pxart help all):" in out and "For deriving path edges and corners" in out
 
 
 def test_command_help_is_much_shorter_than_before(capsys):
@@ -15039,3 +15039,123 @@ def test_help_documents_derive(capsys):
 def test_readme_documents_derive():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "--derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night" in readme
+
+
+# ---------------------------------------------------------------- pxart -h is an overview; pxart help all the reference
+
+def top_help(capsys, *argv):
+    with pytest.raises(SystemExit) as e:
+        pxart.main(list(argv))
+    assert e.value.code == 0
+    return capsys.readouterr().out
+
+
+def help_out(capsys, *argv):
+    assert run("help", *argv) == 0
+    return capsys.readouterr().out
+
+
+def test_top_help_is_short(capsys):
+    out = top_help(capsys, "-h")
+    assert len(out.splitlines()) < 60 and "pxart: pixel art as text." in out
+    assert "'pxart help all' prints the whole reference" in " ".join(out.split())
+
+
+def test_top_help_long_flag_same(capsys):
+    assert top_help(capsys, "-h") == top_help(capsys, "--help")
+
+
+def test_top_help_lists_every_command_once(capsys):
+    out = top_help(capsys, "-h")
+    table = out[out.index("Commands by topic"):out.index("Topics:")]
+    words = " ".join(l.split(None, 1)[1] for l in table.splitlines()[1:] if l.strip()).split()
+    assert sorted(words) == sorted(COMMANDS) and len(words) == len(set(words))
+
+
+def test_top_help_has_the_format_sample(capsys):
+    out = top_help(capsys, "-h")
+    assert "    k #3f2631                palette: one key char" in out and "    ....kkkk....             grid rows" in out
+    doc = pxart.__doc__.splitlines()
+    sample = out[out.index("A sprite is"):out.index("Commands by topic")].splitlines()[1:]
+    assert all(l in doc for l in sample)
+
+
+def test_top_help_no_longer_the_whole_reference(capsys):
+    out = top_help(capsys, "-h")
+    assert "Bresenham" not in out and "ERROR CODES" not in out
+
+
+def test_commands_by_topic():
+    got = pxart.commands_by_topic()
+    assert list(got) == ["LOOKING", "CHECKING", "EDITING", "DRAWING", "CONVERTING", "HELP"]
+    assert got["LOOKING"] == ["render", "sheet", "anim", "onion", "scene", "tint"]
+    assert "frames" in got["CHECKING"] and "transpose" in got["DRAWING"] and "flood" in got["DRAWING"]
+    assert got["CONVERTING"] == ["export", "from-png"] and got["HELP"] == ["help"]
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_commands_by_topic_puts_each_under_its_sections_heading(cmd):
+    doc = pxart.__doc__.splitlines()
+    start = pxart.section_start(cmd)
+    heading = next(l for l in reversed(doc[:start]) if l[:1].isupper())
+    where = next(t for t, cs in pxart.commands_by_topic().items() if cmd in cs)
+    assert heading.startswith(pxart.TOPICS[where])
+
+
+def test_help_without_topic_is_the_overview(capsys):
+    assert help_out(capsys) == top_help(capsys, "-h")
+
+
+def test_help_all_is_the_whole_reference(capsys):
+    assert help_out(capsys, "all") == pxart.__doc__.rstrip() + "\n"
+
+
+@pytest.mark.parametrize("name", list(pxart.TOPICS))
+def test_help_topic_is_its_part_of_the_reference(capsys, name):
+    out = help_out(capsys, name)
+    assert out.startswith(pxart.TOPICS[name]) and out.rstrip("\n") in pxart.__doc__
+    if name.lower() not in COMMANDS:  # 'help help' is the command's own -h
+        assert help_out(capsys, name.lower()) == out
+
+
+def test_help_topics_cover_the_reference():
+    doc = pxart.__doc__.rstrip()
+    parts = [pxart.topic(t) for t in pxart.TOPICS]
+    assert sum(len(p.splitlines()) for p in parts) + len(parts) >= len(doc.splitlines()) - 3
+    assert "\n\n".join(parts) in doc.replace("\n\n\n", "\n\n") or all(p in doc for p in parts)
+
+
+def test_help_topic_editing_ends_before_drawing(capsys):
+    out = help_out(capsys, "EDITING")
+    assert "  compose -o OUT[:frame]" in out and "DRAWING" not in out.splitlines()[-1] and "  line FILE" not in out
+
+
+@pytest.mark.parametrize("cmd", ["compose", "poly", "frames", "help"])
+def test_help_cmd_is_cmd_dash_h(capsys, cmd):
+    assert help_out(capsys, cmd).rstrip() == cmd_help(capsys, cmd).rstrip()
+
+
+def test_help_unknown_topic(capsys):
+    msg = run_err("help", "nope")
+    assert msg.startswith("help: E_BAD_ARG: help 'nope': no such topic or command; topics: all, FORMAT") and \
+        "commands:" in msg
+
+
+def test_help_section_in_the_reference():
+    ref = pxart.reference("help")
+    assert ref.startswith("  help [all | TOPIC | CMD]") and "'pxart help all' prints this whole reference" in " ".join(
+        ref.split())
+
+
+def test_command_help_footer_names_help_all(capsys):
+    assert "\n\npxart help all has the whole reference, pxart help TOPIC one part of it.\n" in cmd_help(capsys, "set")
+
+
+def test_help_upper_help_is_the_topic(capsys):
+    assert help_out(capsys, "HELP").startswith("HELP\n  help [all | TOPIC | CMD]")
+
+
+def test_readme_documents_help_topics():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`pxart -h` is a short overview: the format in a few lines and the commands by topic." in readme
+    assert "`pxart help all` has the full reference, `pxart help TOPIC` one part of it" in readme

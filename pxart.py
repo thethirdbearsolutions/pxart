@@ -596,6 +596,13 @@ CONVERTING
       frames imported in separate runs share one palette. --palette P.px starts a new
       OUT that imports P and reuses its keys.
 
+HELP
+  help [all | TOPIC | CMD]
+      pxart -h is a short overview and the commands by topic. 'pxart help all' prints this
+      whole reference; 'pxart help TOPIC' one part of it: FORMAT, LOOKING, CHECKING, EDITING,
+      DRAWING, CONVERTING, HELP or ERRORS (any case); 'pxart help CMD' is 'pxart CMD -h', the
+      command's section of it and a see-also line naming the shared notes it relies on.
+
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
@@ -4923,18 +4930,81 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "shade": DRAWS, "outline": DRAWS,
     "export": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: variants", "FORMAT: selecting frames"],
-    "from-png": [],
+    "from-png": [], "help": [],
 }
 PASTE = {"rotate": ["transpose"]}  # transpose's section ends with the paragraph both share
 
 
-def reference(cmd):
-    """CMD's section of pxart -h: its usage line (an indent of 2, then CMD and a usage word, not prose) and the lines
-    under it, up to the next line indented 2 or less that isn't blank. None when -h has no section for it."""
+TOPICS = {"FORMAT": "FORMAT (.px)", "LOOKING": "LOOKING", "CHECKING": "CHECKING", "EDITING": "EDITING (",
+          "DRAWING": "DRAWING (", "CONVERTING": "CONVERTING", "HELP": "HELP", "ERRORS": "ERROR CODES"}
+
+
+def topic(name):
+    """A top-level part of the reference (pxart help TOPIC): from its heading to the next one."""
+    lines = __doc__.splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith(TOPICS[name]))
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^[A-Z]", lines[i])), len(lines))
+    return "\n".join(lines[start:end]).rstrip()
+
+
+def commands_by_topic():
+    """{topic: its commands, in the reference's order}: each command under the heading its section sits below."""
+    lines, heads, out = __doc__.splitlines(), {v: k for k, v in TOPICS.items()}, {}
+    starts = {section_start(c): c for c in parser(describe=False)[1].choices if section_start(c) is not None}
+    at = None
+    for i, l in enumerate(lines):
+        if re.match(r"^[A-Z]", l):
+            at = next((k for v, k in heads.items() if l.startswith(v)), at)
+        elif i in starts:
+            out.setdefault(at, []).append(starts[i])
+    return out
+
+
+def overview():
+    """pxart -h: what pxart is, the .px format in a few lines, the commands by topic, and where the rest is."""
+    lines = __doc__.splitlines()
+    fmt = lines.index("FORMAT (.px)")
+    sample = lines[fmt + 1:lines.index("", fmt + 7)]  # the palette-and-grid example FORMAT opens with
+    rows = [f"  {t:<11} {' '.join(cs)}" for t, cs in commands_by_topic().items()]
+    return "\n".join([lines[0], "", "A sprite is a .px text file: a palette, then a grid of its keys.", *sample, "",
+                      "Commands by topic ('pxart CMD -h' for one, 'pxart help TOPIC' for a topic's reference):",
+                      *rows, "",
+                      "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
+                      "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
+                      "whole reference."])
+
+
+def cmd_help(a):
+    """pxart help [all | TOPIC | CMD]."""
+    want = a.topic
+    if want is None:
+        print(parser()[0].format_help().rstrip())
+    elif want == "all":
+        print(__doc__.rstrip())
+    elif want in parser(describe=False)[1].choices:  # a command's name first: 'help help' is help's own -h
+        print(parser()[1].choices[want].format_help().rstrip())
+    elif want.upper() in TOPICS:
+        print(topic(want.upper()))
+    else:
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, {', '.join(TOPICS)}; commands: "
+             f"{' '.join(sorted(parser(describe=False)[1].choices))}")
+
+
+def section_start(cmd):
+    """The line of the reference where CMD's section starts: its usage line (an indent of 2, then CMD and a usage word,
+    not prose), from LOOKING on. None when there is none."""
     lines = __doc__.splitlines()
     usage = re.compile(rf"^  {re.escape(cmd)}( +(?![a-z]+( |$))\S|$)")
-    start = next((i for i, l in enumerate(lines[lines.index("LOOKING"):], lines.index("LOOKING")) if usage.match(l)),
-                 None)
+    return next((i for i, l in enumerate(lines[lines.index("LOOKING"):], lines.index("LOOKING")) if usage.match(l)),
+                None)
+
+
+def reference(cmd):
+    """CMD's section of the reference (pxart help all): its usage line (section_start) and the lines under it, up to
+    the next line indented 2 or less that isn't blank. None when the reference has no section for it."""
+    lines = __doc__.splitlines()
+    usage = re.compile(rf"^  {re.escape(cmd)}( +(?![a-z]+( |$))\S|$)")
+    start = section_start(cmd)
     if start is None:
         return None
     end = next((i for i in range(start + 1, len(lines))  # a second usage line of CMD (new OUT --empty) is its section too
@@ -4954,13 +5024,13 @@ def note(name):
 def command_help(cmd):
     """What 'pxart CMD -h' prints under argparse's usage line: CMD's section (and PASTE's), then one see-also line
     naming the blocks of pxart -h it relies on, each with what it has."""
-    parts = [reference(cmd) or f"  (pxart -h has no section for {cmd})"]
-    parts += [f"{ref} (from pxart -h):\n{reference(ref)}" for ref in PASTE.get(cmd, [])]
+    parts = [reference(cmd) or f"  (pxart help all has no section for {cmd})"]
+    parts += [f"{ref} (from pxart help all):\n{reference(ref)}" for ref in PASTE.get(cmd, [])]
     refs = SEE.get(cmd, [])
     if refs:
-        also = "See also, in pxart -h: " + "; ".join(f"{r} ({GIST[r]})" for r in refs) + "."
+        also = "See also, in pxart help all: " + "; ".join(f"{r} ({GIST[r]})" for r in refs) + "."
         parts.append("\n".join(textwrap.wrap(also, 92, subsequent_indent="  ", break_on_hyphens=False)))
-    return "\n\n".join(parts) + "\n\npxart -h has the whole reference."
+    return "\n\n".join(parts) + "\n\npxart help all has the whole reference, pxart help TOPIC one part of it."
 
 
 def said(cmd, issue):
@@ -4979,7 +5049,8 @@ VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repea
 
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
-    ap = argparse.ArgumentParser(prog="pxart", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="pxart", description=overview() if describe else None,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
     p.add_argument("--png", action="store_true")
@@ -5113,6 +5184,7 @@ def parser(describe=True):
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
+    p = sub.add_parser("help"); p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
