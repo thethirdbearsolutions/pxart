@@ -854,7 +854,7 @@ ERROR CODES
   about to make (a grid renamed, keys rekeyed), and nothing was written.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, csv, fnmatch, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+import argparse, contextlib, csv, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 RECIPES = """RECIPES (pxart help recipes)
@@ -3356,9 +3356,11 @@ def cmd_frames(a):
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
         if a.after and a.before:
             fail("E_BAD_ARG", "give --after or --before, not both")
-        had = set(doc.groups())
+        had, lines = set(doc.groups()), {anchor for anchor, _, _ in doc.lines()}
         did = (frames_sel_edit if sel else frames_edit)(a, doc, sel, picked)
-        print("; ".join(did + drop_orphans(doc, had - set(doc.groups())) + [write_doc(doc)]))
+        did += drop_orphans(doc, had - set(doc.groups()))
+        keep_spacing(doc, lines - {anchor for anchor, _, _ in doc.lines()})
+        print("; ".join(did + [write_doc(doc)]))
         return
     for g, fs in doc.groups(picked).items():
         meta = doc.anims.get(g, {})
@@ -3557,6 +3559,24 @@ def drop_orphans(doc, emptied):
     doc.anims = {g: v for g, v in doc.anims.items() if g not in emptied}
     doc.stills = [g for g in doc.stills if g not in emptied]
     return [f"removed {', '.join(gone)} (no frames left)"] if gone else []
+
+
+def keep_spacing(doc, gone):
+    """Lines just removed (anchors) take their comments with them, but not the blank lines above them: those go to the
+    next line the file had that is still there (in file order), unless it has blank lines above it already, so a
+    '@palette' line keeps its blank line after it when the @anim below it goes."""
+    order = sorted(doc.at, key=doc.at.get)
+    there = {anchor for anchor, _, _ in doc.lines()}
+    for anchor in sorted(gone, key=lambda x: doc.at.get(x, 0), reverse=True):  # last first: blanks move down once
+        lead = doc.lead.get(anchor) or []
+        blank = list(itertools.takewhile(lambda l: not l.strip(), lead))
+        if not blank or anchor not in doc.at:
+            continue
+        nxt = next((x for x in order if doc.at[x] > doc.at[anchor] and x in there), None)
+        if nxt is None or doc.lead.get(nxt) is None:
+            continue
+        if not (doc.lead[nxt] and not doc.lead[nxt][0].strip()):
+            doc.lead[nxt] = blank + doc.lead[nxt]
 
 
 def orphans(doc):

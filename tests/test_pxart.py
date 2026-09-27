@@ -6976,8 +6976,8 @@ def test_rm_orphan_output_is_a_byte_exact_rewrite(tmp_path):
     p = write(tmp_path, "o.px", "k #000000\n# walk timing\n@anim walk ms=90\n@anim idle ms=200\n\n@frame walk/0\nk\n"
               "@frame idle/0\nk\n")
     assert run("frames", p, "--rm", "walk/0") == 0
-    # The comment goes with its @anim line; the blank line went with walk/0's @frame, as any --rm does.
-    assert p.read_text() == "k #000000\n@anim idle ms=200\n@frame idle/0\nk\n"
+    # The comment goes with its @anim line; the blank line above walk/0's @frame stays, now above idle/0's.
+    assert p.read_text() == "k #000000\n@anim idle ms=200\n\n@frame idle/0\nk\n"
 
 
 def test_check_notes_orphan_anim_and_still(tmp_path, capsys):
@@ -23524,3 +23524,73 @@ def test_help_and_readme_say_what_the_header_is():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "A comment right above a line is that line's (a key's comment); a file's header is the comments above " \
         "`pxart 1`, or separated from its first line by a blank line." in readme
+
+
+# ---------------------------------------------------------------- frames --rm keeps the blank lines around what it removes
+
+def rm_layout_file(tmp_path, text):
+    write(tmp_path, "pal.px", "k #000000\n")
+    return write(tmp_path, "s.px", text)
+
+
+@pytest.mark.parametrize("text, argv, want", [
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n\n@frame idle\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@frame idle\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n# walking\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n",
+     ["", "--rm", "walk/0"],
+     "pxart 1\n@palette pal.px\n\n# walking\n@anim walk ms=100\n\n@frame walk/1\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n\n@frame walk/1\nk\n\n@frame walk/2\nk\n",
+     ["", "--rm", "walk/1"],
+     "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n\n@frame walk/2\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n# the walk\n@anim walk ms=100\n@still ui\n\n@frame walk/0\nk\n@frame ui/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@still ui\n\n@frame ui/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@still ui\n@anim walk ms=100\n\n@frame ui/0\nk\n@frame walk/0\nk\n",
+     [":ui", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk/0", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+])
+def test_frames_rm_keeps_the_layout(tmp_path, capsys, text, argv, want):
+    p = rm_layout_file(tmp_path, text)
+    assert run("frames", f"{p}{argv[0]}", *argv[1:]) == 0
+    assert p.read_text() == want
+
+
+def test_frames_rm_last_frames_at_the_end_leave_no_stray_blank(tmp_path, capsys):
+    p = rm_layout_file(tmp_path, "pxart 1\n@palette pal.px\n\n@frame a\nk\n\n@frame b\nk\n")
+    assert run("frames", p, "--rm", "b") == 0
+    assert p.read_text() == "pxart 1\n@palette pal.px\n\n@frame a\nk\n"
+
+
+def test_frames_rm_crlf_keeps_the_layout(tmp_path, capsys):
+    p = rm_layout_file(tmp_path, "x")
+    p.write_bytes(b"pxart 1\r\n@palette pal.px\r\n\r\n@anim walk ms=100\r\n@anim idle ms=50\r\n\r\n@frame walk/0\r\nk\r\n"
+                  b"@frame idle/0\r\nk\r\n")
+    assert run("frames", f"{p}:walk", "--rm") == 0
+    assert p.read_bytes() == b"pxart 1\r\n@palette pal.px\r\n\r\n@anim idle ms=50\r\n\r\n@frame idle/0\r\nk\r\n"
+
+
+def test_frames_move_is_unchanged_by_keep_spacing(tmp_path, capsys):
+    text = "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n"
+    p = rm_layout_file(tmp_path, text)
+    assert run("frames", p, "--move", "walk/1", "--before", "walk/0") == 0
+    # a move takes each line's blank lines with it, as it did: only removals hand them on
+    assert p.read_text() == "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@frame walk/1\nk\n\n@frame walk/0\nk\n"
+
+
+def test_keep_spacing_unit(tmp_path):
+    p = rm_layout_file(tmp_path, "pxart 1\n@palette pal.px\n\n@anim a\n@anim b\n@frame a/0\nk\n@frame b/0\nk\n")
+    doc = pxart.parse(p)
+    del doc.anims["a"]
+    doc.frames = [f for f in doc.frames if f.id != "a/0"]
+    pxart.keep_spacing(doc, {("anim", "a"), ("frame", "a/0"), ("row", "a/0", 0)})
+    assert doc.text() == "pxart 1\n@palette pal.px\n\n@anim b\n@frame b/0\nk\n"
