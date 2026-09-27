@@ -1616,15 +1616,16 @@ def items(arg, variant=None, strict=False):
 
 
 def all_items(args, variant=None):
-    """render's and sheet's frames, in order. An argument's own %variant labels its frames 'idle/0%night', so its
-    cells read apart from the base ones beside them."""
+    """render's and sheet's frames, in order. A frame drawn in a variant is labeled with it, 'idle/0%night': an
+    argument's own %variant, else --variant, so its cells read apart from the base ones beside them and a whole sheet
+    at night says so."""
     out, paths, owns = [], [], []
     for n, a in enumerate(args, 1):
         with reading(f"file {n} ({a})"):
             got = items(a, variant)
         out += got
         paths += [split_sel(a)[0]] * len(got)
-        owns += [split_variant(a)[1]] * len(got)
+        owns += [split_variant(a)[1] or variant] * len(got)
     tell_apart(out, paths)  # by frame id: hero's and beast's idle/0 collide, whatever variant each is in
     for it, own in zip(out, owns):
         it.label += f"%{own}" if own else ""
@@ -8056,12 +8057,15 @@ def parser(describe=True):
     p.add_argument("--scale", type=int, help="default 8 (--plain: 1)")
     p.add_argument("--bg", help="a flat color (default: a grey checkerboard behind each frame; --plain: none, "
                    "transparent stays transparent)")
-    p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
+    p.add_argument("--no-grid", action="store_true")
+    p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night)")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
     p.add_argument("--bg", help="a flat color behind each frame (default: a grey checkerboard)")
-    p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
+    p.add_argument("--grid", action="store_true")
+    p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night), as "
+                   "FILE%%V's do, and an argument's own %%VARIANT wins")
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")

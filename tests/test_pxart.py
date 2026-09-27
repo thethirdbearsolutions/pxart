@@ -26825,9 +26825,32 @@ def test_sheet_label_percent_base(tmp_path):
     assert labels_of(f"{a}:idle/0%base", f"{a}:idle/0%night") == ["idle/0%base", "idle/0%night"]
 
 
-def test_sheet_label_global_variant_is_not_suffixed(tmp_path):
+def test_sheet_label_global_variant_is_suffixed_too(tmp_path):
+    # sheet --variant night labels its cells as FILE%night does: a sheet of everything at night says it's night
     a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
-    assert [it.label for it in pxart.all_items([str(a)], "night")] == ["idle/0", "idle/1"]
+    assert [it.label for it in pxart.all_items([str(a)], "night")] == ["idle/0%night", "idle/1%night"]
+    assert [it.label for it in pxart.all_items([str(a)], "night")] == \
+        [it.label for it in pxart.all_items([f"{a}%night"])]
+
+
+def test_sheet_label_own_variant_wins_over_the_global_one(tmp_path):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n@variant dusk\nk #110000\n"
+              + SAME_IDS.split("\n", 1)[1])
+    got = pxart.all_items([f"{a}:idle/0", f"{a}:idle/0%dusk", f"{a}:idle/0%base"], "night")
+    assert [it.label for it in got] == ["idle/0%night", "idle/0%dusk", "idle/0%base"]
+    assert got[0].img.getpixel((0, 0))[:3] != got[1].img.getpixel((0, 0))[:3]
+
+
+def test_sheet_variant_flag_widens_cells_like_a_percent(tmp_path, capsys):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert run("sheet", f"{a}:idle/0", "--variant", "night", "-o", tmp_path / "flag.png", "--cols", "1") == 0
+    assert run("sheet", f"{a}:idle/0%night", "-o", tmp_path / "pct.png", "--cols", "1") == 0
+    assert Image.open(tmp_path / "flag.png").tobytes() == Image.open(tmp_path / "pct.png").tobytes()
+
+
+def test_sheet_help_says_variant_labels(capsys):
+    assert run("sheet", "-h") == 0
+    assert "each label says so (idle/0%night)" in " ".join(capsys.readouterr().out.split())
 
 
 def test_sheet_label_variant_of_an_unnamed_grid(tmp_path):
