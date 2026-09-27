@@ -26985,3 +26985,38 @@ def test_main_flushes_what_it_said(tmp_path, capsys, monkeypatch):
     p = write(tmp_path, "b.px", ONCE)
     assert run("anim", f"{p}:land") == 0
     assert flushed
+
+
+# ---------------------------------------------------------------- anim --variant counts the variant's render
+# A night halo (transparent in the base, translucent at night) makes night's percentages differ from the base's: its
+# pixels are there at night, and any alpha counts as a pixel. Documented rather than computed from the base, since
+# the readout describes the render being looked at (a base denominator could put a halo's changes over 100%).
+
+HALO_ANIM = "k #000000\nL transparent\n@variant night\nL #f6e45a50\n@anim a ms=100\n" \
+    "@frame a/0\nLLL.\nLkL.\nLLL.\n@frame a/1\n.LLL\n.LkL\n.LLL\n"
+
+
+def test_anim_variant_counts_halo_pixels(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO_ANIM)
+    assert run("anim", f"{p}:a") == 0
+    base = capsys.readouterr().out.splitlines()
+    assert run("anim", f"{p}:a", "--variant", "night") == 0
+    night = capsys.readouterr().out.splitlines()
+    assert "shift +1,+0 then 0px (0%)" in base[1] and "shift +1,+0 then 0px (0%)" in night[1]
+    assert "(no shift: 2px)" in base[1] and "(no shift: 8px)" in night[1]
+
+
+def test_anim_variant_percent_is_of_the_variants_opaque_pixels(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\nL transparent\n@variant night\nL #f6e45a50\n@anim a ms=100\n"
+              "@frame a/0\nkkkL\n@frame a/1\nkkk.\n")
+    assert run("anim", f"{p}:a") == 0
+    base = capsys.readouterr().out
+    assert run("anim", f"{p}:a", "--variant", "night") == 0
+    night = capsys.readouterr().out
+    assert "a/1" in base and "then 0px (0%)" in base.splitlines()[1]
+    assert "then 1px (33%)" in night.splitlines()[1]  # the halo pixel that went, of a/1's 3 opaque px
+
+
+def test_anim_help_says_variant_counts_its_render():
+    assert "--variant V counts V's render: a halo transparent in the base counts, at any alpha." in \
+        " ".join(pxart.__doc__.split())

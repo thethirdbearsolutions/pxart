@@ -108,6 +108,7 @@ LOOKING
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
+      --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
       shows the unshifted diff: "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)".
@@ -253,7 +254,7 @@ CHECKING
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
       differs: '12 px differ in 3,4,6,6 (x,y,w,h)', 'sizes 16x16 and 16x24') and for several a
       count ('132 frame(s): 130 same, 1 differ, 1 unpaired'). It exits 1 when anything differs
-      or has no pair, as check does, so a script can prove a copy renders as the original.
+      or has no pair, as check does.
       A and B are:
         two files, FILE[:SEL][%VARIANT] or PNGs: one frame each, or frames paired by id (in
           order when their ids differ but their counts match: diff wick.px:walk
@@ -670,8 +671,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       Order: --order o,t,k (or otk) moves FILE's own key lines to the top of its palette in
       that order, each with the comment and blank lines above it, the other keys after them as
-      they were: group a material's ramp, or put the outline first. Variants keep their order;
-      a '. transparent' line keeps its place in the list.
+      they were: group a material's ramp, or put the outline first. Variants and a
+      '. transparent' line keep their places.
 
       Sharing a palette file: --import P.px adds '@palette P.px' to FILE (re-pointed from
       FILE's directory) and drops FILE's key lines P has in the same colors (and their variant
