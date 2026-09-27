@@ -14335,8 +14335,8 @@ def test_carried_variant_comment_of_a_shared_palette_said_once_naming_both(tmp_p
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{b}:y@1,0", f"{c}:z@2,0") == 0
     text = out.read_text()
-    # a.px draws only k, which dusk leaves alone: OUT's dusk lines are b.px's r (and c.px's q), so b.px is credited
-    assert text.count("# dusk: warm") == 1 and "# dusk: warm (from b.px's @variant dusk)" in text
+    # both files' dusk (pal.px's, imported) has OUT's r line: both gave it
+    assert text.count("# dusk: warm") == 1 and "# dusk: warm (from a.px's and b.px's @variant dusk)" in text
 
 
 def test_carried_comments_single_file_unlabeled(tmp_path, capsys):
@@ -21074,6 +21074,23 @@ def test_compose_variant_comment_inlined_palette_credits_the_owners(tmp_path, ca
     assert "pal.px's night" not in text and "@palette" not in text
     assert "# night: moonlit; glass y kept lit (from ground.px's and walls.px's and visitors.px's @variant night)" \
         in text and "the rest" not in text
+
+
+def test_compose_variant_comment_a_file_whose_lines_gave_no_key_isnt_credited(tmp_path, capsys):
+    # inlined OUT: loner.px's night recolors only q, which no layer here draws (--used-keys-only leaves it out), so
+    # pal.px's comment, which ground.px and loner.px both carry, credits ground.px alone; loner.px's own comment,
+    # whose file gave nothing and with no import for the rest, still says whose it is
+    ground, trees, walls, vis = street_files(tmp_path)
+    loner = write(tmp_path, "loner.px", "@palette pal.px\nq #00ff00\nz #0000ff\n# loner: q glows\n@variant night\n"
+                                        "q #002200\n@frame z\nz\n")
+    other = write(tmp_path, "other.px", "p #ff00ff\n@frame p\np\n")  # imports nothing: OUT inlines
+    out = tmp_path / "street.px"
+    assert run("compose", "-o", out, "--size", "5x2", f"{ground}:grass@0,0", f"{loner}:z@2,0", f"{other}:p@4,0",
+               "--used-keys-only") == 0
+    text = out.read_text()
+    assert "@palette" not in text and "q #" not in text
+    assert "# night: moonlit; glass y kept lit (from ground.px's @variant night)" in text
+    assert "# loner: q glows (from loner.px's @variant night)" in text
 
 
 def test_compose_variant_comment_single_file_unlabeled_still(tmp_path, capsys):

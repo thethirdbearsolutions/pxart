@@ -4749,9 +4749,12 @@ def carry_notes(doc, docs, notes, renamed, owners, vmap):
             if got:
                 groups.setdefault(tuple(got), []).append((d, src))
         lines = []
-        # credit the files whose variant lines gave OUT's own @variant keys (a file whose keys all come from OUT's
-        # shared import gave none), and the import for the rest
-        gave = {id(owners[k]) for k in over if owners.get(k) is not None}
+        # credit the files whose variant lines gave OUT's own @variant keys, a line of the file's variant (its own or
+        # imported) in the color OUT's has (a file whose recolored keys all come from OUT's shared import gave none),
+        # and the import for the rest
+        def lines_of(d, src):
+            return {**d.shared_variants.get(src, {}), **d.variants.get(src, {})}
+        gave = {id(d) for d, src in takes if any(lines_of(d, src).get(k) == c for k, c in over.items())}
         rest = [f"{pathlib.PurePath(r).name}'s" for r in doc.palette_refs] if name in doc.shared_variants else []
         rest = f"{' and '.join(rest)} {name}" if rest else ""
         for got, whose in groups.items():
