@@ -12,11 +12,11 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEST=${1:-$HERE}
-PXART=${PXART:-"python3 $HERE/../pxart.py"}
+PYTHON=${PYTHON:-python3}   # the pxart.py beside examples/ runs under this
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-pxart() { $PXART "$@"; }
+pxart() { "$PYTHON" "$HERE/../pxart.py" "$@"; }
 
 # stage DIR FILE...: copy an example's sources into the scratch dir and cd there.
 stage() {
