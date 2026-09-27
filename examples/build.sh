@@ -60,12 +60,11 @@ pxart scene --size 96x40 --bg '#dfe8e6' -o shelf.x4.png \
 
 # ---------------------------------------------------------------------------------------
 # 02-animation: @anim / @frame timing and pivots; anim's GIF, strip and readout; onion.
+# The README walks these in order.
 stage 02-animation hero.px hero-palette.px
 pxart sheet hero.px --fit --rows group --align pivot --scale 4 -o sheet.png
-pxart anim hero.px:walk/down -o walk.gif --scale 6 > /dev/null
-pxart anim hero.px:idle/right -o idle.gif --scale 4 > /dev/null
-txt anim-walk.txt anim hero.px:walk/down
-txt anim-idle.txt anim hero.px:idle/right
+txt anim-walk.txt anim hero.px:walk/down -o walk.gif --scale 6
+txt anim-idle.txt anim hero.px:idle/right -o idle.gif --scale 4
 txt onion.txt onion hero.px:walk/down/0 hero.px:walk/down/1 -o onion.png
 txt onion-feet.txt onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o onion-feet.png
 

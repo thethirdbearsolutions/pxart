@@ -1,5 +1,6 @@
-$ pxart anim hero.px:idle/right
+$ pxart anim hero.px:idle/right -o idle.gif --scale 4
   idle/right/0               400ms  vs idle/right/3: shift +0,+0 then 14px (2%)
   idle/right/1               240ms  vs idle/right/0: no shift then 237px (41%) (rows 34+ still; shift +0,+1: 48px)
   idle/right/2               240ms  vs idle/right/1: shift +0,+0 then 24px (4%)
   idle/right/3               240ms  vs idle/right/2: no shift then 247px (42%) (rows 34+ still; shift +0,-1: 62px)
+wrote idle.gif and idle.strip.png
