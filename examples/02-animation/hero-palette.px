@@ -1,5 +1,6 @@
 # Hero: young swordsman. 15 colors, 4bpp.
 # outline is a deep plum, not black; each ramp shifts cooler into shadow, warmer into light.
+
 o #2b1d32
 # skin: peach -> rose -> cool brown-mauve
 S #f8d6ac

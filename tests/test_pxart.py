@@ -11212,7 +11212,7 @@ def test_paste_adds_new_keys_in_sorted_order_every_run(tmp_path):
 
 # ---------------------------------------------------------------- palette --extract-to keeps the palette's comments
 
-BEAST = ("# Beast: moss-backed guardian. 6 colors.\n"
+BEAST = ("# Beast: moss-backed guardian. 6 colors.\n\n"
          "o #221a26\n# bark: shadow -> light\nx #3e2c34\nX #5e4038\n# spirit glow (eyes, runes)\ne #fff6b0\nE #6ae0cc\n"
          "\n# dusk: the glow (e, E) is left out on purpose so it keeps its base color and reads as light.\n"
          "@variant dusk\no #150f1c\n# bark sinks\nx #261a2a\nX #3a2834\n")
@@ -11271,20 +11271,24 @@ def test_extract_to_uncommented_local_override_keeps_the_imports_comment(tmp_pat
 
 
 def test_extract_to_nested_imports_and_their_headers(tmp_path):
-    write(tmp_path, "a.px", "# A header\n# a key\na #111111\n")
+    write(tmp_path, "a.px", "# A header\n\n# a key\na #111111\n")
     write(tmp_path, "b.px", "# B header\n@palette a.px\n# b key\nb #222222\n")
     p = write(tmp_path, "s.px", "@palette b.px\n@frame f\nab\n")
     out = tmp_path / "out.px"
     assert run("palette", p, "--extract-to", out) == 0
-    # With no version line, a palette file's comments above its first key are its header (the parser can't tell).
-    assert out.read_text() == "# A header\n# a key\n# B header\npxart 1\na #111111\n# b key\nb #222222\n"
+    # a.px's header is the block a blank line separates from its first key; the comment right above that key is a's
+    assert out.read_text() == "# A header\n# B header\npxart 1\n# a key\na #111111\n# b key\nb #222222\n"
 
 
 def test_extract_to_header_of_a_palette_without_version_line(tmp_path):
     write(tmp_path, "base.px", "# base's skin\ns #f4c7a0\n")
     p = write(tmp_path, "hero.px", "@palette base.px\n@frame a\ns\n")
     assert run("palette", p, "--extract-to", tmp_path / "all.px") == 0
-    assert (tmp_path / "all.px").read_text() == "# base's skin\npxart 1\ns #f4c7a0\n"
+    # right above the first key, no blank line between: s's comment, not a header
+    assert (tmp_path / "all.px").read_text() == "pxart 1\n# base's skin\ns #f4c7a0\n"
+    write(tmp_path, "base.px", "# base palette\n\n# base's skin\ns #f4c7a0\n")
+    assert run("palette", p, "--extract-to", tmp_path / "all2.px") == 0
+    assert (tmp_path / "all2.px").read_text() == "# base palette\npxart 1\n# base's skin\ns #f4c7a0\n"
 
 
 def test_extract_to_blank_only_leads_keep_default_spacing(tmp_path):
@@ -11325,7 +11329,7 @@ def test_extract_to_repoint_keeps_the_import_lines_comment(tmp_path):
 
 def test_palette_notes_helper_cycle_is_safe(tmp_path):
     a = write(tmp_path, "a.px", "@palette b.px\n# a\na #111111\n")
-    write(tmp_path, "b.px", "# b\nb #222222\n")
+    write(tmp_path, "b.px", "# b\n\nb #222222\n")
     doc = pxart.parse(a, palette_only=True)
     doc.palette_refs.append("a.px")  # a cycle back to itself, as a nested file might have
     notes, head = pxart.palette_notes(doc)
@@ -12805,9 +12809,9 @@ def test_onion_top_level_frames_are_not_one_animation(tmp_path, capsys):
 
 # ---------------------------------------------------------------- compose across packs: comments, variants, lost keys
 
-MARKET_PAL = ("# Harbor market palette: warm stone, one hot accent (awning red)\nk #2b1e2f\nr #c4473a\nl #bcb6b4\n"
+MARKET_PAL = ("# Harbor market palette: warm stone, one hot accent (awning red)\n\nk #2b1e2f\nr #c4473a\nl #bcb6b4\n"
               "g #8f8a96\ny #f3cf6b\n\n@variant dusk\nk #1b1326\nr #a33a4c\nl #978ca6\ng #726a8a\ny #ffd66e\n")
-KEEPER_PAL = ("# Cozy seaside\nk #2a1f33\nr #c4473a\ns #f0c29a\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
+KEEPER_PAL = ("# Cozy seaside\n\nk #2a1f33\nr #c4473a\ns #f0c29a\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
               "# night: cool moonlight; lamp colors (l, g) stay lit\n@variant night\nk #120e22\nr #83344e\n"
               "s #b88f8c\nl #fff4b0\ng #ffc861\n")
 CANDLE_PAL = ("k #1a1423\nw #f6eed8\n# light-emitting keys: flame. Not in @variant dark, so it stays warm.\n"
@@ -13379,8 +13383,8 @@ def test_compose_comment_of_a_left_out_key_goes(tmp_path, capsys):
 
 
 def test_compose_a_sprites_header_comment_stays_with_it(tmp_path, capsys):
-    # Comments above a file's first line are its header, about the sprite: not a key's comment.
-    a = write(tmp_path, "a.px", "# the hero\nk #000000\n@frame x\nk\n")
+    # Comments a blank line above a file's first line are its header, about the sprite: not a key's comment.
+    a = write(tmp_path, "a.px", "# the hero\n\nk #000000\n@frame x\nk\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, f"{a}:x@0,0")
     assert "# the hero" not in out.read_text()
@@ -14221,7 +14225,7 @@ def test_readme_documents_the_compose_report():
 
 # ---------------------------------------------------------------- carried comments stay true in the new OUT
 
-GLOW_PAL = ("# WICK shared palette: cellar and flame\nk #1a1423\nw #f6eed8\n"
+GLOW_PAL = ("# WICK shared palette: cellar and flame\n\nk #1a1423\nw #f6eed8\n"
             "# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm.\n"
             "f #ffe07a\na #f58b3c\ni #fff6d0\n\n# darkness: everything that only reflects light goes cold\n"
             "@variant dark\nk #0c0a18\nw #403f4a\n")
@@ -14305,8 +14309,8 @@ def test_comment_blocks_through_an_import(tmp_path):
 
 
 def test_comment_blocks_a_files_header_is_no_block(tmp_path):
-    # Comments above a file's first line are its header (palette_notes), not a key's comment.
-    doc = pxart.parse(write(tmp_path, "p.px", "# header\nf #ffe07a\na #f58b3c\n"), palette_only=True)
+    # Comments a blank line above a file's first line are its header (palette_notes), not a key's comment.
+    doc = pxart.parse(write(tmp_path, "p.px", "# header\n\nf #ffe07a\na #f58b3c\n"), palette_only=True)
     assert pxart.comment_blocks(doc) == {}
 
 
@@ -14400,7 +14404,7 @@ def test_carried_header_at_the_top_labeled(tmp_path, capsys):
 
 
 def test_carried_header_one_line_for_files_that_share_it(tmp_path, capsys):
-    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    write(tmp_path, "pal.px", "# the one palette\n\nk #000000\nr #ff0000\n")
     a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
     c = write(tmp_path, "c.px", "q #00ff00\n@frame z\nq\n")
@@ -14410,7 +14414,7 @@ def test_carried_header_one_line_for_files_that_share_it(tmp_path, capsys):
 
 
 def test_carried_header_not_when_out_imports_the_palette(tmp_path, capsys):
-    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    write(tmp_path, "pal.px", "# the one palette\n\nk #000000\nr #ff0000\n")
     a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
     out = tmp_path / "o.px"
@@ -14419,7 +14423,7 @@ def test_carried_header_not_when_out_imports_the_palette(tmp_path, capsys):
 
 
 def test_carried_header_not_a_sprites_own(tmp_path, capsys):
-    a = write(tmp_path, "a.px", "# my hero sprite\nk #000000\n@frame x\nk\n")
+    a = write(tmp_path, "a.px", "# my hero sprite\n\nk #000000\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "q #00ff00\n@frame z\nq\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
@@ -23338,3 +23342,185 @@ def test_copy_two_frames_one_renamed_away_keeps_the_anim_for_the_other(tmp_path,
     doc = pxart.parse(tmp_path / "coast.px")
     assert "idle/down" in doc.anims and [f.id for f in doc.frames] == ["lighthouse", "keeper", "idle/down/1"]
     assert pxart.orphans(doc) == []
+
+
+# ---------------------------------------------------------------- a comment right above the first key is that key's
+
+@pytest.mark.parametrize("text, header, lead", [
+    ("# outline\nk #000000\n", [], ["# outline"]),
+    ("# header\n\nk #000000\n", ["# header", ""], []),
+    ("# header\n\n# outline\nk #000000\n", ["# header", ""], ["# outline"]),
+    ("# h1\n# h2\n\n# o1\n# o2\nk #000000\n", ["# h1", "# h2", ""], ["# o1", "# o2"]),
+    ("# a\n\n# b\n\n# outline\nk #000000\n", ["# a", "", "# b", ""], ["# outline"]),
+    ("# header\npxart 1\nk #000000\n", ["# header"], []),
+    ("# header\npxart 1\n# outline\nk #000000\n", ["# header"], ["# outline"]),
+    ("\n# outline\nk #000000\n", [""], ["# outline"]),
+    ("k #000000\n", [], []),
+])
+def test_parse_splits_header_from_the_first_keys_comment(tmp_path, text, header, lead):
+    doc = pxart.parse(write(tmp_path, "p.px", text), palette_only=True)
+    assert doc.comments == header and (doc.lead.get(("key", "k")) or []) == lead
+    assert doc.text() == text
+
+
+def test_parse_first_key_dot_takes_its_comment(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", "# see-through\n. transparent\nk #000000\n\n.k\n"))
+    assert doc.comments == [] and doc.lead[("key", ".")] == ["# see-through"]
+
+
+@pytest.mark.parametrize("first", ["@palette pal.px", "@anim a"])
+def test_comment_above_a_first_line_that_is_no_key_is_the_header(tmp_path, first):
+    write(tmp_path, "pal.px", "k #000000\n")
+    text = f"# the sprite\n{first}\n" + ("k #000000\n" if first != "@palette pal.px" else "") + \
+        ("@frame a\n" if first == "@anim a" else "") + "k\n"
+    doc = pxart.parse(write(tmp_path, "s.px", text))
+    assert doc.comments == ["# the sprite"]
+
+
+def test_implicit_grid_file_first_key_comment(tmp_path):
+    doc = pxart.parse(write(tmp_path, "a.px", "# a small face\nk #3f2631\n\n.k.\n"))
+    assert doc.comments == [] and doc.lead[("key", "k")] == ["# a small face"]
+
+
+@pytest.mark.parametrize("text", [
+    "# outline\nk #000000\nw #ffffff\n",
+    "# header\n\n# outline\nk #000000\n# white\nw #ffffff\n",
+    "# header\npxart 1\n# outline\nk #000000\n",
+    "# header\n\nk #000000\n\n# night\n@variant night\nk #111111\n",
+    "\n\n# outline\nk #000000\n",
+    "# h\r\n\r\n# outline\r\nk #000000\r\n",
+    "# only comments, then a key\n# second line\nk #000000",
+])
+def test_header_and_key_comment_round_trip(tmp_path, text):
+    p = write(tmp_path, "p.px", text)
+    p.write_bytes(text.encode())
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.text() == text
+    assert run("palette", p, "--add", "z=#123456") == 0
+    again = pxart.parse(p, palette_only=True)
+    assert again.comments == doc.comments and again.lead.get(("key", "k")) == doc.lead.get(("key", "k"))
+
+
+def test_comment_header_on_a_file_whose_first_key_has_a_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--comment-header", "the header") == 0
+    assert p.read_text() == "# the header\n\n# outline\nk #000000\nw #ffffff\n"
+    doc = pxart.parse(p, palette_only=True)
+    assert [l for l in doc.comments if l.strip()] == ["# the header"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_comment_header_on_a_file_with_a_version_line(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment-header", "the header") == 0
+    assert p.read_text() == "# the header\npxart 1\n# outline\nk #000000\n"
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.comments == ["# the header"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_comment_header_replaced_keeps_the_key_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# old\n\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment-header", "new") == 0
+    assert p.read_text() == "# new\n\n# outline\nk #000000\n"
+
+
+def test_comment_on_the_first_key_leaves_the_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment", "k", "plum outline") == 0
+    assert p.read_text() == "# header\n\n# plum outline\nk #000000\n"
+
+
+def test_comment_on_the_first_key_with_no_blank_line_is_its_own(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\n")
+    assert run("palette", p, "--comment", "k", "plum outline") == 0
+    assert p.read_text() == "# plum outline\nk #000000\n"
+
+
+def test_listing_shows_the_first_keys_comment_on_its_line(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# Cozy seaside\n\n# outline: plum-navy\nk #2a1f33\n# whitewash\nw #f6f1e4\n")
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "# Cozy seaside"
+    assert "# outline: plum-navy" not in lines[:2]
+    assert any(l.startswith("k #2a1f33") and l.endswith("# outline: plum-navy") for l in lines)
+
+
+def test_listing_no_header_when_the_comment_is_the_first_keys(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #2a1f33\n")
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(". transparent") and lines[1].endswith("# outline")
+
+
+def test_example_03_palette_lists_k_with_its_comment(capsys):
+    p = pathlib.Path(__file__).resolve().parent.parent / "examples" / "03-variants" / "palette.px"
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "# Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline."
+    assert lines[2] == "k #2a1f33     local  # outline: plum-navy, not black"
+
+
+def test_extract_to_keeps_header_and_first_key_comment_apart(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# the palette\n\n# outline\nk #000000\n")
+    out = tmp_path / "copy.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "# the palette\npxart 1\n# outline\nk #000000\n"
+    doc = pxart.parse(out, palette_only=True)
+    assert doc.comments == ["# the palette"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_extract_to_first_key_comment_is_no_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\n")
+    out = tmp_path / "copy.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "pxart 1\n# outline\nk #000000\n"
+
+
+def test_remove_first_key_takes_its_comment_not_the_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--remove", "k") == 0
+    assert p.read_text() == "# header\n\nw #ffffff\n"
+
+
+def test_remove_first_key_takes_its_direct_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--remove", "k") == 0
+    assert p.read_text() == "w #ffffff\n"
+
+
+def test_order_moves_the_first_keys_comment_with_it(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\n# white\nw #ffffff\n")
+    assert run("palette", p, "--order", "w,k") == 0
+    doc = pxart.parse(p, palette_only=True)
+    assert [l for l in doc.comments if l.strip()] == ["# header"]
+    assert doc.lead[("key", "w")][-1] == "# white" and doc.lead[("key", "k")][-1] == "# outline"
+
+
+def test_text_separates_a_header_from_a_first_key_comment():
+    doc = pxart.Doc()
+    doc.comments = ["# header"]
+    doc.palette = {"k": (0, 0, 0, 255)}
+    doc.lead[("key", "k")] = ["# outline"]
+    assert doc.text() == "# header\n\n# outline\nk #000000\n"
+    doc.lead[("key", "k")] = []
+    assert doc.text() == "# header\n\nk #000000\n"
+    doc.version = 1
+    assert doc.text() == "# header\npxart 1\nk #000000\n"
+
+
+def test_compose_carries_the_first_keys_comment_as_a_key_comment(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# outline: plum\nk #2a1f33\nr #c4473a\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "q #00ff00\n@frame z\nq\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
+    doc = pxart.parse(out)
+    assert any("# outline: plum" in l for l in doc.lead.get(("key", "k"), []))
+    assert not any("outline" in l for l in doc.comments)
+
+
+def test_help_and_readme_say_what_the_header_is():
+    assert "A comment right above a line is that line's; a header is above 'pxart 1' or a blank line." in \
+        pxart.__doc__
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "A comment right above a line is that line's (a key's comment); a file's header is the comments above " \
+        "`pxart 1`, or separated from its first line by a blank line." in readme

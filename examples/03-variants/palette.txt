@@ -1,8 +1,7 @@
 $ pxart palette derived/palette.px
 # Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline.
-# outline: plum-navy, not black
 . transparent built-in
-k #2a1f33     local
+k #2a1f33     local  # outline: plum-navy, not black
 w #f6f1e4     local  # whitewash, beard
 s #f0c29a     local  # skin
 S #c98a6e     local  # skin shadow

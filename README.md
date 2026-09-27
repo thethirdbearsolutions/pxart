@@ -48,7 +48,9 @@ packs, tilemaps, import and export, checking.
   ASCII except `# @ . " \`.
 - **Grid:** rows of palette keys, all the same width. The sprite's size is the grid's
   size; nothing is declared or counted.
-- **Comments:** lines starting with `#`.
+- **Comments:** lines starting with `#`. A comment right above a line is that line's (a key's
+  comment); a file's header is the comments above `pxart 1`, or separated from its first line by a
+  blank line.
 - **Version line (optional):** a first line of `pxart 1`.
 
 ### Frames and animation

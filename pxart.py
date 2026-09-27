@@ -11,6 +11,7 @@ FORMAT (.px)
     ....kkkk....             grid rows: all the same width, only palette keys.
     ...kggggk...             The sprite's size is the grid's size: nothing to count.
 
+  A comment right above a line is that line's; a header is above 'pxart 1' or a blank line.
   Several frames per file: name each grid with @frame; the id is a path, and frames
   sharing a parent path form an animation (walk/down/0, walk/down/1 -> "walk/down"):
     @anim walk/down direction=forward repeat=0 ms=125
@@ -506,8 +507,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       inlined (its variants are built, not imported). The map adds to the same-name lookup,
       never replaces it: it says only where OUT's dusk comes from, and OUT's other variants,
       night among them, still read each file's variant of the same name (a keeper's night is
-      then OUT's dusk and OUT's night too). One variant may feed several maps (--variant-map
-      dusk=night --variant-map rain=night). A new OUT merges a variant into the map's only
+      then OUT's dusk and OUT's night too), and may feed several maps. A new OUT merges a variant into the map's only
       when every file that has it gave it to the map (the keeper's night, read as dusk):
       then it gets no variant of its own. One that a file keeps as its own (its file has a
       dusk too) stays one of OUT's variants. With an existing OUT, whose variants stay its
@@ -621,10 +621,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --keep-lit y,W sets every key of FILE's palette (imported ones too, unless FILE imports
       a night) in night from its base color (or from another variant's: --derive-from
       dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
-      over at its alpha, the math of scene --tint, so night looks like a tinted scene; the
-      --keep-lit keys keep their --derive-from color, listed as lamps kept lit. A key that
-      comes out in its base color gets no line. --add in the same call then sets single keys
-      over the derived ones: a whole night in one call, with the lamps still lit.
+      over at its alpha, the math of scene --tint; the --keep-lit keys keep their
+      --derive-from color, listed as lamps kept lit. A key that comes out in its base color
+      gets no line. --add in the same call then sets single keys over the derived ones.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -1208,9 +1207,12 @@ class Doc:
         """The file. Lines the file already had keep their spelling and the blank lines and comments
         above them; new lines follow the file's frame spacing (or the defaults)."""
         out = list(self.comments)
-        for anchor, gap, line in self.lines():
+        for n, (anchor, gap, line) in enumerate(self.lines()):
             lead = self.lead.get(anchor)
-            out += lead if lead is not None else [""] * gap if out else []
+            add = lead if lead is not None else [""] * gap if out else []
+            if n == 0 and anchor[0] == "key" and out and out[-1].strip() and not (add and not add[0].strip()):
+                add = [""] + add  # a header right above the first key line would read as that key's comment
+            out += add
             was = self.raw.get(anchor)
             out.append(was[1] if was and was[0] == line else line)
         out += self.tail
@@ -1321,6 +1323,12 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 err("E_VERSION", f"this pxart reads format version {FORMAT_VERSION}, file says {v!r}", n)
             doc.version = int(v) if v.isdigit() else None
             continue
+        if not started and not s.startswith("@") and PAL_RE.match(s):
+            # the first line a key line: the comments right above it (no blank line between) are its own; the header
+            # is what a blank line separates from it
+            cut = max((i for i, l in enumerate(doc.comments) if not l.strip()), default=-1) + 1
+            pending[:] = doc.comments[cut:]
+            del doc.comments[cut:]
         started = True
 
         if s.startswith("@"):
