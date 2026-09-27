@@ -4632,7 +4632,11 @@ def plays(path, fid):
 def test_frames_copy_group_new_to_dst(tmp_path, capsys):
     s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
     assert run("frames", f"{s}:walk", "--copy-to", d) == 0
-    assert capsys.readouterr().out == f"copied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n"
+    # k is black in both, but d's night recolors it and s's night doesn't: a note, and d's night colors those pixels.
+    assert capsys.readouterr().out == (
+        f"note: FILE ({s}:walk) draws 'k' #000000 (night: #000000 in s.px, #000011 in {d}): {d} has that key in that "
+        "base color but other variant colors, and its variants color the pixels its way; frames --copy-to --rekey "
+        f"gives it a key of its own\ncopied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n")
     assert ids(d) == ["idle", "tail/0", "walk/0", "walk/1"]
     doc = pxart.parse(d)
     assert doc.anims["walk"] == {"direction": "pingpong", "repeat": None, "ms": 120, "pivot": (0, 1)}
@@ -4824,7 +4828,7 @@ def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
 
 def test_help_documents_frames_copy_to():
     doc = pxart.__doc__
-    assert "[--copy-to DST [ID...] [--rekey]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+    assert "[--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
 
 
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
@@ -11012,11 +11016,15 @@ def test_frames_copy_rekey(tmp_path, capsys):
     before = s.read_text()
     assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
     got = capsys.readouterr().out
-    assert got.startswith(f"note: --rekey gives {s}'s keys free ones in {d}: 'w>a' ({s} is unchanged)\n")
+    # w: another color in d. k: black in both, but only d's night recolors it, so it gets a key of its own too.
+    assert got.startswith(f"note: --rekey gives {s}'s keys free ones in {d}: 'k>a' 'w>b' ({s} is unchanged)\n")
+    assert "other variant colors" not in got
     assert s.read_text() == before
     doc = pxart.parse(d)
-    assert doc.get("walk/0").grid == ["ka", "k."] and doc.palette["a"] == pxart.hex2rgba("#ffffff")
-    assert doc.variants["night"]["a"] == pxart.hex2rgba("#888888")
+    assert doc.get("walk/0").grid == ["ab", "a."] and doc.palette["b"] == pxart.hex2rgba("#ffffff")
+    assert doc.variants["night"]["b"] == pxart.hex2rgba("#888888")
+    assert doc.palette["a"] == pxart.hex2rgba("#000000") and "a" not in doc.variants["night"]
+    assert doc.get("idle").grid == ["k"]  # d's own k keeps d's night
     assert plays(d, "walk/0")[0][None] == plays(s, "walk/0")[0][None]
 
 
@@ -11103,8 +11111,8 @@ def test_help_documents_rekey():
             "written)") in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
     assert "with no -o renames them in field.px itself, in every frame" in doc
-    assert "--rekey gives them free keys in DST, as compose's does" in doc
-    assert "--rekey gives it a free key in DST as compose's does" in doc
+    assert "--rekey gives both free keys in DST, as compose's does" in doc
+    assert "--rekey gives both free keys in DST. A frame id DST already has is E_DUP_FRAME" in doc
 
 
 # ---------------------------------------------------------------- each command's E_KEY_CONFLICT in its own nouns
@@ -13036,13 +13044,74 @@ def test_variant_clash_variantless_layer_stays_base(tmp_path, capsys):
         in capsys.readouterr().out
 
 
-def test_variant_clash_existing_out_unchanged(tmp_path, capsys):
-    # An existing OUT keeps its own variants, as before: no variant notes, no rekey for them.
+def test_variant_clash_existing_out_note_without_rekey(tmp_path, capsys):
+    # An existing OUT keeps its own variants, and its dusk would color the scarf's r like the awning's: a note.
+    b = write(tmp_path, "scarf.px", SCARF)
+    out = write(tmp_path, "o.px", AWNING)
+    assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0") == 0
+    got = capsys.readouterr().out.splitlines()
+    assert got == [f"note: layer 1 ({b}:s) draws 'r' #c4473a (dusk: #c4473a in scarf.px, #a33a4c in {out}): {out} has "
+                   "that key in that base color but other variant colors, and its variants color the pixels its way; "
+                   "compose --rekey gives it a key of its own", f"wrote {out} frame b"]
+    assert pxart.parse(out).get("b").grid == ["r."]
+
+
+def test_variant_clash_existing_out_rekey_gives_the_scarf_its_own_key(tmp_path, capsys):
     b = write(tmp_path, "scarf.px", SCARF)
     out = write(tmp_path, "o.px", AWNING)
     assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey") == 0
+    got = capsys.readouterr().out.splitlines()
+    assert got[0] == f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged)"
+    assert got[1] == (f"note: scarf.px has no @variant dusk (it has night), so the keys layer 1 ({b}:s) adds to {out} "
+                      "(a) stay at base colors in its dusk; --variant-map dusk=night reads its night as dusk")
+    doc = pxart.parse(out)
+    assert doc.get("b").grid == ["a."] and doc.palette["a"] == pxart.hex2rgba("#c4473a")
+    assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}}  # the scarf stays at its base color at dusk
+    assert doc.image(doc.get("b"), "dusk").getpixel((0, 0)) == pxart.hex2rgba("#c4473a")
+    assert doc.image(doc.get("a"), "dusk").getpixel((0, 0)) == pxart.hex2rgba("#a33a4c")  # the awning as it was
+
+
+def test_variant_clash_existing_out_variant_map_reads_night_as_dusk(tmp_path, capsys):
+    b = write(tmp_path, "scarf.px", SCARF)
+    out = write(tmp_path, "o.px", AWNING)
+    assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey", "--variant-map", "dusk=night") == 0
     got = capsys.readouterr().out
-    assert got == f"wrote {out} frame b\n" and pxart.parse(out).get("b").grid == ["r."]
+    assert "'r>a'" in got and "stay at base colors" not in got
+    doc = pxart.parse(out)
+    assert doc.get("b").grid == ["a."]
+    assert doc.variants["dusk"] == {"r": pxart.hex2rgba("#a33a4c"), "a": pxart.hex2rgba("#83344e")}
+
+
+def test_variant_clash_existing_out_second_compose_reuses_the_split_key(tmp_path, capsys):
+    # Composing from the same file again with the same map finds OUT's 'a' looks like the scarf's r everywhere.
+    b = write(tmp_path, "scarf.px", SCARF)
+    out = write(tmp_path, "o.px", AWNING)
+    run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey", "--variant-map", "dusk=night")
+    before = dict(pxart.parse(out).palette)
+    capsys.readouterr()
+    assert run("compose", "-o", f"{out}:c", f"{b}:s@0,0", "--rekey", "--variant-map", "dusk=night") == 0
+    assert "'r>a'" in capsys.readouterr().out
+    doc = pxart.parse(out)
+    assert doc.get("c").grid == ["a."] and dict(doc.palette) == before
+
+
+def test_variant_clash_existing_out_new_keys_get_their_variant_colors(tmp_path, capsys):
+    # A key OUT hasn't got comes with the layer's colors in OUT's variants of the same name.
+    b = write(tmp_path, "lamp.px", "q #fff4b0\nz #223344\n@variant dusk\nz #111111\nq #fff4b0\n@frame l\nqz\n")
+    out = write(tmp_path, "o.px", AWNING)
+    assert run("compose", "-o", f"{out}:b", f"{b}:l@0,0") == 0
+    doc = pxart.parse(out)
+    assert doc.variants["dusk"]["z"] == pxart.hex2rgba("#111111")
+    assert doc.variants["dusk"]["q"] == pxart.hex2rgba("#fff4b0")  # listed in its base color: a lamp kept lit
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_variant_map_existing_out_needs_the_name_in_out(tmp_path):
+    a = write(tmp_path, "scarf.px", SCARF)
+    out = write(tmp_path, "o.px", AWNING)
+    before = out.read_text()
+    msg = run_err("compose", "-o", f"{out}:b", f"{a}:s@0,0", "--variant-map", "eve=night")
+    assert "E_SELECT" in msg and f"{out} has no @variant 'eve' (it has: dusk)" in msg and out.read_text() == before
 
 
 def test_new_keys_fits_skips_a_same_color_key_that_looks_different(tmp_path):
@@ -13075,11 +13144,12 @@ def test_variant_map_unknown_source(tmp_path):
     assert not (tmp_path / "o.px").exists()
 
 
-def test_variant_map_existing_out_is_an_error(tmp_path):
+def test_variant_map_existing_out_reads_the_layers_variants(tmp_path, capsys):
     a = write(tmp_path, "awning.px", AWNING)
     out = write(tmp_path, "o.px", AWNING)
-    msg = run_err("compose", "-o", f"{out}:b", f"{a}:a@0,0", "--variant-map", "dusk=dusk")
-    assert "E_BAD_ARG" in msg and "keeps its own" in msg
+    assert run("compose", "-o", f"{out}:b", f"{a}:a@0,0", "--variant-map", "dusk=dusk") == 0
+    assert capsys.readouterr().out == f"wrote {out} frame b\n"
+    assert pxart.parse(out).get("b").grid == ["rk"]
 
 
 def test_variant_map_renames_one_files_variant(tmp_path, capsys):
@@ -13569,3 +13639,322 @@ def test_frames_help_says_how_to_start_dst(capsys):
 def test_readme_documents_new_empty():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`new party.px --empty --palette palette.px` starts a file with no frames that imports a palette" in readme
+
+
+# ---------------------------------------------------------------- every path that imports keys is variant-aware
+# The keeper's scarf r and the market's awning r share a base color (#c4473a) but not a dusk: the awning's file dims it
+# to #a33a4c, the keeper's file has no dusk (its night makes the scarf #83344e). copy-to, paste, crop and compose into
+# an existing file used to keep r as one key, so the scarf took the awning's dusk.
+
+SCARF_WALK = ("r #c4473a\nk #000000\nq #fff4b0\n@variant night\nr #83344e\nk #000011\nq #fff4b0\n"
+              "@anim walk ms=90\n@frame walk/0\nrk\nq.\n@frame walk/1\nkr\n.q\n")
+MARKET = "r #c4473a\nk #000000\n@variant dusk\nr #a33a4c\n@frame awning\nrk\n"
+
+
+def scarf_market(tmp_path, market=MARKET):
+    return write(tmp_path, "keeper.px", SCARF_WALK), write(tmp_path, "party.px", market)
+
+
+def dusk_of(path, fid, xy=(0, 0)):
+    doc = pxart.parse(path)
+    return doc.image(doc.get(fid), "dusk").getpixel(xy)
+
+
+def test_copy_to_rekey_splits_a_key_whose_variants_differ(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got.splitlines()[0] == f"note: --rekey gives {s}'s keys free ones in {d}: 'r>a' ({s} is unchanged)"
+    doc = pxart.parse(d)
+    assert doc.get("walk/0").grid == ["ak", "q."] and doc.get("awning").grid == ["rk"]
+    assert dusk_of(d, "walk/0") == pxart.hex2rgba("#c4473a")  # the scarf: its file has no dusk, so base
+    assert dusk_of(d, "awning") == pxart.hex2rgba("#a33a4c")  # the awning, as the market dims it
+
+
+def test_copy_to_without_rekey_notes_the_shared_key(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    got = capsys.readouterr().out
+    assert (f"note: FILE ({s}:walk) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d}): {d} has that key "
+            "in that base color but other variant colors, and its variants color the pixels its way; frames --copy-to "
+            "--rekey gives it a key of its own") in got
+    assert pxart.parse(d).get("walk/0").grid == ["rk", "q."]
+
+
+def test_copy_to_note_names_every_key_that_differs(tmp_path, capsys):
+    # The market dims its outline k at dusk too: both keys in one note, and --rekey moves both.
+    s, d = scarf_market(tmp_path, MARKET.replace("@variant dusk\n", "@variant dusk\nk #000011\n"))
+    run("frames", f"{s}:walk", "--copy-to", d)
+    got = capsys.readouterr().out
+    assert (f"draws 'k' #000000 (dusk: #000000 in keeper.px, #000011 in {d}) and 'r' #c4473a (dusk: #c4473a in "
+            f"keeper.px, #a33a4c in {d}): {d} has those keys in that base color but other variant colors, and its "
+            "variants color those pixels its way; frames --copy-to --rekey gives them keys of their own") in got
+
+
+def test_copy_to_rekey_moves_every_key_that_differs(tmp_path, capsys):
+    s, d = scarf_market(tmp_path, MARKET.replace("@variant dusk\n", "@variant dusk\nk #000011\n"))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert f"free ones in {d}: 'k>a' 'r>b'" in capsys.readouterr().out
+    assert pxart.parse(d).get("walk/0").grid == ["ba", "q."]
+
+
+def test_copy_to_rekey_with_variant_map_reads_night_as_dusk(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    got = capsys.readouterr().out
+    assert "stay at base colors" not in got
+    doc = pxart.parse(d)
+    new = doc.get("walk/0").grid[0][0]
+    assert new not in ("r", "k") and doc.variants["dusk"][new] == pxart.hex2rgba("#83344e")
+    assert dusk_of(d, "walk/0") == pxart.hex2rgba("#83344e") and dusk_of(d, "awning") == pxart.hex2rgba("#a33a4c")
+
+
+def test_copy_to_rekey_reuses_a_key_that_looks_the_same_in_every_variant(tmp_path, capsys):
+    # DST already has the scarf as I (base and dusk as the keeper's night reads): --rekey with the map picks I, not a
+    # free key, and not r (same base, other dusk).
+    s, d = scarf_market(tmp_path, MARKET.replace("k #000000\n", "k #000000\nI #c4473a\n").replace(
+        "@variant dusk\n", "@variant dusk\nI #83344e\n"))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    assert "'r>I'" in capsys.readouterr().out
+    assert pxart.parse(d).get("walk/0").grid[0][0] == "I"
+
+
+def test_copy_to_rekey_skips_a_same_base_key_that_looks_different(tmp_path, capsys):
+    # Without the map the scarf stays base at dusk: I (dusk #83344e) doesn't fit, and neither does r: a free key.
+    s, d = scarf_market(tmp_path, MARKET.replace("k #000000\n", "k #000000\nI #c4473a\n").replace(
+        "@variant dusk\n", "@variant dusk\nI #83344e\n"))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    key = pxart.parse(d).get("walk/0").grid[0][0]
+    assert key not in ("r", "I") and dusk_of(d, "walk/0") == pxart.hex2rgba("#c4473a")
+
+
+def test_copy_to_new_keys_come_with_their_variant_colors_by_map(tmp_path):
+    s, d = scarf_market(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(d)
+    assert doc.variants["dusk"]["q"] == pxart.hex2rgba("#fff4b0")  # the lamp, relisted as kept lit
+
+
+def test_copy_to_new_keys_without_map_stay_base_and_say_so(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    assert "q" not in pxart.parse(d).variants["dusk"]
+    assert (f"note: keeper.px has no @variant dusk (it has night), so the keys FILE ({s}:walk) adds to {d} (q) stay at "
+            "base colors in its dusk; --variant-map dusk=night reads its night as dusk") in capsys.readouterr().out
+
+
+def test_copy_to_variant_map_unknown_source_variant(tmp_path):
+    s, d = scarf_market(tmp_path)
+    before = d.read_text()
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk=nigth")
+    assert "E_SELECT" in msg and "no source file has @variant 'nigth' (they have: night)" in msg
+    assert d.read_text() == before
+
+
+def test_copy_to_variant_map_name_dst_lacks(tmp_path):
+    s, d = scarf_market(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "eve=night")
+    assert "E_SELECT" in msg and f"{d} has no @variant 'eve' (it has: dusk)" in msg
+
+
+def test_copy_to_variant_map_bad_syntax(tmp_path):
+    s, d = scarf_market(tmp_path)
+    assert "E_BAD_ARG" in run_err("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk")
+
+
+def test_copy_to_key_conflict_suggestion_is_what_rekey_gives(tmp_path, capsys):
+    # k is another color in DST. DST's R is the keeper's black, but DST dims R at dusk and the keeper (no dusk) doesn't:
+    # neither the error's suggestion nor --rekey reuses R.
+    market = MARKET.replace("k #000000", "k #101010").replace("@variant dusk\n", "R #000000\n@variant dusk\n"
+                                                                                   "R #000011\n")
+    s, d = scarf_market(tmp_path, market)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d)
+    suggested = next(m for m in fix_of(msg) if m.startswith("k>"))
+    assert "E_KEY_CONFLICT" in msg and suggested != "k>R"
+    capsys.readouterr()
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert shlex_quote(suggested) in capsys.readouterr().out
+
+
+def test_copy_to_key_conflict_suggestion_reuses_a_key_that_fits(tmp_path, capsys):
+    # DST's K is the keeper's black and stays black at dusk, as the keeper's k does: suggested and reused.
+    market = MARKET.replace("k #000000", "k #101010").replace("@variant dusk\n", "K #000000\n@variant dusk\n")
+    s, d = scarf_market(tmp_path, market)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d)
+    assert "k>K" in fix_of(msg)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert pxart.parse(d).get("walk/0").grid[0][1] == "K"
+
+
+def shlex_quote(s):
+    import shlex
+    return shlex.quote(s)
+
+
+def test_copy_to_same_variants_no_note_no_split(tmp_path, capsys):
+    # Both files dim r the same way at dusk: one key, no note.
+    s = write(tmp_path, "s.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame a\nr\n")
+    d = write(tmp_path, "d.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame b\nr\n")
+    assert run("frames", s, "--copy-to", d, "--rekey") == 0
+    got = capsys.readouterr().out
+    assert "note:" not in got and pxart.parse(d).get("a").grid == ["r"]
+
+
+def test_copy_to_dst_without_variants_no_note(tmp_path, capsys):
+    s = write(tmp_path, "s.px", SCARF_WALK)
+    d = write(tmp_path, "d.px", "r #c4473a\n@frame b\nr\n")
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    got = capsys.readouterr().out
+    assert "note:" not in got and pxart.parse(d).get("walk/0").grid[0][0] == "r"
+
+
+def test_paste_rekey_splits_a_key_whose_variants_differ(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got.splitlines()[0] == f"note: --rekey gives {s}'s keys free ones in {d}: 'r>a' ({s} is unchanged)"
+    doc = pxart.parse(d)
+    assert doc.get("awning").grid == ["ak"] and doc.image(doc.get("awning"), "dusk").getpixel((0, 0)) == \
+        pxart.hex2rgba("#c4473a")
+
+
+def test_paste_without_rekey_notes_the_shared_key(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0") == 0
+    assert (f"note: SRC ({s}:walk/0) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d})"
+            in capsys.readouterr().out)
+
+
+def test_paste_new_keys_come_with_their_variant_colors(tmp_path, capsys):
+    # Before, paste added a new key in its base color only, whatever the DST's variants.
+    s = write(tmp_path, "s.px", "z #223344\n@variant dusk\nz #111111\n@frame a\nz\n")
+    d = write(tmp_path, "d.px", MARKET)
+    assert run("paste", s, "--into", f"{d}:awning", "--at", "0,0") == 0
+    doc = pxart.parse(d)
+    assert doc.variants["dusk"]["z"] == pxart.hex2rgba("#111111") and doc.get("awning").grid == ["zk"]
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_paste_variant_map(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--rekey", "--variant-map",
+               "dusk=night") == 0
+    doc = pxart.parse(d)
+    key = doc.get("awning").grid[0][0]
+    assert doc.variants["dusk"][key] == pxart.hex2rgba("#83344e")
+
+
+def test_paste_variant_map_name_dst_lacks(tmp_path):
+    s, d = scarf_market(tmp_path)
+    assert "E_SELECT" in run_err("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--variant-map",
+                                 "eve=night")
+
+
+def test_crop_into_existing_out_rekey_splits(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,1,1", "-o", f"{d}:scarf", "--rekey") == 0
+    doc = pxart.parse(d)
+    key = doc.get("scarf").grid[0]
+    assert key != "r" and doc.image(doc.get("scarf"), "dusk").getpixel((0, 0)) == pxart.hex2rgba("#c4473a")
+    assert "'r>" in capsys.readouterr().out
+
+
+def test_crop_into_existing_out_without_rekey_notes(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,1,1", "-o", f"{d}:scarf") == 0
+    got = capsys.readouterr().out
+    assert f"note: FILE ({s}:walk/0) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d})" in got
+    assert "crop --rekey gives it a key of its own" in got
+
+
+def test_crop_into_existing_out_variant_map(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", f"{d}:scarf", "--rekey", "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(d)
+    assert doc.image(doc.get("scarf"), "dusk").getpixel((0, 0)) == pxart.hex2rgba("#83344e")
+    assert doc.image(doc.get("scarf"), "dusk").getpixel((0, 1)) == pxart.hex2rgba("#fff4b0")
+
+
+def test_compose_into_existing_out_splits_like_a_new_one(tmp_path, capsys):
+    s, d = scarf_market(tmp_path)
+    assert run("compose", "-o", f"{d}:both", "--size", "2x2", f"{d}:awning@0,0", f"{s}:walk/0@0,1", "--rekey") == 0
+    doc = pxart.parse(d)
+    g = doc.get("both").grid
+    assert g[0] == "rk" and g[1][0] not in ("r", "k")
+    img = doc.image(doc.get("both"), "dusk")
+    assert img.getpixel((0, 0)) == pxart.hex2rgba("#a33a4c") and img.getpixel((0, 1)) == pxart.hex2rgba("#c4473a")
+
+
+def test_put_stdin_key_in_files_color_keeps_files_variants(tmp_path, capsys, monkeypatch):
+    # stdin has no variants: its palette lines declare FILE's own keys, so r stays r and takes FILE's dusk, no note.
+    import io
+    d = write(tmp_path, "d.px", MARKET)
+    monkeypatch.setattr("sys.stdin", io.StringIO("r #c4473a\nkr\n"))
+    assert run("put", f"{d}:awning") == 0
+    got = capsys.readouterr().out
+    assert "note:" not in got and pxart.parse(d).get("awning").grid == ["kr"]
+    assert dusk_of(d, "awning", (1, 0)) == pxart.hex2rgba("#a33a4c")
+
+
+def test_put_stdin_new_key_stays_base_in_variants(tmp_path, capsys, monkeypatch):
+    import io
+    d = write(tmp_path, "d.px", MARKET)
+    monkeypatch.setattr("sys.stdin", io.StringIO("z #223344\nzr\n"))
+    assert run("put", f"{d}:awning") == 0
+    doc = pxart.parse(d)
+    assert doc.palette["z"] == pxart.hex2rgba("#223344") and "z" not in doc.variants["dusk"]
+
+
+def test_import_keys_helper(tmp_path):
+    s = pxart.parse(write(tmp_path, "s.px", SCARF_WALK))
+    d = pxart.parse(write(tmp_path, "d.px", MARKET))
+    assert pxart.import_keys(d, s, {"q", "r", "k", "."}) == ["q"]
+    assert "q" not in d.variants["dusk"]
+    d2 = pxart.parse(tmp_path / "d.px")
+    assert pxart.import_keys(d2, s, {"q"}, {"dusk": ["dusk", "night"]}) == ["q"]
+    assert d2.variants["dusk"]["q"] == pxart.hex2rgba("#fff4b0")
+
+
+def test_import_keys_transparent_only_with_clear(tmp_path):
+    s = pxart.parse(write(tmp_path, "s.px", "z transparent\n@frame a\nz\n"))
+    d = pxart.parse(write(tmp_path, "d.px", "k #000000\n@frame b\nk\n"))
+    assert pxart.import_keys(d, s, {"z"}) == [] and "z" not in d.palette
+    assert pxart.import_keys(d, s, {"z"}, clear=True) == ["z"] and d.palette["z"] == pxart.CLEAR
+
+
+def test_vclashes_helper(tmp_path):
+    s = pxart.parse(write(tmp_path, "s.px", SCARF_WALK))
+    d = pxart.parse(write(tmp_path, "d.px", MARKET))
+    assert pxart.vclashes(d, s, {"r", "k", "q"}) == ["r"]  # k: black at dusk in both
+    assert pxart.vclashes(d, s, {"r"}, {"dusk": ["dusk", "night"]}) == ["r"]  # night's #83344e isn't dusk's #a33a4c
+    plain = pxart.parse(write(tmp_path, "p.px", "r #c4473a\n@frame a\nr\n"))
+    assert pxart.vclashes(plain, s, {"r"}) == []  # a DST without variants
+    assert pxart.vclashes(d, d, {"r", "k"}) == []  # a file against itself
+
+
+def test_colors_in_helper(tmp_path):
+    s = pxart.parse(write(tmp_path, "s.px", SCARF_WALK))
+    assert pxart.colors_in(s, "r", ["dusk", "night"]) == [pxart.hex2rgba("#c4473a"), pxart.hex2rgba("#83344e")]
+    assert pxart.colors_in(s, "r", ["dusk"], {"dusk": ["dusk", "night"]}) == [pxart.hex2rgba("#83344e")]
+
+
+def test_rekey_moves_helper(tmp_path):
+    s = pxart.parse(write(tmp_path, "s.px", SCARF_WALK))
+    d = pxart.parse(write(tmp_path, "d.px", MARKET))
+    assert pxart.rekey_moves(d, s, {"q"}) == {}
+    moves = pxart.rekey_moves(d, s, {"r", "k"})
+    assert set(moves) == {"r"} and not set(moves.values()) & {"r", "k", "q"}
+
+
+def test_help_documents_variant_aware_imports(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "Their keys join DST's palette and DST's variants as compose's layers join an existing OUT" in doc
+    assert "--variant-map dusk=night reads FILE's night as DST's dusk" in doc
+    assert "crop, paste and frames --copy-to bring keys in the same way" in doc
+    assert "With an existing OUT, whose variants stay its own, the map says which of each layer's variants" in doc
+    assert "Stdin has no variants: a key in FILE's color is FILE's key, variant colors and all" in doc
+    assert "An existing OUT keeps its own palette, @palette and variants" in doc
+    for cmd in ("paste", "crop", "frames"):
+        assert "--variant-map NAME=V1,V2" in cmd_help(capsys, cmd)
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`frames keeper.px:walk --copy-to party.px --rekey --variant-map dusk=night` reads the keeper's night" in readme

@@ -178,9 +178,11 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   the layers behind the frame that's there, in its empty pixels; a key a layer has in
   another color than OUT's is `E_KEY_CONFLICT`, one line per source file with free keys
   for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
-  does for `crop`, `paste` and `frames --copy-to`; in a new OUT `--rekey` also gives free
-  keys to a key two files have in one color but recolor differently in their variants, and
-  to a needed key it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
+  does for `crop`, `paste` and `frames --copy-to`; `--rekey` also gives free keys to a key
+  two files have in one color but recolor differently in their variants, into a new file or
+  an existing one (`frames keeper.px:walk --copy-to party.px --rekey --variant-map
+  dusk=night` reads the keeper's night as party.px's dusk), and in a new OUT to a needed key
+  it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves a
   sprite's own keys into the palette file it imports; `palette FILE` alone lists the keys,
