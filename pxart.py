@@ -384,7 +384,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
       reasons, and prints alone: a compose that fails prints no notes.
       The comments above the layers' key and @variant lines come along, as for palette
       --extract-to; a comment naming a key --rekey renamed says so: '# lamp colors (l, g)
-      stay lit (renamed l>I g>J)'.
+      stay lit (renamed l>I g>J)'. The keys right below a key's comment in its file (the keys
+      it is about: '# light-emitting keys' above f a i) stay below it. From several files,
+      each saying which file's it is ('from keeper.px's @variant night, dusk here'), and one
+      that names a variant --variant-map merged into another says so ('from player.px,
+      whose dark is dusk here'). An OUT whose palette is inlined also gets the palette files'
+      header comments at the top of its palette, each with the files it came from.
       Variants come along for the keys OUT has, each in the colors of the layer whose key OUT
       has, so one file's variant never recolors another file's pixels. Layers from files
       with different variants (a market's dusk, a keeper's night, a candle's dark): each of
@@ -3668,26 +3673,112 @@ def renamed_lead(lead, moves, own=None):
     return out
 
 
+NAME_TOKEN = r"(?<![A-Za-z0-9_\-]){}(?![A-Za-z0-9_\-])"
+
+
+def labeled(lines, label):
+    """Carried comment lines with `label` said on the last comment line, in its '(renamed ...)' if it has one."""
+    out = list(lines)
+    last = max((i for i, l in enumerate(out) if l.strip().startswith("#")), default=None)
+    if last is None or not label:
+        return out
+    m = re.search(r" \(renamed [^()]*\)$", out[last])
+    out[last] = out[last][:-1] + f"; {label})" if m else out[last] + f" ({label})"
+    return out
+
+
+def mapped_mentions(lines, d, vmap):
+    """The variants of d's file that --variant-map merged into another of OUT's that these comment lines name, as
+    'dark is dusk here' (a comment saying 'not in @variant dark' about an OUT that has no dark)."""
+    text = " ".join(l.split("#", 1)[1] for l in lines if "#" in l)
+    return [f"{src} is {out} here" for out, src in layer_variants(d, vmap).items()
+            if src != out and re.search(NAME_TOKEN.format(re.escape(src)), text)]
+
+
+def comment_blocks(doc, seen=None):
+    """{key: the keys after it} for each key line of doc's palette (and the palette files it imports) that has a
+    comment above it and key lines right below it, no blank or comment line between: the keys that comment is about
+    ('# light-emitting keys' above f a i)."""
+    seen = set() if seen is None else seen
+    out = {}
+    if doc.path is not None:
+        seen.add(doc.path.resolve())
+    for ref in doc.palette_refs:
+        target = doc.path.parent / ref
+        if target.resolve() in seen:
+            continue
+        try:
+            out.update(comment_blocks(parse(target, palette_only=True), seen))
+        except (OSError, PxError):
+            continue
+    head = None
+    for k in doc.palette:
+        lead = doc.lead.get(("key", k)) or []
+        if any(l.strip() for l in lead):
+            head = k
+            out[head] = []
+        elif lead or head is None:
+            head = None
+        else:
+            out[head].append(k)
+    return {k: ks for k, ks in out.items() if ks}
+
+
 def carry_notes(doc, docs, notes, renamed, owners, vmap):
     """compose's new OUT gets the comments that document its keys and variants in the layers' palettes (as --extract-to
-    carries them): above a key line, its owner's comment for it; above a @variant line, the comments above the variants
-    it takes, the layers' in order; above a variant key line, its owner's. A key --rekey renamed says so (renamed_lead).
-    A variant --variant-map merged from several gets a line naming them."""
+    carries them): above a key line, its owner's comment for it, with the keys right below it in the source (the keys
+    it is about) moved up under it when OUT has them from that file; above a @variant line, the comments above the
+    variants it takes, the layers' in order; above a variant key line, its owner's. A key --rekey renamed says so
+    (renamed_lead). From several files, each comment says which file's it is ('from keeper.px's @variant night'), and
+    a comment naming a variant --variant-map merged into another says so ('dark is dusk here'). A variant --variant-map
+    merged from several gets a line naming them. notes: {path: (palette_notes, comment_blocks)} of each layer's file,
+    read before --rekey moved keys."""
+    multi = len(docs) > 1
+
     def lead_of(d, anchor, own=None):
-        got = notes.get(d.path.resolve(), {}).get(anchor)
+        got = notes.get(d.path.resolve(), ({}, {}))[0].get(anchor)
         return renamed_lead(got, renamed.get(d.path.resolve(), {}), own) if got else None
+
+    def label(d, lines, what):  # 'from player.px, whose dark is dusk here'
+        named = mapped_mentions(lines, d, vmap)
+        if not multi:
+            return "; ".join(named)
+        return f"from {what}" + (f", whose {' and '.join(named)}" if named else "")
 
     def old(d, k):
         return next((o for o, n in renamed.get(d.path.resolve(), {}).items() if n == k), k)
-    for k in doc.palette:
+
+    def new(d, k):
+        return renamed.get(d.path.resolve(), {}).get(k, k)
+    order = list(doc.palette)
+    for k in list(order):
         d = owners.get(k)
-        if d is not None and lead_of(d, ("key", old(d, k))):
-            doc.lead[("key", k)] = lead_of(d, ("key", old(d, k)), (old(d, k), k) if old(d, k) != k else None)
+        got = lead_of(d, ("key", old(d, k)), (old(d, k), k) if old(d, k) != k else None) if d is not None else None
+        if not got:
+            continue
+        doc.lead[("key", k)] = labeled(got, label(d, got, d.path.name))
+        after = [new(d, x) for x in notes.get(d.path.resolve(), ({}, {}))[1].get(old(d, k), [])]
+        after = [x for x in after if x in doc.palette and x != k and owners.get(x) is not None
+                 and owners[x].path.resolve() == d.path.resolve()]
+        for x in after:  # the keys the comment is about follow it, in the source's order
+            order.remove(x)
+        order[order.index(k) + 1:order.index(k) + 1] = after
+    if order != list(doc.palette):
+        doc.palette = {k: doc.palette[k] for k in order}
     for name, over in doc.variants.items():
         takes = [(d, layer_variants(d, vmap)[name]) for d in docs if name in layer_variants(d, vmap)]
-        lines = []
+        groups = {}  # the same comment lines from several files (one shared palette): said once, naming them all
         for d, src in takes:
-            lines += [l for l in lead_of(d, ("variant", src)) or [] if l.strip() and l not in lines]
+            got = [l for l in lead_of(d, ("variant", src)) or [] if l.strip()]
+            if got:
+                groups.setdefault(tuple(got), []).append((d, src))
+        lines = []
+        for got, whose in groups.items():
+            srcs = list(dict.fromkeys(src for _, src in whose))
+            what = " and ".join(dict.fromkeys(f"{d.path.name}'s" for d, _ in whose)) + f" @variant {'/'.join(srcs)}"
+            here = f", {name} here" if srcs != [name] else ""
+            lines += labeled(list(got), f"from {what}{here}" if multi else f"@variant {'/'.join(srcs)}{here}"
+                             if here else "")
         froms = list(dict.fromkeys(f"{d.path.name}'s {src}" for d, src in takes))
         if name in vmap and any(src != name for _, src in takes):
             lines.append(f"# {name}: {', '.join(froms)} (compose --variant-map)")
@@ -3698,7 +3789,23 @@ def carry_notes(doc, docs, notes, renamed, owners, vmap):
             src = layer_variants(d, vmap).get(name) if d is not None else None
             got = lead_of(d, ("vkey", src, old(d, k)), (old(d, k), k) if old(d, k) != k else None) if src else None
             if got:
-                doc.lead[("vkey", name, k)] = got
+                doc.lead[("vkey", name, k)] = labeled(got, label(d, got, f"{d.path.name}'s @variant {src}"))
+
+
+def carry_header(doc, heads):
+    """A new compose OUT whose palette is inlined gets the header comments of the palette files its layers import
+    (their comments above their first line; a sprite's own header is about the sprite and stays), at the top of its
+    palette, each saying which layers' files it came from: heads {layer file name: header lines}."""
+    if doc.palette_refs:  # OUT imports the palette files themselves, headers and all
+        return
+    groups = {}
+    for name, head in heads.items():
+        if head:
+            groups.setdefault(tuple(head), []).append(name)
+    lines = [l for head, names in groups.items() for l in labeled(list(head), f"from {', '.join(names)}")]
+    first = next((anchor for anchor, _, _ in doc.lines() if anchor[0] in ("key", "variant")), None)
+    if lines and first:
+        doc.lead[first] = [""] + lines + [""] + [l for l in doc.lead.get(first) or [] if l.strip()]
 
 
 def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None):
@@ -3772,7 +3879,9 @@ def cmd_compose(a):
     vmap = variant_map(getattr(a, "variant_map", None))
     notes = {}  # the comments on the layers' palettes, read before --rekey moves keys in memory
     for lay, *_ in layers:
-        notes.setdefault(lay.doc.path.resolve(), palette_notes(lay.doc)[0])
+        if lay.doc.path.resolve() not in notes:
+            said, head = palette_notes(lay.doc)
+            notes[lay.doc.path.resolve()] = (said, comment_blocks(lay.doc), head)
     gone, renamed, why = {}, {}, {}
     if getattr(a, "rekey", False):
         try:
@@ -4010,13 +4119,14 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         pal = doc.resolved()
         target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
-    if fresh:
-        carry_notes(doc, list({id(lay.doc): lay.doc for lay, *_ in layers}.values()), notes or {}, renamed or {},
-                    owners, vmap)
     if fresh and getattr(a, "used_keys_only", False):  # keys that landed on the canvas; a cropped-away one goes
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
         doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
+    if fresh:
+        docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
+        carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
+        carry_header(doc, {d.path.name: (notes or {}).get(d.path.resolve(), ({}, {}, []))[2] for d in docs})
     print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
 
 

@@ -171,7 +171,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   a new frame lands after its animation; a new file gets the layers' whole palette, their
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
-  comments on their key and `@variant` lines; a key its file needs (drawn in other frames,
+  comments on their key and `@variant` lines, each naming its file when there are several
+  (`from keeper.px's @variant night, dusk here`), with the palette files' headers at the
+  top; a key its file needs (drawn in other frames,
   named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports one
   line per source file, with what `--rekey` moved and why, and an `E_KEY_CONFLICT` offers
   the same moves; each variant colors only

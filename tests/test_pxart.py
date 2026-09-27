@@ -12942,7 +12942,7 @@ def test_three_packs_comments_come_along(tmp_path, capsys):
     night = lines.index("@variant night")
     assert lines[night - 1].startswith("# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>")
     dark = lines.index("@variant dark")
-    assert lines[dark - 1] == "# darkness: everything that only reflects light goes cold"
+    assert lines[dark - 1] == "# darkness: everything that only reflects light goes cold (from player.px's @variant dark)"
 
 
 def test_three_packs_renamed_lamp_comment_names_both_keys(tmp_path, capsys):
@@ -12950,8 +12950,9 @@ def test_three_packs_renamed_lamp_comment_names_both_keys(tmp_path, capsys):
     doc = pxart.parse(out)
     new = {c: k for k, c in doc.palette.items()}
     l, g = new[pxart.hex2rgba("#fff4b0")], new[pxart.hex2rgba("#ffc861")]
-    assert f"# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>{l} g>{g})" in out.read_text()
-    assert f"# lamp glass (renamed l>{l})" in out.read_text()  # above the renamed key line itself
+    assert (f"# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>{l} g>{g}; from keeper.px's @variant "
+            "night)") in out.read_text()
+    assert f"# lamp glass (renamed l>{l}; from keeper.px)" in out.read_text()  # above the renamed key line itself
 
 
 def test_three_packs_comments_survive_extract_to(tmp_path, capsys):
@@ -13318,7 +13319,9 @@ def test_compose_carries_comments_from_the_layers_imports(tmp_path, capsys):
     b = write(tmp_path, "b.px", "@palette pal2.px\n@frame y\ny\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
-    assert out.read_text() == "pxart 1\n# ink\nk #000000\n# the sun\ny #ffff00\n\nky\n"  # a palette header stays
+    # the palette files' headers come too, at the top, each saying whose it is
+    assert out.read_text() == ("pxart 1\n\n# header (from a.px)\n\n# ink (from a.px)\nk #000000\n# the sun (from b.px)\n"
+                               "y #ffff00\n\nky\n")
 
 
 def test_compose_comment_of_a_left_out_key_goes(tmp_path, capsys):
@@ -13326,7 +13329,7 @@ def test_compose_comment_of_a_left_out_key_goes(tmp_path, capsys):
     b = write(tmp_path, "b.px", "pxart 1\n# a red\nz #ff0000\n@frame y\nz\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0")
-    assert "# a red\nz #ff0000" in out.read_text() and "# a white" not in out.read_text()
+    assert "# a red (from b.px)\nz #ff0000" in out.read_text() and "# a white" not in out.read_text()
 
 
 def test_compose_a_sprites_header_comment_stays_with_it(tmp_path, capsys):
@@ -13356,7 +13359,7 @@ def test_compose_rekey_renamed_key_comment_says_so(tmp_path, capsys):
     b = write(tmp_path, "b.px", "pxart 1\n# grass (s) and its shadow\ns #00ff00\n@frame y\ns\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0", "--rekey") == 0
-    assert "# grass (s) and its shadow (renamed s>a)\na #00ff00" in out.read_text()
+    assert "# grass (s) and its shadow (renamed s>a; from b.px)\na #00ff00" in out.read_text()
 
 
 def test_compose_rekey_renamed_key_own_comment_without_the_letter(tmp_path, capsys):
@@ -13364,7 +13367,7 @@ def test_compose_rekey_renamed_key_own_comment_without_the_letter(tmp_path, caps
     b = write(tmp_path, "b.px", "pxart 1\n# grass\ns #00ff00\n@frame y\ns\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0", "--rekey")
-    assert "# grass (renamed s>a)\na #00ff00" in out.read_text()
+    assert "# grass (renamed s>a; from b.px)\na #00ff00" in out.read_text()
 
 
 def test_renamed_lead_words_and_punctuation():
@@ -14165,3 +14168,253 @@ def test_help_documents_the_compose_report(capsys):
 def test_readme_documents_the_compose_report():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "it reports one line per source file, with what `--rekey` moved and why" in readme
+
+
+# ---------------------------------------------------------------- carried comments stay true in the new OUT
+
+GLOW_PAL = ("# WICK shared palette: cellar and flame\nk #1a1423\nw #f6eed8\n"
+            "# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm.\n"
+            "f #ffe07a\na #f58b3c\ni #fff6d0\n\n# darkness: everything that only reflects light goes cold\n"
+            "@variant dark\nk #0c0a18\nw #403f4a\n")
+
+
+def glow_packs(tmp_path):
+    (tmp_path / "wick").mkdir()
+    write(tmp_path / "wick", "pal.px", GLOW_PAL)
+    candle = write(tmp_path / "wick", "player.px", "@palette pal.px\n@frame idle\nfai\nkwk\n")
+    stall, keeper, _ = three_packs(tmp_path)
+    return stall, keeper, candle
+
+
+def glow_compose(tmp_path, *more):
+    stall, keeper, candle = glow_packs(tmp_path)
+    out = tmp_path / "scene.px"
+    code = run("compose", "-o", out, "--size", "9x2", f"{stall}:stall@0,0", f"{keeper}:idle@3,0", f"{candle}:idle@6,0",
+               "--rekey", *more)
+    return code, out
+
+
+def test_carried_key_comment_says_a_merged_variant_is_another_here(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    text = out.read_text()
+    assert code == 0
+    assert ("# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm. (from player.px, "
+            "whose dark is dusk here)") in text
+
+
+def test_carried_key_comment_without_map_names_only_its_file(tmp_path, capsys):
+    code, out = glow_compose(tmp_path)
+    text = out.read_text()
+    assert "Not in @variant dark, so they stay warm. (from player.px)" in text and "dusk here" not in text
+
+
+def test_carried_key_comment_keeps_the_keys_it_is_about_under_it(tmp_path, capsys):
+    # f a i sit under the comment in the candle's palette; in OUT they still do, whatever order the keys came in.
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    lines = out.read_text().splitlines()
+    at = next(i for i, l in enumerate(lines) if l.startswith("# light-emitting keys"))
+    got = [l.split()[1] for l in lines[at + 1:at + 4]]
+    assert got == ["#ffe07a", "#f58b3c", "#fff6d0"]
+
+
+def test_carried_block_follows_a_renamed_head(tmp_path, capsys):
+    # The candle's f clashes with nothing here, but k w do; make f clash too: the block moves under the renamed key.
+    a = write(tmp_path, "a.px", "f #000000\nz #111111\n@frame x\nfz\n")
+    write(tmp_path, "pal.px", "pxart 1\n# glow keys\nf #ffe07a\na #f58b3c\ni #fff6d0\n")
+    b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nfai\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "5x1", f"{a}:x@0,0", f"{b}:y@2,0", "--rekey") == 0
+    lines = out.read_text().splitlines()
+    at = next(i for i, l in enumerate(lines) if l.startswith("# glow keys"))
+    assert lines[at] == "# glow keys (renamed f>b; from b.px)"
+    assert [l.split()[1] for l in lines[at + 1:at + 4]] == ["#ffe07a", "#f58b3c", "#fff6d0"]
+
+
+def test_carried_block_leaves_another_files_key_where_it_is(tmp_path, capsys):
+    # a is the first layer's (another color, used there): the comment's block takes only b.px's keys.
+    a = write(tmp_path, "a.px", "a #123456\n@frame x\na\n")
+    write(tmp_path, "pal.px", "pxart 1\n# glow keys\nf #ffe07a\nq #f58b3c\ni #fff6d0\n")
+    b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nf.i\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "4x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    doc = pxart.parse(out)
+    order = list(doc.palette)
+    assert order.index("q") == order.index("f") + 1 and order.index("i") == order.index("f") + 2
+    assert order[0] == "a"
+
+
+def test_carried_block_stops_at_a_blank_line(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", "pxart 1\n# glow\nf #ffe07a\na #f58b3c\n\ni #fff6d0\n# ink\nk #000000\n"
+                                              "w #ffffff\n"), palette_only=True)
+    assert pxart.comment_blocks(doc) == {"f": ["a"], "k": ["w"]}
+
+
+def test_comment_blocks_through_an_import(tmp_path):
+    write(tmp_path, "pal.px", "pxart 1\n# glow\nf #ffe07a\na #f58b3c\n")
+    doc = pxart.parse(write(tmp_path, "s.px", "@palette pal.px\n# own\nz #000000\ny #111111\n@frame a\nf\n"))
+    assert pxart.comment_blocks(doc) == {"f": ["a"], "z": ["y"]}
+
+
+def test_comment_blocks_a_files_header_is_no_block(tmp_path):
+    # Comments above a file's first line are its header (palette_notes), not a key's comment.
+    doc = pxart.parse(write(tmp_path, "p.px", "# header\nf #ffe07a\na #f58b3c\n"), palette_only=True)
+    assert pxart.comment_blocks(doc) == {}
+
+
+def test_comment_blocks_a_lone_commented_key_is_no_block(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", "pxart 1\n# one\nf #ffe07a\n\na #f58b3c\n"), palette_only=True)
+    assert pxart.comment_blocks(doc) == {}
+
+
+def test_carried_variant_comments_say_whose_they_are(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    lines = out.read_text().splitlines()
+    dusk = lines.index("@variant dusk")
+    assert lines[dusk - 4] == ""
+    assert lines[dusk - 3].startswith("# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>")
+    assert lines[dusk - 3].endswith("; from keeper.px's @variant night, dusk here)")
+    assert lines[dusk - 2] == ("# darkness: everything that only reflects light goes cold (from player.px's @variant "
+                               "dark, dusk here)")
+    assert lines[dusk - 1] == "# dusk: stall.px's dusk, keeper.px's night, player.px's dark (compose --variant-map)"
+
+
+def test_carried_variant_comment_of_its_own_name_says_only_its_file(tmp_path, capsys):
+    code, out = glow_compose(tmp_path)
+    lines = out.read_text().splitlines()
+    dark = lines.index("@variant dark")
+    assert lines[dark - 1] == ("# darkness: everything that only reflects light goes cold (from player.px's @variant "
+                               "dark)")
+
+
+def test_carried_variant_comment_of_a_shared_palette_said_once_naming_both(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\nr #ff0000\n\n# dusk: warm\n@variant dusk\nr #aa0000\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
+    c = write(tmp_path, "c.px", "q #00ff00\n@variant dusk\nq #008800\n@frame z\nq\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{b}:y@1,0", f"{c}:z@2,0") == 0
+    text = out.read_text()
+    assert text.count("# dusk: warm") == 1 and "# dusk: warm (from a.px's and b.px's @variant dusk)" in text
+
+
+def test_carried_comments_single_file_unlabeled(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "# my sprite\npxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\n"
+                                "k #000011\n@frame x\nkw\n")
+    out = tmp_path / "o.px"
+    assert run("crop", f"{a}:x", "0,0,2,1", "-o", out) == 0
+    assert out.read_text() == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\n"
+
+
+def test_carried_comments_single_file_importing_keeps_the_import(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# header\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nkw\n")
+    out = tmp_path / "o.px"
+    assert run("crop", f"{a}:x", "0,0,2,1", "-o", out) == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n\nkw\n"
+
+
+def test_carried_comments_single_file_with_map_say_the_merge(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\n# ink, kept dark in night\nw #ffffff\n\n# night: moonlit\n@variant night\n"
+                              "k #000011\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nkw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:x@0,0", "--variant-map", "dusk=night") == 0
+    text = out.read_text()
+    assert "# ink, kept dark in night (night is dusk here)" in text
+    assert "# night: moonlit (@variant night, dusk here)" in text and "from a.px" not in text
+
+
+def test_mapped_mentions_whole_words_only(tmp_path):
+    d = pxart.parse(write(tmp_path, "d.px", "k #000000\n@variant dark\nk #000011\n@frame a\nk\n"))
+    vmap = {"dusk": ["dusk", "dark"]}
+    assert pxart.mapped_mentions(["# not in @variant dark"], d, vmap) == ["dark is dusk here"]
+    assert pxart.mapped_mentions(["# darkness falls", "# dark-blue ink"], d, vmap) == []
+    assert pxart.mapped_mentions(["# dark"], d, {}) == []
+
+
+def test_labeled_helper():
+    assert pxart.labeled(["# a (renamed l>M)"], "from k.px") == ["# a (renamed l>M; from k.px)"]
+    assert pxart.labeled(["# a", ""], "from k.px") == ["# a (from k.px)", ""]
+    assert pxart.labeled(["# a", "# b"], "x") == ["# a", "# b (x)"]
+    assert pxart.labeled(["# a"], "") == ["# a"]
+    assert pxart.labeled([""], "x") == [""]
+    assert pxart.labeled(["# lamps (l, g) (see above)"], "x") == ["# lamps (l, g) (see above) (x)"]
+
+
+def test_carried_header_at_the_top_labeled(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    lines = out.read_text().splitlines()
+    assert lines[:6] == ["pxart 1", "", "# Harbor market palette: warm stone, one hot accent (awning red) (from stall.px)",
+                         "# Cozy seaside (from keeper.px)", "# WICK shared palette: cellar and flame (from player.px)",
+                         ""]
+
+
+def test_carried_header_one_line_for_files_that_share_it(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
+    c = write(tmp_path, "c.px", "q #00ff00\n@frame z\nq\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{b}:y@1,0", f"{c}:z@2,0") == 0
+    assert "# the one palette (from a.px, b.px)" in out.read_text()
+
+
+def test_carried_header_not_when_out_imports_the_palette(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    assert "the one palette" not in out.read_text() and "@palette pal.px" in out.read_text()
+
+
+def test_carried_header_not_a_sprites_own(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "# my hero sprite\nk #000000\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "q #00ff00\n@frame z\nq\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
+    assert "my hero sprite" not in out.read_text()
+
+
+def test_carried_header_goes_to_an_extracted_palette(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    pal = tmp_path / "shared.px"
+    assert run("palette", out, "--extract-to", pal, "--repoint") == 0
+    assert "# Cozy seaside (from keeper.px)" in pal.read_text() and "Cozy seaside" not in out.read_text()
+
+
+def test_carried_header_with_used_keys_only(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark", "--used-keys-only")
+    lines = out.read_text().splitlines()
+    assert "# Cozy seaside (from keeper.px)" in lines
+    first_key = next(i for i, l in enumerate(lines) if len(l) > 2 and l[1] == " " and l[2] == "#")
+    assert lines.index("# Cozy seaside (from keeper.px)") < first_key
+
+
+def test_carried_header_renders_the_same(tmp_path, capsys):
+    code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
+    doc = pxart.parse(out)
+    stall, keeper, candle = tmp_path / "market" / "stall.px", tmp_path / "keeper" / "keeper.px", tmp_path / "wick" / \
+        "player.px"
+    assert looks_as_its_file(out, [(stall, "stall", 0, 0), (keeper, "idle", 3, 0), (candle, "idle", 6, 0)],
+                             {"dusk": ["dusk", "night", "dark"]})
+    assert doc.frames[0].id is None
+
+
+def test_help_documents_carried_comment_labels():
+    doc = " ".join(pxart.__doc__.split())
+    assert "each saying which file's it is ('from keeper.px's @variant night, dusk here')" in doc
+    assert "the palette files' header comments" in doc
+
+
+def test_readme_documents_carried_comment_labels():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "each naming its file when there are several (`from keeper.px's @variant night, dusk here`)" in readme
+
+
+def test_carried_comments_two_layers_of_one_file_unlabeled(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n"
+                                "@frame x\nkw\n@frame y\nwk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:x@0,0", f"{a}:y@0,1") == 0
+    assert out.read_text() == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
