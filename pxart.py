@@ -245,27 +245,29 @@ CHECKING
       each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
       (repeatable) prints that pixel's key and its color in the base palette and in every
       variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
-  diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]
+  diff A B [--variant V] [--strict-alpha] [--exclude GLOB]
+       [--labels CSV [--label-col C] [--file-col C]]
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
       differs: '12 px differ in 3,4,6,6 (x,y,w,h)', 'sizes 16x16 and 16x24') and for several a
       count ('132 frame(s): 130 same, 1 differ, 1 unpaired'). It exits 1 when anything differs
-      or has no pair, as check does, so a script can prove a copy, a rekey or a port renders
-      as the original: 'diff hero.px:idle/0 hero.px:idle/1'. A and B are:
+      or has no pair, as check does, so a script can prove a copy renders as the original.
+      A and B are:
         two files, FILE[:SEL][%VARIANT] or PNGs: one frame each, or frames paired by id (in
           order when their ids differ but their counts match: diff wick.px:walk
           party.px:wick/walk, copies made with --prefix wick/);
         a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames
-          writes them, or with --labels CSV against the PNG whose row names it so (read as
-          from-png's --labels): 'diff town.px pack/ --labels pack/labels.csv' proves a port
-          lossless in one call;
-        two directories: the .png and .px files under them paired by path (with --labels, a
-          PNG goes by its row's name), a .px pair frame by frame.
-      A frame with no PNG, or a file only one side has, is unpaired.
+          writes them, or with --labels CSV against the PNG whose row names it so: 'diff
+          town.px pack/ --labels pack/labels.csv' proves a port lossless in one call;
+        a directory of .px files and one of PNGs: every frame of every .px, as above ('diff
+          town/ pack/ --labels pack/labels.csv'; an id two files share is E_BAD_ARG; a note
+          counts the PNGs left over);
+        two other directories: the .png and .px files under them paired by path (with
+          --labels, a PNG goes by its row's name), a .px pair frame by frame.
+      A frame with no PNG, or a file only one side has, is unpaired. --exclude GLOB leaves
+      a directory's files out, as for check.
       Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its
-      rgb (a PNG may keep a color under a transparent pixel; a render keeps none); any other
-      pixel compares on all four channels. --strict-alpha compares all four everywhere.
-      --variant V renders both sides with V, and a side's own %VARIANT wins (A%night against
-      B%dusk works too).
+      rgb; any other pixel compares on all four channels. --strict-alpha compares all four
+      everywhere. --variant V renders both sides with V, and a side's own %VARIANT wins.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -345,15 +347,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
        [--keep-keys K,K | --drop-keys K,K] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
-      with a 4x4 ordered (Bayer) dither: a light radius in one command. --invert erases
-      the inside and keeps the outside: exactly the pixels the plain mask erases, dither
-      band mirrored, so a mask and its --invert split the image with no overlap or gap.
-      --keep and --keep-circle repeat, and mix: the kept area is their union (a pixel kept
-      by any shape is kept, where dither bands overlap too), and --dither and --invert
-      work over the union. Two lamps in one call:
+      with a 4x4 ordered (Bayer) dither: a light radius. --invert erases the inside and
+      keeps the outside, dither band mirrored, so a mask and its --invert split the image
+      with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
+      their union, and --dither and --invert work over the union. Two lamps in one call:
       'mask scene.png --keep-circle 20,30,12 --keep-circle 70,30,12 --dither 4'.
-      FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
-      pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
+      FILE may be a PNG (a rendered scene): outside pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
@@ -385,9 +384,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
       colors): when no pixel keeps a and a is FILE's own key, a's palette lines become b's
-      (a rename), else b is added and a stays. It frees a key without a visible change, say
-      before compose or frames --copy-to meets that key in another color; onto a key b
-      already in a's color (a near-duplicate), the error says to write a=b, a repaint that
+      (a rename), else b is added and a stays: it frees a key without a visible change;
+      onto a key b already in a's color (a near-duplicate), the error says to write a=b, a repaint that
       looks the same. c=#hex changes key c's color everywhere. '.' works as a source key.
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
@@ -466,9 +464,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       and =). A key any layer's file has isn't free, used here or not. Two ways to use them,
       both leaving the layers' files as they are:
         --rekey: compose gives those keys the free ones in OUT as it goes, and a note says
-          which: 'note: --rekey gives field.px's keys free ones
-          in scene.px: 's>a' 't>b' (field.px is unchanged)'. Composing from the same file into
-          OUT again reuses them (OUT has them in those colors by then).
+          which: 'note: --rekey gives field.px's keys free ones in scene.px: 's>a' 't>b'
+          (field.px is unchanged)'.
         a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside
           OUT), then compose from rekeyed/field.px; the line prints it ready to run.
 
@@ -863,13 +860,15 @@ RECIPES = """RECIPES (pxart help recipes)
   'pxart help CMD' has the rest of each command.
 
   1. Port a pack and prove it lossless
-     A pack's loose PNGs and the labels.csv it ships become one .px. One diff then checks every
-     frame against its PNG and exits 1 if any differs; so does a diff of two folders.
+     A pack's loose PNGs and the labels.csv it ships become one .px, or several in a folder.
+     One diff then checks every frame against its PNG and exits 1 if any differs: a .px's
+     frames, or every frame of every .px in the folder (--exclude GLOB leaves some out).
        $ pxart from-png pack/*.png --labels pack/labels.csv -o town.px
        $ pxart diff town.px pack/ --labels pack/labels.csv
-       $ pxart check town.px
-       $ pxart export town.px --frames out/
-       $ pxart diff out/ pack/ --labels pack/labels.csv
+       $ pxart from-png pack/tile_0000.png pack/tile_0002.png --labels pack/labels.csv -o town/ground.px
+       $ pxart from-png pack/tile_0001.png pack/tile_0003.png --labels pack/labels.csv -o town/props.px
+       $ pxart diff town/ pack/ --labels pack/labels.csv
+       $ pxart check town/
 
   2. Merge packs, variants and all
      Two characters from different packs into one file that imports a shared palette: --prefix
@@ -1591,9 +1590,7 @@ def in_dirs(args, exts=(".px",), exclude=()):
     out, hit = [], set()
 
     def excluded(rel):
-        parts = pathlib.PurePosixPath(rel).parts
-        heads = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]  # 'wip', 'wip/old', 'wip/old/a.px'
-        got = [g for g in exclude if fnmatch.fnmatchcase(parts[-1], g) or any(fnmatch.fnmatchcase(h, g) for h in heads)]
+        got = globs_hit(rel, exclude)
         hit.update(got)
         return bool(got)
     for arg in args:
@@ -1612,6 +1609,14 @@ def in_dirs(args, exts=(".px",), exclude=()):
         if g not in hit:
             print(f"note: --exclude {g} matches no file")
     return out
+
+
+def globs_hit(rel, globs):
+    """The --exclude globs that leave out the file at rel (a path under its directory, or as given): matching its name,
+    or its path or a directory's it is under ('wip', 'wip/old', 'wip/old/a.px')."""
+    parts = pathlib.PurePosixPath(rel).parts
+    heads = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    return [g for g in globs if fnmatch.fnmatchcase(parts[-1], g) or any(fnmatch.fnmatchcase(h, g) for h in heads)]
 
 
 def frames_only(args, cmd):
@@ -3084,8 +3089,16 @@ def cmd_diff(a):
     dirs = [os.path.isdir(x) for x in (a.a, a.b)]
     if a.labels and not any(dirs):
         fail("E_BAD_ARG", "--labels names the PNGs of a directory: diff FILE.px DIR --labels DIR/labels.csv")
-    if all(dirs):
+    pxs = [d and any(p.is_file() for p in pathlib.Path(x).rglob("*.px")) for d, x in zip(dirs, (a.a, a.b))]
+    if a.exclude and not any(dirs):
+        fail("E_BAD_ARG", "--exclude leaves .px files out of a directory: diff DIR PNG_DIR --exclude GLOB")
+    if all(dirs) and pxs.count(True) == 1:  # a directory of .px against one of PNGs: frames by id (or --labels)
+        pairs = px_dir_pairs(a, flip=pxs[1])
+    elif all(dirs):
         pairs = dir_pairs(a)
+    elif a.exclude:
+        fail("E_BAD_ARG", f"--exclude leaves .px files out of a directory, and {a.a if dirs[1] else a.b} is a file: "
+             "drop --exclude, or give the directory")
     elif any(dirs):
         pairs = file_dir_pairs(a, flip=dirs[0])
     else:
@@ -3166,15 +3179,59 @@ def file_dir_pairs(a, flip=False):
     return out
 
 
+def px_dir_pairs(a, flip=False):
+    """diff DIR PNG_DIR (or PNG_DIR DIR), one directory holding .px files and the other none: every frame of every .px
+    under DIR (sorted by path; palette files skipped, --exclude GLOB as for check) against the PNG under PNG_DIR named
+    like its id, or with --labels the one its CSV row names so, as for diff FILE DIR. An id two files share is
+    E_BAD_ARG (they'd claim one PNG). A frame no PNG is named like is unpaired; a note counts the PNGs no frame took."""
+    pdir, d = (a.b, a.a) if flip else (a.a, a.b)
+    files = [f for f in in_dirs([pdir], exclude=a.exclude or ()) if _has_grid(f)]
+    if not files:
+        fail("E_FILE", f"{pdir} holds no .px files with frames" + (" (after --exclude)" if a.exclude else ""))
+    pngs = dir_pngs(d, a)
+    out, whose, took = [], {}, set()
+    for f in files:
+        with reading(f"{'B' if flip else 'A'} ({f})"):
+            its = items(f, a.variant)
+        rel = pathlib.Path(f).relative_to(pdir).as_posix()
+        for it in its:
+            if it.label in whose and whose[it.label] != rel:
+                fail("E_BAD_ARG", f"{whose[it.label]} and {rel} under {pdir} both have a frame {it.label!r}, and "
+                     "would claim one PNG; diff them one at a time (diff FILE PNG_DIR), or --exclude one")
+            whose[it.label] = rel
+            name = rel if it.doc.implicit else f"{rel}:{it.label}"
+            p = pngs.get(it.label)
+            if p is None:
+                out.append((name, it, f"no PNG under {d} named {it.label} by --labels" if a.labels else
+                            f"no {pathlib.Path(d) / (it.label + '.png')}"))
+                continue
+            took.add(p)
+            with reading(f"{'A' if flip else 'B'} ({p})"):
+                png = items(str(p))[0]
+            lab = f"{name} vs {p.relative_to(d).as_posix()}"
+            out.append((lab, png, it) if flip else (lab, it, png))
+    left = [p.relative_to(d).as_posix() for p in pngs.values() if p not in took]
+    if left:
+        print(f"note: {len(left)} PNG{'s' * (len(left) > 1)} under {d} no frame is named like"
+              + (" by --labels" if a.labels else "") + f": {listed(left, 5)}")
+    return out
+
+
 def dir_pairs(a):
-    """diff DIR_A DIR_B: the .png and .px files under both, paired by path under each (with --labels, a PNG goes by the
-    name its row gives); a .px pair's frames paired as for two files, labeled 'path:id'. A file only one side has is
-    unpaired: (path, None, which side has it)."""
+    """diff DIR_A DIR_B: the .png and .px files under both (not palette files, nor those --exclude leaves out), paired by
+    path under each (with --labels, a PNG goes by the name its row gives); a .px pair's frames paired as for two files, labeled 'path:id'. A file only
+    one side has is unpaired: (path, None, which side has it)."""
     sides = []
     for d in (a.a, a.b):
         pngs = {f"{name}.png": p for name, p in dir_pngs(d, a).items()}
-        pxs = {p.relative_to(d).as_posix(): p for p in sorted(pathlib.Path(d).rglob("*.px"), key=lambda p: p.parts)}
-        sides.append({**pngs, **pxs})
+        pxs = {p.relative_to(d).as_posix(): p for p in sorted(pathlib.Path(d).rglob("*.px"), key=lambda p: p.parts)
+               if _has_grid(p)}  # a palette file has no frames to compare
+        sides.append({r: p for r, p in {**pngs, **pxs}.items()
+                      if not globs_hit(p.relative_to(d).as_posix(), a.exclude or ())})
+    for g in a.exclude or ():
+        if not any(globs_hit(p.relative_to(d).as_posix(), [g]) for d in (a.a, a.b)
+                   for p in pathlib.Path(d).rglob("*") if p.suffix in (".png", ".px")):
+            print(f"note: --exclude {g} matches no file")
     sa, sb = sides
     if not sa and not sb:
         fail("E_FILE", f"{a.a} and {a.b} hold no .png or .px files")
@@ -7047,6 +7104,9 @@ def parser(describe=True):
                    help="a directory's PNGs go by the names this CSV gives them, as from-png's --labels (repeatable)")
     p.add_argument("--label-col", metavar="COL", help="with --labels: the column of names (default proposed_name)")
     p.add_argument("--file-col", metavar="COL", help="with --labels: the column of PNG file names (default filename)")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="a directory of .px: leave out files whose name or path under it matches GLOB, or under a "
+                        "matching directory (repeatable)")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")

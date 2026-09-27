@@ -3121,7 +3121,7 @@ def test_mask_invert_still_checks_args(tmp_path):
 
 
 def test_help_documents_mask_invert():
-    assert "--invert erases\n      the inside and keeps the outside" in pxart.__doc__
+    assert "--invert erases the inside and keeps the outside" in " ".join(pxart.__doc__.split())
 
 
 # ---------------------------------------------------------------- loop F: flipped scene items (+h / +v / +hv)
@@ -6298,9 +6298,9 @@ def test_mask_without_a_shape_is_bad_arg(tmp_path):
 
 
 def test_help_documents_mask_union():
-    doc = pxart.__doc__
+    doc = " ".join(pxart.__doc__.split())
     assert "--keep and --keep-circle repeat" in doc and "the kept area is their union" in doc
-    assert "--dither and --invert\n      work over the union" in doc
+    assert "--dither and --invert work over the union" in doc
 
 
 # ---------------------------------------------------------------- loop H: anim without -o prints only the numbers
@@ -16519,8 +16519,9 @@ def help_fixtures(d):
     (d / "town.px").write_text("pxart 1\ng #40c040\nr #c04040\n@frame grass\ngg\ngg\n@frame roof-red\nrr\nrr\n")
     (d / "town").mkdir()
     (d / "town" / "pal.px").write_text("k #1a1423\nr #c04040\n@variant night\nr #401010\n")
-    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nkk\n")
-    (d / "town" / "walls.px").write_text("pxart 1\n@palette pal.px\n@frame wall\nkr\nrk\n")
+    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nrr\n")
+    (d / "town" / "walls.px").write_text("pxart 1\n@palette pal.px\ng #40c040\n@variant night\ng #204020\n"
+                                         "@frame grass\ngg\ngg\n")
 
 
 def test_help_examples_are_found():
@@ -20274,7 +20275,8 @@ def test_diff_proves_a_rekeyed_compose_renders_as_its_layer(tmp_path, capsys):
 
 def test_help_documents_diff():
     text = " ".join(pxart.__doc__.split())
-    assert "diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]" in text
+    assert "diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [--labels CSV [--label-col C] [--file-col " \
+        "C]]" in text
     assert "Compare renders pixel by pixel, one line per pair" in text
     assert "It exits 1 when anything differs or has no pair, as check does" in text
 
@@ -21777,7 +21779,10 @@ def test_help_documents_diff_batches_and_alpha():
     text = " ".join(pxart.__doc__.split())
     assert "a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames writes them, or " \
         "with --labels CSV against the PNG whose row names it so" in text
-    assert "two directories: the .png and .px files under them paired by path" in text
+    assert "two other directories: the .png and .px files under them paired by path" in text
+    assert "a directory of .px files and one of PNGs: every frame of every .px, as above ('diff town/ pack/ " \
+        "--labels pack/labels.csv'; an id two files share is E_BAD_ARG; a note counts the PNGs left over)" in text
+    assert "--exclude GLOB leaves a directory's files out, as for check." in text
     assert "a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its rgb" in text
     assert "--strict-alpha compares all four everywhere" in text
 
@@ -22731,3 +22736,235 @@ def test_help_names_the_luma_formula():
     text = " ".join(pxart.__doc__.split())
     assert ".2126 R + .7152 G + .0722 B of the sRGB values" in text
     assert "its hue kept (a warmer red may look a shade lighter)" in text
+
+
+# ---------------------------------------------------------------- diff DIR_OF_PX PNG_DIR: every frame of every .px
+
+def pxdir_pack(d):
+    """pack/: four 2x2 PNGs and labels.csv; town/: two .px files whose frames render as them, named as the CSV does,
+    plus a palette file (skipped) and a subfolder."""
+    d = pathlib.Path(d)
+    (d / "pack").mkdir()
+    cols = {"grass": (64, 192, 64, 255), "roof-red": (192, 64, 64, 255), "wall": (106, 90, 74, 255),
+            "lamp": (243, 207, 107, 255)}
+    rows = "filename,proposed_name\n"
+    for n, (name, c) in enumerate(cols.items()):
+        Image.new("RGBA", (2, 2), c).save(d / "pack" / f"tile_{n:04}.png")
+        rows += f"tile_{n:04}.png,{name}\n"
+    (d / "pack" / "labels.csv").write_text(rows)
+    (d / "town" / "sub").mkdir(parents=True)
+    (d / "town" / "pal.px").write_text("pxart 1\ng #40c040\nr #c04040\nw #6a5a4a\ny #f3cf6b\n")
+    (d / "town" / "ground.px").write_text("pxart 1\n@palette pal.px\n@frame grass\ngg\ngg\n@frame wall\nww\nww\n")
+    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nrr\n")
+    (d / "town" / "sub" / "lamp.px").write_text("y #f3cf6b\nyy\nyy\n")  # one unnamed grid: goes by its stem
+    return d
+
+
+def test_diff_px_dir_against_png_dir_by_labels(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town/", "pack/", "--labels", "pack/labels.csv") == 0
+    out = capsys.readouterr().out
+    assert out.splitlines() == [
+        "ground.px:grass vs tile_0000.png: same: 2x2, every pixel",
+        "ground.px:wall vs tile_0002.png: same: 2x2, every pixel",
+        "roofs.px:roof-red vs tile_0001.png: same: 2x2, every pixel",
+        "sub/lamp.px vs tile_0003.png: same: 2x2, every pixel",
+        "4 frame(s): 4 same",
+    ]
+
+
+def test_diff_png_dir_against_px_dir_by_labels(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "pack", "town", "--labels", "pack/labels.csv") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs tile_0000.png: same: 2x2, every pixel" in out and out.endswith("4 frame(s): 4 same\n")
+
+
+def test_diff_px_dir_skips_palette_files(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 0
+    assert "pal.px" not in capsys.readouterr().out
+
+
+def test_diff_px_dir_catches_a_changed_pixel(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    img = Image.open(tmp_path / "pack" / "tile_0001.png").convert("RGBA")
+    img.putpixel((1, 1), (1, 2, 3, 255))
+    img.save(tmp_path / "pack" / "tile_0001.png")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 1
+    out = capsys.readouterr().out
+    assert "roofs.px:roof-red vs tile_0001.png: 1 px differ in 1,1,1,1 (x,y,w,h)" in out
+    assert out.endswith("4 frame(s): 3 same, 1 differ\n")
+
+
+def test_diff_px_dir_frame_without_png_is_unpaired(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "extra.px").write_text("pxart 1\n@palette pal.px\n@frame fence\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 1
+    out = capsys.readouterr().out
+    assert "extra.px:fence: no PNG under pack named fence by --labels" in out
+    assert out.endswith("5 frame(s): 4 same, 1 unpaired\n")
+
+
+def test_diff_px_dir_exclude_leaves_a_file_out(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "extra.px").write_text("pxart 1\n@palette pal.px\n@frame fence\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "extra.px") == 0
+    out = capsys.readouterr().out
+    assert "fence" not in out and out.endswith("4 frame(s): 4 same\n")
+
+
+def test_diff_px_dir_exclude_a_folder(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "sub") == 0
+    out = capsys.readouterr().out
+    assert "lamp" not in out.split("note:")[0] and "3 frame(s): 3 same" in out
+    assert "note: 1 PNG under pack no frame is named like by --labels: tile_0003.png" in out
+
+
+def test_diff_px_dir_exclude_glob_that_matches_nothing_notes(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "nope*.px") == 0
+    assert "note: --exclude nope*.px matches no file" in capsys.readouterr().out
+
+
+def test_diff_px_dir_exclude_everything_is_e_file(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "*.px")
+    assert "E_FILE" in err and "leaves out every file" in err
+
+
+def test_diff_px_dir_png_left_over_is_a_note_not_a_failure(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    Image.new("RGBA", (2, 2), (0, 0, 0, 255)).save(tmp_path / "pack" / "tile_0009.png")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 0
+    assert "note: 1 PNG under pack no frame is named like by --labels: tile_0009.png" in capsys.readouterr().out
+
+
+def test_diff_px_dir_shared_id_is_an_error(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "more.px").write_text("pxart 1\n@palette pal.px\n@frame grass\ngg\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv")
+    assert "E_BAD_ARG" in err and "ground.px and more.px under town both have a frame 'grass'" in err
+    assert "--exclude one" in err
+
+
+def test_diff_px_dir_against_an_export_by_id(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "town", "--frames", "out") == 0
+    capsys.readouterr()
+    assert run("diff", "town", "out") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs grass.png: same: 2x2, every pixel" in out and "4 frame(s): 4 same" in out
+
+
+def test_diff_px_dir_without_labels_names_the_missing_png(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack") == 1
+    out = capsys.readouterr().out
+    assert f"ground.px:grass: no {pathlib.Path('pack') / 'grass.png'}" in out
+    assert "note: 4 PNGs under pack no frame is named like: tile_0000.png" in out
+
+
+def test_diff_px_dir_variant(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "pal.px").write_text("pxart 1\ng #40c040\nr #c04040\nw #6a5a4a\ny #f3cf6b\n"
+                                              "@variant night\ng #102010\nr #301010\nw #1a1612\ny #f3cf6b\n")
+    (tmp_path / "town" / "sub" / "lamp.px").unlink()
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--variant", "night") == 1
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs tile_0000.png: 4 px differ" in out and "3 frame(s): 0 same, 3 differ" in out
+
+
+def test_diff_px_dirs_on_both_sides_still_pair_by_path(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass: same: 2x2, every pixel" in out and "pal.px" not in out
+
+
+def test_diff_png_dirs_on_both_sides_still_pair_by_path(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "pack", tmp_path / "pack2")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "pack", "pack2") == 0
+    assert "tile_0000.png: same: 2x2, every pixel" in capsys.readouterr().out
+
+
+def test_diff_exclude_needs_a_directory(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town/roofs.px", "town/roofs.px", "--exclude", "x")
+    assert "E_BAD_ARG" in err and "--exclude leaves .px files out of a directory" in err
+    err = run_err("diff", "town/roofs.px", "pack", "--labels", "pack/labels.csv", "--exclude", "x")
+    assert "E_BAD_ARG" in err and "town/roofs.px is a file" in err
+
+
+def test_diff_px_dir_with_only_palette_files_is_e_file(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "pals").mkdir()
+    (tmp_path / "pals" / "pal.px").write_text("pxart 1\ng #40c040\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "pals", "pack")
+    assert "E_FILE" in err and "pals holds no .px files with frames" in err
+
+
+def test_diff_px_dir_error_in_a_file_names_it(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "bad.px").write_text("pxart 1\n@frame x\nq\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv")
+    assert "E_UNKNOWN_KEY" in err and "A (town/bad.px)" in err
+
+
+def test_recipe_port_shows_the_folder_form(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Port a pack and prove it lossless"])
+    folder = [out for argv, _, out in ran if argv[:2] == ["diff", "town/"]]
+    assert len(folder) == 1 and folder[0].endswith("4 frame(s): 4 same\n")
+    assert "ground.px:grass vs tile_0000.png: same: 16x16, every pixel" in folder[0]
+    assert "props.px:roof-red vs tile_0001.png: same: 16x16, every pixel" in folder[0]
+
+
+def test_diff_two_dirs_by_path_exclude(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    (tmp_path / "copy" / "sub" / "lamp.px").write_text("y #000000\nyy\nyy\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 1
+    capsys.readouterr()
+    assert run("diff", "town", "copy", "--exclude", "sub", "--exclude", "zz*") == 0
+    out = capsys.readouterr().out
+    assert "lamp" not in out and "note: --exclude zz* matches no file" in out and "3 frame(s): 3 same" in out
+
+
+def test_diff_two_dirs_by_path_skip_palette_files(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    (tmp_path / "copy" / "pal.px").unlink()  # only one side has it: a palette file isn't compared either way
+    (tmp_path / "copy" / "ground.px").write_text((tmp_path / "town" / "ground.px").read_text().replace(
+        "@palette pal.px", "@palette ../town/pal.px"))
+    (tmp_path / "copy" / "roofs.px").write_text((tmp_path / "town" / "roofs.px").read_text().replace(
+        "@palette pal.px", "@palette ../town/pal.px"))
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 0
+    assert "pal.px" not in capsys.readouterr().out

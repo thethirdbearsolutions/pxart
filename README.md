@@ -182,7 +182,8 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   one pixel's key and color in every variant), `diff A B` (renders pixel by pixel, one line per pair: how many
   pixels differ and where, exit 1 when they do, so a copy can be proved to render as its original;
   `diff town.px pack/ --labels pack/labels.csv` checks every frame against the pack's PNG its row names,
-  `diff hero.px out/` against `out/<id>.png`, and two directories pair files by path; a transparent pixel
+  `diff hero.px out/` against `out/<id>.png`, `diff town/ pack/ --labels pack/labels.csv` every frame of every
+  `.px` under `town/` (`--exclude GLOB` leaves some out), and two other directories pair files by path; a transparent pixel
   matches any other unless `--strict-alpha`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
