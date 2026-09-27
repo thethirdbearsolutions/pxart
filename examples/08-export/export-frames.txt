@@ -1,2 +1,3 @@
 $ pxart export alchemist.px --frames frames
+created frames/
 wrote 11 PNGs under frames (frames/walk/right/0.png ... frames/attack/right/4.png) frames/pivots.json

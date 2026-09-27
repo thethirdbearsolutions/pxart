@@ -58,12 +58,11 @@ FORMAT (.px)
   --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
   --frames, --aseprite, --tiled). A path written inside a file is read from that file's
   directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
-  names. Run from the folder holding game/ and wick/, 'palette game/pal.px --variant dark
-  --derive-from base --match wick/pal.px%dark' reads wick/pal.px, where game/pal.px's own
-  line would say '@palette ../wick/pal.px' (a file pxart writes elsewhere gets its @palette
-  lines re-pointed: see EDITING). An E_FILE for a relative path says so, and a
-  path option's names the option: 'palette: --match (../wick/pal.px%dark): ../wick/pal.px
-  (from the current directory): E_FILE: No such file or directory'.
+  names. A file pxart writes elsewhere gets its @palette lines re-pointed (see EDITING). An
+  output's missing directory is made, and said: 'created out/'. An E_FILE for a relative
+  path says so, and a path option's names the option: 'palette: --match
+  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such file or
+  directory'.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png] [--dry-run]
@@ -1753,16 +1752,24 @@ def text_w(d, s):
 
 
 def outpath(p, make=True):
-    """Output path with its directory created (not with make False: a dry run); a file where a directory should be is
-    a clear E_FILE."""
+    """Output path with its directory created (not with make False: a dry run), saying so: 'created out/' for the
+    topmost directory it had to make, once a run (the ones under a directory this run made go unsaid). A file where a
+    directory should be is a clear E_FILE."""
     p = pathlib.Path(p)
     for d in reversed(p.parents):
         if d.exists() and not d.is_dir():
             hint = f" (a frame goes after ':', as in {d}:{p.relative_to(d).as_posix()})" if d.suffix == ".px" else ""
             fail("E_FILE", f"can't write {p}: {d} is a file, not a directory{hint}")
-    if make:
+    if make and not p.parent.exists():
+        top = next(d for d in reversed(p.parents) if not d.exists())
         p.parent.mkdir(parents=True, exist_ok=True)
+        if not any(d.resolve() in CREATED for d in top.parents):
+            print(f"created {top.as_posix()}/")
+        CREATED.add(top.resolve())
     return p
+
+
+CREATED = set()  # directories outpath made this run: one 'created DIR/' line for a tree of them
 
 
 DRY = {"run": False}  # --dry-run (render, sheet, anim, onion, scene): everything computed and printed, nothing written
@@ -7543,6 +7550,7 @@ def main(argv=None):
     elif extra:
         ap.parse_args(args)  # argparse's own error
     WARNED.clear()
+    CREATED.clear()
     DRY["run"] = bool(getattr(a, "dry_run", False))
     told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:

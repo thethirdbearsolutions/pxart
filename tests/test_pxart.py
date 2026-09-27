@@ -2632,7 +2632,8 @@ def test_new_palette_creates_missing_output_directories(tmp_path, sub, capsys):
     doc = pxart.parse(out)
     assert doc.image(doc.frames[0]).getpixel((0, 0)) == (0x10, 0x20, 0x30, 255)
     assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (0, 0, 0, 255)
-    assert capsys.readouterr().out == f"wrote {out}\n"
+    top = tmp_path / pathlib.Path(sub).parts[0]
+    assert capsys.readouterr().out == f"created {top.as_posix()}/\nwrote {out}\n"
 
 
 def test_new_palette_frame_in_missing_directory(tmp_path):
@@ -21458,7 +21459,8 @@ def test_export_many_pngs_summarized_on_the_wrote_line(tmp_path, capsys):
 def test_export_few_pngs_listed_on_the_wrote_line(tmp_path, capsys):
     p = write(tmp_path, "m.px", "k #000000\n@frame a\nk\n@frame b\nk\n")
     assert run("export", p, "--frames", tmp_path / "out") == 0
-    assert capsys.readouterr().out.strip() == f"wrote {tmp_path / 'out' / 'a.png'} {tmp_path / 'out' / 'b.png'}"
+    assert capsys.readouterr().out.strip() == f"created {(tmp_path / 'out').as_posix()}/\n" \
+                                              f"wrote {tmp_path / 'out' / 'a.png'} {tmp_path / 'out' / 'b.png'}"
 
 
 def test_export_no_output_flag_is_bad_arg_before_reading(tmp_path, capsys):
@@ -24236,3 +24238,92 @@ def test_help_documents_dry_run():
         assert "LOOKING: centering" in pxart.SEE[cmd], cmd
     readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
     assert "`--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` computes and prints everything" in readme
+
+
+# ---------------------------------------------------------------- a writer that makes a directory says so
+
+@pytest.mark.parametrize("argv,made", [
+    (["sheet", "a.px", "-o", "sheets/s.png"], "sheets"),
+    (["sheet", "a.px", "-o", "deep/er/s.png"], "deep"),
+    (["render", "a.px", "-o", "r/r.png"], "r"),
+    (["anim", "a.px:w", "-o", "g/w.gif"], "g"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "o/o.png"], "o"),
+    (["scene", "a.px:w/0@0,0", "-o", "sc/s.png"], "sc"),
+    (["tint", "p.png", "#00000080", "-o", "t/t.png"], "t"),
+    (["mask", "p.png", "--keep", "0,0,1,1", "-o", "m/m.png"], "m"),
+    (["export", "a.px", "--frames", "fr"], "fr"),
+    (["export", "a.px", "--aseprite", "ase/x.json"], "ase"),
+    (["export", "a.px", "--tiled", "til/x.tsj"], "til"),
+    (["palette", "a.px", "--export", "pal/x.gpl"], "pal"),
+    (["palette", "a.px", "--extract-to", "pal2/p.px"], "pal2"),
+    (["new", "n/new.px", "--size", "1x1"], "n"),
+    (["flip", "a.px", "-o", "f/a.px"], "f"),
+    (["extract", "a.px:w", "-o", "x/w.px"], "x"),
+    (["compose", "-o", "c/c.px", "a.px:w/0@0,0"], "c"),
+    (["from-png", "p.png", "-o", "fp/p.px"], "fp"),
+])
+def test_every_writer_says_which_directory_it_created(tmp_path, monkeypatch, capsys, argv, made):
+    write(tmp_path, "a.px", DRY_ANIM)
+    Image.new("RGBA", (2, 2), (9, 9, 9, 255)).save(tmp_path / "p.png")
+    monkeypatch.chdir(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [l for l in out if l.startswith("created")] == [f"created {made}/"]
+    assert (tmp_path / made).is_dir()
+
+
+def test_no_created_line_when_the_directory_exists(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    (tmp_path / "sheets").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "-o", "sheets/s.png") == 0
+    assert capsys.readouterr().out == "wrote sheets/s.png\n"
+
+
+def test_created_once_for_a_tree(tmp_path, monkeypatch, capsys):
+    # export --frames makes out/ and out/w/ under it: one line, for out/
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "a.px", "--frames", "out") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [l for l in out if l.startswith("created")] == ["created out/"]
+    assert (tmp_path / "out/w/0.png").exists()
+
+
+def test_created_names_a_new_subdirectory_of_an_existing_one(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    (tmp_path / "out").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "a.px", "--frames", "out") == 0
+    assert [l for l in capsys.readouterr().out.splitlines() if l.startswith("created")] == ["created out/w/"]
+
+
+def test_created_again_in_the_next_run_only_when_new(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "-o", "s/1.png") == 0
+    assert run("sheet", "a.px", "-o", "s/2.png") == 0
+    assert capsys.readouterr().out.count("created") == 1
+
+
+def test_created_line_comes_before_the_wrote_line(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "a.px:w", "-o", "g/w.gif") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out.index("created g/") < out.index("wrote g/w.gif and g/w.strip.png")
+
+
+def test_a_failed_write_still_says_the_directory_it_made(tmp_path, monkeypatch, capsys):
+    # the directory is there: saying so is true even though the command failed after
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert "E_FILE" in run_err("render", "a.px", "nope.px", "-o", "d/r.png")
+    assert not (tmp_path / "d").exists()  # inputs load before anything is written: no directory either
+
+
+def test_help_and_readme_say_a_missing_directory_is_made_and_said():
+    doc = " ".join(pxart.__doc__.split())
+    assert "An output's missing directory is made, and said: 'created out/'." in doc
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "A command that writes into a directory that doesn't exist makes it and says so: `created out/`." in readme

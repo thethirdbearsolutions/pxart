@@ -121,7 +121,8 @@ compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, row 1): row
 ```
 
 A command that fails prints no notes or WARNINGs: they describe the write it was about to
-make, and nothing was written.
+make, and nothing was written. A command that writes into a directory that doesn't exist makes it and
+says so: `created out/`.
 
 Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
