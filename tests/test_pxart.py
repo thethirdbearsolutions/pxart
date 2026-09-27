@@ -11119,7 +11119,7 @@ def test_rekey_flags_on_the_commands():
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
     assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] "
-            "[--variant-map NAME=V1,V2] "
+            "[--variant-map NAME=V1,V2] [--replace] "
             "LAYER@x,y") in doc
     assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
             "written)") in doc
@@ -17798,3 +17798,136 @@ def test_readme_documents_rekey_reuse_and_scope():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--rekey girl.px:T=V` is for one source file's T only; a color two files share, alike in every variant, " \
         "keeps the one key it got first" in readme
+
+
+# ---------------------------------------------------------------- compose into a plain OUT that exists: a note says it
+# keeps its palette; --replace starts it fresh
+
+def stale_setup(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\nw #ffffff\n\n@variant dusk\nw #888888\n\nkw\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\nr #ff0000\n\nrk\n")
+    out = tmp_path / "o.px"
+    return a, b, out
+
+
+def test_compose_plain_existing_out_notes_its_palette(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    capsys.readouterr()
+    assert run("compose", "-o", out, f"{b}@0,0") == 0
+    got = capsys.readouterr().out.splitlines()
+    assert got[0] == f"note: {out} exists: keeping its palette (2 keys, @variant dusk); --replace starts it fresh"
+    assert set(pxart.parse(out).palette) == {"k", "w", "r"}  # w: stale, from the first run
+
+
+def test_compose_replace_starts_fresh(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    capsys.readouterr()
+    assert run("compose", "-o", out, f"{b}@0,0", "--replace") == 0
+    got = capsys.readouterr().out
+    assert "keeping its palette" not in got and got.endswith(f"wrote {out}\n")
+    doc = pxart.parse(out)
+    assert set(doc.palette) == {"k", "r"} and doc.variants == {} and doc.frames[0].grid == ["rk"]
+
+
+def test_compose_replace_is_the_same_as_a_new_out(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    new = tmp_path / "new.px"
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    assert run("compose", "-o", out, f"{b}@0,0", f"{a}@0,1", "--size", "2x2", "--replace") == 0
+    assert run("compose", "-o", new, f"{b}@0,0", f"{a}@0,1", "--size", "2x2") == 0
+    assert out.read_text() == new.read_text()
+
+
+def test_compose_replace_of_a_missing_out_is_a_plain_compose(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0", "--replace") == 0
+    assert capsys.readouterr().out == f"wrote {out}\n"
+
+
+def test_compose_replace_drops_frames_and_everything(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    write(tmp_path, "o.px", "pxart 1\n# old header\nq #123456\n@anim x ms=1\n@frame x/0\nq\n@frame x/1\nq\n")
+    msg = run_err("compose", "-o", out, f"{b}@0,0")
+    assert "E_SELECT" in msg and "has named frames" in msg
+    assert run("compose", "-o", out, f"{b}@0,0", "--replace") == 0
+    assert "old header" not in out.read_text() and pxart.parse(out).implicit
+
+
+def test_compose_replace_with_frame_is_bad_arg(tmp_path):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    before = out.read_text()
+    msg = run_err("compose", "-o", f"{out}:x", f"{b}@0,0", "--replace")
+    assert "E_BAD_ARG" in msg and f"with -o {out}:x that would drop its other frames too" in msg
+    assert out.read_text() == before
+
+
+def test_compose_replace_with_under_is_bad_arg(tmp_path):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    msg = run_err("compose", "-o", out, f"{b}@0,0", "--replace", "--under")
+    assert "E_BAD_ARG" in msg and "--under draws behind the frame it has: give one" in msg
+
+
+def test_compose_replace_with_rekey(tmp_path, capsys):
+    # The stale white would clash with a new file's w; --replace --rekey starts over, so nothing needs a new key.
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    c = write(tmp_path, "c.px", "pxart 1\nw #00ff00\n\nw\n")
+    msg = run_err("compose", "-o", out, f"{c}@0,0")
+    assert "E_KEY_CONFLICT" in msg and f"({out} exists, and keeps its palette: --replace starts it fresh, as if new)" \
+        in msg
+    capsys.readouterr()
+    assert run("compose", "-o", out, f"{c}@0,0", "--replace", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert "--rekey gives" not in got and pxart.parse(out).palette == {"w": pxart.hex2rgba("#00ff00")}
+
+
+def test_compose_frame_of_existing_out_has_no_plain_note(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    write(tmp_path, "o.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    assert run("compose", "-o", f"{out}:y", f"{b}@0,0") == 0
+    assert "keeping its palette" not in capsys.readouterr().out
+
+
+def test_compose_under_has_no_plain_note(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    capsys.readouterr()
+    assert run("compose", "-o", out, f"{b}@0,0", "--under") == 0
+    assert "keeping its palette" not in capsys.readouterr().out
+
+
+def test_crop_into_plain_existing_out_has_no_compose_note(tmp_path, capsys):
+    a, b, out = stale_setup(tmp_path)
+    assert run("compose", "-o", out, f"{a}@0,0") == 0
+    capsys.readouterr()
+    assert run("crop", a, "0,0,1,1", "-o", out) == 0
+    assert "keeping its palette" not in capsys.readouterr().out
+
+
+def test_compose_plain_note_names_imports(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\n@variant night\nk #000011\n")
+    s = write(tmp_path, "s.px", "@palette pal.px\n\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{s}@0,0") == 0
+    capsys.readouterr()
+    assert run("compose", "-o", out, f"{s}@0,0") == 0
+    assert f"note: {out} exists: keeping its palette (0 keys, @palette pal.px, @variant night); --replace starts it " \
+        "fresh" in capsys.readouterr().out
+
+
+def test_help_documents_compose_replace():
+    text = " ".join(pxart.__doc__.split())
+    assert "[--variant-map NAME=V1,V2] [--replace] LAYER@x,y ..." in text
+    assert "A plain OUT that exists (no :frame) keeps its palette too, keys from an earlier run included, and a note " \
+        "says so" in text
+    assert "--replace starts it as if new: the layers' palettes, nothing of the old file (not with OUT:frame, whose " \
+        "other frames it would drop, or with --under)." in text
+
+
+def test_readme_documents_compose_replace():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "a plain OUT that exists keeps its palette, with a note, and `--replace` starts it as if new" in readme

@@ -376,11 +376,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       keys join DST's variants in SRC's colors, as a compose layer's join an existing OUT
       (--variant-map too).
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
-          [--variant-map NAME=V1,V2] LAYER@x,y ...
+          [--variant-map NAME=V1,V2] [--replace] LAYER@x,y ...
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
       pixels (a floor or a shadow under a finished sprite). The frame must exist.
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
+      A plain OUT that exists (no :frame) keeps its palette too, keys from an earlier run
+      included, and a note says so: 'note: glade.px exists: keeping its palette (61 keys,
+      @variant dusk); --replace starts it fresh' (an E_KEY_CONFLICT says it as well).
+      --replace starts it as if new: the layers' palettes, nothing of the old file (not with
+      OUT:frame, whose other frames it would drop, or with --under).
       An existing OUT keeps its own palette, @palette and variants; each layer's keys are added
       to it unless the key already exists with the same color, each in the colors the layer's
       file gives it in OUT's variants of the same name (a variant the file hasn't got leaves
@@ -3488,10 +3493,11 @@ def inline_palette(doc):
         doc.lead[nxt] = lead + (doc.lead.get(nxt) or [])
 
 
-def frame_slot(opath, osel, palette=None, flag="-o"):
-    """Open OUT (or start it, importing `palette`) and find or make the frame OUT[:frame] names: (doc, frame).
-    A new frame goes after the last frame of its animation, or at the end when the animation is new."""
-    doc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() else start_doc(opath, palette)
+def frame_slot(opath, osel, palette=None, flag="-o", fresh=False):
+    """Open OUT (or start it, importing `palette`; fresh: start it though it exists) and find or make the frame
+    OUT[:frame] names: (doc, frame). A new frame goes after the last frame of its animation, or at the end when the
+    animation is new."""
+    doc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() and not fresh else start_doc(opath, palette)
     if osel:
         if doc.implicit:
             if not ID_RE.match(doc.stem):
@@ -4394,7 +4400,8 @@ def cmd_compose(a):
                      f"{' '.join(unused)}")
         opath = split_sel(a.o)[0]
         with reading(f"-o ({a.o})"):
-            odoc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() else None
+            odoc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() and not getattr(a, "replace", False) \
+                else None
         def move(path, moves):  # every layer's doc of that file (each layer reads its own)
             ds, frames, _ = files[path]
             for d, f in zip(ds, frames):
@@ -4551,7 +4558,13 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     vmap = vmap or {}
     opath, osel = split_sel(a.o)
     note_suffix(opath)
-    fresh, under = not pathlib.Path(opath).exists(), None  # under: the frame the layers go behind
+    replace = getattr(a, "replace", False)
+    if replace and (osel or getattr(a, "under", False)):
+        fail("E_BAD_ARG", f"--replace starts {opath} fresh, as if new, dropping all it has; " + (
+            f"with -o {a.o} that would drop its other frames too: compose into -o {opath} (a file of one frame), or "
+            "drop --replace (the frame is replaced anyway)" if osel else
+            "--under draws behind the frame it has: give one"))
+    fresh, under = not pathlib.Path(opath).exists() or replace, None  # under: the frame the layers go behind
     have_names = sorted({n for lay, *_ in layers for n in variant_names(lay.doc)})
     for name, ns in vmap.items():
         missing = [n for n in ns[1:] if n not in have_names]
@@ -4562,7 +4575,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         if getattr(a, "under", False) and not osel and not fresh:  # OUT's single grid, which frame_slot clears
             was = parse(opath, allow_empty=True)
             under = list(was.frames[0].grid) if was.implicit else None
-        doc, target = frame_slot(opath, osel)
+        doc, target = frame_slot(opath, osel, fresh=fresh)
+    kept = None if fresh else said_palette(doc)  # what OUT had, for the note
     if not fresh:  # an existing OUT keeps its variants: the map only reads the layers' variants as OUT's
         check_vmap(vmap, doc, opath, [lay.doc for lay, *_ in layers])
     if getattr(a, "under", False):  # (crop has no --under)
@@ -4651,6 +4665,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
                                    words.get("redo", "compose"), found[path], whose,
                                    rekey_copy(src.path, opath, copies), whys.get(path))
             issue.ctx = c["layers"][0][1] if len(ns) == 1 else f"layers {spans(ns)} ({src.path})"
+            if not fresh and not osel and hasattr(a, "replace"):  # compose's plain OUT: its palette may be stale
+                issue.msg += f". ({opath} exists, and keeps its palette: --replace starts it fresh, as if new)"
             issues.append(issue)
         err = PxError(issues)
         err.moves = {p: m for p, m in found.items() if m}
@@ -4658,6 +4674,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         raise err
     if dry:
         return {p: m for p, m in found.items() if m}, whys
+    if not fresh and not osel and hasattr(a, "replace") and not getattr(a, "under", False):  # compose's plain OUT
+        print(f"note: {opath} exists: keeping its palette ({kept}); --replace starts it fresh")
     for line in said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap,
                              rekey_said, fresh) + said_variants(opath, layers, doc, vmap, fresh):
         print(line)
@@ -4683,6 +4701,13 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
         carry_header(doc, {d.path.name: (notes or {}).get(d.path.resolve(), ({}, {}, []))[2] for d in docs})
     print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
+
+
+def said_palette(doc):
+    """What an OUT's palette holds, briefly: '12 keys, @palette pal.px, @variant dusk'."""
+    n = len(doc.palette)
+    return ", ".join([f"{n} key{'s' * (n != 1)}"] + [f"@palette {r}" for r in doc.palette_refs]
+                     + [f"@variant {v}" for v in variant_names(doc)])
 
 
 def said_variants(opath, layers, doc, vmap, fresh):
@@ -5915,6 +5940,7 @@ def parser(describe=True):
     p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2",
                    help="a new OUT's variant NAME takes each layer's first of NAME, V1, V2 (repeatable)")
+    p.add_argument("--replace", action="store_true", help="a plain OUT that exists is started fresh, as if new")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

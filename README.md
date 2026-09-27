@@ -189,7 +189,8 @@ rather than repeating them.
   offers the same moves; each variant colors only
   the layers whose file has it, a note says which stay at their base colors, and
   `--variant-map dusk=night,dark` merges several files' variants into one (it adds to the
-  same-name lookup, never replaces it: OUT's night still reads each file's night); `--under` draws
+  same-name lookup, never replaces it: OUT's night still reads each file's night); a plain OUT that
+  exists keeps its palette, with a note, and `--replace` starts it as if new; `--under` draws
   the layers behind the frame that's there, in its empty pixels; a key a layer has in
   another color than OUT's is `E_KEY_CONFLICT`, one line per source file with free keys
   for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
