@@ -190,7 +190,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   dusk=night` reads the keeper's night as party.px's dusk), and in a new OUT to a needed key
   it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
-  `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves a
+  `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
+  --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
+  from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g` moves a
   sprite's own keys into the palette file it imports; `--comment k 'text'`, `--comment
   @variant night 'text'` and `--comment-header 'text'` write the comment above a key line,
   a variant or the file; `palette FILE` alone lists the keys,

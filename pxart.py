@@ -439,6 +439,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
       stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
+          [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
           [--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're
@@ -456,6 +457,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       from here. --add and --keep can share one call; the keys must be in the base palette.
       A key --add gives the color it already has is left as it is, and said so: 'k is already
       #0f0f22 in night; unchanged'.
+      Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
+      --keep-lit y,W sets every key of FILE's palette (imported ones too) in night from its
+      base color (or from another variant's: --derive-from dusk), each channel times 1 - F
+      (--darken 0.35 keeps 65%), then the --tint color laid over at its alpha, the math of
+      scene --tint, so night looks like a tinted scene; the --keep-lit keys keep their
+      --derive-from color, listed as lamps kept lit. A key that comes out in its base color
+      gets no line. --add in the same call then sets single keys over the derived ones: a
+      whole night in one call, with the lamps still lit.
       --comment KEY 'text' sets the comment right above FILE's line for KEY (replacing the
       comment lines there; blank lines stay); --comment @variant night 'text' the one above
       '@variant night', which --extract-to and compose carry as the variant's section note;
@@ -4339,7 +4348,13 @@ def cmd_palette(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
     notes = comment_args(a.comment)
-    if (a.keep or a.variant) and not (a.variant and (a.add or a.keep or notes)):
+    derive = a.derive_from is not None
+    if (a.darken is not None or a.tint or a.keep_lit) and not derive:
+        fail("E_BAD_ARG", "--darken, --tint and --keep-lit shape a derived variant: give them with --variant NAME "
+             "--derive-from base|VARIANT")
+    if derive and not a.variant:
+        fail("E_BAD_ARG", f"--derive-from {a.derive_from} builds a variant: give --variant NAME (the one it writes)")
+    if (a.keep or a.variant) and not (a.variant and (a.add or a.keep or notes or derive)):
         fail("E_BAD_ARG", "--keep KEYS goes with --variant NAME (the variant they inherit the base colors in)"
              if a.keep else f"--variant {a.variant} goes with --add 'k=#rrggbb' (set k in it), --keep KEYS (let "
              "them inherit the base colors) or --comment KEY 'text' (the comment above k's line in it)")
@@ -4348,6 +4363,9 @@ def cmd_palette(a):
     if (notes or a.comment_header is not None) and (a.extract_to or a.export):
         fail("E_BAD_ARG", "--comment and --comment-header edit FILE; run --extract-to or --export after")
     said = []
+    if derive:
+        said += derive_variant(doc, a.variant, a.derive_from, a.darken or 0.0, a.tint,
+                               key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [])
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -4359,7 +4377,7 @@ def cmd_palette(a):
         said += [said_already(same)] if same else []
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
-    if a.add or a.keep or notes or a.comment_header is not None:
+    if a.add or a.keep or notes or a.comment_header is not None or derive:
         print("; ".join(said + [write_doc(doc)]))
     if a.hoist:
         print(hoist(doc, key_list(a.hoist, "--hoist")))
@@ -4387,7 +4405,7 @@ def cmd_palette(a):
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
         print("wrote", a.export)
-    if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None:
+    if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None or derive:
         return
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
@@ -4462,6 +4480,59 @@ def variant_edit(doc, name, adds, keeps):
     if already:
         said.append(inherit(already, "already inherit"))
     return said
+
+
+def derive_variant(doc, name, src, darken, tint, lit):
+    """palette FILE --variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]: NAME's
+    line for every key of FILE's palette (imported keys too), in its color in `src` (the base palette, or a variant)
+    made darker (each channel times 1 - F) and then tinted (COLOR laid over at its alpha, as scene --tint does); the
+    --keep-lit keys keep their `src` color (a lamp). A key that comes out in its base color gets no line (it inherits),
+    unless it is kept lit (then it is listed: a relist). NAME is made when FILE has none. What it did."""
+    if name == "base" or not re.match(r"^[A-Za-z0-9_\-]+$", name):
+        fail("E_BAD_ARG", f"--variant {name!r}: a variant name is letters, digits, _ and -, and not 'base'")
+    if not 0 <= darken <= 1:
+        fail("E_BAD_ARG", f"--darken {darken:g}: want a fraction from 0 (as is) to 1 (black), like 0.35")
+    have = sorted(set(doc.variants) | set(doc.shared_variants))
+    if src != "base" and src not in have:
+        fail("E_SELECT", f"--derive-from {src}: {doc.path} has no @variant {src!r} (have: {', '.join(have) or 'none'}; "
+             "or base, the base palette)", path=doc.path)
+    base = doc.resolved()
+    from_ = doc.resolved(None if src == "base" else src)
+    for k in lit:
+        if k not in base or k == ".":
+            fail("E_VARIANT_KEY", f"--keep-lit {k!r}: the base palette doesn't define it", path=doc.path)
+    color = parse_color(tint, "--tint") if tint else None
+    made = name not in doc.variants and name not in doc.shared_variants
+    over = doc.variants.setdefault(name, {})
+    recolored = []
+    for k, c in base.items():
+        if k == "." or not c[3]:
+            continue
+        got = from_[k] if k in lit else derived(from_[k], darken, color)
+        if got == c and k not in lit:
+            if k in over:
+                del over[k]
+                doc.lead.pop(("vkey", name, k), None)
+            continue
+        over[k] = got
+        if got != c:
+            recolored.append(k)
+    how = ([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else [])
+    said = [f"new @variant {name}" if made else f"@variant {name}",
+            f"derived from {src}" + (f" ({', '.join(how)})" if how else "") + f": recolors {len(recolored)} key(s)"]
+    if lit:
+        said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
+                    f"color{'s' * (len(lit) > 1)})")
+    return said
+
+
+def derived(c, darken, tint):
+    """One color of derive_variant: each channel times 1 - darken, then `tint` laid over at its alpha (as scene
+    --tint lays it over a scene); the alpha stays."""
+    rgb = tuple(int(round(v * (1 - darken))) for v in c[:3]) + (c[3],)
+    if tint is None:
+        return rgb
+    return tinted(Image.new("RGBA", (1, 1), rgb), tint).getpixel((0, 0))
 
 
 def comment_args(given):
@@ -5032,6 +5103,11 @@ def parser(describe=True):
     p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
     p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")
+    p.add_argument("--derive-from", metavar="base|VARIANT",
+                   help="with --variant NAME: set every key in NAME from its color here, --darken'ed and --tint'ed")
+    p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
+    p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
+    p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
     p.add_argument("--comment", nargs="+", action="append", metavar="ARG",
                    help="KEY 'text' or @variant NAME 'text': the comment line above that line ('' removes it)")
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")

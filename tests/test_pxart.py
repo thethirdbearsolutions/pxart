@@ -14850,3 +14850,192 @@ def test_readme_documents_palette_comment():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--comment k 'text'`, `--comment @variant night 'text'` and `--comment-header 'text'` write the comment" \
         in readme
+
+
+# ---------------------------------------------------------------- palette --variant NAME --derive-from
+
+DPAL = "pxart 1\nk #000000\nw #c8c8c8\ny #ffd040\nh #804020\n\n@variant dusk\nw #a0a0b0\ny #ffe080\n"
+
+
+def dv(path, name, k):
+    return pxart.parse(path, palette_only=True).resolved(name)[k]
+
+
+def test_derive_darken_from_base(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
+    assert capsys.readouterr().out == (f"new @variant night; derived from base (darkened 50%): recolors 3 key(s); "
+                                       f"wrote {p}\n")
+    assert dv(p, "night", "w") == (100, 100, 100, 255) and dv(p, "night", "y") == (128, 104, 32, 255)
+    assert dv(p, "night", "h") == (64, 32, 16, 255)
+    assert "k" not in pxart.parse(p, palette_only=True).variants["night"]  # black stays black: no line
+
+
+def test_derive_rounds_half_up_like_round(tmp_path):
+    p = write(tmp_path, "p.px", "pxart 1\nq #030303\n")
+    assert run("palette", p, "--variant", "n", "--derive-from", "base", "--darken", "0.5") == 0
+    assert dv(p, "n", "q") == (2, 2, 2, 255)  # round(1.5) is 2
+
+
+def test_derive_tint_is_scene_tint_math(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--tint", "#10183080") == 0
+    for k, c in (("w", "#c8c8c8"), ("y", "#ffd040"), ("h", "#804020")):
+        want = pxart.tinted(Image.new("RGBA", (1, 1), pxart.hex2rgba(c)), pxart.hex2rgba("#10183080")).getpixel((0, 0))
+        assert dv(p, "night", k) == want
+
+
+def test_derive_darken_then_tint(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.35", "--tint",
+               "#10183060") == 0
+    dark = tuple(int(round(v * 0.65)) for v in (0xc8, 0xc8, 0xc8)) + (255,)
+    want = pxart.tinted(Image.new("RGBA", (1, 1), dark), pxart.hex2rgba("#10183060")).getpixel((0, 0))
+    assert dv(p, "night", "w") == want
+
+
+def test_derive_keep_lit_relists_at_base(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--keep-lit", "y") == 0
+    out = capsys.readouterr().out
+    assert "y kept lit (in its base color)" in out
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.variants["night"]["y"] == doc.palette["y"]  # listed: a relist
+    capsys.readouterr()
+    run("palette", p)
+    night = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("  night:"))
+    assert "relists unchanged: y" in night
+
+
+def test_derive_from_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--darken", "0.5", "--keep-lit", "y") == 0
+    assert "derived from dusk (darkened 50%)" in capsys.readouterr().out
+    assert dv(p, "night", "w") == (80, 80, 88, 255)  # dusk's #a0a0b0, halved
+    assert dv(p, "night", "y") == pxart.hex2rgba("#ffe080")  # kept at its dusk color
+    assert dv(p, "night", "h") == (64, 32, 16, 255)  # dusk doesn't recolor h: its base, halved
+
+
+def test_derive_then_add_overrides_one_key(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--add",
+               "y=#fff4d0") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("new @variant night; derived from base") and "sets y #fff4d0" in out
+    assert dv(p, "night", "y") == pxart.hex2rgba("#fff4d0")
+
+
+def test_derive_existing_variant_is_rewritten(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--darken", "0.5") == 0
+    assert capsys.readouterr().out.startswith("@variant dusk; derived from base")
+    assert dv(p, "dusk", "w") == (100, 100, 100, 255) and dv(p, "dusk", "y") == (128, 104, 32, 255)
+
+
+def test_derive_existing_line_back_at_base_goes(tmp_path):
+    # With nothing to darken, a derived color is its base color: dusk's lines go (the keys inherit).
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base") == 0
+    assert pxart.parse(p, palette_only=True).variants["dusk"] == {}
+
+
+def test_derive_copy_of_a_variant(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk") == 0
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.variants["night"] == doc.variants["dusk"]
+
+
+def test_derive_imported_keys_get_lines_too(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\nw #c8c8c8\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\nq #804020\n@frame a\nwq\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
+    doc = pxart.parse(p)
+    assert doc.variants["night"] == {"w": (100, 100, 100, 255), "q": (64, 32, 16, 255)}
+    assert (tmp_path / "pal.px").read_text() == "k #000000\nw #c8c8c8\n"
+
+
+def test_derive_keeps_alpha_and_skips_transparent(tmp_path):
+    p = write(tmp_path, "p.px", "pxart 1\ng #80808080\nz transparent\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.variants["night"] == {"g": (64, 64, 64, 128)}
+
+
+def test_derive_renders_lamp_lit(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\nw #c8c8c8\ny #ffd040\n@frame a\nwy\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.6", "--keep-lit", "y") == 0
+    doc = pxart.parse(p)
+    img = doc.image(doc.frames[0], "night")
+    assert img.getpixel((1, 0)) == pxart.hex2rgba("#ffd040") and img.getpixel((0, 0)) == (80, 80, 80, 255)
+
+
+def test_derive_twice_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "p.px", DPAL)
+    argv = ("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.35", "--keep-lit", "y")
+    run(*argv)
+    before = p.read_text()
+    capsys.readouterr()
+    assert run(*argv) == 0
+    assert capsys.readouterr().out.endswith(f"no change: {p}\n") and p.read_text() == before
+
+
+@pytest.mark.parametrize("args, bit", [
+    (["--darken", "0.5"], "--derive-from"),
+    (["--variant", "night", "--tint", "#101830"], "--derive-from"),
+    (["--variant", "night", "--keep-lit", "y"], "--derive-from"),
+    (["--derive-from", "base"], "give --variant NAME"),
+])
+def test_derive_flag_combinations(tmp_path, args, bit):
+    p = write(tmp_path, "p.px", DPAL)
+    msg = run_err("palette", p, *args)
+    assert "E_BAD_ARG" in msg and bit in msg and p.read_text() == DPAL
+
+
+@pytest.mark.parametrize("darken", ["-0.1", "1.5"])
+def test_derive_darken_out_of_range(tmp_path, darken):
+    p = write(tmp_path, "p.px", DPAL)
+    msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--darken", darken)
+    assert "E_BAD_ARG" in msg and "from 0 (as is) to 1 (black)" in msg and p.read_text() == DPAL
+
+
+def test_derive_from_unknown_variant(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    msg = run_err("palette", p, "--variant", "night", "--derive-from", "eve")
+    assert "E_SELECT" in msg and "have: dusk" in msg
+
+
+def test_derive_keep_lit_unknown_key(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    assert "E_VARIANT_KEY" in run_err("palette", p, "--variant", "night", "--derive-from", "base", "--keep-lit", "Q")
+
+
+def test_derive_bad_tint(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--tint", "bluish")
+    assert "E_BAD_COLOR" in msg and "--tint" in msg
+
+
+def test_derive_base_name_refused(tmp_path):
+    p = write(tmp_path, "p.px", DPAL)
+    assert "E_BAD_ARG" in run_err("palette", p, "--variant", "base", "--derive-from", "dusk")
+
+
+def test_derived_helper():
+    assert pxart.derived((200, 100, 50, 255), 0.5, None) == (100, 50, 25, 255)
+    assert pxart.derived((200, 100, 50, 255), 0, None) == (200, 100, 50, 255)
+    assert pxart.derived((200, 100, 50, 255), 1, None) == (0, 0, 0, 255)
+    assert pxart.derived((10, 10, 10, 255), 0, pxart.CLEAR) == (10, 10, 10, 255)
+
+
+def test_help_documents_derive(capsys):
+    out = " ".join(cmd_help(capsys, "palette").split())
+    assert "[--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]" in out
+    assert "Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W" \
+        in out
+    assert "the math of scene --tint" in out
+
+
+def test_readme_documents_derive():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "--derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night" in readme
