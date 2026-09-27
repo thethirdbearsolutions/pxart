@@ -11096,7 +11096,8 @@ def test_rekey_flags_on_the_commands():
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
     assert "compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] LAYER@x,y" in doc
-    assert "--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never written)" in doc
+    assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
+            "written)") in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
     assert "with no -o renames them in field.px itself, in every frame" in doc
     assert "--rekey gives them free keys in DST, as compose's does" in doc
@@ -11620,7 +11621,8 @@ def old_sheet(its, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
     from PIL import ImageDraw
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     tiles = [(it, pxart.upscale(it.img, scale, grid, rulers)) for it in its]
-    lw = max(max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its)
+    lw = max(max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c"))
+             for it in its)
     iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)

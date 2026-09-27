@@ -112,22 +112,21 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or with `--fit`
-  each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at `--scale` with its 1x and
-  2x copies beside it in the same picture, plus a motion strip; without `-o` it prints only
-  the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and writes nothing; "rows Y+
-  still" only when those rows are pixel-identical, and for the rise and the fall of one
-  breath alike when the legs are identical in every frame; a ground tile or a sparse
-  overlay like falling snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`),
-  `onion` (B over a faded A, and a printed readout of how B's edges moved from A's, like
-  `top -1, bottom +0`, for a 1px jump too faint to see; `--feet N` or `--rows Y0-Y1` reads
-  only that band, so a weapon swing doesn't hide the feet, and `--tint-a` draws A as a
-  colored silhouette), `scene` (.px/.png items at x,y,
-  negative allowed, mirrored with a `+h`/`+v` suffix as in `hero.px:walk/0+h@3,4`;
-  `--variant V` recolors the whole room;
-  `--tint '#10183080'` lays a translucent color over the finished scene for night; an item
-  or legend entry ending in `%base` keeps its base palette, a lamp in a night room;
-  `--bg transparent` works, as does `transparent` anywhere a color is typed), and
-  `tint`, which does the same to a PNG.
+  each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at
+  `--scale` with its 1x and 2x copies beside it in the same picture, plus a motion strip;
+  without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`,
+  and writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for
+  the rise and the fall of one breath alike when the legs are identical in every frame; a
+  ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
+  `shift -1,+4 (wrap)`), `onion` (B over a faded A, and a printed readout of how B's edges
+  moved from A's, like `top -1, bottom +0`, for a 1px jump too faint to see; `--feet N` or
+  `--rows Y0-Y1` reads only that band, so a weapon swing doesn't hide the feet, and
+  `--tint-a` draws A as a colored silhouette), `scene` (.px/.png items at x,y, negative
+  allowed, mirrored with a `+h`/`+v` suffix as in `hero.px:walk/0+h@3,4`; `--variant V`
+  recolors the whole room; `--tint '#10183080'` lays a translucent color over the finished
+  scene for night; an item or legend entry ending in `%base` keeps its base palette, a
+  lamp in a night room; `--bg transparent` works, as does `transparent` anywhere a color
+  is typed), and `tint`, which does the same to a PNG.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
   entry that can't load is an error at its legend line. A `#` line before the rows is a
@@ -140,42 +139,44 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart -h` has a worked map.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII and
-  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats`, `frames`
-  (`--rm`/`--move` print only what they did, and a move to where the frames
-  already are says `already in place`; with a selector,
-  `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them;
-  removing a group's last frame removes its `@anim`/`@still` line; `frames hero.px:walk
-  --copy-to beast.px [--after ID]` copies frames into another file, in order, with their
-  ms, pivots and `@anim` line).
-- **Editing:** `new` (a blank or filled frame, in a new or existing file), `put`
-  (`put hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with
-  optional palette lines merged like `compose`'s; checked like a file, errors at stdin's
-  lines, nothing written on an error, and only that frame's lines change), `fill` (a
-  region or the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`, or `--fill KEY`), `set`, `crop`, `recolor`
-  (optionally within a region; `'a<>b'` swaps two keys, quoted for the shell; `'a>b'` gives
-  a's pixels a new key b in a's color, a rename when nothing keeps a; the key moves of one
-  call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
-  `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
-  instead; both flags repeat, and the kept area is the union, so two lamps are one call;
-  works on a rendered PNG too; `--keep-keys W,T,t` or `--drop-keys` mask a .px by key),
-  `paste` (`+h`/`+v` mirror the source, as in `compose`; `--under` fills only the empty
-  pixels), `compose` (stack layers into a frame; a new
-  frame lands after its animation; a new file gets the layers' whole palette, their shared
-  `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
-  its keys, or with `--used-keys-only` only the keys its frame uses; `--under` draws the layers behind the frame that's there, in its empty
-  pixels; a key a layer has in another color than OUT's is `E_KEY_CONFLICT`, one line per
-  source file with free keys for it, and `--rekey` gives it those keys in OUT and leaves
-  the source file alone, as it does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set` (timing), `palette --add` (`palette FILE` alone lists the
-  keys, then what each variant overrides and keeps: `dusk: overrides o x X; keeps e E q`). Edits
-  rewrite only the lines that changed, keeping the file's blank lines and comments, and
-  an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
-  always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px
-  with that frame flipped, and an `OUT` in another directory gets its `@palette` lines
-  re-pointed from there, so it imports the same palette file. `extract hero.px:walk -o
-  walk.px` writes only the selected frames, with the same palette and imports (and their
-  `@anim` lines, in the order of the frames' groups); `--inline-palette` copies the
-  imported keys they use (and the variants' colors for them) into the file and drops
-  `@palette`, so the hand-off renders the same with nothing beside it.
+  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats`,
+  `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
+  already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
+  those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
+  frame removes its `@anim`/`@still` line; `frames hero.px:walk --copy-to beast.px
+  [--after ID]` copies frames into another file, in order, with their ms, pivots and
+  `@anim` line).
+- **Editing:** `new` (a blank or filled frame, in a new or existing file), `put` (`put
+  hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with optional
+  palette lines merged like `compose`'s; checked like a file, errors at stdin's lines,
+  nothing written on an error, and only that frame's lines change), `fill` (a region or
+  the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`,
+  or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
+  two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
+  rename when nothing keeps a; the key moves of one call apply together, so none feeds
+  another), `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a
+  `--dither N` edge; `--invert` erases the inside instead; both flags repeat, and the kept
+  area is the union, so two lamps are one call; works on a rendered PNG too; `--keep-keys
+  W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in
+  `compose`; `--under` fills only the empty pixels), `compose` (stack layers into a frame;
+  a new frame lands after its animation; a new file gets the layers' whole palette, their
+  shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
+  finds its keys, or with `--used-keys-only` only the keys its frame uses; `--under` draws
+  the layers behind the frame that's there, in its empty pixels; a key a layer has in
+  another color than OUT's is `E_KEY_CONFLICT`, one line per source file with free keys
+  for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
+  does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set`
+  (timing), `palette --add` (`palette FILE` alone lists the keys, then what each variant
+  overrides and keeps: `dusk: overrides o x X; keeps e E q`). Edits rewrite only the lines
+  that changed, keeping the file's blank lines and comments, and an edit that changes
+  nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
+  file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and
+  an `OUT` in another directory gets its `@palette` lines re-pointed from there, so it
+  imports the same palette file. `extract hero.px:walk -o walk.px` writes only the
+  selected frames, with the same palette and imports (and their `@anim` lines, in the
+  order of the frames' groups); `--inline-palette` copies the imported keys they use (and
+  the variants' colors for them) into the file and drops `@palette`, so the hand-off
+  renders the same with nothing beside it.
 - **Drawing** (for 32x48 heroes, 64x64 beasts and 256-wide layers, where typing every
   pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
   and rewrites only the rows it changed):

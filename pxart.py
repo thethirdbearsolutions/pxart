@@ -54,11 +54,13 @@ LOOKING
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
-  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44] [--fit]
+  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
+        [--fit]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. Every cell is
-      the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell; --fit
-      makes each cell its own frame's width (or its label's, if wider) and each row as tall as
-      its tallest frame, --cols cells to a row, frames bottom-aligned in their row. A PNG whose
+      the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
+      --fit makes each cell its own frame's width (or its label's, if wider) and each row
+      as tall as its tallest frame, --cols cells to a row, frames bottom-aligned in their
+      row. A PNG whose
       four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
       count that color: it's the backdrop. Frames with the same id from different files are
       labeled with their file's stem in front (hero:idle/0, beast:idle/0; the path as given
@@ -361,16 +363,17 @@ EDITING (writes .px; -o defaults to editing the input in place)
       stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
           [--extract-to P.px [--repoint]]
-      No flags: lists the keys, their colors, where they come from and how often they're used,
-      then each variant's keys: 'dusk: overrides o x X c C; keeps e E q' (the keys it recolors,
-      then the base keys it leaves alone, both in palette order).
+      No flags: lists the keys, their colors, where they come from and how often they're
+      used, then each variant's keys: 'dusk: overrides o x X c C; keeps e E q' (the keys it
+      recolors, then the base keys it leaves alone, both in palette order).
       --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
       FILE renders with (imported ones too, local ones winning) and every variant, with the
       comments that document them: those above key and @variant lines (a section comment,
-      '# glow: left out of dusk on purpose'), from FILE and the palette files it imports, and
-      a palette file's header comment (a sprite's header is about the sprite and stays). --repoint
-      then replaces FILE's @palette, key and @variant lines with '@palette P.px' (re-pointed
-      from FILE's directory): FILE renders the same, and other sprites can share P.px.
+      '# glow: left out of dusk on purpose'), from FILE and the palette files it imports,
+      and a palette file's header comment (a sprite's header is about the sprite and
+      stays). --repoint then replaces FILE's @palette, key and @variant lines with '@palette
+      P.px' (re-pointed from FILE's directory): FILE renders the same, and other sprites can
+      share P.px.
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
   are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
@@ -1576,7 +1579,8 @@ REDO_FROM = {"frames --copy-to": "copy the frames"}  # '... and copy the frames 
 
 def rekey_copy(src, dst, taken=None):
     """Where E_KEY_CONFLICT's recolor writes src's copy: 'rekeyed/' beside dst (its directory as typed), under src's
-    name; `taken` (copies already suggested, which it adds to) gets NAME-2.px and so on, so two sources never share one."""
+    name; `taken` (copies already suggested, which it adds to) gets NAME-2.px and so on, so two sources never share
+    one."""
     src = pathlib.Path(src)
     base = pathlib.Path(dst).parent / "rekeyed"
     copy, n = base / src.name, 1
@@ -1779,7 +1783,8 @@ def onion_band(a, h):
         fail("E_BAD_ARG", f"--rows wants Y0-Y1 (canvas rows, both included, like 20-23) or one row Y, got {a.rows!r}")
     y0, y1 = int(m.group(1)), int(m.group(2) or m.group(1))
     if y0 > y1 or y1 >= h:
-        fail("E_BAD_ARG", f"--rows {a.rows}: the canvas has rows 0-{h - 1}" + (", and Y0 comes first" if y0 > y1 else ""))
+        fail("E_BAD_ARG", f"--rows {a.rows}: the canvas has rows 0-{h - 1}"
+             + (", and Y0 comes first" if y0 > y1 else ""))
     return y0, y1
 
 
@@ -1810,8 +1815,8 @@ def alignment(ia, ib, w, h, spots, how, band=None):
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
     where = f"{rows} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
-    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else
-                                    "empty" if not band else "nothing opaque" if n == "A" else f"nothing opaque in {rows}")
+    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty" if not band
+                                    else "nothing opaque" if n == "A" else f"nothing opaque in {rows}")
              + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
     if all(boxes):
@@ -2661,8 +2666,8 @@ def cmd_crop(a):
     with reading(f"FILE ({a.src})"):
         src = one_frame(a.src, "crop source")
         if not src.doc:
-            fail("E_BAD_ARG", f"crop cuts a .px frame, got {a.src}; for a PNG, 'mask --keep x,y,w,h' erases outside the "
-                 "rectangle, or from-png it first")
+            fail("E_BAD_ARG", f"crop cuts a .px frame, got {a.src}; for a PNG, 'mask --keep x,y,w,h' erases outside "
+                 "the rectangle, or from-png it first")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
@@ -3349,8 +3354,8 @@ def seed_palette(doc, layers, gone=None, used_only=False):
 
 
 def cmd_compose(a):
-    """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash and where they can go; those
-    move in the layers' docs (in memory, the files stay as they are) and the compose runs for real."""
+    """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash and where they can go;
+    those move in the layers' docs (in memory, the files stay as they are) and the compose runs for real."""
     layers = compose_layers(a)
     gone = {}
     if getattr(a, "rekey", False):
