@@ -67,33 +67,33 @@ FORMAT (.px)
   directory'.
 
 LOOKING
-  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png] [--dry-run]
+  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
+         [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
-      anim and onion default to 8 too). --png also writes a 1x PNG beside each
-      single-frame .px.
+      anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
+      or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
+      (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
+      pads and labels).
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
         [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
-      stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
-      PNGs in it are left out, a sheet rendered there too). --exclude GLOB (repeatable) leaves
-      files out: one whose name or path under the directory matches ('_*.px', 'wip/*.px'), or
-      every file under a directory that does ('wip'): 'sheet game/ --exclude wip --exclude
-      room.px -o set.png'. A glob that leaves out every file is E_FILE (check, stats and
-      export alike, files named directly too). A palette file (no frames) among the inputs,
-      a directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
-      palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
-      frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
-      --fit makes each cell its own frame's width (or its label's, if wider) and each row
-      as tall as its tallest frame, --cols cells to a row, frames bottom-aligned in their
-      row. A PNG whose four corners are exactly the --bg color (a scene rendered with the
-      same --bg) doesn't count that color: it's the backdrop. Frames with the same id from
-      different files are labeled with their file's stem in front (hero:idle/0,
-      beast:idle/0); render and anim label them the same way.
+      stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o
+      s.png'; PNGs in it are left out, a sheet rendered there too). --exclude GLOB
+      (repeatable) leaves files out: one whose name or path under the directory matches
+      ('_*.px', 'wip/*.px'), or every file under a directory that does ('wip'). A glob that
+      leaves out every file is E_FILE (check, stats and export alike, files named directly
+      too). A palette file (no frames) among the inputs, a directory's or a glob's, is
+      skipped with a note ('note: sheet skips palette.px: a palette file, no frames'); given
+      alone it is E_NO_FRAMES. Every cell is the largest frame's size, so a 16x16 tile
+      beside a 64x64 beast gets a 64x64 cell; --fit makes each cell its own frame's width
+      (or its label's, if wider) and each row as tall as its tallest frame, --cols cells to
+      a row, frames bottom-aligned in their row. A PNG whose four corners are exactly the
+      --bg color (a scene rendered with the same --bg) doesn't count that color: it's the
+      backdrop. Frames with the same id from different files are labeled with their file's
+      stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
-      the group's frames are drawn on one canvas, every pivot on the same pixel (a frame
-      without one uses its bottom-centre pixel), so a walk frame whose pivot says it stands
-      1px lower isn't shown 1px high. The label keeps the frame's own WxH. The default,
-      --align bottom, bottom-aligns each frame in its cell.
+      the group's frames are drawn on one canvas, every pivot on the same pixel. The
+      default, --align bottom, bottom-aligns each frame in its cell.
       --rows group starts a row for each animation group (one file's walk/down, then its
       walk/up, ...; a file's top-level frames share one; a PNG has its own) and wraps within
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
@@ -2546,15 +2546,32 @@ def need_o(a, eg):
 
 
 def cmd_render(a):
-    a.bg = parse_color(a.bg, "--bg")
     its = all_items(a.files, a.variant)
-    for f in a.files:
+    for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
-        if a.png and path.endswith(".px") and not sel:
-            doc = parse(path)
-            if len(doc.frames) == 1:
-                save_image(doc.image(doc.frames[0], a.variant), pathlib.Path(path).with_suffix(".png"), "--png")
-    print(wrote(sheet(its, a.o, a.scale, bg=a.bg, grid=not a.no_grid, rulers=not a.no_grid)))
+        n = len(parse(path).frames) if path.endswith(".px") else 0
+        if sel or n != 1:
+            why = "a selection" if sel else "a PNG" if not path.endswith(".px") else f"{n} frames"
+            print(f"note: --png skips {f}: {why}; --png writes a single-frame .px at 1x ('render --plain FILE:ID -o "
+                  "x.png' writes one frame, 'export --frames DIR' every frame)")
+            continue
+        doc = parse(path)
+        out = (pathlib.Path(a.png) if a.png else pathlib.Path(path).parent) / (pathlib.Path(path).stem + ".png")
+        save_image(doc.image(doc.frames[0], a.variant), out, "--png")
+        print(f"{'would write' if DRY['run'] else 'wrote'} {out.as_posix()} (--png: {path} at 1x)")
+    if a.plain:
+        if len(its) != 1:
+            fail("E_BAD_ARG", f"--plain writes one frame alone, and {' '.join(a.files)} "
+                 f"{'is' if len(a.files) == 1 else 'are'} {len(its)} frames: pick one (FILE:ID), or 'export --frames DIR' "
+                 "writes each frame at 1x")
+        img = its[0].img
+        if a.bg is not None:
+            img = on_bg(img, img.width, img.height, parse_color(a.bg, "--bg"))
+        s = a.scale or 1
+        print(wrote(save_image(img.resize((img.width * s, img.height * s), Image.NEAREST), a.o)))
+        return
+    bg = parse_color(a.bg or "#3a3a44", "--bg")
+    print(wrote(sheet(its, a.o, a.scale or 8, bg=bg, grid=not a.no_grid, rulers=not a.no_grid)))
 
 
 def cmd_sheet(a):
@@ -7423,8 +7440,12 @@ def parser(describe=True):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
-    p.add_argument("--png", action="store_true")
-    p.add_argument("--scale", type=int, default=8); p.add_argument("--bg", default="#3a3a44")
+    p.add_argument("--png", nargs="?", const="", metavar="DIR",
+                   help="also write each single-frame .px as a 1x PNG: FILE.png beside FILE, or DIR/FILE.png")
+    p.add_argument("--plain", action="store_true",
+                   help="-o is the one frame alone: its exact size at --scale (default 1), no grid, rulers or labels")
+    p.add_argument("--scale", type=int, help="default 8 (--plain: 1)")
+    p.add_argument("--bg", help="default #3a3a44 (--plain: none, transparent stays transparent)")
     p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
@@ -7644,14 +7665,20 @@ def parser(describe=True):
     return ap, sub
 
 
+SPRITE_ARG_RE = re.compile(r"\.(px|png)([:%+].*)?$")  # 'hero.px', 'hero.px:walk/0', 'x.png': a file, not a DIR
+
+
 def rekey_args(args):
     """A bare --rekey followed by an argument that isn't a key list (a layer, crop's x,y,w,h) is written --rekey= for
-    argparse, which would otherwise take that argument as --rekey's KEYS."""
+    argparse, which would otherwise take that argument as --rekey's KEYS; so is a bare --png followed by a file
+    (render --png hero.px), which would be taken as its DIR."""
     out = list(args)
     for i, x in enumerate(out):
         nxt = out[i + 1] if i + 1 < len(out) else None
         if x == "--rekey" and (nxt is None or not REKEY_RE.match(nxt) or RECT_ARG_RE.match(nxt)):
             out[i] = "--rekey="
+        if x == "--png" and nxt is not None and SPRITE_ARG_RE.search(nxt):  # render --png hero.px: a file, not DIR
+            out[i] = "--png="
     return out
 
 

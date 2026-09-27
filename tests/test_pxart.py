@@ -23360,6 +23360,93 @@ def test_render_png_beside_is_still_a_png(tmp_path, monkeypatch, capsys):
     assert Image.open(tmp_path / "one.png").size == (2, 1)
 
 
+def test_render_png_says_where_it_wrote(tmp_path, monkeypatch, capsys):
+    # the gate read --png as 'an extra 1x output'; it drops FILE.png beside the .px, and now says so
+    (tmp_path / "art").mkdir()
+    (tmp_path / "art" / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "art/one.px", "--png", "-o", "p.png") == 0
+    assert capsys.readouterr().out.splitlines() == ["wrote art/one.png (--png: art/one.px at 1x)", "wrote p.png"]
+    assert Image.open(tmp_path / "art" / "one.png").size == (2, 1)
+
+
+def test_render_png_dir_writes_there(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    (tmp_path / "two.px").write_text("k #1a1423\nk\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "two.px", "--png", "out", "-o", "p.png") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == ["created out/", "wrote out/one.png (--png: one.px at 1x)", "wrote out/two.png (--png: two.px at 1x)",
+                   "wrote p.png"]
+    assert Image.open(tmp_path / "out" / "one.png").size == (2, 1)
+    assert Image.open(tmp_path / "out" / "two.png").size == (1, 2)
+    assert not (tmp_path / "one.png").exists()
+
+
+def test_render_png_before_the_files_is_not_a_dir(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    (tmp_path / "two.px").write_text("k #1a1423\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "--png", "one.px", "two.px", "-o", "p.png") == 0
+    assert (tmp_path / "one.png").exists() and (tmp_path / "two.png").exists()
+    assert not (tmp_path / "one.px").is_dir()
+
+
+def test_render_png_notes_what_it_skips(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\n@frame w/0\nk\n@frame w/1\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "m.px", "m.px:w/0", "--png", "-o", "p.png") == 0
+    out = capsys.readouterr().out
+    assert "note: --png skips m.px: 2 frames; --png writes a single-frame .px at 1x" in out
+    assert "note: --png skips m.px:w/0: a selection;" in out and "'render --plain FILE:ID -o x.png'" in out
+    assert not (tmp_path / "m.png").exists()
+
+
+def test_render_png_dry_run_says_what_it_would_write(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--png", "--dry-run") == 0
+    assert "would write one.png (--png: one.px at 1x)" in capsys.readouterr().out
+    assert not (tmp_path / "one.png").exists()
+
+
+def test_render_plain_is_the_frame_at_its_exact_size(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\ng #00ff00\n@frame a\n.kk\nkgk\n@frame b\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "m.px:a", "--plain", "-o", "a.png") == 0
+    img = Image.open(tmp_path / "a.png").convert("RGBA")
+    assert img.size == (3, 2) and img.getpixel((0, 0))[3] == 0 and img.getpixel((1, 1)) == (0, 255, 0, 255)
+    assert run("diff", "m.px:a", "a.png") == 0
+    assert run("render", "m.px:a", "--plain", "--scale", "4", "-o", "a4.png") == 0
+    assert Image.open(tmp_path / "a4.png").size == (12, 8)
+    assert run("render", "m.px:a", "--plain", "--bg", "#ff0000", "-o", "abg.png") == 0
+    assert Image.open(tmp_path / "abg.png").convert("RGBA").getpixel((0, 0)) == (255, 0, 0, 255)
+
+
+def test_render_plain_wants_one_frame(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\n@frame a\nk\n@frame b\nk\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("render", "m.px", "--plain", "-o", "a.png")
+    assert "render: E_BAD_ARG: --plain writes one frame alone, and m.px is 2 frames: pick one (FILE:ID)" in err
+    assert not (tmp_path / "a.png").exists()
+
+
+def test_render_no_grid_scale_1_is_not_the_exact_size(tmp_path, monkeypatch, capsys):
+    # why --plain exists: the preview sheet pads and labels a frame even without its grid
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--no-grid", "--scale", "1", "-o", "p.png") == 0
+    assert Image.open(tmp_path / "p.png").size != (2, 1)
+
+
+def test_render_default_scale_and_bg_are_unchanged(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "-o", "a.png") == 0
+    assert run("render", "one.px", "-o", "b.png", "--scale", "8", "--bg", "#3a3a44") == 0
+    assert Image.open(tmp_path / "a.png").tobytes() == Image.open(tmp_path / "b.png").tobytes()
+
+
 def test_help_says_image_outputs_are_checked():
     assert "an image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG" in \
         " ".join(pxart.__doc__.split())

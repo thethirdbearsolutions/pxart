@@ -142,7 +142,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
 (a new OUT imports the layers' shared `@palette`; variants merge by name; ...) and examples;
 `pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 
-- **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
+- **Looking:** `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
+  or in `--png DIR`, and prints the path; `--plain` writes one frame alone at its exact size, no grid,
+  rulers or labels, to `diff` against a scene's PNG), `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
   or a folder `wip`, in `check` and `stats` too; frames with one id from several files
   are labeled `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or

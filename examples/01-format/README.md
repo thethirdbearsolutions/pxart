@@ -15,7 +15,7 @@ pxart render lamp.px -o lamp.preview.png --png
 ```
 
 `render` draws a preview with a pixel grid and rulers; `--png` also writes the 1x sprite
-beside the `.px`: [`barrel.png`](barrel.png) and [`lamp.png`](lamp.png), each 16px wide.
+beside the `.px` and prints its path: [`barrel.png`](barrel.png) and [`lamp.png`](lamp.png), each 16px wide.
 
 ```px
 # A barrel from the harbor-market pack: a palette, then the grid.
