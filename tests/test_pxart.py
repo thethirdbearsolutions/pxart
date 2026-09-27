@@ -11477,7 +11477,8 @@ def test_onion_feet_band_reads_the_feet_only(tmp_path, capsys):
     assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2") == [
         "A a: opaque x 2..4, y 3..4 (rows 3-4 of the 6x5 canvas, bottom-centered)",
         "B b: opaque x 2..4, y 3..4",
-        "B vs A (rows 3-4): left +0, right +0, top +0, bottom +0; best shift +0,+0 then 0px changed (no shift: 0px)",
+        "B vs A (bottom 2 canvas rows 3-4; opaque in 3-4): left +0, right +0, top +0, bottom +0; best shift +0,+0 then "
+        "0px changed (no shift: 0px)",
         f"wrote {tmp_path / 'o.png'}",
     ]
 
@@ -11486,9 +11487,11 @@ def test_onion_feet_band_sees_a_leg_move(tmp_path, capsys):
     p = write(tmp_path, "s.px", SWING)
     lines = onion_lines(tmp_path, capsys, f"{p}:b", f"{p}:c", "--feet", "1")
     assert lines[0] == "A b: opaque x 2..4, y 4..4 (row 4 of the 6x5 canvas, bottom-centered)"
-    # c's feet row is b's row above it moved down: the band's shift takes pixels from above the band.
-    assert lines[2] == ("B vs A (row 4): left +0, right -1, top +0, bottom +0; best shift +0,+1 then 0px changed "
-                        "(no shift: 2px)")
+    # c's feet row is b's row above it moved down: the band's shift takes pixels from above the band. The bottom
+    # edges agree, so that shift isn't the feet moving: the readout says no shift, and names the band's as what it is.
+    assert lines[2] == ("B vs A (bottom 1 canvas row 4; opaque in 4): left +0, right -1, top +0, bottom +0; bottom "
+                        "edges agree, so no shift: 2px changed (the band's best shift +0,+1 then 0px only lines up "
+                        "what moved above its bottom edge)")
 
 
 def test_onion_rows_band(tmp_path, capsys):
@@ -11496,23 +11499,27 @@ def test_onion_rows_band(tmp_path, capsys):
     lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--rows", "0-1")
     assert lines == ["A a: opaque x 2..3, y 1..1 (rows 0-1 of the 6x5 canvas, bottom-centered)",
                      "B b: opaque x 2..5, y 0..1",
-                     "B vs A (rows 0-1): left +0, right +2, top -1, bottom +0; best shift +0,+0 then 4px changed "
-                     "(no shift: 4px)", f"wrote {tmp_path / 'o.png'}"]
+                     "B vs A (canvas rows 0-1; A opaque in 1, B in 0-1): left +0, right +2, top -1, bottom +0; best "
+                     "shift +0,+0 then 4px changed (no shift: 4px)", f"wrote {tmp_path / 'o.png'}"]
 
 
 def test_onion_band_shift_brings_pixels_in_from_above(tmp_path, capsys):
     # The whole sprite drops 1px: in the feet band the new bottom row came from the row above the band.
     p = write(tmp_path, "d.px", "k #000000\nr #ff0000\n@frame a\n.k.\nrrr\nk.k\n...\n@frame b\n...\n.k.\nrrr\nk.k\n")
     lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2")
-    assert lines[2] == ("B vs A (rows 2-3): left +0, right +0, top +0, bottom +1; best shift +0,+1 then 0px changed "
-                        "(no shift: 5px)")
+    assert lines[2] == ("B vs A (bottom 2 canvas rows 2-3; A opaque in 2, B in 2-3): left +0, right +0, top +0, "
+                        "bottom +1; best shift +0,+1 then 0px changed (no shift: 5px)")
 
 
 def test_onion_band_same_as_whole_when_it_is_the_whole_canvas(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     whole = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
     band = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0-3")
-    assert band[2] == whole[2].replace("B vs A:", "B vs A (rows 0-3):")
+    # the same edges; the bob's shift is above the band's agreeing bottom edges, so the band says no shift
+    assert whole[2] == "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 3px changed (no shift: 5px)"
+    assert band[2] == ("B vs A (canvas rows 0-3; A opaque in 0-3, B in 1-3): left +0, right +0, top +1, bottom +0; "
+                       "bottom edges agree, so no shift: 5px changed (the band's best shift +0,+1 then 3px only lines "
+                       "up what moved above its bottom edge)")
     assert band[1] == whole[1] and band[0] == whole[0].replace("on the 3x4 canvas", "rows 0-3 of the 3x4 canvas")
 
 
@@ -11525,7 +11532,7 @@ def test_onion_feet_more_than_the_canvas_is_every_row(tmp_path, capsys):
 def test_onion_one_row(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "3")
-    assert "(row 3 of the 3x4 canvas" in lines[0] and lines[2].startswith("B vs A (row 3): ")
+    assert "(row 3 of the 3x4 canvas" in lines[0] and lines[2].startswith("B vs A (canvas row 3; opaque in 3): ")
 
 
 def test_onion_band_empty_in_a_or_b(tmp_path, capsys):
@@ -11541,7 +11548,7 @@ def test_onion_band_by_pivot(tmp_path, capsys):
     p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
     lines = onion_lines(tmp_path, capsys, f"{p}:a/0", f"{p}:a/1", "--rows", "0-1")
     assert lines[0] == "A a/0: opaque x 1..1, y 0..1 (rows 0-1 of the 4x4 canvas, lined up by pivot)"
-    assert lines[2].startswith("B vs A (rows 0-1): left +0, right +0, top +0, bottom +0; ")
+    assert lines[2].startswith("B vs A (canvas rows 0-1; opaque in 0-1): left +0, right +0, top +0, bottom +0; ")
 
 
 @pytest.mark.parametrize("flag, val, want", [
@@ -12093,7 +12100,8 @@ def test_onion_different_characters_band_edges_only_too(tmp_path, capsys):
     # The band doesn't make them one sprite: the whole sprites decide.
     a, b = write(tmp_path, "keeper.px", KEEPER_ISH), write(tmp_path, "kid.px", KID_ISH)
     lines = onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a", "--feet", "1")
-    assert lines[2] == "B vs A (row 3): left -1, right +1, top +0, bottom +0; different sprites: edges only"
+    assert lines[2] == ("B vs A (bottom 1 canvas row 3; opaque in 3): left -1, right +1, top +0, bottom +0; different "
+                        "sprites: edges only")
 
 
 def test_onion_different_sizes_different_files_edges_only(tmp_path, capsys):
@@ -22307,7 +22315,8 @@ def test_recipe_feet_stay_planted(tmp_path, monkeypatch, capsys):
     anim = ran[0][2]
     assert anim.count("(rows 9+ still;") == 4
     onion = ran[1][2]
-    assert "B vs A (rows 9-11): left +0, right +0, top +0, bottom +0; best shift +0,+0" in onion
+    assert "B vs A (bottom 3 canvas rows 9-11; opaque in 9-11): left +0, right +0, top +0, bottom +0; best shift " \
+        "+0,+0" in onion
     assert pxart.parse(tmp_path / "hero.px").anims["walk/down"]["pivot"] == (8, 11)
 
 
@@ -23115,3 +23124,81 @@ def test_save_image_refuses_an_animation_in_a_still_format(tmp_path):
         pxart.save_image(img, tmp_path / "x.bmp", save_all=True, append_images=[img])
     assert codes(e) == ["E_BAD_ARG"] and "a BMP can't hold an animation; name it .gif" in str(e.value)
     assert not (tmp_path / "x.bmp").exists()
+
+
+# ---------------------------------------------------------------- onion --feet: the band says what it is
+
+PLANTED = ("k #000000\nr #ff0000\n"
+           "@frame w/0\n..kk..\n..kk..\n..kk..\n..kk..\n.kkkk.\nk....k\n"
+           "@frame w/1\n......\n..kk..\n..kk..\n..kk..\n..kk..\nkkkkkk\n")
+
+
+def test_onion_feet_band_names_bottom_n_rows_and_where_each_is_opaque(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2].startswith("B vs A (bottom 3 canvas rows 3-5; opaque in 3-5): ")
+
+
+def test_onion_band_says_each_frames_opaque_rows_when_they_differ(tmp_path, capsys):
+    # A's feet fill rows 13-15 of the band; B's only 14-15: the band says so, not just 'rows 13-15'
+    rows_a = ["." * 4] * 13 + [".kk.", ".kk.", "kkkk"]
+    rows_b = ["." * 4] * 13 + ["....", ".kk.", "kkkk"]
+    p = write(tmp_path, "t.px", "k #000000\n@frame w/0\n" + "\n".join(rows_a) + "\n@frame w/1\n" + "\n".join(rows_b)
+              + "\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2].startswith("B vs A (bottom 3 canvas rows 13-15; A opaque in 13-15, B in 14-15): left +0, right "
+                               "+0, top +1, bottom +0; ")
+
+
+def test_onion_band_agreeing_bottoms_say_no_shift(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2] == ("B vs A (bottom 3 canvas rows 3-5; opaque in 3-5): left +0, right +0, top +0, bottom +0; "
+                        "bottom edges agree, so no shift: 6px changed (the band's best shift +0,+1 then 2px only "
+                        "lines up what moved above its bottom edge)")
+    assert "; best shift" not in lines[2]
+
+
+def test_onion_band_agreeing_bottoms_with_no_vertical_shift_reads_as_before(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "k #000000\n@frame w/0\nk...\nkk..\n@frame w/1\n.k..\n.kk.\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "2")
+    assert lines[2] == ("B vs A (bottom 2 canvas rows 0-1; opaque in 0-1): left +1, right +1, top +0, bottom +0; best "
+                        "shift +1,+0 then 0px changed (no shift: 4px)")
+
+
+def test_onion_band_bottoms_that_moved_keep_the_best_shift(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\nr #ff0000\n@frame a\n.k.\nrrr\nk.k\n...\n@frame b\n...\n.k.\nrrr\nk.k\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2")
+    assert "bottom +1; best shift +0,+1 then 0px changed (no shift: 5px)" in lines[2]
+
+
+def test_onion_rows_band_is_canvas_rows(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "1-2")
+    assert lines[2].startswith("B vs A (canvas rows 1-2; opaque in 1-2): ")
+    assert "(rows 1-2 of the 6x6 canvas, bottom-centered)" in lines[0]
+
+
+def test_onion_band_with_nothing_opaque_in_b_names_no_rows(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0")
+    assert lines[1] == "B w/1: nothing opaque in row 0" and not any(l.startswith("B vs A") for l in lines)
+
+
+def test_onion_whole_canvas_readout_unchanged_by_the_band_wording(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
+    assert lines[2].startswith("B vs A: left +0, right +0, top +1, bottom +0; best shift ")
+
+
+def test_onion_feet_more_than_the_canvas_counts_the_rows_it_has(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "40")
+    assert lines[2].startswith("B vs A (bottom 6 canvas rows 0-5; A opaque in 0-5, B in 1-5): ")
+
+
+def test_help_says_how_the_band_reads():
+    text = " ".join(pxart.__doc__.split())
+    assert "'B vs A (bottom 4 canvas rows 20-23; A opaque in 20-23, B in 21-23): left +0, ...'" in text
+    assert "when the bottom edges agree, one up or down only lines up what moved above them, and the readout says " \
+        "no shift" in text

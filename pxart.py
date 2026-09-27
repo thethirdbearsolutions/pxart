@@ -142,9 +142,11 @@ LOOKING
       and bottom opaque pixels): 'top -1' is B's top row of pixels 1px above A's.
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
       or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
-      weapon swing above doesn't hide what the feet did: 'B vs A (rows 20-23): left +0, ...'.
-      The shift still moves all of A (pixels come into the band from above) and counts only
-      the band's pixels. The PNG darkens the rows outside the band.
+      weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
+      A opaque in 20-23, B in 21-23): left +0, ...'. The shift still moves all of A (pixels
+      come into the band from above) and counts only the band's pixels; when the bottom edges
+      agree, one up or down only lines up what moved above them, and the readout says no
+      shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color, at that color's alpha
       (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
@@ -2589,7 +2591,8 @@ def cmd_onion(a):
     one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
                and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
     kin = True if one else None if A.size == B.size else False
-    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin):
+    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin,
+                          feet=a.feet is not None):
         print(line)
     print("wrote", a.o)
 
@@ -2625,25 +2628,38 @@ def band_shift(prev, cur, y0, y1, reach=2):
     return best[1], best[2], best[0][0], n_changed(prev.crop(box), c)
 
 
-def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
+def spans_of(y0, y1):
+    """'row 20' or 'rows 20-23'."""
+    return f"row {y0}" if y0 == y1 else f"rows {y0}-{y1}"
+
+
+def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
     jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's). band (y0, y1): only
-    those canvas rows count, for the edges and the shift (band_shift). kin: True, frames of one animation (one sprite,
-    however much changed); False, two different sprites (other sizes); None, it depends: more than half the larger
-    one's opaque pixels still changed at the whole sprites' best shift (band or not) makes them two. Two different
-    sprites get their edges only: a best shift between two characters means nothing."""
+    those canvas rows count, for the edges and the shift (band_shift), and the readout names the band as what it is
+    (feet: --feet N's 'bottom N canvas rows', else --rows' 'canvas rows') and the rows each frame is opaque in there
+    ('bottom 3 canvas rows 13-15; A opaque in 13-15, B in 14-15'). In a band whose bottom edges agree (the feet stayed)
+    a best shift up or down only lines up what moved above them: the readout says no shift, and names that one as
+    such. kin: True, frames of one animation (one sprite, however much changed); False, two different sprites (other
+    sizes); None, it depends: more than half the larger one's opaque pixels still changed at the whole sprites' best
+    shift (band or not) makes them two. Two different sprites get their edges only: a best shift between two
+    characters means nothing."""
     clear = [placed(it.img, w, h, at, "#00000000") for it, at in zip((ia, ib), spots)]
     if band:
         alpha = [c.getchannel("A") for c in clear]
         mask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(mask).rectangle([0, band[0], w - 1, band[1]], fill=255)
         boxes = [ImageChops.multiply(al, mask).getbbox() for al in alpha]
-        rows = f"row {band[0]}" if band[0] == band[1] else f"rows {band[0]}-{band[1]}"
+        n = band[1] - band[0] + 1
+        name = (f"bottom {n} canvas {spans_of(*band)}" if feet else f"canvas {spans_of(*band)}")
+        opaque = [(f"{b[1]}" if b[1] == b[3] - 1 else f"{b[1]}-{b[3] - 1}") if b else None for b in boxes]
+        rows = name + ("; " + (f"opaque in {opaque[0]}" if opaque[0] == opaque[1] else
+                               f"A opaque in {opaque[0]}, B in {opaque[1]}") if all(boxes) else "")
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
-    where = f"{rows} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
+    where = f"{spans_of(*band)} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
     lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty" if not band
-                                    else "nothing opaque" if n == "A" else f"nothing opaque in {rows}")
+                                    else "nothing opaque" if n == "A" else f"nothing opaque in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
     if all(boxes):
@@ -2655,6 +2671,9 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
                 f"bottom {b1 - b0:+d}"
         if kin is False or (kin is None and 2 * whole[2] > most):
             lines.append(f"{edges}; different sprites: edges only")
+        elif band and b1 == b0 and dy:
+            lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
+                         f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
         else:
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
     return lines
