@@ -24533,9 +24533,75 @@ def test_dry_run_prints_the_same_readout(tmp_path, monkeypatch, capsys):
         assert run(*real) == 0
         got = capsys.readouterr().out.splitlines()
         assert run(*dry) == 0
-        now = capsys.readouterr().out.splitlines()
+        now = [l for l in capsys.readouterr().out.splitlines() if not SIZE_LINE.match(l)]  # the dry run's own lines
         assert got[:-1] == now[:-1] and len(got) > 1 or real[0] == "scene", (real, got, now)
         assert got[-1].startswith("wrote") and now[-1].endswith("(dry run; nothing written)")
+
+
+SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 700x174 px, 5 frames in ...'
+
+
+@pytest.mark.parametrize("argv,said", [
+    (["render", "a.px", "--dry-run"],
+     "preview.png: 124x78 px, 2 frames in one row, every cell 47x32 (the largest frame, 3x2), at --scale 8"),
+    (["render", "a.px:w/0", "--plain", "--scale", "3", "--dry-run"], "preview.png: 9x6 px, w/0 alone, 3x2 at --scale 3"),
+    (["sheet", "a.px", "--cols", "1", "--dry-run", "-o", "s.png"],
+     "s.png: 67x114 px, 2 frames in 2 rows of up to 1, every cell 47x16 (the largest frame, 3x2), at --scale 8"),
+    (["sheet", "a.px", "--fit", "--rows", "group", "--dry-run"],
+     "the sheet (no -o): 124x62 px, 2 frames in one row (--fit: each cell its own frame's size), at --scale 8 "
+     "(--rows group: a row per animation group)"),
+    (["anim", "a.px:w", "--dry-run"],
+     "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),
+    (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x286 px, 2 frames over what changed, at --scale 8"),
+    (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"],
+     "the onion (no -o): 40x32 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers"),
+    (["scene", "a.px:w/0@0,0", "a.px:w/1@4,0", "--dry-run", "-o", "s.png"],
+     "s.png: 384x256 px, a 96x64 scene at --scale 4, 2 items"),
+])
+def test_dry_run_says_each_outputs_size_and_layout(tmp_path, monkeypatch, capsys, argv, said):
+    # the gate's complaint: sheet --dry-run printed only 'would write X'
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    before = listing(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert said in out
+    assert out[-1].endswith("(dry run; nothing written)") and "WARNING" not in "\n".join(out)
+    assert listing(tmp_path) == before
+
+
+def test_dry_run_sizes_match_what_a_real_run_writes(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    for argv in (["sheet", "a.px", "--fit", "-o", "s.png"], ["render", "a.px", "-o", "s.png"],
+                 ["onion", "a.px:w/0", "a.px:w/1", "-o", "s.png"], ["scene", "a.px:w/0@0,0", "-o", "s.png"],
+                 ["render", "a.px:w/1", "--plain", "-o", "s.png"], ["anim", "a.px:w", "-o", "s.gif"]):
+        assert run(*argv, "--dry-run") == 0
+        sizes = [re.match(r"^(\S+): (\d+)x(\d+) px", l) for l in capsys.readouterr().out.splitlines()]
+        sizes = [m for m in sizes if m]
+        assert sizes, argv
+        assert run(*argv) == 0
+        assert "px, " not in capsys.readouterr().out  # the size lines are the dry run's alone
+        for m in sizes:
+            assert Image.open(tmp_path / m.group(1)).size == (int(m.group(2)), int(m.group(3))), argv
+
+
+def test_huge_outputs_get_a_warning_on_real_and_dry_runs(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "--scale", "700", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: the sheet (no -o) would be " in out and "(over 4096 px on a side): image viewers and the Read " \
+        "tool may shrink or refuse it; a lower --scale, fewer frames, or other --cols makes it smaller" in out
+    assert run("render", "a.px:w/0", "--plain", "--scale", "1400", "-o", "big.png") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: big.png is 4200x2800 px (over 4096 px on a side): image viewers and the Read tool may shrink " \
+        "or refuse it; a lower --scale makes it smaller" in out and (tmp_path / "big.png").exists()
+
+
+def test_huge_by_area_too():
+    assert pxart.huge((4096, 4096)) == "over 16M px"
+    assert pxart.huge((4000, 4000)) is None and pxart.huge((4097, 1)) == "over 4096 px on a side"
 
 
 def test_dry_run_scene_prints_its_notes(tmp_path, monkeypatch, capsys):
@@ -24596,13 +24662,15 @@ def test_dry_run_does_not_touch_an_existing_output(tmp_path, monkeypatch):
 
 def test_help_documents_dry_run():
     doc = " ".join(pxart.__doc__.split())
-    assert "--dry-run (render, sheet, anim, onion, scene) computes and prints everything, writes nothing and says " \
-        "'(dry run; nothing written)': the readout alone. -o may then be left off." in doc
+    assert "--dry-run (render, sheet, anim, onion, scene) prints the readout and each output's size and layout, " \
+        "writes nothing and says '(dry run; nothing written)'. -o may then be left off. An image over 4096 px on a " \
+        "side or 16M px gets a WARNING, dry run or not." in doc
     for cmd in ("render", "sheet", "anim", "onion", "scene"):
         assert "[--dry-run]" in pxart.reference(cmd), cmd
         assert "LOOKING: centering" in pxart.SEE[cmd], cmd
     readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
-    assert "`--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` computes and prints everything" in readme
+    assert "`--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` prints the readout" in readme
+    assert "each output's size and layout" in readme and "16M px gets a `WARNING`, dry run or not" in readme
 
 
 # ---------------------------------------------------------------- a writer that makes a directory says so

@@ -170,9 +170,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
   does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.
-  `--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` computes and prints
-  everything (the readout, notes and WARNINGs) and writes nothing, saying `(dry run; nothing
-  written)`; `-o` may then be left off.
+  `--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` prints the readout (notes and
+  WARNINGs too) and each output's size and layout (`sheet.png: 700x174 px, 5 frames in one row,
+  every cell 128x128 ...`) and writes nothing, saying `(dry run; nothing written)`; `-o` may
+  then be left off. An image over 4096 px on a side or 16M px gets a `WARNING`, dry run or not.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
   entry that can't load is an error at its legend line. A `#` line before the rows is a

@@ -131,8 +131,8 @@ LOOKING
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
       shift: 20px)": the head rose 1px, the feet stayed. Two different sprites (other sizes, or
       more than half the larger one's opaque pixels still changed at the whole sprites' best
-      shift, as a keeper beside a market kid; --rows and --feet don't change that; two frames
-      of one animation in one file are always one sprite, however much changed) print
+      shift; --rows and --feet don't change that; two frames of one animation in one file
+      are always one sprite, however much changed) print
       "...; different sprites: edges only": their edges still compare where the feet stand,
       but a best shift between two characters means nothing. y grows down, so +1 is lower.
       The edges are the sides of each frame's opaque bounding box: 'top -1' is B's top row 1px
@@ -144,8 +144,8 @@ LOOKING
       come into the band from above) and counts only the band's pixels; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
       shift. The PNG darkens the rows outside the band.
-      --tint-a COLOR draws the silhouette in another color, at that color's alpha
-      (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead.
+      --tint-a COLOR draws the silhouette in another color, at that color's alpha. --fade-a
+      draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
@@ -217,8 +217,9 @@ LOOKING
   takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
   --tint, tint, palette --add k=transparent; the '#' may be left off, and in a script a
   '#' color needs quotes, or the shell reads a comment).
-  --dry-run (render, sheet, anim, onion, scene) computes and prints everything, writes nothing
-  and says '(dry run; nothing written)': the readout alone. -o may then be left off.
+  --dry-run (render, sheet, anim, onion, scene) prints the readout and each output's size and
+  layout, writes nothing and says '(dry run; nothing written)'. -o may then be left off. An
+  image over 4096 px on a side or 16M px gets a WARNING, dry run or not.
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
@@ -1784,11 +1785,27 @@ def wrote(*paths):
     return "wrote " + " and ".join(paths)
 
 
-def save_image(img, p, what="-o", **kw):
+HUGE_SIDE, HUGE_AREA = 4096, 16_000_000  # an image output past either gets a WARNING: viewers shrink or refuse it
+
+
+def huge(size):
+    """Why an image of this size is too big to look at comfortably, or None."""
+    w, h = size
+    if max(w, h) > HUGE_SIDE:
+        return f"over {HUGE_SIDE} px on a side"
+    if w * h > HUGE_AREA:
+        return f"over {HUGE_AREA // 1_000_000}M px"
+    return None
+
+
+def save_image(img, p, what="-o", about=None, smaller=None, **kw):
     """img written to p (its directory made, as outpath does), in the format p's extension names. A name with no
     extension, or one Pillow can't write (-o /dev/null, -o out.px), is E_BAD_ARG before anything is written, and so is
-    a format that can't hold the image (RGBA as .jpg); a file that can't be written is the usual E_FILE. Returns p."""
-    if p is None and DRY["run"]:  # a dry run with no -o: nothing to check
+    a format that can't hold the image (RGBA as .jpg); a file that can't be written is the usual E_FILE. Returns p.
+    A dry run prints the image's size and `about` (its layout) instead of writing it; an image huge() calls too big
+    gets a WARNING either way, with `smaller`, what would shrink it."""
+    if p is None and DRY["run"]:  # a dry run with no -o: nothing to check, only the size to tell
+        said_size(img, what if what != "-o" else "the image (no -o)", about, smaller)
         return None
     p = pathlib.Path(p)
     ext = p.suffix.lower()
@@ -1802,6 +1819,7 @@ def save_image(img, p, what="-o", **kw):
     if kw.pop("check_only", False):  # only the name's checks, before a command prints anything
         return p
     p = outpath(p, make=not DRY["run"])
+    said_size(img, p.as_posix(), about, smaller)
     if DRY["run"]:
         return p
     try:
@@ -1813,6 +1831,16 @@ def save_image(img, p, what="-o", **kw):
     except (ValueError, KeyError, TypeError) as e:
         fail("E_BAD_ARG", f"{what} {p}: can't write it as {fmt} ({e}); name it {name}")
     return p
+
+
+def said_size(img, name, about, smaller):
+    """save_image's lines: on a dry run 'sheet.png: 1234x567 px, 12 cells in ...'; a WARNING for a huge image."""
+    if DRY["run"]:
+        print(f"{name}: {img.width}x{img.height} px" + (f", {about}" if about else ""))
+    why = huge(img.size)
+    if why:
+        print(f"WARNING: {name} {'would be' if DRY['run'] else 'is'} {img.width}x{img.height} px ({why}): image "
+              "viewers and the Read tool may shrink or refuse it" + (f"; {smaller}" if smaller else ""))
 
 
 ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
@@ -1894,6 +1922,15 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             for c, n in enumerate(line):
                 spots[n] = (pad + c * (cw + pad), pad + r * (ch + lab + pad), cw, ch, lw)
         size = (pad + max(len(line) for line in lines) * (cw + pad), pad + len(lines) * (ch + lab + pad))
+    widest = max(len(line) for line in lines)
+    about = (f"{len(its)} frame{'s' * (len(its) != 1)} in " + (f"{len(lines)} rows of up to {widest}" if len(lines) > 1
+                                                             else "one row"))
+    if fit:
+        about += " (--fit: each cell its own frame's size)"
+    else:
+        big = max(its, key=lambda it: it.img.width * it.img.height)
+        about += f", every cell {cw}x{ch} (the largest frame, {big.img.width}x{big.img.height})"
+    about += f", at --scale {scale}" + (" (--rows group: a row per animation group)" if rows == "group" else "")
     tiles, spots = [tiles[n] for n in order], [spots[n] for n in order]
     s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
@@ -1904,7 +1941,8 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
-    save_image(s, out, what)
+    save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
+               smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
     return out
 
 
@@ -2542,7 +2580,7 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
 # ---------------------------------------------------------------------------- commands
 
 def need_o(a, eg):
-    """sheet, onion and scene write -o OUT, which only --dry-run (the readout alone) goes without."""
+    """sheet, onion and scene write -o OUT, which only --dry-run (the readout and sizes alone) goes without."""
     if a.o is None and not DRY["run"]:
         fail("E_BAD_ARG", f"-o is required: -o {eg} (or --dry-run to print the readout and write nothing)")
 
@@ -2559,7 +2597,7 @@ def cmd_render(a):
             continue
         doc = parse(path)
         out = (pathlib.Path(a.png) if a.png else pathlib.Path(path).parent) / (pathlib.Path(path).stem + ".png")
-        save_image(doc.image(doc.frames[0], a.variant), out, "--png")
+        save_image(doc.image(doc.frames[0], a.variant), out, "--png", about=f"{path} at 1x")
         print(f"{'would write' if DRY['run'] else 'wrote'} {out.as_posix()} (--png: {path} at 1x)")
     if a.plain:
         if len(its) != 1:
@@ -2570,7 +2608,9 @@ def cmd_render(a):
         if a.bg is not None:
             img = on_bg(img, img.width, img.height, parse_color(a.bg, "--bg"))
         s = a.scale or 1
-        print(wrote(save_image(img.resize((img.width * s, img.height * s), Image.NEAREST), a.o)))
+        print(wrote(save_image(img.resize((img.width * s, img.height * s), Image.NEAREST), a.o,
+                               about=f"{its[0].label} alone, {img.width}x{img.height} at --scale {s}",
+                               smaller="a lower --scale makes it smaller")))
         return
     bg = parse_color(a.bg or "#3a3a44", "--bg")
     print(wrote(sheet(its, a.o, a.scale or 8, bg=bg, grid=not a.no_grid, rulers=not a.no_grid)))
@@ -2631,7 +2671,7 @@ def cmd_anim(a):
         return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
     framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
-    if a.o:
+    if a.o or DRY["run"]:  # a dry run with no -o still tells the GIF's size
         gif = []
         for f in framed:
             canvas = Image.new("RGBA", (w * S + gap * 3 + w * 3, max(h * S, h * 3 + gap)), (30, 30, 36, 255))
@@ -2639,7 +2679,10 @@ def cmd_anim(a):
             canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-        save_image(gif[0], a.o, save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
+        save_image(gif[0], a.o, "-o" if a.o else "the GIF (no -o)", save_all=True, append_images=gif[1:],
+                   duration=durs, loop=0, disposal=2, smaller="a lower --scale makes it smaller",
+                   about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
+                         f"copies beside it, {sum(durs)} ms a loop")
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
@@ -2671,9 +2714,7 @@ def cmd_anim(a):
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
-    if not a.o:
-        if DRY["run"]:
-            print(wrote())
+    if not a.o and not DRY["run"]:
         return
     # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
     # readout's own words (its spaces and colons too), the label rows as tall as the most lines any cell needs
@@ -2694,8 +2735,9 @@ def cmd_anim(a):
         for j, (line, color) in enumerate([(l, (255, 120, 220, 255)) for l in head]
                                           + [(l, (200, 140, 190, 255)) for l in alt]):
             d.text((x, y2 + h * S + 1 + j * LINE_H), line, font=font, fill=color)
-    sp = pathlib.Path(a.o).with_suffix(".strip.png")
-    save_image(strip, sp, "the strip")
+    sp = pathlib.Path(a.o).with_suffix(".strip.png") if a.o else None
+    save_image(strip, sp, "the strip" if a.o else "the strip (no -o)", smaller="a lower --scale makes it smaller",
+               about=f"{len(cells)} frame{'s' * (len(cells) != 1)} over what changed, at --scale {S}")
     print(wrote(a.o, sp))
 
 
@@ -2725,7 +2767,9 @@ def cmd_onion(a):
         ImageDraw.Draw(shade).rectangle([0, 0, w - 1, h - 1], fill=(0, 0, 0, 150))
         ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
         base.alpha_composite(shade)
-    save_image(upscale(base, a.scale, grid=True, rulers=True), a.o)
+    save_image(upscale(base, a.scale, grid=True, rulers=True), a.o, "-o" if a.o else "the onion (no -o)",
+               about=f"A and B on one {w}x{h} canvas at --scale {a.scale}, with the grid and rulers",
+               smaller="a lower --scale makes it smaller")
     one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
                and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
     kin = True if one else None if A.size == B.size else False
@@ -3005,7 +3049,10 @@ def cmd_scene(a):
               f"--map); --size {reach[0]}x{reach[1]} holds every item")
     if tint:
         sc = tinted(sc, tint)
-    save_image(sc.resize((W * a.scale, H * a.scale), Image.NEAREST), a.o)
+    n = len(a.specs)
+    save_image(sc.resize((W * a.scale, H * a.scale), Image.NEAREST), a.o, "-o" if a.o else "the scene (no -o)",
+               about=f"a {W}x{H} scene at --scale {a.scale}" + (f", the map's {len(placed)} cells" if a.map else "")
+               + (f", {n} item{'s' * (n != 1)}" if n else ""), smaller="a lower --scale makes it smaller")
     print(wrote(a.o))
 
 
@@ -7554,7 +7601,8 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
-DRY_HELP = "compute and print everything, write nothing ('(dry run; nothing written)'); -o may be left off"
+DRY_HELP = ("print the readout and each output's size and layout, write nothing ('(dry run; nothing written)'); -o "
+            "may be left off")
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
 TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
 REKEY_HELP = ("give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are. "
