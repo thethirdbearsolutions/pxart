@@ -230,7 +230,8 @@ rather than repeating them.
   selected frames, with the same palette and imports (and their `@anim` lines, in the
   order of the frames' groups); `--inline-palette` copies the imported keys they use (and
   the variants' colors for them) into the file and drops `@palette`, so the hand-off
-  renders the same with nothing beside it.
+  renders the same with nothing beside it. extract writes a new file: onto one that exists it is an error
+  (its frames would be lost), unless `--replace`; `frames --copy-to` adds to it instead.
 - **Drawing** (for 32x48 heroes, 64x64 beasts and 256-wide layers, where typing every
   pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
   and rewrites only the rows it changed):
@@ -269,7 +270,9 @@ rather than repeating them.
     hero.px import it.
   - `from-png` converts a PNG to a sprite; `from-png Walk.png --grid 16x16 --by cols --names
     walk/down,walk/up,walk/left,walk/right -o boy.px` slices a sheet into frames, a group per
-    column (or row), skipping empty cells.
+    column (or row), skipping empty cells. Two PNGs one run would give one id (two packs'
+    `tile_0002.png`) are an error rather than one replacing the other; `--prefix-dir` ids them
+    `dungeon/tile_0002` and `creatures/tile_0002`.
 
 ## Prior art
 

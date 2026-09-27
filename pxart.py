@@ -250,7 +250,8 @@ CHECKING
       recolors otherwise in a variant (a market's awning red beside a keeper's scarf red) gets
       a WARNING of its own, since DST's variant would recolor FILE's pixels; --rekey gives both
       free keys in DST. --rekey o,r moves only those keys, and --rekey k=j puts k on DST's j,
-      as compose's does. A frame id DST already has is E_DUP_FRAME. To put back a frame
+      as compose's does. A frame id DST already has is E_DUP_FRAME, and so are two copies
+      --rename would give one id (--rename walk w --rename run w). To put back a frame
       removed by mistake, copy it from a copy of the file, --after its neighbor.
       DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
       --empty --palette P.px' one with no frames that imports P.
@@ -341,11 +342,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       key and both colors, with free keys for them; --rekey gives the cut those keys in OUT
       and leaves FILE as it is (or 'pxart recolor FILE ... -o rekeyed/FILE.px', a copy to
       crop from, as the error line prints it; see compose).
-  extract FILE:SEL -o OUT [--inline-palette]
-      Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
+  extract FILE:SEL -o OUT [--inline-palette] [--replace]
+      Write only the selected frames to a new OUT, with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
       of groups left behind; @anim lines in the order of the frames' groups):
-      'extract hero.px:walk/down -o walk.px'. --inline-palette
+      'extract hero.px:walk/down -o walk.px'. An OUT that exists is E_FILE, since its frames
+      would be lost (E_DUP_FRAME when it has one of the ids): 'frames FILE:SEL --copy-to OUT'
+      adds them to it, and --replace overwrites it. --inline-palette
       makes OUT self-contained for a hand-off: the imported keys its frames use (and any a
       local @variant line sets) become key lines in OUT, each variant gets the imported
       colors of the keys OUT has, and the @palette lines go. OUT renders exactly like the
@@ -484,7 +487,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       often a material's ramp: a cloak drawn in its base key c still needs X x C w for
       'shade --ramp XxcCw' to re-shade it. An existing OUT only ever gets the used keys.
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
-      (OUT may be a palette-only file). A new frame goes after the last frame of its
+      (OUT may be a palette-only file); the 'wrote' line says when it replaced one. A new frame goes after the last frame of its
       animation (like dup), or at the end when the animation is new. Canvas size: --size,
       else the frame being replaced, else the other frames of its animation, else the first
       layer. Pixels
@@ -700,13 +703,17 @@ CONVERTING
       group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
       badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others,
       and a Tiled map painted with the old tileset keeps the old ids.
-  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]
+  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
-      to OUT (replacing same-id frames). Colors already in OUT keep their keys, so
-      frames imported in separate runs share one palette. --palette P.px starts a new
-      OUT that imports P and reuses its keys.
+      to OUT (replacing same-id frames, which the 'wrote' line names with the count of
+      frames written). Two PNGs of one run that would get one id (two packs'
+      tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM
+      by its directory's name ('from-png dungeon/tile_0002.png creatures/tile_0002.png
+      --prefix-dir -o all.px' writes dungeon/tile_0002 and creatures/tile_0002). Colors
+      already in OUT keep their keys, so frames imported in separate runs share one
+      palette. --palette P.px starts a new OUT that imports P and reuses its keys.
       --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
       pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
       to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
@@ -2882,6 +2889,14 @@ def frames_copy(a, doc, sel, picked):
                  "a prefix is a path of letters, digits, _ - and . ('wick/', or 'wick-')")
     check_renames(renames, [f.id for f in picked], f"{a.file}'s frames to copy")
     new_id = {id(f): renamed_id(f.id, renames) for f in picked}
+    froms = {}
+    for f in picked:
+        froms.setdefault(new_id[id(f)], []).append(f.id)
+    twice = {n: olds for n, olds in froms.items() if len(olds) > 1}
+    if twice:
+        fail("E_DUP_FRAME", "--rename gives two copies one id (the later would replace the earlier): "
+             + "; ".join(f"{n} (from {', '.join(olds)})" for n, olds in twice.items())
+             + "; rename them into different groups")
     if not pathlib.Path(dpath).exists():
         fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames and {doc.path}'s palette: "
              f"pxart extract {doc.path}{':' + sel if sel else ''} -o {dpath}; to copy them into a file that imports "
@@ -3500,9 +3515,21 @@ def cmd_extract(a):
         doc = parse(path)
         keep = doc.select(sel)
     gone = {f.group for f in doc.frames} - {f.group for f in keep}  # groups the selection leaves behind
-    doc.frames = keep
     out = pathlib.Path(a.o)
     note_suffix(out)
+    if out.exists() and not a.replace:
+        try:
+            had = parse(out, allow_empty=True) if out.suffix == ".px" else None
+        except (PxError, OSError, ValueError):  # not a .px it can read: still not extract's to overwrite
+            had = None
+        what = (f"its frames {listed([had.label(f) for f in had.frames], 5)}" if had and had.frames else
+                "its palette" if had else "its contents")
+        same = [f.id for f in keep if had and f.id and had.get(f.id)]
+        fail("E_DUP_FRAME" if same else "E_FILE",
+             f"{out} exists, and extract writes a new file: {what} would be lost"
+             + (f" ({listed(same, 5)} under the same id{'s' * (len(same) > 1)})" if same else "")
+             + f"; to add the frames to it: pxart frames {a.file} --copy-to {out}; to overwrite it: --replace")
+    doc.frames = keep
     order_anims(doc, [f.group for f in keep])
     doc.anims = {g: v for g, v in doc.anims.items() if g not in gone}
     doc.stills = [g for g in doc.stills if g not in gone]
@@ -4629,6 +4656,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             was = parse(opath, allow_empty=True)
             under = list(was.frames[0].grid) if was.implicit else None
         doc, target = frame_slot(opath, osel, fresh=fresh)
+    replacing = bool(osel and target.grid)  # OUT:frame names a frame OUT has: said on the 'wrote' line
     kept = None if fresh else said_palette(doc)  # what OUT had, for the note
     if not fresh:  # an existing OUT keeps its variants: the map only reads the layers' variants as OUT's
         check_vmap(vmap, doc, opath, [lay.doc for lay, *_ in layers])
@@ -4753,7 +4781,9 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
         carry_header(doc, {d.path.name: (notes or {}).get(d.path.resolve(), ({}, {}, []))[2] for d in docs})
-    print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
+    did = write_doc(doc, opath)
+    print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and did.startswith("wrote") else "")
+                 if osel else ""))
 
 
 def said_palette(doc):
@@ -5851,6 +5881,9 @@ def cmd_from_png(a):
         fail("E_BAD_ARG", f"{'--names' if a.names else '--by'} goes with --grid WxH (the sheet's cells)")
     if a.grid and len(a.pngs) > 1:
         fail("E_BAD_ARG", f"--grid slices one sheet; give one PNG (got {len(a.pngs)})")
+    if a.grid and a.prefix_dir:
+        fail("E_BAD_ARG", "--prefix-dir names loose PNGs by their folder; a --grid sheet's frames are named by --names "
+             "or its rows")
     imgs = []
     for p in a.pngs:
         with reading(f"PNG ({p})"):
@@ -5862,7 +5895,7 @@ def cmd_from_png(a):
             doc = parse(out, allow_empty=True)
     else:
         doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
-    named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
+    named = bool(a.id) or a.prefix_dir or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):
             fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid, and its name {doc.stem!r} can't be a frame id to "
@@ -5873,9 +5906,10 @@ def cmd_from_png(a):
         print(f"note: {n}")
     keyof = {c: k for k, c in doc.resolved().items() if c[3]}
     free = [k for k in KEYS if k not in doc.resolved()]
-    entries = cells if cells is not None else [
-        (re.sub(r"[^A-Za-z0-9_\-./]", "_", f"{a.id}/{path.stem}" if a.id else path.stem), path, img)
-        for path, img in imgs]
+    entries = cells if cells is not None else [(png_id(path, a), path, img) for path, img in imgs]
+    if named:
+        same_ids(entries)
+    replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
     for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
@@ -5895,9 +5929,34 @@ def cmd_from_png(a):
             doc.frames.append(Frame(fid, grid))
     if out:
         print(write_doc(doc, out) + (f" ({len(entries)} frame(s)" + (f": {said_cells(entries)}" if a.grid else "")
+                                     + (f"; replaced {listed(replaced, 5)}, which {out} had" if replaced else "")
                                      + ")" if named else ""))
     else:
         print(doc.text(), end="")
+
+
+def png_id(path, a):
+    """A loose PNG's frame id: its stem, or with --prefix-dir its folder's name and stem (dungeon/tile_0002), with
+    --id PREFIX in front; a char an id can't have becomes '_'."""
+    fid = path.stem
+    if a.prefix_dir:
+        folder = re.sub(r"[^A-Za-z0-9_\-.]", "_", path.resolve().parent.name)
+        fid = f"{folder}/{fid}" if folder else fid
+    return re.sub(r"[^A-Za-z0-9_\-./]", "_", f"{a.id}/{fid}" if a.id else fid)
+
+
+def same_ids(entries):
+    """from-png's frames, [(id, path, image)], must have one id each: a second PNG under an id would replace the first
+    one in OUT (two packs' tile_0002.png). E_DUP_FRAME naming each id and its PNGs, and the ways to tell them apart."""
+    paths = {}
+    for fid, path, _ in entries:
+        paths.setdefault(fid, []).append(str(path))
+    twice = {fid: ps for fid, ps in paths.items() if len(ps) > 1}
+    if twice:
+        fail("E_DUP_FRAME", "PNGs that would get one frame id (the later would replace the earlier): "
+             + "; ".join(f"{fid} ({', '.join(ps)})" for fid, ps in twice.items())
+             + "; tell them apart with --prefix-dir (ids FOLDER/STEM: dungeon/tile_0002), or import each folder in "
+               "a run of its own with --id PREFIX")
 
 
 def sheet_cells(path, img, a):
@@ -6256,6 +6315,7 @@ def parser(describe=True):
         sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
+    p.add_argument("--replace", action="store_true", help="overwrite an OUT that exists (its frames are lost)")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
@@ -6306,6 +6366,8 @@ def parser(describe=True):
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
     p.add_argument("--names", metavar="A,B,...", help="with --grid: each row's (--by cols: column's) group name")
     p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
+    p.add_argument("--prefix-dir", action="store_true",
+                   help="id each PNG FOLDER/STEM, FOLDER its directory's name (dungeon/tile_0002)")
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
         p.description, p.formatter_class = command_help(name), argparse.RawDescriptionHelpFormatter
     return ap, sub

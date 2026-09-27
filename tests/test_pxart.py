@@ -16440,6 +16440,7 @@ def help_examples(doc):
 # Not runnable as written, on purpose: placeholders (FILE, DST, TOPIC...) and fragments of a sentence.
 EXAMPLE_SKIP = {
     "extract FILE:SEL -o DST": "placeholders",
+    "frames FILE:SEL --copy-to OUT": "placeholders",
     "new DST --empty --palette P.px": "placeholders",
     "pxart recolor FILE ... -o rekeyed/FILE.px": "placeholders",
     "shade --ramp": "a fragment ('a later 'shade --ramp' or recolor')",
@@ -16493,6 +16494,9 @@ def help_fixtures(d):
         for r in range(4):
             walk.putpixel((c * 16 + 8, r * 16 + 8), (200, 40 * c, 50 * r, 255))
     walk.save(d / "Walk.png")
+    for folder, color in (("dungeon", (120, 60, 50, 255)), ("creatures", (60, 150, 100, 255))):
+        (d / folder).mkdir()
+        Image.new("RGBA", (16, 16), color).save(d / folder / "tile_0002.png")
 
 
 def test_help_examples_are_found():
@@ -18480,7 +18484,7 @@ def test_from_png_grid_frames_animate(tmp_path, capsys):
 
 def test_help_documents_from_png_grid():
     text = " ".join(pxart.__doc__.split())
-    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]" in text
+    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]" in text
     assert "from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] " \
         "[--palette P.px]" in text
     assert "--grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque pixel is skipped." \
@@ -18844,7 +18848,7 @@ def test_help_rename_points_at_frames_rename(capsys):
 
 
 def test_from_png_usage_line_has_palette(capsys):
-    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]" in pxart.__doc__
+    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]" in pxart.__doc__
     assert run("from-png", "-h") == 0
     assert "--palette P.px]" in capsys.readouterr().out
 
@@ -18908,3 +18912,395 @@ def test_help_documents_anim_lines_follow_a_move():
 def test_readme_documents_rename_and_move_order():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "and is the rename there is no `rename` command for; a move puts the `@anim` lines in play order" in readme
+
+
+# ---------------------------------------------------------------- loop R: no silent frame collisions
+# from-png src/dungeon/tile_0002.png src/creatures/tile_0002.png -o all.px said '2 frame(s)' and wrote one: the second
+# PNG replaced the first. Every multi-input writer now refuses to put two inputs under one id.
+
+def two_packs(tmp_path, stem="tile_0002"):
+    for folder, color in (("dungeon", (120, 60, 50, 255)), ("creatures", (60, 150, 100, 255))):
+        (tmp_path / folder).mkdir(exist_ok=True)
+        Image.new("RGBA", (2, 2), color).save(tmp_path / folder / f"{stem}.png")
+    return tmp_path / "dungeon" / f"{stem}.png", tmp_path / "creatures" / f"{stem}.png"
+
+
+def test_from_png_same_stem_twice_is_e_dup_frame(tmp_path):
+    a, b = two_packs(tmp_path)
+    msg = run_err("from-png", a, b, "-o", tmp_path / "all.px")
+    assert msg.startswith("from-png: E_DUP_FRAME: PNGs that would get one frame id")
+    assert f"tile_0002 ({a}, {b})" in msg
+
+
+def test_from_png_same_stem_writes_nothing(tmp_path):
+    a, b = two_packs(tmp_path)
+    run_err("from-png", a, b, "-o", tmp_path / "all.px")
+    assert not (tmp_path / "all.px").exists()
+
+
+def test_from_png_same_stem_into_existing_out_leaves_it_alone(tmp_path):
+    a, b = two_packs(tmp_path)
+    out = write(tmp_path, "all.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    before = out.read_text()
+    run_err("from-png", a, b, "-o", out)
+    assert out.read_text() == before
+
+
+def test_from_png_same_stem_without_o_prints_nothing(tmp_path, capsys):
+    a, b = two_packs(tmp_path)
+    run_err("from-png", a, b)
+    assert capsys.readouterr().out == ""
+
+
+def test_from_png_same_stem_error_suggests_prefix_dir(tmp_path):
+    a, b = two_packs(tmp_path)
+    msg = run_err("from-png", a, b, "-o", tmp_path / "all.px")
+    assert "--prefix-dir (ids FOLDER/STEM: dungeon/tile_0002)" in msg and "--id PREFIX" in msg
+
+
+def test_from_png_same_png_twice_is_e_dup_frame(tmp_path):
+    a, _ = two_packs(tmp_path)
+    assert "E_DUP_FRAME" in run_err("from-png", a, a, "-o", tmp_path / "all.px")
+
+
+def test_from_png_stems_that_sanitize_alike_collide(tmp_path):
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "a b.png")
+    Image.new("RGBA", (1, 1), (3, 2, 1, 255)).save(tmp_path / "a_b.png")
+    msg = run_err("from-png", tmp_path / "a b.png", tmp_path / "a_b.png", "-o", tmp_path / "o.px")
+    assert "E_DUP_FRAME" in msg and "a_b (" in msg
+
+
+def test_from_png_names_every_colliding_id(tmp_path):
+    a, b = two_packs(tmp_path)
+    c, d = two_packs(tmp_path, "tile_0003")
+    msg = run_err("from-png", a, b, c, d, "-o", tmp_path / "all.px")
+    assert f"tile_0002 ({a}, {b}); tile_0003 ({c}, {d})" in msg
+
+
+def test_from_png_three_of_one_stem(tmp_path):
+    a, b = two_packs(tmp_path)
+    (tmp_path / "props").mkdir()
+    Image.new("RGBA", (2, 2), (9, 9, 9, 255)).save(tmp_path / "props" / "tile_0002.png")
+    msg = run_err("from-png", a, b, tmp_path / "props" / "tile_0002.png", "-o", tmp_path / "all.px")
+    assert f"tile_0002 ({a}, {b}, {tmp_path / 'props' / 'tile_0002.png'})" in msg
+
+
+def test_from_png_id_prefix_does_not_tell_them_apart(tmp_path):
+    a, b = two_packs(tmp_path)
+    msg = run_err("from-png", a, b, "--id", "set", "-o", tmp_path / "all.px")
+    assert "set/tile_0002 (" in msg
+
+
+def test_from_png_prefix_dir_ids_by_folder(tmp_path, capsys):
+    a, b = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, b, "--prefix-dir", "-o", out) == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["dungeon/tile_0002", "creatures/tile_0002"]
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s))\n"
+
+
+def test_from_png_prefix_dir_keeps_both_images(tmp_path):
+    a, b = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, b, "--prefix-dir", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert doc.image(doc.get("dungeon/tile_0002")).getpixel((0, 0)) == (120, 60, 50, 255)
+    assert doc.image(doc.get("creatures/tile_0002")).getpixel((0, 0)) == (60, 150, 100, 255)
+
+
+def test_from_png_prefix_dir_with_id(tmp_path):
+    a, b = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, b, "--prefix-dir", "--id", "set", "-o", out) == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["set/dungeon/tile_0002", "set/creatures/tile_0002"]
+
+
+def test_from_png_prefix_dir_one_png_is_a_named_frame(tmp_path):
+    a, _ = two_packs(tmp_path)
+    out = tmp_path / "one.px"
+    assert run("from-png", a, "--prefix-dir", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert not doc.implicit and [f.id for f in doc.frames] == ["dungeon/tile_0002"]
+
+
+def test_from_png_prefix_dir_relative_path_in_cwd(tmp_path, monkeypatch):
+    # a PNG given as a bare name in the current directory still gets its directory's name
+    (tmp_path / "pack").mkdir()
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "pack" / "t.png")
+    monkeypatch.chdir(tmp_path / "pack")
+    assert run("from-png", "t.png", "--prefix-dir", "-o", tmp_path / "o.px") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "o.px").frames] == ["pack/t"]
+
+
+def test_from_png_prefix_dir_folder_name_sanitized(tmp_path):
+    (tmp_path / "my pack").mkdir()
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(tmp_path / "my pack" / "t.png")
+    assert run("from-png", tmp_path / "my pack" / "t.png", "--prefix-dir", "-o", tmp_path / "o.px") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "o.px").frames] == ["my_pack/t"]
+
+
+def test_from_png_prefix_dir_same_folder_names_still_collide(tmp_path):
+    for top, c in (("x", 1), ("y", 2)):
+        (tmp_path / top / "tiles").mkdir(parents=True)
+        Image.new("RGBA", (1, 1), (c, c, c, 255)).save(tmp_path / top / "tiles" / "t.png")
+    msg = run_err("from-png", tmp_path / "x/tiles/t.png", tmp_path / "y/tiles/t.png", "--prefix-dir",
+                  "-o", tmp_path / "o.px")
+    assert "E_DUP_FRAME" in msg and "tiles/t (" in msg
+
+
+def test_from_png_prefix_dir_with_grid_is_bad_arg(tmp_path):
+    Image.new("RGBA", (4, 4), (1, 2, 3, 255)).save(tmp_path / "s.png")
+    msg = run_err("from-png", tmp_path / "s.png", "--grid", "2x2", "--prefix-dir", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "--prefix-dir" in msg
+
+
+def test_from_png_prefix_dir_shares_one_palette(tmp_path):
+    a, b = two_packs(tmp_path)
+    Image.new("RGBA", (2, 2), (120, 60, 50, 255)).save(b)  # the same color in both packs: one key
+    out = tmp_path / "all.px"
+    assert run("from-png", a, b, "--prefix-dir", "-o", out) == 0
+    assert len(pxart.parse(out).palette) == 1
+
+
+def test_from_png_count_is_what_was_written(tmp_path, capsys):
+    a, b = two_packs(tmp_path)
+    c, d = two_packs(tmp_path, "tile_0003")
+    out = tmp_path / "all.px"
+    assert run("from-png", a, b, c, d, "--prefix-dir", "-o", out) == 0
+    said = int(re.search(r"\((\d+) frame\(s\)", capsys.readouterr().out).group(1))
+    assert said == len(pxart.parse(out).frames) == 4
+
+
+def test_from_png_replacing_frames_out_had_says_so(tmp_path, capsys):
+    a, b = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, "--id", "t", "-o", out) == 0
+    capsys.readouterr()
+    Image.new("RGBA", (2, 2), (1, 1, 1, 255)).save(a)
+    assert run("from-png", a, "--id", "t", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (1 frame(s); replaced t/tile_0002, which {out} had)\n"
+    assert len(pxart.parse(out).frames) == 1
+
+
+def test_from_png_replacing_some_frames_counts_all_written(tmp_path, capsys):
+    a, b = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, "--prefix-dir", "-o", out) == 0
+    capsys.readouterr()
+    assert run("from-png", a, b, "--prefix-dir", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s); replaced dungeon/tile_0002, which {out} had)\n"
+    assert len(pxart.parse(out).frames) == 2
+
+
+def test_from_png_separate_runs_still_replace_on_purpose(tmp_path):
+    # the documented re-import: a second run over the same PNG replaces its frame, keeping one frame
+    a, _ = two_packs(tmp_path)
+    out = tmp_path / "all.px"
+    assert run("from-png", a, "--id", "t", "-o", out) == 0
+    assert run("from-png", a, "--id", "t", "-o", out) == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["t/tile_0002"]
+
+
+def test_from_png_different_stems_unaffected(tmp_path, capsys):
+    a, _ = two_packs(tmp_path)
+    c, _ = two_packs(tmp_path, "tile_0003")
+    out = tmp_path / "all.px"
+    assert run("from-png", a, c, "-o", out) == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["tile_0002", "tile_0003"]
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s))\n"
+
+
+def test_from_png_grid_count_unchanged(tmp_path, capsys):
+    img = Image.new("RGBA", (4, 2))
+    img.putpixel((0, 0), (1, 1, 1, 255)); img.putpixel((2, 0), (2, 2, 2, 255))
+    img.save(tmp_path / "s.png")
+    out = tmp_path / "o.px"
+    assert run("from-png", tmp_path / "s.png", "--grid", "2x2", "--names", "walk", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s): walk 2)\n"
+
+
+def test_png_id_unit(tmp_path):
+    a = type("A", (), {"id": None, "prefix_dir": False})()
+    assert pxart.png_id(pathlib.Path("x/y/t 1.png"), a) == "t_1"
+    a.prefix_dir = True
+    assert pxart.png_id(pathlib.Path("x/y/t 1.png"), a) == "y/t_1"
+    a.id = "set"
+    assert pxart.png_id(pathlib.Path("x/y/t.png"), a) == "set/y/t"
+
+
+def test_same_ids_unit():
+    pxart.same_ids([("a", "a.png", None), ("b", "b.png", None)])
+    with pytest.raises(pxart.PxError) as e:
+        pxart.same_ids([("a", "x/a.png", None), ("a", "y/a.png", None)])
+    assert codes(e) == ["E_DUP_FRAME"] and "a (x/a.png, y/a.png)" in e.value.issues[0].msg
+
+
+def test_help_documents_from_png_collisions():
+    text = " ".join(pxart.__doc__.split())
+    assert "Two PNGs of one run that would get one id (two packs' tile_0002.png) are E_DUP_FRAME" in text
+    assert "--prefix-dir ids each one FOLDER/STEM by its directory's name" in text
+
+
+def test_from_png_help_lists_prefix_dir(capsys):
+    assert run("from-png", "-h") == 0
+    assert "--prefix-dir" in capsys.readouterr().out
+
+
+# frames --copy-to: two copies --rename gives one id wrote a file with a duplicate @frame
+
+def test_copy_to_rename_two_groups_into_one_is_e_dup_frame(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame walk/0\nk\n@frame run/0\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    before = b.read_text()
+    msg = run_err("frames", a, "--copy-to", b, "--rename", "walk", "w", "--rename", "run", "w")
+    assert "E_DUP_FRAME" in msg and "w/0 (from walk/0, run/0)" in msg
+    assert b.read_text() == before
+
+
+def test_copy_to_rename_onto_an_unrenamed_copy_is_e_dup_frame(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame walk/0\nk\n@frame run/0\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    msg = run_err("frames", a, "--copy-to", b, "--rename", "walk", "run")
+    assert "E_DUP_FRAME" in msg and "run/0 (from walk/0, run/0)" in msg
+
+
+def test_copy_to_rename_apart_still_works(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame walk/0\nk\n@frame run/0\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    assert run("frames", a, "--copy-to", b, "--rename", "walk", "w/a", "--rename", "run", "w/b") == 0
+    assert [f.id for f in pxart.parse(b).frames] == ["x", "w/a/0", "w/b/0"]
+
+
+def test_copy_to_result_always_parses(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame walk/0\nk\n@frame walk/1\nk\n@frame run/0\nk\n")
+    for renames in ([["walk", "z"], ["run", "z"]], [["walk", "run"]], [["walk/0", "q"], ["run/0", "q"]]):
+        b = write(tmp_path, "b.px", "pxart 1\nk #000000\n@frame x\nk\n")
+        run("frames", a, "--copy-to", b, *[x for r in renames for x in ["--rename", *r]])
+        pxart.parse(b)  # never a file with a duplicate @frame
+
+
+def test_help_documents_copy_to_rename_collision():
+    text = " ".join(pxart.__doc__.split())
+    assert "and so are two copies --rename would give one id (--rename walk w --rename run w)" in text
+
+
+# extract into an existing file wrote over it, frames and all
+
+def test_extract_onto_existing_out_is_refused(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "o.px", "pxart 1\nk #000000\n@frame keep/0\nk\n")
+    before = out.read_text()
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    assert msg.startswith(f"extract: E_FILE: {out} exists, and extract writes a new file: its frames keep/0 would "
+                          "be lost")
+    assert out.read_text() == before
+
+
+def test_extract_onto_existing_out_with_same_id_is_e_dup_frame(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "o.px", "pxart 1\nk #000000\n@frame idle\nk\n@frame other\nk\n")
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    assert "E_DUP_FRAME" in msg and "its frames idle, other would be lost (idle under the same id)" in msg
+
+
+def test_extract_refusal_offers_copy_to_and_replace(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "o.px", "pxart 1\nk #000000\n@frame keep/0\nk\n")
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    assert f"pxart frames {p}:idle --copy-to {out}" in msg and "--replace" in msg
+
+
+def test_extract_copy_to_suggestion_runs(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "o.px", "pxart 1\nk #3f2631\n@frame keep/0\nk\n")
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    cmd = shlex.split(msg.split("to add the frames to it: pxart ")[1].split(";")[0])
+    assert run(*cmd) == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["keep/0", "idle"]
+
+
+def test_extract_onto_a_palette_file_is_refused(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "pal.px", "k #000000\n")
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    assert "its palette would be lost" in msg and out.read_text() == "k #000000\n"
+
+
+def test_extract_onto_an_unreadable_file_is_refused(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "bad.px", "k #000000\nkq\n")
+    msg = run_err("extract", f"{p}:idle", "-o", out)
+    assert "E_FILE" in msg and "its contents would be lost" in msg
+
+
+def test_extract_onto_itself_is_refused(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    msg = run_err("extract", f"{p}:idle", "-o", p)
+    assert "E_DUP_FRAME" in msg and p.read_text() == MULTI
+
+
+def test_extract_replace_overwrites(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    out = write(tmp_path, "o.px", "pxart 1\nk #000000\n@frame keep/0\nk\n")
+    assert run("extract", f"{p}:idle", "-o", out, "--replace") == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["idle"]
+
+
+def test_extract_replace_same_text_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MULTI)
+    out = tmp_path / "o.px"
+    assert run("extract", f"{p}:idle", "-o", out) == 0
+    capsys.readouterr()
+    assert run("extract", f"{p}:idle", "-o", out, "--replace") == 0
+    assert capsys.readouterr().out.startswith(f"no change: {out}")
+
+
+def test_extract_replace_on_a_new_out_is_harmless(tmp_path):
+    p = write(tmp_path, "h.px", MULTI)
+    assert run("extract", f"{p}:idle", "-o", tmp_path / "n.px", "--replace") == 0
+
+
+def test_extract_new_out_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MULTI)
+    out = tmp_path / "n.px"
+    assert run("extract", f"{p}:walk", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (2 frame(s))\n"
+
+
+def test_help_documents_extract_existing_out():
+    text = " ".join(pxart.__doc__.split())
+    assert "An OUT that exists is E_FILE, since its frames would be lost (E_DUP_FRAME when it has one of the ids)" \
+        in text
+    assert "extract FILE:SEL -o OUT [--inline-palette] [--replace]" in text
+
+
+# compose -o OUT:ID onto a frame OUT has replaced it without a word
+
+def test_compose_onto_an_existing_frame_says_it_replaced_it(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    other = write(tmp_path, "m.px", "w #ffffff\nw\n")
+    out = tmp_path / "h.px"
+    assert run("compose", "-o", f"{out}:a/0", f"{layer}@0,0") == 0
+    assert capsys.readouterr().out == f"wrote {out} frame a/0\n"
+    assert run("compose", "-o", f"{out}:a/0", f"{other}@0,0") == 0
+    assert capsys.readouterr().out == f"wrote {out} frame a/0 (replaced the frame it had)\n"
+
+
+def test_compose_new_frame_in_existing_out_does_not_say_replaced(tmp_path, capsys):
+    layer = write(tmp_path, "l.px", "k #000000\nk\n")
+    out = tmp_path / "h.px"
+    assert run("compose", "-o", f"{out}:a/0", f"{layer}@0,0") == 0
+    assert run("compose", "-o", f"{out}:a/1", f"{layer}@0,0") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"wrote {out} frame a/1"
+
+
+def test_crop_onto_an_existing_frame_says_it_replaced_it(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "pxart 1\nk #000000\ng #00ff00\n@frame a\nkg\ngk\n")
+    out = tmp_path / "o.px"
+    assert run("crop", f"{p}:a", "0,0,1,1", "-o", f"{out}:c") == 0
+    assert run("crop", f"{p}:a", "1,0,1,1", "-o", f"{out}:c") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"wrote {out} frame c (replaced the frame it had)"
+
+
+def test_help_documents_compose_replaced_line():
+    assert "the 'wrote' line says when it replaced one" in " ".join(pxart.__doc__.split())
