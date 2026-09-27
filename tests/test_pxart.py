@@ -25844,3 +25844,147 @@ def test_copy_to_new_group_anim_follows_the_frames(tmp_path, capsys):
 
 def test_help_says_anim_set_adds_in_frame_order():
     assert "updates the '@anim GROUP' line, or adds one, in the order of the frames." in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- dup FILE:GROUP NEWGROUP; flip FILE:G -o FILE:NEWG
+
+BUGS = "k #000000\nj #ffffff\n\n@anim fly/right ms=90 pivot=2,1\n@anim idle ms=400\n@still ui\n\n" \
+    "@frame fly/right/0\nkj..\nk...\n@frame fly/right/1 ms=120\n.kj.\nk...\n@frame idle/0\nkk..\nk...\n" \
+    "@frame ui/0\nj...\nj...\n"
+
+
+def test_dup_group_copies_frames_timing_pivots_and_anim(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left") == 0
+    assert capsys.readouterr().out == f"copied fly/right (2 frames) as fly/left; added @anim fly/left; wrote {p}\n"
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["fly/right/0", "fly/right/1", "fly/left/0", "fly/left/1", "idle/0", "ui/0"]
+    assert d.get("fly/left/0").grid == d.get("fly/right/0").grid and d.get("fly/left/1").ms == 120
+    assert d.anims["fly/left"] == d.anims["fly/right"]
+    assert [l for l in p.read_text().splitlines() if l.startswith("@anim")] == [
+        "@anim fly/right ms=90 pivot=2,1", "@anim fly/left ms=90 pivot=2,1", "@anim idle ms=400"]
+    assert [l for l in p.read_text().splitlines() if l not in BUGS.splitlines()] == [
+        "@anim fly/left ms=90 pivot=2,1", "@frame fly/left/0", "@frame fly/left/1 ms=120"]
+
+
+def test_dup_group_renders_like_the_source(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left") == 0
+    d = pxart.parse(p)
+    for i in range(2):
+        assert pxart.pixels(d.image(d.get(f"fly/left/{i}"))) == pxart.pixels(d.image(d.get(f"fly/right/{i}")))
+        assert d.pivot(d.get(f"fly/left/{i}")) == d.pivot(d.get(f"fly/right/{i}")) and d.ms(d.get(f"fly/left/{i}")) \
+            == d.ms(d.get(f"fly/right/{i}"))
+
+
+def test_dup_group_copies_a_still_line(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:ui", "hud") == 0
+    assert "added @still hud" in capsys.readouterr().out and "hud" in pxart.parse(p).stills
+
+
+def test_dup_group_nested_groups_follow(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@anim walk/down ms=90\n@anim walk/up ms=80\n@frame walk/down/0\nk\n"
+              "@frame walk/up/0\nk\n")
+    assert run("dup", f"{p}:walk", "run") == 0
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["walk/down/0", "walk/up/0", "run/down/0", "run/up/0"]
+    assert d.anims["run/down"] == {"ms": 90} or d.anims["run/down"]["ms"] == 90
+    assert d.anims["run/up"]["ms"] == 80
+
+
+def test_dup_group_after(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left", "--after", "idle/0") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["fly/right/0", "fly/right/1", "idle/0", "fly/left/0",
+                                                      "fly/left/1", "ui/0"]
+
+
+def test_dup_group_ids_taken_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    msg = run_err("dup", f"{p}:fly/right", "idle")
+    assert "E_DUP_FRAME" in msg and "idle/0 already in" in msg and "dup fly/right idle would give" in msg
+    assert p.read_text() == BUGS and capsys.readouterr().out == ""
+
+
+def test_dup_group_into_itself_is_an_error(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ARG" in run_err("dup", f"{p}:fly", "fly/copy")
+
+
+def test_dup_group_bad_id(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ID" in run_err("dup", f"{p}:fly/right", "fly left")
+
+
+def test_dup_frame_still_wins_over_a_group_of_its_name(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a\nk\n@frame a/0\nk\n")
+    assert run("dup", f"{p}:a", "b") == 0
+    assert capsys.readouterr().out.endswith("frame b\n")
+
+
+def test_dup_group_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert p.read_text() == BUGS and "+@frame fly/left/0" in out and out.endswith("(dry run; nothing written)\n")
+
+
+def test_flip_into_a_copy(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    q = write(tmp_path, "q.px", BUGS)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left") == 0
+    out = capsys.readouterr().out
+    assert out.endswith(f"copied fly/right (2 frames) as fly/left; added @anim fly/left; wrote {p}\n")
+    assert "edited" not in out
+    assert run("dup", f"{q}:fly/right", "fly/left") == 0 and run("flip", f"{q}:fly/left") == 0
+    assert p.read_text() == q.read_text()  # the same as dup, then flip
+    d = pxart.parse(p)
+    assert d.get("fly/left/0").grid == ["..jk", "...k"] and d.anims["fly/left"]["pivot"] == (1, 1)
+    assert d.get("fly/right/0").grid == ["kj..", "k..."]
+
+
+def test_flip_into_a_copy_needs_the_same_file_and_a_group(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ARG" in run_err("flip", f"{p}:fly/right", "-o", tmp_path / "o.px:fly/left")
+    assert "E_BAD_ARG: -o" in run_err("flip", p, "-o", f"{p}:fly/left")
+    assert "dup it first" in run_err("flip", f"{p}:idle/0", "-o", f"{p}:x")
+    assert "did you mean" in run_err("flip", f"{p}:fly/rigth", "-o", f"{p}:fly/left")
+    assert p.read_text() == BUGS
+
+
+# ---------------------------------------------------------------- flip/rotate on an even size notes the pivot
+
+
+def test_flip_even_width_pivot_notes_the_half_pixel(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("flip", f"{p}:fly/right") == 0
+    out = capsys.readouterr().out
+    assert ("note: fly/right/0, fly/right/1: pivots mirrored pixel for pixel (x -> 3-x across 4 px); a pivot meant as "
+            "the centre between two pixels ends 1px off it (pivots are whole pixels): check with onion\n") in out
+
+
+def test_flip_odd_width_or_no_pivot_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@anim a pivot=1,0\n@frame a/0\nk..\n@frame b/0\nk.\n")
+    assert run("flip", f"{p}:a") == 0 and run("flip", f"{p}:b") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_flip_v_notes_an_even_height(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=0,0\nk..\n...\n")
+    assert run("flip", p, "--v") == 0
+    assert "(y -> 1-y across 2 px)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("angle,want", [("90", "(y -> 1-y across 2 px)"), ("270", "(x -> 3-x across 4 px)"),
+                                        ("180", "(x -> 3-x across 4 px)")])
+def test_rotate_even_size_notes_the_pivot(tmp_path, capsys, angle, want):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=0,0\nk...\n....\n")
+    assert run("rotate", p, angle) == 0
+    assert want in capsys.readouterr().out
+
+
+def test_transpose_has_no_pivot_note(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=1,0\nk...\n....\n")
+    assert run("transpose", p) == 0
+    assert "mirrored" not in capsys.readouterr().out

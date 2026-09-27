@@ -77,7 +77,9 @@ pxart 1
 - **`pivot=x,y`** on `@frame` or `@anim` (optional; a frame's own wins): the frame's anchor
   pixel from its top-left, say the feet. `anim` and `onion` line frames up by pivot instead
   of bottom-centre, and `export` writes it (`--aseprite` as Aseprite's own slice keys,
-  `--frames` as `pivots.json`). `anim-set hero.px:walk pivot=8,23` sets it.
+  `--frames` as `pivots.json`). `anim-set hero.px:walk pivot=8,23` sets it. `flip`, `rotate` and `transpose` move a pivot with its pixel
+  (x -> w-1-x); across an even width a note says that a pivot meant as the point between the two middle pixels ends
+  1px off it, since pivots are whole pixels.
 - **`anim-set`** writes both: `anim-set hero.px:walk/down ms=125 direction=pingpong`
   updates (or adds) the `@anim` line, and `anim-set hero.px:walk/down/1 ms=250` sets one
   frame's `ms` (or `pivot`). Only that line changes; `ms=` with no value clears it.
@@ -260,7 +262,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and
   q, with a `WARNING` where their variant colors differ; `--rekey girl.px:T=V` is for one
   source file's T only; a color two files share, alike in every variant, keeps the one key
-  it got first), `dup` (copy a frame), `anim-set` (timing), `palette
+  it got first), `dup` (copy a frame; or a group, `dup hero.px:walk/right walk/left`, with its frames' timing and pivots and its
+  `@anim` line; `flip hero.px:walk/left -o hero.px:walk/right` copies a group and flips the copy in one step), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
