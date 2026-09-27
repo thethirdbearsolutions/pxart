@@ -25148,3 +25148,80 @@ def test_help_documents_selector_rule():
     assert "Coordinates (x,y, --region, --at) are one frame's: a file of several needs FILE:SEL ('FILE:*': all)" in doc
     assert "one that edits several frames names them" in doc
     assert "No SEL (or *) means every frame" in doc
+
+
+# ---------------------------------------------------------------- a --variant the legend lacks is one line, not one
+# per legend entry; entries failing alike share a line
+
+def legend_room(tmp_path, dusk="dusk", night=None):
+    write(tmp_path, "a.px", f"k #000000\ng #00ff00\n@variant {dusk}\ng #004400\n@frame f\ngg\ngg\n@frame w\nkk\nkk\n"
+          "@frame p\ngk\nkg\n")
+    write(tmp_path, "b.px", "k #000000\nr #ff0000\n" + (f"@variant {night}\nr #440000\n" if night else "")
+          + "@frame s\nrr\nrr\n")
+    return write(tmp_path, "room.map", "f a.px:f\nW a.px:w\np a.px:p\ns b.px:s\n\nWWWW\nfpsf\n")
+
+
+def test_scene_variant_no_legend_file_has_is_one_line(tmp_path):
+    m = legend_room(tmp_path, night="night")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "midnight", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'midnight'; the "
+                                "legend's variants: dusk (3 entries), night (1 entry)"]
+    assert not (tmp_path / "s.png").exists()
+
+
+def test_scene_variant_no_legend_file_has_and_no_variants_at_all(tmp_path):
+    write(tmp_path, "b.px", "k #000000\n@frame s\nkk\n@frame t\nk.\n")
+    m = write(tmp_path, "room.map", "s b.px:s\nt b.px:t\n\nst\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x1", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'dusk'; its files "
+                                "have no variants"]
+
+
+def test_scene_variant_some_entries_lack_it_share_a_line(tmp_path):
+    m = legend_room(tmp_path, night="night")
+    write(tmp_path, "c.px", "k #000000\n@frame x\nkk\nkk\n@frame y\nk.\nk.\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\ny c.px:y\ns b.px:s\n\nfxys\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [
+        f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x', 'y' (lines 2-3; 'c.px'): no @variant 'dusk' (have: none)",
+        f"scene: --map ({m}): {m}:4: E_SELECT: legend 's': 'b.px:s': no @variant 'dusk' (have: night)"]
+
+
+def test_scene_variant_one_entry_lacking_keeps_its_own_line(tmp_path):
+    m = legend_room(tmp_path, night="dusk")
+    write(tmp_path, "c.px", "k #000000\n@frame x\nkk\nkk\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\n\nfx\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x': 'c.px:x': no @variant 'dusk' "
+                                "(have: none)"]
+
+
+def test_scene_variant_many_entries_collapse_and_list_is_truncated(tmp_path):
+    write(tmp_path, "t.px", "k #000000\n@variant dusk\nk #111111\n" + "".join(f"@frame t{i}\nk\n" for i in range(12)))
+    keys = "abcdefghijkl"
+    m = write(tmp_path, "room.map", "".join(f"{c} t.px:t{i}\n" for i, c in enumerate(keys)) + "\n" + keys + "\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "--variant", "midnight", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'midnight'; the "
+                                "legend's variants: dusk (12 entries)"]
+
+
+def test_scene_variant_that_exists_still_renders(tmp_path):
+    m = legend_room(tmp_path, night="dusk")
+    assert run("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png") == 0
+
+
+def test_legend_same_missing_file_shares_a_line(tmp_path):
+    m = write(tmp_path, "room.map", "a gone.px:a\nb gone.px:b\nc other.px:c\n\nabc\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "-o", tmp_path / "s.png")
+    lines = msg.splitlines()
+    assert len(lines) == 2
+    assert f"{m}:1: E_FILE: legend 'a', 'b' (lines 1-2; 'gone.px'): can't load (relative to the map file): " in lines[0]
+    assert f"{m}:3: E_FILE: legend 'c': can't load 'other.px:c' (relative to the map file): " in lines[1]
+
+
+def test_legend_different_errors_keep_their_lines(tmp_path):
+    write(tmp_path, "t.px", "k #000000\n@frame a\nk\n")
+    m = write(tmp_path, "room.map", "a t.px:nope\nb t.px:gone\n\nab\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "-o", tmp_path / "s.png")
+    assert len(msg.splitlines()) == 2
+    assert "legend 'a': 't.px:nope'" in msg and "legend 'b': 't.px:gone'" in msg

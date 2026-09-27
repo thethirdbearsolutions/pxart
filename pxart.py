@@ -2949,21 +2949,52 @@ def load_legend(path, variant=None):
     frame, mirrored by +h/+v). A target that can't be loaded is an error at its legend line, naming the path as
     written."""
     legend, _, _, where = parse_map(path)
-    imgs, issues = {}, []
+    imgs, failed = {}, []  # failed: (ch, line, as written, code, what went wrong, the line saying it for one entry)
     for ch, arg in legend.items():
         n, written = where[ch]
         try:
             imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True)
         except PxError as e:
             for i in e.issues:
-                at = f" ({i.path}:{i.line})" if i.line else ""
-                issues.append(Issue(i.code, f"legend {ch!r}: {written!r}: {i.msg}{at}", str(path), n))
+                msg = i.msg + (f" ({i.path}:{i.line})" if i.line else "")
+                failed.append((ch, n, written, i.code, msg, f"legend {ch!r}: {written!r}: {msg}"))
         except OSError as e:
-            issues.append(Issue("E_FILE", f"legend {ch!r}: can't load {written!r} (relative to the map file): "
-                                f"{e.strerror or e}", str(path), n))
-    if issues:
-        raise PxError(issues)
+            failed.append((ch, n, written, "E_FILE", f"can't load (relative to the map file): {e.strerror or e}",
+                           f"legend {ch!r}: can't load {written!r} (relative to the map file): {e.strerror or e}"))
+    if failed:
+        raise PxError(legend_issues(path, failed, variant, any(it.doc for it in imgs.values())))
     return imgs
+
+
+def legend_issues(path, failed, variant, some_have):
+    """load_legend's errors, one line per entry, except that entries failing alike share one line: a --variant no
+    legend file has is one line naming the variants they do have (with how many entries have each), and any other
+    message that repeats is one line naming its entries."""
+    lack = re.compile(r"^no @variant '.*' \(have: (.*)\)$")
+    issues = []
+    if variant and not some_have and any(lack.match(f[4]) for f in failed):
+        have = {}
+        for f in failed:
+            for v in lack.match(f[4]).group(1).split(", ") if lack.match(f[4]) else ():
+                have[v] = have.get(v, 0) + (v != "none")
+        have.pop("none", None)
+        issues.append(Issue("E_SELECT", f"no legend file has @variant {variant!r}; " + (
+            "the legend's variants: " + ", ".join(f"{v} ({c} entr{'y' if c == 1 else 'ies'})"
+                                                  for v, c in sorted(have.items(), key=lambda vc: (-vc[1], vc[0])))
+            if have else "its files have no variants"), str(path)))
+        failed = [f for f in failed if not lack.match(f[4])]
+    groups = {}  # a missing file is its own problem: entries of one file share a line
+    for f in failed:
+        groups.setdefault((f[3], f[4], split_sel(split_flip(f[2])[0])[0] if f[3] == "E_FILE" else None), []).append(f)
+    for (code, msg, _), fs in groups.items():
+        n = fs[0][1]
+        if len(fs) == 1:
+            issues.append(Issue(code, fs[0][5], str(path), n))
+            continue
+        files = list(dict.fromkeys(split_sel(split_flip(w)[0])[0] for _, _, w, *_ in fs))
+        issues.append(Issue(code, f"legend {listed(repr(f[0]) for f in fs)} (lines {spans([f[1] for f in fs])}; "
+                            f"{listed(repr(f) for f in files)}): {msg}", str(path), n))
+    return sorted(issues, key=lambda i: i.line or 0)
 
 
 def cell_spot(arg, img, x, y, tile):
