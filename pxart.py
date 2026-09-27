@@ -1615,13 +1615,18 @@ def items(arg, variant=None, strict=False):
 
 
 def all_items(args, variant=None):
-    out, paths = [], []
+    """render's and sheet's frames, in order. An argument's own %variant labels its frames 'idle/0%night', so its
+    cells read apart from the base ones beside them."""
+    out, paths, owns = [], [], []
     for n, a in enumerate(args, 1):
         with reading(f"file {n} ({a})"):
             got = items(a, variant)
         out += got
         paths += [split_sel(a)[0]] * len(got)
-    tell_apart(out, paths)
+        owns += [split_variant(a)[1]] * len(got)
+    tell_apart(out, paths)  # by frame id: hero's and beast's idle/0 collide, whatever variant each is in
+    for it, own in zip(out, owns):
+        it.label += f"%{own}" if own else ""
     return out
 
 

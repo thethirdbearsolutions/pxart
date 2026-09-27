@@ -10291,7 +10291,7 @@ def test_sheet_selectors_of_different_files(tmp_path):
 def test_sheet_variant_suffix_uses_the_file_stem(tmp_path):
     t = "k #000000\n\n@variant night\nk #000011\n@frame idle/0\nk\n"
     a, b = write(tmp_path, "hero.px", t), write(tmp_path, "beast.px", t)
-    assert labels_of(f"{a}:idle/0%night", f"{b}:idle/0") == ["hero:idle/0", "beast:idle/0"]
+    assert labels_of(f"{a}:idle/0%night", f"{b}:idle/0") == ["hero:idle/0%night", "beast:idle/0"]
 
 
 def test_sheet_unnamed_grids_with_the_same_stem(tmp_path):
@@ -26764,3 +26764,44 @@ def test_dup_missing_source_lists_groups(tmp_path):
 def test_missing_variant_still_guesses(tmp_path):
     p = write(tmp_path, "b.px", GUESS)
     assert run_err("render", f"{p}:idle/0%nigth", "-o", tmp_path / "x.png").endswith("did you mean 'night'?")
+
+
+# ---------------------------------------------------------------- render/sheet: a %variant cell says its variant
+# 'sheet bug.px:idle bug.px:idle%night' labeled both rows idle/0, idle/1.
+
+def test_sheet_label_of_a_variant_cell_has_the_variant(tmp_path):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert labels_of(a, f"{a}%night") == ["idle/0", "idle/1", "idle/0%night", "idle/1%night"]
+
+
+def test_sheet_label_of_a_variant_frame(tmp_path):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert labels_of(f"{a}:idle/0", f"{a}:idle/0%night") == ["idle/0", "idle/0%night"]
+
+
+def test_sheet_label_percent_base(tmp_path):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert labels_of(f"{a}:idle/0%base", f"{a}:idle/0%night") == ["idle/0%base", "idle/0%night"]
+
+
+def test_sheet_label_global_variant_is_not_suffixed(tmp_path):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert [it.label for it in pxart.all_items([str(a)], "night")] == ["idle/0", "idle/1"]
+
+
+def test_sheet_label_variant_of_an_unnamed_grid(tmp_path):
+    a = write(tmp_path, "ant.px", "k #000000\n@variant night\nk #000011\n\nk\n")
+    assert labels_of(a, f"{a}%night") == ["ant", "ant%night"]
+
+
+def test_sheet_variant_cell_widens_for_its_label(tmp_path, capsys):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert run("sheet", f"{a}:idle/0", "-o", tmp_path / "one.png", "--cols", "1") == 0
+    assert run("sheet", f"{a}:idle/0%night", "-o", tmp_path / "two.png", "--cols", "1") == 0
+    assert Image.open(tmp_path / "two.png").width > Image.open(tmp_path / "one.png").width
+
+
+def test_render_label_of_a_variant_cell(tmp_path, capsys):
+    a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
+    assert run("render", f"{a}:idle/0", f"{a}:idle/0%night", "-o", tmp_path / "r.png") == 0
+    assert (tmp_path / "r.png").exists()
