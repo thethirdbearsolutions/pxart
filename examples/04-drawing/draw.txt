@@ -14,7 +14,7 @@ $ pxart rect chest.px G 17,3,2,16 --fill
 painted 28 px; wrote chest.px
 $ pxart flood chest.px Y 5,15
 painted 96 px; wrote chest.px
-$ pxart ellipse chest.px y 11.5,10.5,2.5,2.5 --fill
+$ pxart ellipse chest.px y --box 9,8,6,6 --fill
 painted 24 px; wrote chest.px
 $ pxart poly chest.px r 11,9 12,9 12,12 11,12 --fill
 painted 8 px; wrote chest.px

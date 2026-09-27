@@ -94,7 +94,8 @@ pxart scene --size 608x256 --scale 1 -o panels.x4.png \
   base.x4.png@0,0 dusk.x4.png@208,0 night.x4.png@416,0
 
 # ---------------------------------------------------------------------------------------
-# 04-drawing: run draw.sh a line at a time, keeping a copy of chest.px after each step.
+# 04-drawing: run draw.sh a line at a time, keeping a copy of chest.px after each step and
+# a picture of it (the README shows one per step), then all the steps on one sheet.
 stage 04-drawing draw.sh palette.px
 mkdir steps
 n=0
@@ -105,12 +106,15 @@ while IFS= read -r line; do
   read -r -a args <<< "${line#pxart }"
   txt step.txt "${args[@]}"
   cat step.txt >> draw.txt && rm step.txt
+  step=steps/$(printf %02d $n)-${args[0]}
+  pxart render chest.px --scale 10 -o "$step.png" > /dev/null
   # the copy imports the same palette.px, from one directory down
-  sed 's|^@palette palette.px$|@palette ../palette.px|' chest.px > "steps/$(printf %02d $n)-${args[0]}.px"
+  sed 's|^@palette palette.px$|@palette ../palette.px|' chest.px > "$step.px"
 done < draw.sh
 if grep -q '^(exit' draw.txt; then cat draw.txt >&2; exit 1; fi
 pxart sheet steps/ --cols 6 --scale 4 -o steps.png
-pxart render chest.px -o chest.preview.png --png
+pxart render chest.px --scale 10 -o chest.preview.png --png
+rm chest.px   # so Step 1's 'pxart new chest.px' works in a copy of the folder (steps/ has it)
 
 # ---------------------------------------------------------------------------------------
 # 05-compose: three packs, three palettes, three night-ish variants, one dusk dock.
