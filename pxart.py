@@ -979,6 +979,12 @@ class PxError(Exception):
         return "\n".join(str(i) for i in self.issues)
 
 
+def guess(word, names):
+    """'; did you mean 'idle'?' for a misspelled name among names (difflib's closest), or ''."""
+    got = difflib.get_close_matches(word, [n for n in dict.fromkeys(names) if n != word], n=1)
+    return f"; did you mean {got[0]!r}?" if got else ""
+
+
 def fail(code, msg, **kw):
     raise PxError(Issue(code, msg, **kw))
 
@@ -1097,7 +1103,8 @@ class Doc:
         if variant and variant != "base":  # %base: the base palette, whatever --variant says
             if variant not in self.variants and variant not in self.shared_variants:
                 have = sorted(set(self.variants) | set(self.shared_variants))
-                fail("E_SELECT", f"no @variant {variant!r} (have: {', '.join(have) or 'none'})", path=self.path)
+                fail("E_SELECT", f"unknown variant {variant!r} (have: {', '.join(have) or 'none'})"
+                     + guess(variant, have), path=self.path)
             pal.update(self.shared_variants.get(variant, {}))
             pal.update(self.variants.get(variant, {}))
         return pal
@@ -1127,8 +1134,8 @@ class Doc:
             return list(self.frames)
         got = [f for f in self.frames if f.id == sel or (f.id or "").startswith(sel + "/")]
         if not got:
-            fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}",
-                 path=self.path)
+            fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}"
+                 + guess(sel, self.paths()), path=self.path)
         return got
 
     def promote(self):
@@ -1141,6 +1148,14 @@ class Doc:
                     store[("row", fid, j)] = store.pop(("row", None, j))
         self.lead[("frame", fid)] = self.lead.pop(("row", fid, 0), None) or [""]
         self.implicit, f.id = False, fid
+
+    def paths(self):
+        """Every frame id and group path (walk/down/0, walk/down, walk): what FILE:SEL can name."""
+        out = []
+        for f in self.frames:
+            parts = self.label(f).split("/")
+            out += ["/".join(parts[:i]) for i in range(len(parts), 0, -1)]
+        return list(dict.fromkeys(out))
 
     def get(self, fid):
         for f in self.frames:
@@ -2384,10 +2399,12 @@ def check_vmap(vmap, dst, dst_name, srcs, fresh=False):
         missing = [n for n in ns[1:] if n not in have]
         if missing:
             fail("E_SELECT", f"--variant-map {name}={','.join(ns[1:])}: no source file has @variant "
-                 f"{', '.join(map(repr, missing))} (they have: {', '.join(have) or 'none'})")
+                 f"{', '.join(map(repr, missing))} (they have: {', '.join(have) or 'none'})"
+                 + (guess(missing[0], have) if len(missing) == 1 else ""))
         if not fresh and name not in variant_names(dst):
             fail("E_SELECT", f"--variant-map {name}={','.join(ns[1:])}: {dst_name} has no @variant {name!r} (it has: "
-                 f"{', '.join(variant_names(dst)) or 'none'}); the map reads the sources' variants as DST's own")
+                 f"{', '.join(variant_names(dst)) or 'none'}); the map reads the sources' variants as DST's own"
+                 + guess(name, variant_names(dst)))
 
 
 def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
@@ -3007,7 +3024,7 @@ def legend_issues(path, failed, variant, some_have):
     """load_legend's errors, one line per entry, except that entries failing alike share one line: a --variant no
     legend file has is one line naming the variants they do have (with how many entries have each), and any other
     message that repeats is one line naming its entries."""
-    lack = re.compile(r"^no @variant '.*' \(have: (.*)\)$")
+    lack = re.compile(r"^unknown variant '.*' \(have: (.*?)\)(; did you mean '.*'\?)?$")
     issues = []
     if variant and not some_have and any(lack.match(f[4]) for f in failed):
         have = {}
@@ -3885,7 +3902,8 @@ def check_renames(renames, ids, where):
     for old, new in renames:
         if not any(i == old or i.startswith(old + "/") for i in ids):
             fail("E_SELECT", f"--rename {old} {new}: no frame {old!r} or {old}/... in {where}; frames: "
-                 f"{', '.join(ids) or 'none'}")
+                 f"{', '.join(ids) or 'none'}" + guess(old, [i.rsplit("/", n)[0] for i in ids
+                                                              for n in range(i.count("/") + 1)]))
     bad = [renamed_id(i, renames) for i in ids if not ID_RE.match(renamed_id(i, renames))]
     if bad:
         fail("E_BAD_ID", f"--rename gives bad frame ids: {', '.join(map(repr, bad))} (ids are paths of letters, "
@@ -3985,7 +4003,8 @@ def frames_edit(a, doc, sel, picked):
             fail("E_BAD_ARG", f"--rm {fid!r} is a group ({', '.join(inside)}); --rm takes frame ids. A group goes in "
                  f"the selector: frames {doc.path}:{fid} --rm")
         if not f:
-            fail("E_SELECT", f"--rm {fid!r}: no such frame; frames: {', '.join(doc.label(g) for g in doc.frames)}")
+            fail("E_SELECT", f"--rm {fid!r}: no such frame; frames: {', '.join(doc.label(g) for g in doc.frames)}"
+                 + guess(fid, [g.id for g in doc.frames]))
         doc.frames.remove(f)
     if a.rm:
         did.append("removed " + ", ".join(a.rm))
@@ -6055,7 +6074,7 @@ def cmd_dup(a):
     src = doc.get(sel) if sel else None
     if not src:
         fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame; frames: "
-             f"{', '.join(doc.label(f) for f in doc.frames)}")
+             f"{', '.join(doc.label(f) for f in doc.frames)}" + (guess(sel, doc.paths()) if sel else ""))
     if doc.get(a.new) or not ID_RE.match(a.new):
         fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
     new = Frame(a.new, list(src.grid), src.ms, pivot=src.pivot)
@@ -6133,7 +6152,7 @@ def cmd_anim_set(a):
         f = doc.get(sel)
         if not f:
             fail("E_SELECT", f"{sel!r} is neither an animation nor a frame; animations: "
-                 f"{', '.join(g for g in groups if g) or 'none'}", path=doc.path)
+                 f"{', '.join(g for g in groups if g) or 'none'}" + guess(sel, doc.paths()), path=doc.path)
         if set(kw) - {"ms", "pivot"}:
             fail("E_BAD_ARG", f"{sel!r} is one frame, which takes only ms= and pivot=; direction= and repeat= belong "
                  f"to its animation: anim-set {doc.path}:{f.group or 'GROUP'} ...", path=doc.path)
@@ -6420,7 +6439,8 @@ def variant_edit(doc, name, adds, keeps):
     have = name in doc.variants or name in doc.shared_variants
     if keeps and not adds and not have:
         fail("E_SELECT", f"--keep: {doc.path} has no @variant {name!r} (have: "
-             f"{', '.join(sorted(set(doc.variants) | set(doc.shared_variants))) or 'none'})", path=doc.path)
+             f"{', '.join(sorted(set(doc.variants) | set(doc.shared_variants))) or 'none'})"
+             + guess(name, variant_names(doc)), path=doc.path)
     base = doc.resolved()
     for k in [k for k, _ in adds] + keeps:
         if k not in base or k == ".":
@@ -6479,7 +6499,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     have = sorted(set(doc.variants) | set(doc.shared_variants))
     if src != "base" and src not in have:
         fail("E_SELECT", f"--derive-from {src}: {doc.path} has no @variant {src!r} (have: {', '.join(have) or 'none'}; "
-             "or base, the base palette)", path=doc.path)
+             "or base, the base palette)" + guess(src, have + ["base"]), path=doc.path)
     base = doc.resolved()
     from_ = doc.resolved(None if src == "base" else src)
     for k in lit:
@@ -6630,7 +6650,7 @@ def set_comments(doc, notes, variant=None, header=None):
                     f" (it imports that variant; comment it in the palette file: pxart palette "
                     f"{doc.palette_refs[0] if len(doc.palette_refs) == 1 else 'P.px'} --comment @variant {name} ...)"
                     if name in doc.shared_variants else
-                    f" (it has: {', '.join(doc.variants) or 'none'})"), path=doc.path)
+                    f" (it has: {', '.join(doc.variants) or 'none'})" + guess(name, doc.variants)), path=doc.path)
             anchor, what = ("variant", name), f"@variant {name}"
         elif variant:
             if name not in doc.variants.get(variant, {}):

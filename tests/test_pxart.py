@@ -6681,7 +6681,7 @@ def test_scene_error_names_the_item(tmp_path):
 def test_scene_variant_error_names_the_item(tmp_path):
     ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
     msg = run_err("scene", "-o", tmp_path / "s.png", "--variant", "night", f"{ok}@0,0")
-    assert msg.startswith(f"scene: item 1 ({ok}): {ok}: E_SELECT: no @variant 'night'")
+    assert msg.startswith(f"scene: item 1 ({ok}): {ok}: E_SELECT: unknown variant 'night'")
 
 
 def test_scene_map_error_names_the_map(tmp_path):
@@ -18781,7 +18781,7 @@ def test_match_unknown_variant(tmp_path):
     m = write(tmp_path, "moss.px", MOSS)
     p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
     msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--match", str(m))
-    assert "E_SELECT" in msg and "no @variant 'night'" in msg
+    assert "E_SELECT" in msg and "unknown variant 'night'" in msg
 
 
 def test_match_missing_file(tmp_path):
@@ -21338,7 +21338,7 @@ def test_export_directory_variant_a_file_lacks_names_it(tmp_path, capsys):
     d = town(tmp_path)
     write(d, "lone.px", "q #00ff00\n@frame lone\nq\n")
     msg = run_err("export", d, "--frames", tmp_path / "out", "--variant", "night")
-    assert "E_SELECT" in msg and "lone.px" in msg and "no @variant 'night'" in msg
+    assert "E_SELECT" in msg and "lone.px" in msg and "unknown variant 'night'" in msg
     assert not (tmp_path / "out").exists()
 
 
@@ -25214,8 +25214,8 @@ def test_scene_variant_some_entries_lack_it_share_a_line(tmp_path):
     m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\ny c.px:y\ns b.px:s\n\nfxys\n")
     msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
     assert msg.splitlines() == [
-        f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x', 'y' (lines 2-3; 'c.px'): no @variant 'dusk' (have: none)",
-        f"scene: --map ({m}): {m}:4: E_SELECT: legend 's': 'b.px:s': no @variant 'dusk' (have: night)"]
+        f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x', 'y' (lines 2-3; 'c.px'): unknown variant 'dusk' (have: none)",
+        f"scene: --map ({m}): {m}:4: E_SELECT: legend 's': 'b.px:s': unknown variant 'dusk' (have: night)"]
 
 
 def test_scene_variant_one_entry_lacking_keeps_its_own_line(tmp_path):
@@ -25223,7 +25223,7 @@ def test_scene_variant_one_entry_lacking_keeps_its_own_line(tmp_path):
     write(tmp_path, "c.px", "k #000000\n@frame x\nkk\nkk\n")
     m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\n\nfx\n")
     msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
-    assert msg.splitlines() == [f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x': 'c.px:x': no @variant 'dusk' "
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x': 'c.px:x': unknown variant 'dusk' "
                                 "(have: none)"]
 
 
@@ -25547,3 +25547,52 @@ def test_palette_help_documents_o_and_dry_run():
     doc = " ".join(pxart.__doc__.split())
     assert "[--order KEYS] [-o OUT] [--dry-run]" in doc
     assert "Edits write FILE's own lines (-o OUT: a copy; --dry-run: a diff, nothing written)" in doc
+
+
+# ---------------------------------------------------------------- a misspelled variant, frame or group: did you mean
+
+GUESS = "k #000000\n@variant night\nk #111111\n@anim fly/right ms=90\n@frame fly/right/0\nk\n@frame fly/right/1\nk\n" \
+    "@frame idle/0\nk\n"
+
+
+def test_unknown_variant_leads_with_it_and_guesses(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    msg = run_err("render", p, "--variant", "nigth", "-o", tmp_path / "x.png")
+    assert msg.endswith("E_SELECT: unknown variant 'nigth' (have: night); did you mean 'night'?")
+
+
+def test_unknown_variant_far_off_has_no_guess(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    msg = run_err("render", p, "--variant", "zzzz", "-o", tmp_path / "x.png")
+    assert msg.endswith("unknown variant 'zzzz' (have: night)") and "did you mean" not in msg
+
+
+@pytest.mark.parametrize("sel,want", [("idel", "idle"), ("fly/rigth", "fly/right"), ("fly/rihgt/1", "fly/right/1"),
+                                      ("fly", None)])
+def test_unknown_frame_guesses_a_frame_or_group(tmp_path, sel, want):
+    p = write(tmp_path, "b.px", GUESS)
+    if want is None:  # a real group: no error
+        assert run("render", f"{p}:{sel}", "-o", tmp_path / "x.png") == 0
+        return
+    msg = run_err("render", f"{p}:{sel}", "-o", tmp_path / "x.png")
+    assert f"no frame {sel!r}; frames: fly/right/0, fly/right/1, idle/0; did you mean {want!r}?" in msg
+
+
+def test_unknown_group_guesses_in_anim_set_frames_dup_and_derive(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    assert run_err("anim-set", f"{p}:idl", "ms=3").endswith("did you mean 'idle'?")
+    assert run_err("frames", p, "--rename", "fly/rigt", "x").endswith("did you mean 'fly/right'?")
+    assert run_err("frames", p, "--rm", "idle/1").endswith("did you mean 'idle/0'?")
+    assert run_err("dup", f"{p}:idel/0", "idle/1").endswith("did you mean 'idle/0'?")
+    assert run_err("palette", p, "--variant", "dusk", "--derive-from", "nigth").endswith(
+        "or base, the base palette); did you mean 'night'?")
+    assert run_err("palette", p, "--variant", "nihgt", "--keep", "k").endswith("did you mean 'night'?")
+
+
+def test_legend_variant_lines_still_collapse_with_a_guess(tmp_path):
+    write(tmp_path, "a.px", "k #000000\n@variant dusk\nk #111111\n@frame f\nkk\nkk\n")
+    write(tmp_path, "c.px", "k #000000\n@variant dusk\nk #111111\n@frame x\nkk\nkk\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\n\nfx\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dsuk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'dsuk'; the "
+                                "legend's variants: dusk (2 entries)"]
