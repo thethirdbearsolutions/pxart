@@ -536,8 +536,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --remove k,n takes FILE's own keys out: their key lines, their lines in FILE's variants,
       and the comments above those. A key a frame still draws with is E_SELECT (naming the
       frames and how many px), unless --to j repaints those pixels as j first: 'palette
-      party.px --remove k,n --to j'. An imported key is removed in its palette file; removing
-      a key from a palette file can't see the sprites that import it, so check them after.
+      party.px --remove k,n --to j'. An imported key is repainted the same way in FILE, then
+      removed from the palette file that defines it only when no other .px under DIR uses
+      it (draws with it, or lists it in a variant, with no key line of its own); DIR is
+      --in DIR, else the directory holding both FILE and the palette file. Otherwise it
+      stays there, and a line names who uses it: 'b stays in pal.px: cavegirl.px uses it'.
+      Removing a key from a palette file itself can't see the sprites that import it, so
+      check them after (palette pal.px --in DIR shows who draws with each key).
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4788,7 +4793,7 @@ def cmd_palette(a):
         if given:
             fail("E_BAD_ARG", f"--remove takes keys out of FILE: give it alone (or with --to KEY), not with "
                  f"{', '.join(given)}")
-        print(remove_keys(doc, key_list(a.remove, "--remove"), a.to))
+        print(remove_keys(doc, key_list(a.remove, "--remove"), a.to, a.within))
         return
     if a.hoist and (a.add or a.variant or a.extract_to or notes or a.comment_header is not None):
         fail("E_BAD_ARG", "--hoist moves keys into the imported palette file: give it alone")
@@ -5114,24 +5119,25 @@ def set_comments(doc, notes, variant=None, header=None):
     return said
 
 
-def remove_keys(doc, keys, to=None):
-    """palette FILE --remove KEYS [--to KEY]: FILE's own key lines for KEYS go, with their lines in FILE's variants
-    (and the comments above them). A key a frame still draws with is E_SELECT, unless --to KEY repaints those pixels
-    as KEY first. What it did."""
+def remove_keys(doc, keys, to=None, within=None):
+    """palette FILE --remove KEYS [--to KEY] [--in DIR]: FILE's own key lines for KEYS go, with their lines in FILE's
+    variants (and the comments above them). A key a frame still draws with is E_SELECT, unless --to KEY repaints those
+    pixels as KEY first. An imported key (import_removal) is repainted the same way in FILE, then goes from the palette
+    file that defines it when no other .px under DIR draws with it or lists it in a variant (DIR: --in, else the
+    directory holding both FILE and that palette file); else it stays there, and the output says who uses it. What it
+    did."""
     pal = doc.resolved()
     for k in keys:
         if k == ".":
             fail("E_BAD_ARG", "--remove '.': '.' is built in (always transparent), not a key line", path=doc.path)
-        if k not in doc.palette:
-            ref = doc.palette_refs[0] if len(doc.palette_refs) == 1 else "its palette file"
-            fail("E_SELECT", f"--remove {k!r}: " + (f"it comes from {ref}; remove it there: pxart palette "
-                                                   f"{doc.path.parent / ref if len(doc.palette_refs) == 1 else ref} "
-                                                   f"--remove {k}" if k in doc.shared else
-                                                   f"{doc.path} has no key {k!r}"), path=doc.path)
+        if k not in doc.palette and k not in doc.shared:
+            fail("E_SELECT", f"--remove {k!r}: {doc.path} has no key {k!r}", path=doc.path)
     if to is not None and (to not in pal or to in keys or to == "."):
         fail("E_SELECT", f"--to {to!r}: " + (f"it is being removed" if to in keys else
                                               "'.' erases; repaint with fill or recolor first" if to == "." else
                                               f"not a key of {doc.path}"), path=doc.path)
+    imported = [k for k in keys if k not in doc.palette]
+    owners = {k: key_owner(doc, k) for k in imported}
     uses = {}
     for f in doc.frames:
         for k in keys:
@@ -5151,6 +5157,24 @@ def remove_keys(doc, keys, to=None):
             f.grid = ["".join(moves.get(c, c) for c in r) for r in f.grid]
         said.append("repainted " + ", ".join(f"{sum(n for _, n in fs)} px of {k}" for k, fs in uses.items())
                     + f" as {to}")
+    local = [k for k in keys if k in doc.palette]
+    if local:
+        said.append("removed " + ", ".join(drop_key_lines(doc, local)))
+    back = [k for k in local if k in doc.shared]
+    if back:
+        said.append(f"{' '.join(back)} now {'have' if len(back) > 1 else 'has'} the imported color"
+                    f"{'s' * (len(back) > 1)} ({', '.join(f'{k} {fmt_color(doc.shared[k])}' for k in back)})")
+    if local and not doc.frames:
+        said.append(f"sprites that import {doc.path.name} and draw with {' '.join(local)} no longer can (check them)")
+    later = []
+    if imported:
+        said += import_removal(doc, owners, within, later)
+    return "; ".join(said + [write_doc(doc)] + later)
+
+
+def drop_key_lines(doc, keys):
+    """doc's own key lines for keys go, with their lines in doc's variants and the comments above them. What went,
+    as 'k (and its line in @variant night)' each."""
     order = list(doc.palette)
     if doc.dot_at is not None:  # a '. transparent' line keeps its place among the keys that stay
         doc.dot_at -= sum(1 for k in keys if order.index(k) < doc.dot_at)
@@ -5165,14 +5189,82 @@ def remove_keys(doc, keys, to=None):
             for store in (doc.lead, doc.raw, doc.at):
                 store.pop(("vkey", n, k), None)
         lines.append(k + (f" (and its line in @variant {', '.join(names)})" if names else ""))
-    said.insert(0 if not uses else 1, "removed " + ", ".join(lines))
-    back = [k for k in keys if k in doc.shared]
-    if back:
-        said.append(f"{' '.join(back)} now {'have' if len(back) > 1 else 'has'} the imported color"
-                    f"{'s' * (len(back) > 1)} ({', '.join(f'{k} {fmt_color(doc.shared[k])}' for k in back)})")
-    if not doc.frames:
-        said.append(f"sprites that import {doc.path.name} and draw with {' '.join(keys)} no longer can (check them)")
-    return "; ".join(said + [write_doc(doc)])
+    return lines
+
+
+def key_owner(doc, k):
+    """The palette file whose key line gives doc its imported key k: the last @palette that has it (a later import
+    wins), and within that file its own line before its imports'. Its path."""
+    for ref in reversed(doc.palette_refs):
+        t = pathlib.Path(os.path.normpath(doc.path.parent / ref))
+        try:
+            sub = parse(t, palette_only=True)
+        except (OSError, PxError):
+            continue
+        if k in sub.palette:
+            return t
+        if k in sub.shared:
+            return key_owner(sub, k)
+    return None
+
+
+def import_removal(doc, owners, within, later):
+    """palette FILE --remove of imported keys ({key: the palette file defining it}): FILE's pixels are repainted
+    already (remove_keys). Each palette file then loses the keys no other .px under DIR (within, else the directory
+    holding FILE and it) uses: draws with it, or lists it in a variant, without a key line of its own. FILE's variant
+    lines for a key that goes, go too. What it did; the palette files' 'wrote' lines go to `later`."""
+    said = []
+    for owner in dict.fromkeys(owners.values()):
+        ks = [k for k, o in owners.items() if o == owner]
+        where = pathlib.Path(within) if within else pathlib.Path(os.path.commonpath(
+            [doc.path.resolve().parent, owner.resolve().parent]))
+        rel = os.path.relpath(where)
+        shown = str(within or (where if rel.startswith("..") else rel)).rstrip("/")
+        users = key_users(owner, ks, where, doc.path)
+        gone = [k for k in ks if not users.get(k)]
+        for k in ks:
+            if users.get(k):
+                said.append(f"{k} stays in {owner}: {listed(users[k], 3)} "
+                            f"{'uses' if len(users[k]) == 1 else 'use'} it (of the .px files under {shown}/)")
+        if not gone:
+            continue
+        with reading(f"palette file ({owner})"):
+            pdoc = parse(owner, palette_only=True)
+        mine = [n for n, over in doc.variants.items() if any(k in over for k in gone)]
+        for n in mine:
+            for k in gone:
+                if k in doc.variants[n]:
+                    del doc.variants[n][k]
+                    for store in (doc.lead, doc.raw, doc.at):
+                        store.pop(("vkey", n, k), None)
+        said.append(f"removed {', '.join(drop_key_lines(pdoc, gone))} from {owner} (no other .px under {shown}/ "
+                    f"uses {'them' if len(gone) > 1 else 'it'})"
+                    + (f", and {doc.path.name}'s lines for {'them' if len(gone) > 1 else 'it'} in @variant "
+                       f"{', '.join(mine)}" if mine else ""))
+        later.append(write_doc(pdoc))
+    return said
+
+
+def key_users(owner, keys, where, skip):
+    """{key: the .px files under `where` (not `skip`, not the palette file itself) that import `owner` and use the key
+    it defines: draw with it or list it in a variant, without a key line of their own}."""
+    target, gone = pathlib.Path(owner).resolve(), {pathlib.Path(owner).resolve(), pathlib.Path(skip).resolve()}
+    out = {}
+    for p in in_dirs([str(where)]) if os.path.isdir(where) else []:
+        if pathlib.Path(p).resolve() in gone:
+            continue
+        try:
+            d = parse(p, allow_empty=True) if _has_grid(p) else parse(p, palette_only=True)
+        except (OSError, PxError):
+            continue
+        if target not in import_chain(d):
+            continue
+        drawn = set("".join(r for f in d.frames for r in f.grid))
+        listed_ = {k for over in d.variants.values() for k in over}
+        for k in keys:
+            if k not in d.palette and (k in drawn or k in listed_):
+                out.setdefault(k, []).append(os.path.relpath(p, where))
+    return out
 
 
 def hoist(doc, keys):

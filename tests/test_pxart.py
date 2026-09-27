@@ -16316,10 +16316,16 @@ def test_remove_keeps_the_dot_line_in_place(tmp_path, capsys):
     assert "k #000000\n. transparent\nn #123456\n" in s.read_text()
 
 
-def test_remove_imported_key(tmp_path):
+def test_remove_imported_key(tmp_path, capsys):
+    # s.px doesn't draw with p and nothing else under tmp_path imports pal.px: p goes from pal.px, night line too.
     s = rm_file(tmp_path)
-    msg = run_err("palette", s, "--remove", "p")
-    assert "E_SELECT" in msg and "it comes from pal.px; remove it there" in msg and "--remove p" in msg
+    before = s.read_text()
+    assert run("palette", s, "--remove", "p") == 0
+    out = capsys.readouterr().out
+    assert f"removed p (and its line in @variant night) from {tmp_path / 'pal.px'} (no other .px under " in out
+    assert f"no change: {s}; wrote {tmp_path / 'pal.px'}" in out
+    assert s.read_text() == before and pxart.parse(tmp_path / "pal.px", palette_only=True).palette == {
+        "k": pxart.hex2rgba("#999999")}
 
 
 def test_remove_local_override_gets_the_imported_color(tmp_path, capsys):
@@ -16397,7 +16403,9 @@ def test_help_documents_remove():
 
 def test_readme_documents_remove():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
-    assert "`--remove k,n` takes out keys no frame draws with (`--to j` repaints their pixels as j first)" in readme
+    assert "`--remove k,n` takes out keys no frame draws with (`--to j` repaints their pixels as j first; an " \
+        "imported key then goes from its palette file only when no other `.px` under the directory holding both, or " \
+        "`--in DIR`, uses it)" in readme
 
 
 # ---------------------------------------------------------------- every example command line in the help runs
@@ -17212,3 +17220,201 @@ def test_help_documents_recolor_renames_together():
 def test_readme_documents_recolor_swap_of_names():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "a key renamed away is free for another: `'a>b' 'b>a'` swaps two names" in readme
+
+
+# ---------------------------------------------------------------- palette FILE --remove of an imported key: repaint
+# FILE, then take it out of the palette file only when no other .px under DIR uses it
+
+CAST_PAL = "# cast palette\no #141b1b\n# boy's white\nw #e3f1f5\nt #548789\nx #4e484a\n\n@variant dusk\no #10121a\nw #bcbcc2\n"
+CAST_BOY = "pxart 1\n@palette pal.px\n\n@frame boy/0\nowt\nwwo\n"
+CAST_GIRL = "pxart 1\n@palette pal.px\n\n@frame girl/0\noxt\n"
+
+
+def cast(tmp_path, boy=CAST_BOY, girl=CAST_GIRL, sub=""):
+    d = tmp_path / sub if sub else tmp_path
+    d.mkdir(parents=True, exist_ok=True)
+    pal = write(tmp_path, "pal.px", CAST_PAL)
+    b = write(d, "boy.px", boy.replace("@palette pal.px", f"@palette {'../' * len(pathlib.Path(sub).parts)}pal.px"))
+    g = write(tmp_path, "girl.px", girl) if girl is not None else None
+    return pal, b, g
+
+
+def test_remove_imported_key_only_this_file_uses(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, girl="pxart 1\n@palette pal.px\n\n@frame girl/0\noxo\n")
+    girl_before = renders(g)
+    assert run("palette", b, "--remove", "w", "--to", "t") == 0
+    out = capsys.readouterr().out
+    assert out == (f"repainted 3 px of w as t; removed w (and its line in @variant dusk) from {pal} (no other .px "
+                   f"under {tmp_path}/ uses it); wrote {b}; wrote {pal}\n")
+    assert pxart.parse(b).frames[0].grid == ["ott", "tto"]
+    pdoc = pxart.parse(pal, palette_only=True)
+    assert "w" not in pdoc.palette and "w" not in pdoc.variants["dusk"]
+    assert "# boy's white" not in pal.read_text() and "# cast palette" in pal.read_text()
+    assert renders(g) == girl_before
+
+
+def test_remove_imported_key_scope_relative_to_the_current_directory(tmp_path, capsys, monkeypatch):
+    pal, b, g = cast(tmp_path, girl="pxart 1\n@palette pal.px\n\n@frame girl/0\noxo\n")
+    (tmp_path / "cast").mkdir()
+    for f in (pal, b, g):
+        f.rename(tmp_path / "cast" / f.name)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "cast/boy.px", "--remove", "w", "--to", "t") == 0
+    assert capsys.readouterr().out == ("repainted 3 px of w as t; removed w (and its line in @variant dusk) from "
+                                       "cast/pal.px (no other .px under cast/ uses it); wrote cast/boy.px; wrote "
+                                       "cast/pal.px\n")
+
+
+def test_remove_imported_key_another_file_draws_stays(tmp_path, capsys):
+    pal, b, g = cast(tmp_path)
+    before_pal = pal.read_text()
+    girl_before = renders(g)
+    assert run("palette", b, "--remove", "t", "--to", "o") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("repainted 1 px of t as o; t stays in ")
+    assert f"t stays in {pal}: girl.px uses it (of the .px files under " in out and out.rstrip().endswith(f"wrote {b}")
+    assert pal.read_text() == before_pal and renders(g) == girl_before
+    assert pxart.parse(b).frames[0].grid == ["owo", "wwo"]
+
+
+def test_remove_imported_key_listed_in_another_files_variant_stays(tmp_path, capsys):
+    # girl.px doesn't draw with w, but its dusk lists it: removing w from pal.px would break girl.px.
+    pal, b, g = cast(tmp_path, girl="pxart 1\n@palette pal.px\n\n@variant dusk\nw #000000\n\n@frame girl/0\noxt\n")
+    before_pal = pal.read_text()
+    assert run("palette", b, "--remove", "w", "--to", "t") == 0
+    assert "w stays in" in capsys.readouterr().out and pal.read_text() == before_pal
+    assert run("check", g) == 0
+
+
+def test_remove_imported_key_a_file_with_its_own_line_is_no_user(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, girl="pxart 1\n@palette pal.px\nw #ffffff\n\n@frame girl/0\nowt\n")
+    assert run("palette", b, "--remove", "w", "--to", "t") == 0
+    assert "removed w (and its line in @variant dusk) from" in capsys.readouterr().out
+    assert run("check", g) == 0
+
+
+def test_remove_imported_key_users_outside_the_directory_are_not_seen_without_in(tmp_path, capsys):
+    # boy.px sits in sprites/ beside a far-away user; the default scope is the directory holding boy.px and pal.px
+    # (tmp_path itself here), so girl.px at the top is seen.
+    pal, b, g = cast(tmp_path, sub="sprites")
+    assert run("palette", b, "--remove", "t", "--to", "o") == 0
+    assert "t stays in" in capsys.readouterr().out and "t #548789" in pal.read_text()
+
+
+def test_remove_imported_key_in_dir_narrows_the_scope(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, sub="sprites")
+    assert run("palette", b, "--remove", "t", "--to", "o", "--in", tmp_path / "sprites") == 0
+    out = capsys.readouterr().out
+    assert f"removed t from {pal} (no other .px under {tmp_path / 'sprites'}/ uses it)" in out
+    assert "t #" not in pal.read_text()
+
+
+def test_remove_imported_key_in_dir_widens_the_scope(tmp_path, capsys):
+    # pal.px and boy.px in pal/ and sprites/, girl.px in tiles/: the default scope (tmp_path) sees it anyway;
+    # --in tiles says so too.
+    (tmp_path / "pal").mkdir()
+    (tmp_path / "sprites").mkdir()
+    (tmp_path / "tiles").mkdir()
+    pal = write(tmp_path / "pal", "pal.px", CAST_PAL)
+    b = write(tmp_path / "sprites", "boy.px", CAST_BOY.replace("pal.px", "../pal/pal.px"))
+    write(tmp_path / "tiles", "girl.px", CAST_GIRL.replace("pal.px", "../pal/pal.px"))
+    assert run("palette", b, "--remove", "t", "--to", "o") == 0
+    assert "tiles/girl.px uses it" in capsys.readouterr().out and "t #548789" in pal.read_text()
+    assert run("palette", b, "--remove", "x", "--in", tmp_path / "tiles") == 0
+    assert "x stays in" in capsys.readouterr().out
+
+
+def test_remove_imported_key_used_needs_to(tmp_path):
+    pal, b, g = cast(tmp_path)
+    before = (pal.read_text(), b.read_text())
+    msg = run_err("palette", b, "--remove", "w")
+    assert "E_SELECT" in msg and "frames still draw with w" in msg and f"pxart palette {b} --remove w --to K" in msg
+    assert (pal.read_text(), b.read_text()) == before
+
+
+def test_remove_imported_key_the_suggested_command_is_safe(tmp_path, capsys):
+    # The error's recipe (with a real key for K) leaves every file checking and rendering.
+    pal, b, g = cast(tmp_path)
+    girl_before = renders(g)
+    msg = run_err("palette", b, "--remove", "w")
+    cmd = shlex.split(msg.split("KEY: ")[1].replace(" K", " t"))
+    assert cmd[:2] == ["pxart", "palette"]
+    assert run(*cmd[1:]) == 0
+    assert run("check", tmp_path) == 0 and renders(g) == girl_before
+
+
+def test_remove_imported_key_unused_here_and_elsewhere(tmp_path, capsys):
+    pal, b, g = cast(tmp_path)
+    assert run("palette", b, "--remove", "x") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("x stays in") and "girl.px uses it" in out and f"no change: {b}" in out
+
+
+def test_remove_imported_key_nobody_uses(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, girl=None)
+    write(tmp_path, "pal.px", CAST_PAL.replace("x #4e484a\n", "x #4e484a\nq #010203\n"))
+    assert run("palette", b, "--remove", "q") == 0
+    out = capsys.readouterr().out
+    assert "removed q from" in out and f"no change: {b}; wrote {pal}" in out
+    assert "q #" not in pal.read_text()
+
+
+def test_remove_imported_key_drops_this_files_variant_line_when_it_goes(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, boy="pxart 1\n@palette pal.px\n\n@variant dusk\nw #111111\n\n@frame boy/0\nowt\nwwo\n")
+    assert run("palette", b, "--remove", "w", "--to", "t") == 0
+    out = capsys.readouterr().out
+    assert "and boy.px's lines for it in @variant dusk" in out
+    assert pxart.parse(b).variants == {"dusk": {}} and run("check", b) == 0
+
+
+def test_remove_imported_key_keeps_this_files_variant_line_when_it_stays(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, boy="pxart 1\n@palette pal.px\n\n@variant dusk\nt #111111\n\n@frame boy/0\nowt\nwwo\n")
+    assert run("palette", b, "--remove", "t", "--to", "o") == 0
+    assert "t stays in" in capsys.readouterr().out
+    assert pxart.parse(b).variants == {"dusk": {"t": pxart.hex2rgba("#111111")}}
+
+
+def test_remove_imported_and_local_keys_in_one_call(tmp_path, capsys):
+    pal, b, g = cast(tmp_path, boy="pxart 1\n@palette pal.px\nZ #abcdef\n\n@frame boy/0\nowZ\nwwo\n")
+    assert run("palette", b, "--remove", "w,Z", "--to", "o") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("repainted 3 px of w, 1 px of Z as o; removed Z; removed w (and its line in @variant dusk)")
+    assert pxart.parse(b).frames[0].grid == ["ooo", "ooo"] and "Z" not in pxart.parse(b).palette
+
+
+def test_remove_imported_key_through_a_chain_goes_from_the_file_that_defines_it(tmp_path, capsys):
+    base = write(tmp_path, "base.px", "q #010203\nk #000000\n")
+    mid = write(tmp_path, "mid.px", "@palette base.px\nm #445566\n")
+    b = write(tmp_path, "s.px", "@palette mid.px\n\nqm\n")
+    assert run("palette", b, "--remove", "q", "--to", "m") == 0
+    out = capsys.readouterr().out
+    assert f"removed q from {base}" in out and "q #" not in base.read_text() and "m #" in mid.read_text()
+    assert run("check", tmp_path) == 0
+
+
+def test_remove_imported_key_later_import_wins(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "q #010203\n")
+    c = write(tmp_path, "c.px", "q #010203\n")
+    b = write(tmp_path, "s.px", "@palette a.px\n@palette c.px\n\nq\n")
+    assert run("palette", b, "--remove", "q", "--to", ".") != 0
+    assert run("palette", b, "--remove", "q") != 0
+    capsys.readouterr()
+    write(tmp_path, "s.px", "@palette a.px\n@palette c.px\nz #000000\n\nz\n")
+    assert run("palette", b, "--remove", "q") == 0
+    assert f"removed q from {c}" in capsys.readouterr().out and "q #" in a.read_text() and "q #" not in c.read_text()
+
+
+def test_remove_imported_key_renders_the_rest_the_same(tmp_path, capsys):
+    pal, b, g = cast(tmp_path)
+    before = renders(g)
+    assert run("palette", b, "--remove", "w", "--to", "t") == 0
+    assert renders(g) == before and run("check", tmp_path) == 0
+
+
+def test_help_documents_remove_of_an_imported_key():
+    text = " ".join(pxart.__doc__.split())
+    assert "An imported key is repainted the same way in FILE, then removed from the palette file that defines it " \
+        "only when no other .px under DIR uses it (draws with it, or lists it in a variant, with no key line of its " \
+        "own); DIR is --in DIR, else the directory holding both FILE and the palette file" in text
+    assert "'b stays in pal.px: cavegirl.px uses it'" in text
+    assert "remove it there" not in text
