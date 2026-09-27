@@ -1,0 +1,5 @@
+$ pxart check broken.px
+FAIL broken.px: 1 error(s)
+     broken.px:85: E_UNKNOWN_KEY (frame idle/3, row 11, x=[4]): keys 'с' aren't in the palette
+     note: broken.px:85 (frame idle/3, row 11, x=4): 'с' is U+0441 CYRILLIC SMALL LETTER ES, not ASCII 'c'
+(exit 1)

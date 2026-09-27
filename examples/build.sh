@@ -192,15 +192,26 @@ pxart sheet harbor.px --cols 6 --scale 6 -o harbor-tiles.png
 pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/attack/right/3.png@32,0
 
 # ---------------------------------------------------------------------------------------
-# 09-check: check on a file with three mistakes and on its fixed version; stats.
+# 09-check: check on a file with three mistakes. The README fixes them one at a time in a
+# text editor and checks after each; here the same edits go to a copy in fixing/, which
+# is removed after. Then stats and a sheet of the fixed file.
 stage 09-check broken.px fixed.px
 txt check-broken.txt check broken.px
-txt check-fixed.txt check fixed.px -v
-txt stats.txt stats fixed.px
+mkdir fixing
+cp broken.px fixing/
+(
+  cd fixing
+  fix() { sed "$1" broken.px > broken.tmp && mv broken.tmp broken.px; }
+  fix '41s/$/./'           # the short row gets its missing '.'
+  txt ../check-fix1.txt check broken.px
+  fix '63s/W/w/'           # a 'W' that isn't in the palette, meant as 'w'
+  txt ../check-fix2.txt check broken.px
+  fix '85s/с/c/'           # that first letter is a Cyrillic 'с', typed for the key 'c'
+  txt ../check-fix3.txt check broken.px
+)
+rm -r fixing
 txt stats-colors.txt stats fixed.px:idle/0 --colors
-txt stats-dark.txt stats fixed.px:idle/0%dark --colors --at 7,3
 pxart sheet fixed.px --scale 6 -o fixed.png
-pxart sheet fixed.px --scale 6 --variant dark -o fixed-dark.png
 
 # ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"

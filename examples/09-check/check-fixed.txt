@@ -1,5 +1,0 @@
-$ pxart check fixed.px -v
-ok   fixed.px:idle/0: 16x16 7c
-ok   fixed.px:idle/1: 16x16 7c
-ok   fixed.px:idle/2: 16x16 7c
-ok   fixed.px:idle/3: 16x16 7c

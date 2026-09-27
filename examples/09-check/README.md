@@ -1,23 +1,38 @@
 # 09 · Checking
 
-[`broken.px`](broken.px) is [`fixed.px`](fixed.px) with three deliberate mistakes: a row
-one pixel short, a key that isn't in the palette, and a Cyrillic `с` typed where the key
-`c` belongs. `check` reports every problem at once, each with a stable code and its line,
-frame, row and column, and exits 1. A file with errors doesn't render, so this example is
-text first.
+You'll run pxart's checker on a sprite with three mistakes in it, read what it says
+about each one, and fix them one at a time until it passes.
+
+![Wick's four idle frames, once the file is fixed](fixed.png)
+
+
+## The idea
+
+A `.px` file is text you can type, so it can have typos: a row one pixel short, a letter
+that isn't in the palette, a letter that only *looks* like the right one. pxart won't
+draw a file with mistakes like these. `check` reads the whole file and lists every
+problem at once, each with the line it's on, so you can go straight there.
+
+[`broken.px`](broken.px) is Wick the candle, four idle frames, with three mistakes put in
+on purpose. [`fixed.px`](fixed.px) is the same file without them.
+
+
+## Before you start
+
+Copy this folder somewhere and `cd` into the copy. You'll edit `broken.px` there, so
+you need your own copy of it. The [examples README](../README.md) says how to make
+`pxart` a command you can type.
+
+You'll also need a text editor that can jump to a line number; most can.
+
+
+## Step 1: Check the file
 
 ```sh
 pxart check broken.px
-pxart check fixed.px -v
-pxart stats fixed.px
-pxart stats fixed.px:idle/0 --colors
-pxart stats fixed.px:idle/0%dark --colors --at 7,3
 ```
 
-[`check-broken.txt`](check-broken.txt):
-
 ```text
-$ pxart check broken.px
 FAIL broken.px: 3 error(s)
      broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'
      broken.px:63: E_UNKNOWN_KEY (frame idle/2, row 7, x=[7]): keys 'W' aren't in the palette
@@ -26,54 +41,147 @@ FAIL broken.px: 3 error(s)
 (exit 1)
 ```
 
-The three lines it points at, as the ordinary `diff fixed.px broken.px` shows them
-(the header comment aside):
+`FAIL` and three errors. Each error line has the same parts:
 
-```diff
-41c41
-< .....kfiak......
----
-> .....kfiak.....
-63c63
-< ...kwwwwwwwck...
----
-> ...kwwwWwwwck...
-85c85
-< ...kcwwwwwcck...
----
-> ...kсwwwwwcck...
-```
+- `broken.px:41` is the file and the line number to go to.
+- `E_ROW_WIDTH` is the kind of mistake, a fixed name you can look up or search for.
+- `(frame idle/1, row 3)` says where in the picture: which frame, and which row of its
+  grid. Rows and `x` (the column) count from 0.
+- The rest says what's wrong.
 
-[`check-fixed.txt`](check-fixed.txt):
+`(exit 1)` means `check` failed, which a script can test for. The steps below fix the
+errors in order.
+
+
+## Step 2: A row one pixel short
 
 ```text
-$ pxart check fixed.px -v
-ok   fixed.px:idle/0: 16x16 7c
-ok   fixed.px:idle/1: 16x16 7c
-ok   fixed.px:idle/2: 16x16 7c
-ok   fixed.px:idle/3: 16x16 7c
+     broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'
 ```
 
-`stats` reads sizes and colors; `%dark` reads a variant's, and `--at 7,3` one pixel's key
-and color (the flame's `i` stays lit in the dark). From [`stats-dark.txt`](stats-dark.txt)
-(also [`stats.txt`](stats.txt), [`stats-colors.txt`](stats-colors.txt)):
+Every row of a frame must be the same width. This frame's rows are 16 letters wide,
+except row 3, which has 15. Go to line 41 of `broken.px` and add one `.` at the end:
+
+```px
+.....kfiak......
+```
+
+Save, and check again:
+
+```sh
+pxart check broken.px
+```
 
 ```text
-fixed.px:idle/0%dark: 16x16 bbox=(1, 0, 15, 16) colors=7 #0c0a18 #2b2027 #38333a #403f4a #f58b3c #ffe07a #fff6d0
-  #0c0a18 58 px (k)
-  #403f4a 41 px (w)
-  #ffe07a 5 px (f)
-  #fff6d0 1 px (i)
-  at 7,3: key i; dark #fff6d0
+FAIL broken.px: 2 error(s)
 ```
 
-The fixed file, base and `--variant dark`:
+One down.
+
+
+## Step 3: A letter that isn't in the palette
+
+```text
+     broken.px:63: E_UNKNOWN_KEY (frame idle/2, row 7, x=[7]): keys 'W' aren't in the palette
+```
+
+A *key* is a palette letter. The palette at the top of the file has a lowercase `w` (the
+wax), but no capital `W`, and case matters. Line 63 has a `W` at x=7, the eighth letter:
+
+```px
+...kwwwWwwwck...
+```
+
+Make it a `w`, save, and check again:
+
+```sh
+pxart check broken.px
+```
+
+```text
+FAIL broken.px: 1 error(s)
+```
+
+
+## Step 4: A letter that only looks right
+
+The last error is the sneaky one:
+
+```text
+     broken.px:85: E_UNKNOWN_KEY (frame idle/3, row 11, x=[4]): keys 'с' aren't in the palette
+     note: broken.px:85 (frame idle/3, row 11, x=4): 'с' is U+0441 CYRILLIC SMALL LETTER ES, not ASCII 'c'
+```
+
+The file's palette has a `c`, and line 85 looks like it has one too. But the note says
+that letter is a Cyrillic *es*, from the Russian alphabet, which looks exactly like a
+Latin `c`. That happens when text is pasted from somewhere else, or typed with another
+keyboard layout.
+
+Go to line 85, delete the fifth letter (x=4), and type a plain `c` in its place. Save,
+and check once more:
+
+```sh
+pxart check broken.px
+```
+
+```text
+ok   broken.px: 4 frames, 16x16, 7c
+```
+
+`ok`: four 16x16 frames, drawn with 7 colors (`7c`). Your `broken.px` is now the same
+as `fixed.px`, apart from the comment on its first line.
+
+
+## Step 5: Look at it
+
+A file that passes `check` can be drawn:
 
 ```sh
 pxart sheet fixed.px --scale 6 -o fixed.png
-pxart sheet fixed.px --scale 6 --variant dark -o fixed-dark.png
 ```
 
-| `fixed.px` | `--variant dark` |
-|---|---|
-| ![wick's idle frames](fixed.png) | ![wick's idle frames, dark variant](fixed-dark.png) |
+`sheet` puts every frame side by side with its name; `--scale 6` draws each pixel as a
+6x6 block.
+
+![Wick's four idle frames](fixed.png)
+
+
+## Step 6: Count the colors
+
+`stats` says how big a frame is and which colors it uses. `--colors` counts the pixels
+of each:
+
+```sh
+pxart stats fixed.px:idle/0 --colors
+```
+
+```text
+fixed.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
+  #1a1423 58 px (k)
+  #f6eed8 41 px (w)
+  #d4bd92 13 px (c)
+  ...
+  #fff6d0 1 px (i)
+```
+
+`bbox` is the box around the pixels that aren't empty (left, top, right, bottom). Below
+it, each color, how many pixels use it, and its key: 58 pixels of outline `k`, and a
+single pixel of `i`, the bright heart of the flame.
+
+
+## Try it yourself
+
+- **One line per frame.** `pxart check fixed.px -v` prints `ok` for each frame.
+- **Break it yourself.** Delete the `i #fff6d0` line from a copy of `fixed.px` and check
+  it: every frame with a flame has an `i` that's no longer in the palette.
+- **In the dark.** `fixed.px` has a `dark` variant:
+  `pxart sheet fixed.px --scale 6 --variant dark -o dark.png`. The flame stays lit.
+
+
+## Commands used
+
+- `pxart check FILE [-v]`: find every mistake in a file, with its line. `pxart help check`
+- `pxart sheet FILE -o OUT.png`: every frame side by side. `pxart help sheet`
+- `pxart stats FILE:FRAME --colors`: size and colors. `pxart help stats`
+
+The [Commands section](../../README.md#commands) of the main README covers all of them.
