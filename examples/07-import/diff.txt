@@ -1,0 +1,2 @@
+$ pxart diff beetle.px:walk/right imported.px:walk/right
+4 frame(s): 4 same

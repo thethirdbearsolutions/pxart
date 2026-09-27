@@ -1,0 +1,7 @@
+$ pxart diff beetle.px:walk/right imported.px:walk_cave/right
+walk/right/0 vs walk_cave/right/0: 57 px differ in 1,3,12,7 (x,y,w,h)
+walk/right/1 vs walk_cave/right/1: 57 px differ in 1,2,12,7 (x,y,w,h)
+walk/right/2 vs walk_cave/right/2: 57 px differ in 1,3,12,7 (x,y,w,h)
+walk/right/3 vs walk_cave/right/3: 57 px differ in 1,2,12,7 (x,y,w,h)
+4 frame(s): 0 same, 4 differ
+(exit 1)
