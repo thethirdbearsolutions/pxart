@@ -7492,6 +7492,88 @@ def test_onion_without_pivots_is_unchanged(tmp_path):
     assert Image.open(tmp_path / "o.png").size == (4, 2)
 
 
+# GAMES-295: onion prints an alignment readout (a 1px jump is too faint to judge by eye).
+
+BOB = "k #000000\n@frame w/0\n.k.\nkkk\n.k.\nk.k\n@frame w/1\n...\n.k.\nkkk\nk.k\n@frame w/2\n.k.\nkkk\n.k.\n.k.\n"
+
+
+def onion_lines(tmp_path, capsys, a, b, *more):
+    assert run("onion", a, b, "-o", tmp_path / "o.png", *more) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+def test_onion_readout_head_drops_feet_stay(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    assert onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1") == [
+        "A w/0: opaque x 0..2, y 0..3 (on the 3x4 canvas, bottom-centered)",
+        "B w/1: opaque x 0..2, y 1..3",
+        "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 3px changed (no shift: 5px)",
+        f"wrote {tmp_path / 'o.png'}",
+    ]
+
+
+def test_onion_readout_identical_frames(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/0")
+    assert lines[2] == "B vs A: left +0, right +0, top +0, bottom +0; best shift +0,+0 then 0px changed (no shift: 0px)"
+
+
+def test_onion_readout_one_pixel_jump(tmp_path, capsys):
+    # The whole sprite 1px up: every edge -1 on y, and the shift explains it with nothing left changed.
+    p = write(tmp_path, "j.px", "k #000000\n@frame a\n...\n.k.\nkkk\n@frame b\n.k.\nkkk\n...\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[2] == "B vs A: left +0, right +0, top -1, bottom -1; best shift +0,-1 then 0px changed (no shift: 6px)"
+
+
+def test_onion_readout_changed_leg_only(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/2")
+    assert lines[2] == "B vs A: left +0, right +0, top +0, bottom +0; best shift +0,+0 then 3px changed (no shift: 3px)"
+
+
+def test_onion_readout_by_pivot(tmp_path, capsys):
+    p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a/0", f"{p}:a/1")
+    assert lines[0] == "A a/0: opaque x 1..1, y 0..3 (on the 4x4 canvas, lined up by pivot)"
+    assert lines[1] == "B a/1: opaque x 1..1, y 0..1"
+    assert lines[2].startswith("B vs A: left +0, right +0, top +0, bottom -2; ")
+
+
+def test_onion_readout_frames_of_different_sizes_bottom_centered(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MULTI)
+    lines = onion_lines(tmp_path, capsys, f"{p}:walk/down/0", f"{p}:idle")
+    assert lines[0] == "A walk/down/0: opaque x 0..3, y 0..1 (on the 4x2 canvas, bottom-centered)"
+    assert lines[1] == "B idle: opaque x 0..3, y 0..1"
+
+
+def test_onion_readout_empty_frame(tmp_path, capsys):
+    p = write(tmp_path, "e.px", "k #000000\n@frame a\nk.\n@frame b\n..\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[:2] == ["A a: opaque x 0..0, y 0..0 (on the 2x1 canvas, bottom-centered)", "B b: empty"]
+    assert lines[2] == f"wrote {tmp_path / 'o.png'}"
+
+
+def test_onion_readout_pngs(tmp_path, capsys):
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "a.png")
+    Image.new("RGBA", (2, 1), (1, 2, 3, 255)).save(tmp_path / "b.png")
+    lines = onion_lines(tmp_path, capsys, tmp_path / "a.png", tmp_path / "b.png")
+    assert lines[0] == "A a: opaque x 0..1, y 0..1 (on the 2x2 canvas, bottom-centered)"
+    assert lines[2].startswith("B vs A: left +0, right +0, top +1, bottom +0; ")
+
+
+def test_onion_readout_image_unchanged(tmp_path, capsys):
+    # The readout is text only: the PNG is what it was.
+    p = write(tmp_path, "b.px", BOB)
+    assert run("onion", f"{p}:w/0", f"{p}:w/1", "-o", tmp_path / "o.png", "--scale", "2") == 0
+    img = Image.open(tmp_path / "o.png").convert("RGBA")
+    assert img.size == (3 * 2, 4 * 2)  # below --scale 4: no grid, no rulers
+    assert img.getpixel((2, 0))[3] == 255 and img.getpixel((0, 0)) == (58, 58, 68, 255)
+
+
+def test_help_documents_onion_readout():
+    assert "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed" in pxart.__doc__
+
+
 # export
 
 def test_export_aseprite_slices_pivots(tmp_path):

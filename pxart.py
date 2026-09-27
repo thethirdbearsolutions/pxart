@@ -85,6 +85,10 @@ LOOKING
       to stdout, one line per frame; without -o, anim prints only those lines and writes
       nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
   onion A B -o x.png [--scale 8]    B drawn over a faded A
+      Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
+      from A's, then the whole-sprite shift that best explains B, as anim finds it:
+      "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
+      shift: 20px)": the head rose 1px, the feet stayed. y grows down, so +1 is lower.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
@@ -1572,7 +1576,25 @@ def cmd_onion(a):
     top = B.copy(); top.putalpha(B.getchannel("A").point(lambda v: v * 80 // 100))
     base.alpha_composite(top, spots[1])
     upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
+    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered"):
+        print(line)
     print("wrote", a.o)
+
+
+def alignment(ia, ib, w, h, spots, how):
+    """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
+    jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's)."""
+    clear = [placed(it.img, w, h, at, "#00000000") for it, at in zip((ia, ib), spots)]
+    boxes = [c.getchannel("A").getbbox() for c in clear]
+    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty")
+             + (f" (on the {w}x{h} canvas, {how})" if n == "A" else "")
+             for n, it, b in zip("AB", (ia, ib), boxes)]
+    if all(boxes):
+        (l0, t0, r0, b0), (l1, t1, r1, b1) = boxes
+        dx, dy, n_shift, n_none, _, _ = motion(*clear)
+        lines.append(f"B vs A: left {l1 - l0:+d}, right {r1 - r0:+d}, top {t1 - t0:+d}, bottom {b1 - b0:+d}; best "
+                     f"shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
+    return lines
 
 
 MAP_HASH_RE = re.compile(r"^\S+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?$")

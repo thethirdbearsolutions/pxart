@@ -115,7 +115,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   rise and the fall of one breath alike when the legs are identical in every frame; a
   ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
   `shift -1,+4 (wrap)`),
-  `onion`, `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
+  `onion` (B over a faded A, and a printed readout of how B's edges moved from A's, like
+  `top -1, bottom +0`, for a 1px jump too faint to see), `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
   suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
   `--tint '#10183080'` lays a translucent color over the finished scene for night; an item
   or legend entry ending in `%base` keeps its base palette, a lamp in a night room;
