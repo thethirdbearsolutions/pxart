@@ -25004,7 +25004,7 @@ def coord_argv(tmp_path, name, target):
 def test_coordinates_on_several_frames_need_a_selector(tmp_path, capsys, name):
     p = write(tmp_path, "m.px", SEVERAL)
     msg = run_err(*coord_argv(tmp_path, name, p))
-    assert "E_SELECT" in msg and "pixel coordinates (" in msg and "address one frame" in msg
+    assert "E_SELECT" in msg and "pixel coordinates (" in msg and "need you to say which frames they go to: " in msg
     assert f"{p} has 3 frames: w/0, w/1, w/2" in msg
     assert f"{p}:w/0 (a frame)" in msg and f"{p}:w (a group)" in msg and f"'{p}:*' (every frame" in msg
     assert p.read_text() == SEVERAL  # nothing written
@@ -25175,7 +25175,8 @@ def test_put_still_names_one_frame(tmp_path, monkeypatch):
 
 def test_help_documents_selector_rule():
     doc = " ".join(pxart.__doc__.split())
-    assert "Coordinates (x,y, --region, --at) are one frame's: a file of several needs FILE:SEL ('FILE:*': all)" in doc
+    assert "Coordinates (x,y, --region, --at) need FILE:SEL on a file of several frames, saying which ('FILE:*': all)" \
+        in doc
     assert "one that edits several frames names them" in doc
     assert "No SEL (or *) means every frame" in doc
 

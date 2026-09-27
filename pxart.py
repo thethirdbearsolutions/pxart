@@ -317,7 +317,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
   comments above them, and new frames get the file's spacing between @frame blocks.
   An edit changing nothing (set to the same key, flip of a symmetric frame) prints
   "no change: FILE" and writes nothing; one that edits several frames names them.
-  Coordinates (x,y, --region, --at) are one frame's: a file of several needs FILE:SEL
+  Coordinates (x,y, --region, --at) need FILE:SEL on a file of several frames, saying which
   ('FILE:*': all).
   Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
   unknown @sections), so an @anim written between frames moves up; a comment inside the
@@ -2206,15 +2206,16 @@ def write_doc(doc, path=None):
 def edit_target(arg, out, label="FILE", coords=None):
     """The shared edit path: (doc, selected frames, where to write). -o gets the whole file with the selection
     edited, never just the selection (that's extract). coords names the pixel coordinates the command was given
-    ('x,y', '--region'): they address one frame, so a file of several frames needs FILE:SEL, FILE:* for all."""
+    ('x,y', '--region'): on a file of several frames they need FILE:SEL to say which frames they go to, FILE:* for
+    all."""
     path, sel = split_sel(arg)
     with reading(f"{label} ({arg})"):
         doc = parse(path)
         if coords and not sel and len(doc.frames) > 1:
             ids = [doc.label(f) for f in doc.frames]
             group = next((f.group for f in doc.frames if f.group), None)
-            fail("E_SELECT", f"pixel coordinates ({coords}) address one frame, and {path} has {len(ids)} frames: "
-                 f"{', '.join(ids)}; say which: {path}:{ids[0]} (a frame)"
+            fail("E_SELECT", f"pixel coordinates ({coords}) need you to say which frames they go to: {path} has "
+                 f"{len(ids)} frames: {', '.join(ids)}; {path}:{ids[0]} (a frame)"
                  + (f", {path}:{group} (a group)" if group else "") + f", or '{path}:*' (every frame; quoted, "
                  "or the shell expands the *)", path=path)
         frames = doc.select(sel)
