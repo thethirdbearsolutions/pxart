@@ -15833,12 +15833,12 @@ def rk_pair(tmp_path, dst=AWN_I):
 
 def test_rekey_spec_values():
     assert pxart.rekey_spec(None) is None
-    assert pxart.rekey_spec("") == (None, {})
-    assert pxart.rekey_spec("o,r") == ({"o", "r"}, {})
-    assert pxart.rekey_spec("k=j,n=q") == (set(), {"k": "j", "n": "q"})
-    assert pxart.rekey_spec("k=j,n") == ({"n"}, {"k": "j"})
-    assert pxart.rekey_spec("r=r") == (set(), {"r": "r"})
-    assert pxart.rekey_spec("0") == ({"0"}, {})
+    assert pxart.rekey_spec("") == (None, {}, {})
+    assert pxart.rekey_spec("o,r") == ({"o", "r"}, {}, {})
+    assert pxart.rekey_spec("k=j,n=q") == (set(), {"k": "j", "n": "q"}, {})
+    assert pxart.rekey_spec("k=j,n") == ({"n"}, {"k": "j"}, {})
+    assert pxart.rekey_spec("r=r") == (set(), {"r": "r"}, {})
+    assert pxart.rekey_spec("0") == ({"0"}, {}, {})
 
 
 @pytest.mark.parametrize("bad", ["ab", "k=", "k=jj", ".", "k=.", "k,,n", ",k", "k=j=q", "#", "k=@"])
@@ -17532,3 +17532,269 @@ def test_help_documents_scene_default_size():
 def test_readme_documents_scene_default_size():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "on a 96x64 scene unless `--size` or `--map` says otherwise, pixels past its edge cropped with a note" in readme
+
+
+# ---------------------------------------------------------------- compose --rekey: a color two source files share
+# (the same in every variant) keeps the one key it was given; FILE.px:KEY=OUTKEY scopes an entry to one file
+
+REUSE_GROUND = "pxart 1\no #2b1d32\nT #74c8d4\nk #9e5a52\n\n@variant dusk\no #1a1020\nT #3a6470\nk #6a3a36\n\no\nT\nk\n"
+REUSE_PAL = "o #141b1b\nT #345a52\nk #965340\n\n@variant dusk\no #10121a\nT #3a4c49\nk #83473b\n"
+REUSE_BOY = "pxart 1\n@palette pal.px\n\n@frame boy/0\noTk\n"
+REUSE_GIRL = "pxart 1\n@palette pal.px\n\n@frame girl/0\nkTo\n"
+
+
+def reuse_files(tmp_path, girl=REUSE_GIRL, pal2=None):
+    g = write(tmp_path, "ground.px", REUSE_GROUND)
+    write(tmp_path, "pal.px", REUSE_PAL)
+    b = write(tmp_path, "boy.px", REUSE_BOY)
+    if pal2 is not None:
+        write(tmp_path, "pal2.px", pal2)
+        girl = girl.replace("pal.px", "pal2.px")
+    c = write(tmp_path, "girl.px", girl)
+    return g, b, c
+
+
+def looks_all(path, fid=None):
+    doc = pxart.parse(path)
+    f = doc.get(fid) if fid else doc.frames[0]
+    return {n: list(pxart.pixels(doc.image(f, n))) for n in [None] + sorted(set(doc.variants) | set(doc.shared_variants))}
+
+
+def test_compose_rekey_reuses_a_key_given_earlier_in_the_compose(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"note: --rekey gives {b}'s keys free ones in {out}: 'T>a' 'k>b' 'o>c' ({b} is unchanged)" in got
+    assert (f"note: --rekey gives {c}'s keys free ones in {out}: 'T>a' 'k>b' 'o>c' ({c} is unchanged); T k o share "
+            f"the keys {b} got for the same colors (in every variant too)") in got
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid == ["o..", "cab", "bac"]
+    assert set(doc.palette) == {"o", "T", "k", "a", "b", "c"}
+
+
+def test_compose_rekey_reuse_renders_like_the_sources(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2", "--rekey") == 0
+    doc = pxart.parse(out)
+    for n in (None, "dusk"):
+        img = doc.image(doc.frames[0], n)
+        boy = pxart.parse(b).image(pxart.parse(b).get("boy/0"), n)
+        girl = pxart.parse(c).image(pxart.parse(c).get("girl/0"), n)
+        assert [img.getpixel((x, 1)) for x in range(3)] == [boy.getpixel((x, 0)) for x in range(3)]
+        assert [img.getpixel((x, 2)) for x in range(3)] == [girl.getpixel((x, 0)) for x in range(3)]
+
+
+def test_compose_rekey_reuse_needs_the_same_variant_colors(tmp_path, capsys):
+    # girl's palette file has the same base colors but its own dusk for T: T can't share boy's key.
+    pal2 = REUSE_PAL.replace("T #3a4c49", "T #000000")
+    g, b, c = reuse_files(tmp_path, pal2=pal2)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"note: --rekey gives {c}'s keys free ones in {out}: 'T>d' 'k>b' 'o>c' ({c} is unchanged); k o share" in got
+    doc = pxart.parse(out)
+    assert doc.resolved("dusk")["d"] == (0, 0, 0, 255) and doc.resolved("dusk")["a"] == pxart.hex2rgba("#3a4c49")
+
+
+def test_compose_rekey_reuse_skips_a_key_the_file_has(tmp_path, capsys):
+    # girl.px has a key 'a' of its own: boy's T went to a, so girl's T needs another key.
+    girl = "pxart 1\n@palette pal.px\na #fefefe\n\n@frame girl/0\nkTa\n"
+    g, b, c = reuse_files(tmp_path, girl=girl)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2", "--rekey") == 0
+    doc = pxart.parse(out)
+    row = doc.frames[0].grid[2]
+    assert row[1] != "a" and doc.resolved()[row[1]] == pxart.hex2rgba("#345a52")
+    assert doc.resolved()[row[2]] == pxart.hex2rgba("#fefefe")
+
+
+def test_compose_conflict_suggestions_reuse_too(tmp_path):
+    # Without --rekey the E_KEY_CONFLICT lines offer the same moves, the shared keys included.
+    g, b, c = reuse_files(tmp_path)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2")
+    lines = msg.splitlines()
+    assert "('T>a' 'k>b' 'o>c')" in lines[0] and "('T>a' 'k>b' 'o>c')" in lines[1]
+
+
+def test_compose_rekey_reuse_into_an_existing_out(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = write(tmp_path, "glade.px", REUSE_GROUND.replace("o\nT\nk\n", "@frame bg\no\n"))
+    assert run("compose", "-o", f"{out}:scene", "--size", "3x2", f"{b}:boy/0@0,0", f"{c}:girl/0@0,1", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.get("scene").grid == ["cab", "bac"]
+    assert set(doc.palette) == {"o", "T", "k", "a", "b", "c"}
+    assert looks_all(out, "scene")["dusk"][:3] == looks_all(b)["dusk"]
+
+
+def test_compose_rekey_reuse_across_the_needed_keys(tmp_path, capsys):
+    # boy.px's walk frames draw with p, which its layer here doesn't: a new OUT keeps it under a free key; girl's p,
+    # the same color, shares it.
+    pal = REUSE_PAL.replace("k #965340\n", "k #965340\np #d3a2c0\n")
+    g = write(tmp_path, "ground.px", REUSE_GROUND.replace("k #9e5a52\n", "k #9e5a52\np #5c9488\n") + "p\n")
+    write(tmp_path, "pal.px", pal)
+    b = write(tmp_path, "boy.px", REUSE_BOY + "@frame boy/1\npTk\n")
+    c = write(tmp_path, "girl.px", REUSE_GIRL + "@frame girl/1\npTo\n")
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x4", f"{g}@0,0", f"{b}:boy/0@0,2", f"{c}:girl/0@0,3", "--rekey") == 0
+    got = capsys.readouterr().out
+    moved = [l for l in got.splitlines() if l.startswith("note: --rekey gives")]
+    boy_p = re.search(r"'p>(.)'", moved[0]).group(1)
+    assert f"'p>{boy_p}'" in moved[1] and "T k o p share the keys" in moved[1]
+
+
+def test_compose_rekey_three_files_share_one_key(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    d = write(tmp_path, "d.px", REUSE_GIRL.replace("girl", "dog"))
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x4", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2",
+               f"{d}:dog/0@0,3", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid[2] == doc.frames[0].grid[3] == "bac"
+    assert f"T k o share the keys {b} got" in capsys.readouterr().out
+
+
+def test_compose_rekey_free_keys_run_past_letters_only_when_taken(tmp_path, capsys):
+    # Every letter and digit taken by the layers' files: the next free keys are % + - / : ^ _, never ! or $ first.
+    keys = pxart.string.ascii_letters + pxart.string.digits
+    big = write(tmp_path, "big.px", "".join(f"{k} #{i:06x}\n" for i, k in enumerate(keys, 1)) + "\n" + keys + "\n")
+    s = write(tmp_path, "s.px", "a #fefefe\nb #fdfdfd\n\nab\n")
+    t = write(tmp_path, "t.px", "a #fefefe\nb #fdfdfd\n\nba\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{big}@0,0", f"{s}@0,0", f"{t}@2,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"'a>%' 'b>+'" in got and "!" not in got and "$" not in got
+    assert pxart.parse(out).frames[0].grid[0][:4] == "%++%"
+
+
+def test_rekey_spec_scoped_entries():
+    assert pxart.rekey_spec("girl.px:T=V") == (set(), {}, {"girl.px": (set(), {"T": "V"})})
+    assert pxart.rekey_spec("o,girl.px:T=V,girl.px:k") == ({"o"}, {}, {"girl.px": ({"k"}, {"T": "V"})})
+    assert pxart.rekey_spec("cast/girl.px:T=V,boy.px:T=W") == (set(), {}, {"cast/girl.px": (set(), {"T": "V"}),
+                                                                         "boy.px": (set(), {"T": "W"})})
+    assert pxart.rekey_spec("a.px::=V") == (set(), {}, {"a.px": (set(), {":": "V"})})
+    assert pxart.rekey_spec("a.px:%") == (set(), {}, {"a.px": ({"%"}, {})})
+
+
+@pytest.mark.parametrize("bad, bit", [("girl.px:T=V,girl.px:T", "names girl.px:'T' twice"),
+                                      ("girl.px:TT", "want keys"), ("girl.px:T=", "want keys"),
+                                      ("girl.px:#", "want keys"), ("girl.png:T", "want keys")])
+def test_rekey_spec_scoped_bad(bad, bit):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.rekey_spec(bad)
+    assert codes(e) == ["E_BAD_ARG"] and bit in str(e.value)
+
+
+def test_rekey_args_scoped_entry_is_the_value():
+    assert pxart.rekey_args(["compose", "-o", "o.px", "--rekey", "girl.px:T=V", "a.px@0,0"]) == \
+        ["compose", "-o", "o.px", "--rekey", "girl.px:T=V", "a.px@0,0"]
+    assert pxart.rekey_args(["compose", "-o", "o.px", "--rekey", "o,cast/girl.px:T=V", "a.px@0,0"])[3:5] == \
+        ["--rekey", "o,cast/girl.px:T=V"]
+    assert pxart.rekey_args(["compose", "-o", "o.px", "--rekey", "girl.px:idle@0,0"])[3] == "--rekey="
+
+
+def test_compose_rekey_scoped_puts_one_files_key_on_a_named_key(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2",
+               "--rekey", f"T,k,o,{c}:T=V") == 0
+    got = capsys.readouterr().out
+    assert f"note: --rekey gives {c}'s keys other ones in {out}: 'T>V' " in got and "T as --rekey named" in got
+    doc = pxart.parse(out)
+    # boy's T, the same color in every variant, then shares V: OUT has it by then
+    assert doc.frames[0].grid[2][1] == doc.frames[0].grid[1][1] == "V"
+    assert doc.resolved()["V"] == pxart.hex2rgba("#345a52")
+
+
+def test_compose_rekey_scoped_by_name(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2",
+               "--rekey", "T,k,o,girl.px:T=V") == 0
+    assert pxart.parse(out).frames[0].grid[2][1] == "V"
+
+
+def test_compose_rekey_scoped_leaves_the_other_files_key(tmp_path):
+    # Only girl.px's T is named: boy.px's T still clashes with the ground's, so it's E_KEY_CONFLICT for boy alone.
+    g, b, c = reuse_files(tmp_path)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2", "--rekey", "k,o,girl.px:T=V")
+    assert "E_KEY_CONFLICT" in msg and "'T' #345a52" in msg and "boy.px" in msg and "girl.px" not in msg.split("(")[0]
+    assert len(msg.splitlines()) == 1
+
+
+def test_compose_rekey_scoped_wins_over_the_list(tmp_path, capsys):
+    g, b, c = reuse_files(tmp_path)
+    out = tmp_path / "glade.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2",
+               "--rekey", "T=Q,k,o,girl.px:T=V") == 0
+    grid = pxart.parse(out).frames[0].grid
+    assert grid[1][1] == "Q" and grid[2][1] == "V"
+
+
+def test_compose_rekey_scoped_unknown_file(tmp_path):
+    g, b, c = reuse_files(tmp_path)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2", "--rekey", "T,k,o,dog.px:T=V")
+    assert "E_SELECT" in msg and "dog.px is no source file here (they are: " in msg
+
+
+def test_compose_rekey_scoped_ambiguous_name(tmp_path):
+    g, b, c = reuse_files(tmp_path)
+    (tmp_path / "x").mkdir()
+    write(tmp_path / "x", "pal.px", REUSE_PAL)
+    c2 = write(tmp_path / "x", "girl.px", REUSE_GIRL)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x4", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2", f"{c2}:girl/0@0,3", "--rekey", "T,k,o,girl.px:T=V")
+    assert "E_SELECT" in msg and "girl.px is the name of several source files; give its path" in msg
+
+
+def test_compose_rekey_scoped_key_the_file_doesnt_draw(tmp_path):
+    g, b, c = reuse_files(tmp_path)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2", "--rekey", f"T,k,o,{b}:q=V")
+    assert "E_SELECT" in msg and "layers don't draw with q" in msg
+
+
+def test_compose_rekey_scoped_to_a_key_of_another_color(tmp_path):
+    g, b, c = reuse_files(tmp_path)
+    msg = run_err("compose", "-o", tmp_path / "glade.px", "--size", "3x3", f"{g}@0,0", f"{b}:boy/0@0,1",
+                  f"{c}:girl/0@0,2", "--rekey", f"T,k,o,{c}:T=o")
+    assert "E_KEY_CONFLICT" in msg and "--rekey T=o" in msg
+
+
+def test_paste_rekey_scoped_to_its_source(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    assert run("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "1,0", "--rekey", f"{f.name}:s,{f.name}:t") == 0
+    assert "'s>a' 't>b'" in capsys.readouterr().out and pxart.parse(out).get("x").grid == ["sabv"]
+
+
+def test_paste_rekey_scoped_to_another_file(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "1,0", "--rekey", "other.px:s")
+    assert "E_SELECT" in msg and "other.px is no source file here" in msg
+
+
+def test_frames_copy_rekey_scoped(tmp_path, capsys):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", CDST.replace("k #000000\n", "k #000000\nw #eeeeee\n"))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "s.px:w=Q,k") == 0
+    got = capsys.readouterr().out
+    assert "'w>Q'" in got and pxart.parse(d).palette["Q"] == pxart.hex2rgba("#ffffff")
+
+
+def test_help_documents_rekey_reuse_and_scope():
+    text = " ".join(pxart.__doc__.split())
+    assert "then the key an earlier file of this compose was given for a color that looks the same in every variant " \
+        "(two packs' one outline share one key, and the note says so)" in text
+    assert "A key any layer's file has isn't free, used here or not." in text
+    assert "An entry FILE.px:KEY[=OUTKEY] is for that source file alone: --rekey o,girl.px:T=V puts girl.px's T on " \
+        "V, gives every file's o a free key, and leaves the other files' T alone" in text
+
+
+def test_readme_documents_rekey_reuse_and_scope():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--rekey girl.px:T=V` is for one source file's T only; a color two files share, alike in every variant, " \
+        "keeps the one key it got first" in readme

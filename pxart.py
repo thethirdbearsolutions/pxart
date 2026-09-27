@@ -389,10 +389,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per source file (all its
       layers: 'layers 1-4, 7 (field.px)') naming every key and both colors, and free keys
       for them ('s>a' 't>b'). The free keys are chosen once for the whole compose, so no two
-      lines' suggestions collide: a key OUT already has in that color first, then letters
+      lines' suggestions collide: a key OUT already has in that color first, then the key an
+      earlier file of this compose was given for a color that looks the same in every
+      variant (two packs' one outline share one key, and the note says so), then letters
       and digits, then % + - / : ^ _, and only when those run out the keys a shell reads
-      (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (, and =). Two ways to use them,
-      both leaving the layers' files as they are:
+      (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (, and =). A key any layer's file
+      has isn't free, used here or not. Two ways to use them, both leaving the layers'
+      files as they are:
         --rekey: compose gives those keys the free ones in OUT as it goes (the files are
           read, never written) and a note says which: 'note: --rekey gives field.px's keys
           free ones in scene.px: 's>a' 't>b' (field.px is unchanged)'. Composing from the
@@ -427,11 +430,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --rekey k=j,n=q uses OUT's j and q, which must be in k's and n's base colors (else
       E_KEY_CONFLICT), and must not be keys of the layer's file; where OUT's variants color
       them otherwise, a WARNING per key names each color that changes. Both mix: k=j,n,s gives
-      n and s free keys, and r=r keeps r as it is on purpose. When --rekey gives a key a free
-      one though an existing OUT has its base color under another key (in other variant
-      colors, so it wasn't reused), a note names that key and the --rekey list that uses it
-      anyway: 'note: party.px has the base colors of k n as j q, in other variant colors;
-      --rekey k=j,n=q uses those anyway'. After crop's --rekey, four digits are the rectangle;
+      n and s free keys, and r=r keeps r as it is on purpose. An entry
+      FILE.px:KEY[=OUTKEY] is for that source file alone: --rekey o,girl.px:T=V puts
+      girl.px's T on V, gives every file's o a free key, and leaves the other files' T
+      alone (a file's own entry wins over one for every file; FILE.px is a path, or the
+      name of one source file). When --rekey gives a key a free one though an existing
+      OUT has its base color under another key (in other variant colors, so it wasn't
+      reused), a note names that key and the --rekey list that uses it anyway: 'note:
+      party.px has the base colors of k n as j q, in other variant colors; --rekey
+      k=j,n=q uses those anyway'. After crop's --rekey, four digits are the rectangle;
       write --rekey=1,2,3,4 to name four digit keys there.
       The comments above the layers' key and @variant lines come along, as for palette
       --extract-to; a comment naming a key --rekey renamed says so: '# lamp colors (l, g)
@@ -1791,20 +1798,27 @@ def clashes(dst_doc, src_doc, keys, clear=False):
     return [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
 
 
-def new_keys(bad, src_pal, have, taken, fits=None):
+def new_keys(bad, src_pal, have, taken, fits=None, given=None, looks=None):
     """Where src's clashing keys can go, chosen once for the whole command: a key dst already has in the same color (and
-    src hasn't; and fits(k, it), when given: the same colors in dst's variants too), else the first free key in
-    FREE_ORDER (shell-safe first) that isn't in `taken`, which it adds to, so no two suggestions collide. {key: new
-    key}, or None when there aren't enough free keys."""
+    src hasn't; and fits(k, it), when given: the same colors in dst's variants too), else the key an earlier source of
+    the same command was given for a color that looks the same in every variant (given {looks(k): key}, which it adds
+    to; looks(k): k's base color and its colors in dst's variants), else the first free key in FREE_ORDER (shell-safe
+    first) that isn't in `taken`, which it adds to, so no two suggestions collide. {key: new key}, or None when there
+    aren't enough free keys."""
     moves = {}
     for k in bad:
         same = next((c for c, v in have.items() if v == src_pal[k] and c != "." and c not in src_pal
                      and c not in moves.values() and (fits is None or fits(k, c))), None)
+        if same is None and given is not None:
+            same = given.get(looks(k))
+            same = same if same not in src_pal and same not in moves.values() else None
         pick = same or next((c for c in FREE_ORDER if c not in taken and c not in have and c not in src_pal), None)
         if pick is None:
             return None
         moves[k] = pick
         taken.add(pick)
+        if given is not None:
+            given.setdefault(looks(k), pick)
     return moves
 
 
@@ -2005,35 +2019,60 @@ def said_rekey(src, dst, moves, asked=()):
 
 
 REKEY_KEY = r"[^\s#@.\"\\,=]"
-REKEY_RE = re.compile(rf"^{REKEY_KEY}(={REKEY_KEY})?(,{REKEY_KEY}(={REKEY_KEY})?)*$")
+REKEY_ONE = rf"([^\s,]+\.px:)?{REKEY_KEY}(={REKEY_KEY})?"  # k, k=j, or FILE.px:k=j (that layer file's k only)
+REKEY_RE = re.compile(rf"^{REKEY_ONE}(,{REKEY_ONE})*$")
 RECT_ARG_RE = re.compile(r"^-?\d+(,-?\d+){3}$")  # crop's x,y,w,h after --rekey is the rectangle, not keys
+SCOPED_RE = re.compile(r"^(?P<file>[^\s,]+\.px):(?P<k>\S)(?:=(?P<j>\S))?$")
 
 
 def rekey_spec(value):
-    """--rekey's argument: None when not given; else (only, asked): only, the keys it may give free keys (None: every
-    key that needs one, bare --rekey), and asked {key: the key it goes to}, from KEY=DSTKEY. A list names every key
-    --rekey touches: 'o,r' moves only o and r, 'k=j,n' puts k on j and gives n a free key."""
+    """--rekey's argument: None when not given; else (only, asked, scoped): only, the keys it may give free keys (None:
+    every key that needs one, bare --rekey), asked {key: the key it goes to}, from KEY=DSTKEY, and scoped {FILE.px as
+    typed: (only, asked)} for the entries FILE.px:KEY[=DSTKEY], which touch that source file's KEY alone. A list names
+    every key --rekey touches: 'o,r' moves only o and r, 'k=j,n' puts k on j and gives n a free key, and
+    'girl.px:T=V' puts girl.px's T on V and leaves the other files' T alone."""
     if value is None:
         return None
     if value == "":
-        return None, {}
-    only, asked = set(), {}
+        return None, {}, {}
+    only, asked, scoped = set(), {}, {}
     for t in value.split(","):
-        k, eq, j = t.partition("=")
+        got = SCOPED_RE.match(t)
+        k, eq, j = (got["k"], got["j"] is not None, got["j"]) if got else t.partition("=")
         if len(k) != 1 or k not in KEYS or (eq and (len(j) != 1 or j not in KEYS)):
             fail("E_BAD_ARG", f"--rekey {value!r}: want keys, comma-separated (--rekey o,r: only those get free keys), "
-                 "or KEY=DSTKEY (--rekey k=j: k's pixels take DST's key j); bare --rekey moves every key that needs it")
-        if k in only or k in asked:
-            fail("E_BAD_ARG", f"--rekey {value!r} names {k!r} twice")
+                 "or KEY=DSTKEY (--rekey k=j: k's pixels take DST's key j), each for every source file or for one "
+                 "(girl.px:T=V); bare --rekey moves every key that needs it")
+        mine_only, mine_asked = scoped.setdefault(got["file"], (set(), {})) if got else (only, asked)
+        if k in mine_only or k in mine_asked:
+            fail("E_BAD_ARG", f"--rekey {value!r} names {(got['file'] + ':') if got else ''}{k!r} twice")
         if eq:
-            asked[k] = j
+            mine_asked[k] = j
         else:
-            only.add(k)
-    both = sorted(set(asked.values()) & only)
-    if both:
-        fail("E_BAD_ARG", f"--rekey {value!r}: {' '.join(both)} is where --rekey puts another key; it can't also get a "
-             "free key")
-    return only, asked
+            mine_only.add(k)
+    for o, a_ in [(only, asked)] + list(scoped.values()):
+        both = sorted(set(a_.values()) & o)
+        if both:
+            fail("E_BAD_ARG", f"--rekey {value!r}: {' '.join(both)} is where --rekey puts another key; it can't also "
+                 "get a free key")
+    return only, asked, scoped
+
+
+def scoped_to(scoped, paths, value):
+    """--rekey FILE.px:KEY entries by the source file each names: {resolved path: (only, asked)}. FILE.px is a path
+    (from here) or, when only one source file has that name, its name. One that names no source is E_SELECT."""
+    out = {}
+    for name, spec in scoped.items():
+        path = pathlib.Path(name).resolve()
+        hit = [p for p in paths if p == path] or [p for p in paths if p.name == pathlib.Path(name).name]
+        if len(hit) != 1:
+            fail("E_SELECT", f"--rekey {value}: {name} is " + ("the name of several source files; give its path"
+                                                             if hit else "no source file here") + " (they are: "
+                 + ", ".join(sorted(dict.fromkeys(os.path.relpath(p) for p in paths))) + ")")
+        o, a_ = out.setdefault(hit[0], (set(), {}))
+        o |= spec[0]
+        a_.update(spec[1])
+    return out
 
 
 def check_asked(asked, src, dst, dst_name, what):
@@ -2059,7 +2098,9 @@ def rekey_one(value, dst, src, keys, vmap, clear, dst_name, what, frames=()):
     spec = rekey_spec(value)
     if spec is None:
         return {}, {}
-    only, asked = spec
+    only, asked, scoped = spec
+    for o, a_ in scoped_to(scoped, [src.path.resolve()], value).values():  # the one source: its own entries win
+        only, asked = (only - set(a_)) | o, {**{k: j for k, j in asked.items() if k not in o}, **a_}
     unused = [k for k in sorted((only or set()) | set(asked)) if k not in keys]
     if unused:
         fail("E_SELECT", f"--rekey {value}: {what} doesn't draw with {' '.join(unused)}")
@@ -4335,7 +4376,7 @@ def cmd_compose(a):
     gone, renamed, why = {}, {}, {}
     spec = rekey_spec(getattr(a, "rekey", None))
     if spec is not None:
-        only, asked = spec
+        only, asked, scoped = spec
         files = {}  # path -> [its layers' docs (one per layer), their frames, the keys they draw with]
         for lay, *_ in layers:
             got = files.setdefault(lay.doc.path.resolve(), [[], [], set()])
@@ -4345,6 +4386,12 @@ def cmd_compose(a):
         unused = sorted(k for k in (only or set()) | set(asked) if not any(k in used for *_, used in files.values()))
         if unused:
             fail("E_SELECT", f"--rekey {a.rekey}: no layer draws with {' '.join(unused)}")
+        scope = scoped_to(scoped, list(files), a.rekey)  # path -> (only, asked) of FILE.px:KEY entries
+        for path, (o, a_) in scope.items():
+            unused = sorted(k for k in o | set(a_) if k not in files[path][2])
+            if unused:
+                fail("E_SELECT", f"--rekey {a.rekey}: {os.path.relpath(path)}'s layers don't draw with "
+                     f"{' '.join(unused)}")
         opath = split_sel(a.o)[0]
         with reading(f"-o ({a.o})"):
             odoc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() else None
@@ -4367,6 +4414,7 @@ def cmd_compose(a):
         for path, (ds, frames, used) in files.items():
             mine = {k: j for k, j in asked.items() if k in used and (
                 k in found.get(path, {}) or not any(k in found.get(p, {}) for p in files))}
+            mine.update(scope.get(path, ((), {}))[1])
             if not mine:
                 continue
             check_asked(mine, ds[0], odoc, opath, ds[0].path)
@@ -4376,9 +4424,10 @@ def cmd_compose(a):
             why[path] = {k: ("asked", j) for k, j in mine.items()}
             took[path] = set(mine.values())
         found, whys = dry()
-        needless = set(only or ())
+        needless = set(only or ()) | {k for o, _ in scope.values() for k in o}
         for path, moves in found.items():
-            moves = {k: v for k, v in moves.items() if (only is None or k in only) and k not in took.get(path, ())}
+            moves = {k: v for k, v in moves.items() if (only is None or k in only or k in scope.get(path, ((),))[0])
+                     and k not in took.get(path, ())}
             needless -= set(moves)
             move(path, moves)
             renamed[path] = {**renamed.get(path, {}), **moves}
@@ -4460,12 +4509,18 @@ def said_by_file(opath, layers, doc, left_out, renamed, why, vclashed, added, vm
         d = next(d for _, label, d in entries if label == gone_from)
         got = lost.setdefault(d.path.resolve(), {})
         got.setdefault(k, (kept, uses))
-    lines = []
+    lines, given = [], {}  # given: new key -> the file --rekey first gave it to
     for path, es in files.items():
         d = es[0][2]
         mine = why.get(path, {})
         if renamed.get(path):
-            lines.append("note: " + said_moves(d.path, opath, renamed[path], mine, d))
+            again = [k for k, v in renamed[path].items() if given.get(v, path) != path]
+            whose = list(dict.fromkeys(given[renamed[path][k]] for k in again))
+            lines.append("note: " + said_moves(d.path, opath, renamed[path], mine, d) + (
+                f"; {' '.join(again)} share the keys {' and '.join(str(w) for w in whose)} got for the same colors "
+                "(in every variant too)" if again else ""))
+            for v in renamed[path].values():
+                given.setdefault(v, d.path)
             auto = {k: v for k, v in renamed[path].items() if mine.get(k, ("",))[0] != "asked"}
             asked = {k: w[1] for k, w in mine.items() if w[0] == "asked"}
             hint = None if fresh else same_base_hint(auto, asked, d, doc, opath)
@@ -4561,14 +4616,19 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     # offer the same moves --rekey makes
     have, found, whys = doc.resolved(), {}, {}
     taken = set(have) | {k for lay, *_ in layers for k in lay.doc.resolved()}
+    given, onames = {}, variant_names(doc)  # a color that looks the same in every variant keeps one new key
+
+    def looks(src):
+        return lambda k: (src.resolved()[k], tuple(colors_in(src, k, onames, vmap)))
     for path, c in clashed.items():
         src = c["layers"][0][2]
-        moves = new_keys(sorted(c["keys"]), src.resolved(), have, taken, fits_in(doc, src, vmap))
+        moves = new_keys(sorted(c["keys"]), src.resolved(), have, taken, fits_in(doc, src, vmap), given, looks(src))
         found[path] = moves
         whys[path] = {k: ("color",) for k in moves or {}}
     for path, c in vclashed.items():
         src = c["layers"][0][2]
-        moves = new_keys(sorted(c["keys"]), src.resolved(), have, taken, fits_in(doc, src, vmap)) or {}
+        moves = new_keys(sorted(c["keys"]), src.resolved(), have, taken, fits_in(doc, src, vmap), given,
+                         looks(src)) or {}
         if found.get(path, {}) is not None:
             found.setdefault(path, {}).update(moves)
             whys.setdefault(path, {}).update({k: ("variant",) for k in moves})
@@ -4578,7 +4638,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         path = d.path.resolve()
         needs = special_keys(d)
         if k in needs and found.get(path, {}) is not None and k not in found.get(path, {}):
-            moves = new_keys([k], d.resolved(), have, taken, fits_in(doc, d, vmap)) or {}
+            moves = new_keys([k], d.resolved(), have, taken, fits_in(doc, d, vmap), given, looks(d)) or {}
             found.setdefault(path, {}).update(moves)
             whys.setdefault(path, {}).update({k: ("needed", needs[k]) for k in moves})
     if clashed:  # one line per file, covering every layer of it

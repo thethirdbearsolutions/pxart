@@ -199,7 +199,9 @@ rather than repeating them.
   dusk=night` reads the keeper's night as party.px's dusk), and in a new OUT to a needed key
   it would leave out; a key OUT's variants would recolor is a `WARNING` of its own;
   `--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and
-  q, with a `WARNING` where their variant colors differ), `dup` (copy a frame), `anim-set` (timing), `palette
+  q, with a `WARNING` where their variant colors differ; `--rekey girl.px:T=V` is for one
+  source file's T only; a color two files share, alike in every variant, keeps the one key
+  it got first), `dup` (copy a frame), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
