@@ -18715,3 +18715,107 @@ def test_readme_documents_match_and_hold():
     assert "`--match mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted gain " \
         "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened unless " \
         "`--lift-darks`" in readme
+
+
+# ---------------------------------------------------------------- check notes local keys that repeat an import's color
+# (the help promised an override note; identical ones got none)
+
+def rep_files(tmp_path, sprite):
+    write(tmp_path, "pal.px", "o #141b1b\nt #548789\nk #965340\n\n@variant dusk\no #10121a\nt #526e72\n")
+    return write(tmp_path, "s.px", sprite)
+
+
+def check_notes(capsys, *argv):
+    run("check", *argv)
+    return [l.strip() for l in capsys.readouterr().out.splitlines() if ": local keys" in l]
+
+
+def test_check_notes_repeated_local_keys(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\nt #548789\n\n@frame a\notk\n")
+    assert check_notes(capsys, s) == [f"{s}: local keys repeat @palette colors: ot (the same in every variant too: "
+                                      f"'pxart palette {s} --remove o,t' drops those lines and renders the same)"]
+
+
+def test_check_notes_one_repeated_key(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\nk #965340\n\n@frame a\nk\n")
+    assert check_notes(capsys, s) == [f"{s}: local keys repeat @palette colors: k (the same in every variant too: "
+                                      f"'pxart palette {s} --remove k' drops that line and renders the same)"]
+
+
+def test_check_notes_override_and_repeat_apart(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\nt #ff0000\n\n@frame a\not\n")
+    notes = check_notes(capsys, s)
+    assert f"{s}: local keys override @palette colors: t" in notes
+    assert any(n.startswith(f"{s}: local keys repeat @palette colors: o (") for n in notes)
+
+
+def test_check_notes_repeat_with_its_own_variant_line(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\nt #548789\n\n@variant dusk\no #000000\n\n"
+                            "@frame a\not\n")
+    notes = check_notes(capsys, s)
+    assert notes == [f"{s}: local keys repeat @palette colors: ot (o: with a variant line of {s}'s own; 'pxart palette "
+                     f"{s} --remove t' drops the others' lines and renders the same)"]
+
+
+def test_check_notes_repeat_whose_variant_line_repeats_too(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\n\n@variant dusk\no #10121a\n\n@frame a\no\n")
+    assert "(the same in every variant too" in check_notes(capsys, s)[0]
+
+
+def test_check_notes_repeat_only_one_with_its_own_line(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\n\n@variant dusk\no #000000\n\n@frame a\no\n")
+    assert check_notes(capsys, s) == [f"{s}: local keys repeat @palette colors: o (o: with a variant line of {s}'s "
+                                      "own)"]
+
+
+def test_check_repeat_counts_as_a_warning(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\n\n@frame a\no\n")
+    t = write(tmp_path, "t.px", "pxart 1\n@palette pal.px\n\n@frame a\no\n")
+    assert run("check", s, t) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "2 files, 2 frames, 1 warning"
+
+
+def test_check_no_repeat_note_without_repeats(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\nz #abcdef\n\n@frame a\noz\n")
+    assert check_notes(capsys, s) == []
+
+
+def test_check_repeat_suggestion_is_safe(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\nt #548789\n\n@frame a\notk\n")
+    before = renders(s)
+    note = check_notes(capsys, s)[0]
+    cmd = shlex.split(note.split("too: '")[1].split("' drops")[0])
+    assert run(*cmd[1:]) == 0
+    assert renders(s) == before and pxart.parse(s).palette == {} and check_notes(capsys, s) == []
+
+
+def test_remove_redundant_drawn_key_needs_no_to(tmp_path, capsys):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\n\n@frame a\noo\n")
+    before = renders(s)
+    assert run("palette", s, "--remove", "o") == 0
+    assert capsys.readouterr().out == f"removed o; o now has the imported color (o #141b1b); wrote {s}\n"
+    assert renders(s) == before
+
+
+def test_remove_drawn_override_of_another_color_still_needs_to(tmp_path):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #ff0000\n\n@frame a\noo\n")
+    assert "frames still draw with o" in run_err("palette", s, "--remove", "o")
+
+
+def test_remove_drawn_repeat_with_own_variant_line_still_needs_to(tmp_path):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\n\n@variant dusk\no #000000\n\n@frame a\noo\n")
+    assert "frames still draw with o" in run_err("palette", s, "--remove", "o")
+
+
+def test_redundant_helper(tmp_path):
+    s = rep_files(tmp_path, "pxart 1\n@palette pal.px\no #141b1b\nt #000000\nk #965340\nz #111111\n\n@variant dusk\n"
+                            "k #965340\n\n@frame a\notkz\n")
+    doc = pxart.parse(s)
+    assert [k for k in "otkz" if pxart.redundant(doc, k)] == ["o", "k"]
+
+
+def test_help_documents_the_repeat_note():
+    text = " ".join(pxart.__doc__.split())
+    assert "local keys (and local variant keys) override imported ones, and check notes the override, and a local " \
+        "key that repeats an imported one's color (with the palette --remove that drops its line when nothing " \
+        "changes)." in text

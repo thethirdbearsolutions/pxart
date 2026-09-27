@@ -36,7 +36,8 @@ FORMAT (.px)
   also lists them as 'still' in frames.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
-  override imported ones, and check notes the override.
+  override imported ones, and check notes the override, and a local key that repeats an
+  imported one's color (with the palette --remove that drops its line when nothing changes).
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. A file with
@@ -2712,6 +2713,15 @@ def cmd_check(a):
                 over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
                 if over:
                     notes.append("local keys override @palette colors: " + "".join(over))
+                same = [k for k in doc.palette if k in doc.shared and k not in over]
+                if same:
+                    idle = [k for k in same if redundant(doc, k)]
+                    notes.append("local keys repeat @palette colors: " + "".join(same) + (
+                        f" (the same in every variant too: 'pxart palette {path} --remove {','.join(idle)}' drops "
+                        f"{'those lines' if len(idle) > 1 else 'that line'} and renders the same)" if idle == same else
+                        f" ({''.join(k for k in same if k not in idle)}: with a variant line of {path}'s own"
+                        + (f"; 'pxart palette {path} --remove {','.join(idle)}' drops the others' lines and renders "
+                           "the same" if idle else "") + ")"))
                 for f in doc.frames:
                     pv = doc.pivot(f)
                     if pv and not (0 <= pv[0] < f.size[0] and 0 <= pv[1] < f.size[1]):
@@ -5365,6 +5375,8 @@ def remove_keys(doc, keys, to=None, within=None):
     uses = {}
     for f in doc.frames:
         for k in keys:
+            if redundant(doc, k):  # its pixels draw the imported key, the same color: nothing to repaint
+                continue
             n = sum(r.count(k) for r in f.grid)
             if n:
                 uses.setdefault(k, []).append((doc.label(f), n))
@@ -5487,6 +5499,15 @@ def import_palette(doc, pal):
     if new:
         said.append(f"{doc.path.name} now has {pal}'s @variant {', '.join(new)}")
     return "; ".join(said + [write_doc(doc)])
+
+
+def redundant(doc, k):
+    """doc's own key line for k repeats its import (the same color), and so do its variant lines for k, if any: taking
+    them out (palette --remove) changes no pixel, in the base palette or any variant."""
+    if k not in doc.palette or k not in doc.shared or doc.palette[k] != doc.shared[k]:
+        return False
+    return all(doc.variants[n][k] == doc.shared_variants.get(n, {}).get(k, doc.shared[k])
+               for n in doc.variants if k in doc.variants[n])
 
 
 def drop_key_lines(doc, keys):
