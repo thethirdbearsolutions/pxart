@@ -1,5 +1,5 @@
 $ pxart onion hero.px:walk/down/0 hero.px:walk/down/1 -o onion.png
-A walk/down/0: opaque x 4..19, y 0..31 (on the 24x32 canvas, lined up by pivot)
-B walk/down/1: opaque x 4..19, y 1..31
+A (frame walk/down/0) covers x 4..19, y 0..31 (on the 24x32 canvas, lined up by pivot)
+B (frame walk/down/1) covers x 4..19, y 1..31
 B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 26px changed (no shift: 205px)
 wrote onion.png

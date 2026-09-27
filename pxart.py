@@ -2982,7 +2982,8 @@ def spans_of(y0, y1):
 
 
 def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
-    """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
+    """onion's readout: where each frame's opaque pixels sit on the shared canvas ('A (frame walk/0) covers x 3..20,
+    y 1..31': its opaque bounding box), how B's edges moved from A's (a 1px
     jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's). band (y0, y1): only
     those canvas rows count, for the edges and the shift (band_shift), and the readout names the band as what it is
     (feet: --feet N's 'bottom N canvas rows', else --rows' 'canvas rows') and the rows each frame is opaque in there
@@ -3006,8 +3007,9 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
     where = f"{spans_of(*band)} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
-    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty" if not band
-                                    else "nothing opaque" if n == "A" else f"nothing opaque in {spans_of(*band)}")
+    lines = [f"{n} (frame {it.label}) " + (f"covers x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "is empty"
+                                           if not band else "covers nothing" if n == "A" else
+                                           f"covers nothing in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
     if all(boxes):

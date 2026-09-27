@@ -178,8 +178,7 @@ pxart render lamp.px gem-shared.px --variant dusk -o dusk.preview.png
 ```
 
 `--variant dusk` draws with the dusk colors, and each label says so (`lamp%dusk`). You never
-picked a dusk color for the gem:
-it got them by sharing the palette.
+picked a dusk color for the gem: it got them by sharing the palette.
 
 ![the lamp and the gem at dusk](dusk.preview.png)
 
