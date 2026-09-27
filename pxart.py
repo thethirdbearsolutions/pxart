@@ -104,7 +104,7 @@ LOOKING
       frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
       P: N as a percent of the frame's opaque pixels, or of both frames' if more; a bob alone
       shows "then 0px (0%)"). The numbers print too, a line per frame (a FILE of several
-      groups: a block each, animated alone; -o a DIR);
+      groups: a block each, top-level and @still frames left out; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
@@ -146,8 +146,8 @@ LOOKING
       come into the band from above) and counts only the band's pixels; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
       shift. The PNG darkens the rows outside the band.
-      --tint-a COLOR draws the silhouette in another color, at that color's alpha. --fade-a
-      draws A itself at 35% opacity instead.
+      --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
+      opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (not render's 8); --scale 1 for 1x.
@@ -2805,11 +2805,21 @@ def cmd_anim(a):
         paths += [split_sel(arg)[0]] * len(per[-1])
     tell_apart([it for got in per for it in got], paths)
     blocks = []  # [[name, items, joined]]: a FILE over several groups gives one per group; the others play as one
+    spread = False  # a FILE spanned several groups (-o is then a DIR, even when only one of them animates)
     for arg, got in zip(a.files, per):
         groups = {}
         for it in got:
             groups.setdefault(it.frame.group if it.frame else "", []).append(it)
-        if len(groups) == 1:
+        rest, skipped = [g for g, fs in groups.items() if not (fs[0].doc and not fs[0].doc.animated(g))], False
+        if len(groups) > 1 and rest and len(rest) < len(groups):  # top-level frames and @still groups beside
+            skip = [g for g in groups if g not in rest]               # animations aren't animations: left out
+            what = [listed([it.label for it in groups[""]]) + (" (top-level frames)" if len(groups[""]) > 1 else
+                                                                 " (a top-level frame)")] if "" in skip else []
+            what += [f"{g} (@still)" for g in skip if g]
+            print(f"note: {split_variant(arg)[0]}: skipping what isn't an animation: {listed(what)}")
+            got = [it for g in rest for it in groups[g]]
+            groups, skipped = {g: groups[g] for g in rest}, True
+        if len(groups) == 1 and not (skipped and a.o and pathlib.Path(a.o).suffix.lower() != ".gif"):
             if blocks and blocks[-1][2]:
                 blocks[-1][0] += " " + arg
                 blocks[-1][1].extend(got)
@@ -2818,11 +2828,13 @@ def cmd_anim(a):
             continue
         path = split_sel(arg)[0]
         names = [g or "(top level)" for g in groups]
-        print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(names)}; animating each on its own; "
-              f"pick one with {path}:{next(g for g in groups if g)}")
+        spread = True
+        if len(groups) > 1:
+            print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(names)}; animating each on its own; "
+                  f"pick one with {path}:{next(g for g in groups if g)}")
         blocks += [[f"{path}:{g}" if g else f"{path} (top level)", fs, False] for g, fs in groups.items()]
     gif = a.o and pathlib.Path(a.o).suffix.lower() == ".gif"
-    if len(blocks) == 1:
+    if len(blocks) == 1 and not (spread and a.o and not gif):
         if a.o and not gif:
             fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
         return animate(a, blocks[0][1], a.o)

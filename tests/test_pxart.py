@@ -25549,18 +25549,41 @@ def test_anim_notes_each_file_that_spans_groups(tmp_path, capsys):
     assert f"{p}:walk/left {p}:idle" in lines  # the files of one group each play on as one, under their names
 
 
-def test_anim_top_level_frames_and_a_group(tmp_path, capsys):
+def test_anim_top_level_frames_beside_a_group_are_skipped(tmp_path, capsys):
+    # a top-level frame (a halo drawn once) isn't an animation: no block of its own, diffed against itself
     p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame run/0\n.k\n@frame run/1\nk.\n")
     assert run("anim", p) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == f"note: {p} is 2 groups: (top level), run; animating each on its own; pick one with {p}:run"
-    assert out[1] == f"{p} (top level)" and out[3] == f"{p}:run"
+    assert out[0] == f"note: {p}: skipping what isn't an animation: a (a top-level frame)"
+    assert len(out) == 3 and out[1].lstrip().startswith("run/0") and out[2].lstrip().startswith("run/1")
 
 
-def test_anim_top_level_block_goes_by_the_file_stem_in_a_dir(tmp_path, capsys):
+def test_anim_skipped_top_level_frames_leave_one_gif_in_a_dir(tmp_path, capsys):
     p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame b\n.k\n@frame run/0\n.k\n@frame run/1\nk.\n")
     assert run("anim", p, "-o", tmp_path / "d") == 0
-    assert (tmp_path / "d" / "h.gif").exists() and (tmp_path / "d" / "run.gif").exists()
+    assert f"note: {p}: skipping what isn't an animation: a, b (top-level frames)" in capsys.readouterr().out
+    assert not (tmp_path / "d" / "h.gif").exists() and (tmp_path / "d" / "run.gif").exists()
+    assert run("anim", p, "-o", tmp_path / "run.gif") == 0 and (tmp_path / "run.gif").exists()
+
+
+def test_anim_skips_still_groups_beside_animations(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@still ui\n@frame ui/a\nk.\n@frame ui/b\n.k\n@frame lone\nk.\n"
+              "@frame w/0\n.k\n@frame w/1\nk.\n@frame r/0\n.k\n@frame r/1\nk.\n")
+    assert run("anim", p) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"note: {p}: skipping what isn't an animation: lone (a top-level frame), ui (@still)"
+    assert out[1] == f"note: {p} is 2 groups: w, r; animating each on its own; pick one with {p}:w"
+    assert "ui/a" not in "\n".join(out[2:]) and "lone " not in "\n".join(out[2:])
+
+
+def test_anim_of_only_still_or_top_level_frames_still_plays_them(tmp_path, capsys):
+    # nothing else to animate: a file of loose frames (or a @still group asked for by name) plays as one, as before
+    p = write(tmp_path, "h.px", "k #000000\n@still ui\n@frame ui/a\nk.\n@frame ui/b\n.k\n@frame a\nk.\n@frame b\n.k\n")
+    assert run("anim", f"{p}:a,b") == 0
+    out = capsys.readouterr().out
+    assert "note:" not in out and len(out.splitlines()) == 2
+    assert run("anim", f"{p}:ui") == 0
+    assert "note:" not in capsys.readouterr().out
 
 
 def test_anim_percent_never_over_100(tmp_path, capsys):

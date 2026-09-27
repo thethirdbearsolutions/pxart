@@ -163,7 +163,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
   motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
   72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
-  100%), and writes nothing; a file of several groups animates each on its own, a block of numbers per group, and
+  100%), and writes nothing; a file of several groups animates each on its own, a block of numbers per group (its
+  top-level frames and `@still` groups left out, with a note), and
   `-o DIR` writes one GIF per group (`DIR/walk/down.gif`); "rows Y+ still" only when those rows are
   pixel-identical and the legs keep their shape in every frame (an idle; a walk frame
   whose legs happen to stay put reads as its bob, `shift +0,+1 then 23px`), and for the
