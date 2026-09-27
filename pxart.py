@@ -652,6 +652,9 @@ ERROR CODES
   Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...'). An
   error in an input file also says which input it came from, then where in the file:
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
+  A file that can't be read is one E_FILE line too, its path relative to the current
+  directory when it is under it: 'render: hero.pxalk/0: E_FILE: No such file or directory;
+  'hero.pxalk/0' looks like zsh ate a ':' ...'.
   Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
@@ -1427,12 +1430,16 @@ def outpath(p):
 ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
 
 
-def file_error(e):
-    """An OSError as an E_FILE line; a missing input like 'hero.pxalk/0' gets the zsh-modifier hint."""
-    name = e.filename or ""
-    msg = f"{name}: E_FILE: {e.strerror or e}"
+def file_error(cmd, e):
+    """An OSError as one E_FILE line that starts with the command, like every error line; the path relative to the
+    current directory when it is under it. A missing input like 'hero.pxalk/0' gets the zsh-modifier hint."""
+    name = str(e.filename or "")
+    if os.path.isabs(name):
+        rel = os.path.relpath(name)
+        name = name if rel.startswith("..") else rel
+    msg = f"{cmd}: {name}: E_FILE: {e.strerror or e}" if name else f"{cmd}: E_FILE: {e.strerror or e}"
     if isinstance(e, FileNotFoundError) and any(ZSH_EATEN_RE.search(part) for part in pathlib.Path(name).parts):
-        msg += (f"\n  {name!r} looks like zsh ate a ':' as a modifier (\"$F:walk/0\" applies :w to $F, \"$F:t\" "
+        msg += (f"; {name!r} looks like zsh ate a ':' as a modifier (\"$F:walk/0\" applies :w to $F, \"$F:t\" "
                 "applies :t). Write \"${F}:walk/0\" or quote the whole argument.")
     return msg
 
@@ -5600,7 +5607,7 @@ def main(argv=None):
         sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
         sys.stdout.write(unsaid(told.getvalue()))
-        sys.exit(file_error(e))
+        sys.exit(file_error(a.cmd, e))
     except BaseException:
         sys.stdout.write(told.getvalue())
         raise

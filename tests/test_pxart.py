@@ -6669,7 +6669,7 @@ def test_reading_without_path_has_no_empty_where():
 def test_missing_input_file_is_still_plain_e_file(tmp_path):
     ok = write(tmp_path, "ok.px", "k #000000\nk\n")
     msg = run_err("compose", "-o", tmp_path / "o.px", f"{ok}@0,0", f"{tmp_path / 'nope.px'}@0,0")
-    assert msg.startswith(f"{tmp_path / 'nope.px'}: E_FILE")
+    assert msg.startswith(f"compose: {tmp_path / 'nope.px'}: E_FILE")
 
 
 def test_help_documents_error_prefixes():
@@ -16492,3 +16492,112 @@ def test_help_example_runs(tmp_path, capsys, monkeypatch, example):
         code = e.code
     got = capsys.readouterr()
     assert code in (0, None), (example, code, got.out, got.err)
+
+
+
+# ---------------------------------------------------------------- every error line starts with the command
+# The zsh-modifier E_FILE line had no 'render: ' in front and showed an absolute path; ERRORS says every line has it.
+
+def test_zsh_hint_line_has_the_command_and_is_one_line(tmp_path):
+    msg = run_err("render", tmp_path / "hero.pxalk" / "0", "-o", tmp_path / "x.png")
+    assert msg.startswith(f"render: {tmp_path / 'hero.pxalk' / '0'}: E_FILE: No such file or directory; ")
+    assert "\n" not in msg and "zsh ate a ':'" in msg
+
+
+def test_missing_input_under_cwd_shows_a_relative_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    msg = run_err("render", tmp_path / "hero.pxalk" / "0", "-o", "x.png")
+    assert msg.startswith("render: hero.pxalk/0: E_FILE: ") and str(tmp_path) not in msg
+
+
+def test_missing_input_as_typed_relative(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_err("flip", "sub/nope.px").startswith("flip: sub/nope.px: E_FILE: No such file or directory")
+
+
+def test_missing_input_outside_cwd_stays_absolute(tmp_path, monkeypatch):
+    (tmp_path / "here").mkdir()
+    monkeypatch.chdir(tmp_path / "here")
+    assert run_err("flip", tmp_path / "nope.px").startswith(f"flip: {tmp_path / 'nope.px'}: E_FILE")
+
+
+def test_file_error_unit():
+    e = FileNotFoundError(2, "No such file or directory", "a.pxb")
+    assert pxart.file_error("check", e).startswith("check: a.pxb: E_FILE: No such file or directory; 'a.pxb' looks")
+    e = PermissionError(13, "Permission denied", "b.px")
+    assert pxart.file_error("flip", e) == "flip: b.px: E_FILE: Permission denied"
+    assert pxart.file_error("flip", OSError("boom")) == "flip: E_FILE: boom"
+
+
+ERR_PX = "k #000000\nw #ffffff\n@anim walk ms=100\n@frame walk/0\nkw\nwk\n@frame walk/1\nwk\nkw\n"
+
+
+def error_cases(t):
+    """(cmd argv, one failing call) for every command: a missing input, a bad argument, a bad selection."""
+    f, m, o, png = t / "f.px", t / "missing.px", t / "o.px", t / "o.png"
+    return [
+        ["render", m], ["render", f"{f}:nope"], ["render", f, "--variant", "night"],
+        ["sheet", m, "-o", png], ["sheet", t / "p.px", "-o", png],
+        ["anim", m], ["anim", f"{f}:nope"], ["anim", f, "--variant", "x"],
+        ["onion", m, f, "-o", png], ["onion", f"{f}:walk/0", f"{f}:walk/1", "-o", png, "--rows", "x"],
+        ["scene", "-o", png, f"{m}@0,0"], ["scene", "-o", png, f"{f}:walk/0"], ["scene", "-o", png, "--tint", "zz"],
+        ["tint", t / "missing.png", "#000000"], ["tint", t / "a.png", "nope"],
+        ["stats", m], ["stats", f"{f}:nope"],
+        ["frames", m], ["frames", f, "--rm", "nope"], ["frames", f, "--copy-to", m],
+        ["frames", f, "--move", "walk"], ["frames", f, "--rename", "nope", "x"], ["frames", f, "--prefix", "a/"],
+        ["flip", m], ["flip", f"{f}:nope"],
+        ["rotate", m, "90"], ["transpose", m],
+        ["shift", m, "--dx", "1"], ["shift", f, "--fill", "Q"],
+        ["mask", m, "--keep", "0,0,1,1"], ["mask", f, "--keep", "x"],
+        ["recolor", m, "k=w"], ["recolor", f, "q=w"], ["recolor", f, "k=#zz"],
+        ["set", m, "k", "0,0"], ["set", f, "k", "9,9"], ["set", f, "Q", "0,0"],
+        ["crop", m, "0,0,1,1", "-o", o], ["crop", f"{f}:walk/0", "x", "-o", o],
+        ["paste", m, "--into", f, "--at", "0,0"], ["paste", f"{f}:walk/0", "--into", m, "--at", "0,0"],
+        ["new", o, "--size", "zz"], ["new", o], ["new", o, "--empty", "--palette", m],
+        ["put", f"{m}:x"],
+        ["fill", m, "k"], ["fill", f, "Q"],
+        ["line", m, "k", "0,0", "1,1"], ["line", f, "k", "x", "1,1"],
+        ["rect", f, "k", "0,0"], ["poly", f, "Q", "0,0", "1,1"], ["ellipse", f, "k", "1,1,1"],
+        ["arc", f, "k", "1,1,1", "x"], ["flood", f, "k", "9,9"],
+        ["outline", m, "--key", "k"], ["outline", f, "--key", "Q"],
+        ["shade", m, "--ramp", "kw"], ["shade", f, "--ramp", "Q"],
+        ["extract", m, "-o", o], ["extract", f"{f}:nope", "-o", o],
+        ["compose", "-o", o, f"{m}@0,0"], ["compose", "-o", o, f"{f}:walk/0@x"],
+        ["compose", "-o", o, f"{f}:walk/0@0,0", "--rekey", "Q"],
+        ["dup", m, "x"], ["dup", f"{f}:walk/0", "walk/1"],
+        ["anim-set", m], ["anim-set", f"{f}:walk", "ms=x"],
+        ["palette", m], ["palette", f, "--add", "k"], ["palette", f, "--remove", "k"],
+        ["palette", f, "--comment", "k"],
+        ["export", m, "--frames", t / "d"], ["export", f, "--frames", t / "d", "--variant", "x"],
+        ["help", "nope"],
+        ["from-png", t / "missing.png"],
+    ]
+
+
+def test_error_cases_cover_every_command(tmp_path):
+    cmds = {c[0] for c in error_cases(tmp_path)} | {"check"}  # check reports per file: its own test
+    assert cmds == set(pxart.parser(describe=False)[1].choices)
+
+
+@pytest.mark.parametrize("n", range(len(error_cases(pathlib.Path("/t")))))
+def test_every_error_line_starts_with_the_command(tmp_path, capsys, n):
+    write(tmp_path, "f.px", ERR_PX)
+    write(tmp_path, "p.px", "k #000000\n")
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "a.png")
+    argv = [str(a) for a in error_cases(tmp_path)[n]]
+    with pytest.raises(SystemExit) as e:
+        pxart.main(argv)
+    msg = e.value.code
+    assert isinstance(msg, str), (argv, msg)  # an error line, not a bare exit code
+    lines = msg.splitlines()
+    assert lines and all(l.startswith(f"{argv[0]}: ") or l.startswith(" ") for l in lines), (argv, msg)
+    assert "E_" in lines[0], (argv, msg)
+
+
+def test_check_missing_file_has_the_command(tmp_path):
+    assert run_err("check", tmp_path / "missing.px").startswith("check: ")
+
+
+def test_help_documents_e_file_prefix():
+    assert "'render: hero.pxalk/0: E_FILE: No such file or directory; 'hero.pxalk/0' looks like zsh" in " ".join(
+        pxart.__doc__.split())
