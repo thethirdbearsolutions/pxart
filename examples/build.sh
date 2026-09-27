@@ -64,25 +64,28 @@ txt onion-feet.txt onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o oni
 
 # ---------------------------------------------------------------------------------------
 # 03-variants: a @variant in a shared palette file, a derived one, and %VARIANT renders.
+# The README walks these in order, one image per step; each scene is 4x (scene's default).
 stage 03-variants coast.px palette.px
+pxart scene --size 48x64 --bg '#8ccfd6' -o base.x4.png \
+  coast.px:sand@0,48 coast.px:sand@16,48 coast.px:sand@32,48 \
+  coast.px:lighthouse@2,6 coast.px:keeper@16,26
+pxart scene --size 48x64 --bg '#5a86b0' -o night.x4.png \
+  coast.px:sand%night@0,48 coast.px:sand%night@16,48 coast.px:sand%night@32,48 \
+  coast.px:lighthouse%night@2,6 coast.px:keeper%night@16,26
 mkdir derived
 cp palette.px coast.px derived/
 txt derive.txt palette derived/palette.px --variant dusk --derive-from base \
   --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
-txt add.txt palette derived/palette.px --variant dusk --add w=#f2c6a8
+pxart scene --size 48x64 --bg '#e0936a' -o dusk-derived.x4.png \
+  derived/coast.px:sand%dusk@0,48 derived/coast.px:sand%dusk@16,48 derived/coast.px:sand%dusk@32,48 \
+  derived/coast.px:lighthouse%dusk@2,6 derived/coast.px:keeper%dusk@16,26
+txt add.txt palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
+pxart scene --size 48x64 --bg '#e0936a' -o dusk.x4.png \
+  derived/coast.px:sand%dusk@0,48 derived/coast.px:sand%dusk@16,48 derived/coast.px:sand%dusk@32,48 \
+  derived/coast.px:lighthouse%dusk@2,6 derived/coast.px:keeper%dusk@16,26
 txt palette.txt palette derived/palette.px
-# one 48x64 panel per variant; the sky is each panel's --bg, not part of the palette
-F=derived/coast.px
-pxart scene --size 48x64 --scale 1 --bg '#8ccfd6' -o base.png \
-  "${F}:sand@0,48" "${F}:sand@16,48" "${F}:sand@32,48" "${F}:lighthouse@2,6" "${F}:keeper@16,26"
-pxart scene --size 48x64 --scale 1 --bg '#e0936a' -o dusk.png \
-  "${F}:sand%dusk@0,48" "${F}:sand%dusk@16,48" "${F}:sand%dusk@32,48" \
-  "${F}:lighthouse%dusk@2,6" "${F}:keeper%dusk@16,26"
-pxart scene --size 48x64 --scale 1 --bg '#5a86b0' -o night.png \
-  "${F}:sand%night@0,48" "${F}:sand%night@16,48" "${F}:sand%night@32,48" \
-  "${F}:lighthouse%night@2,6" "${F}:keeper%night@16,26"
-pxart scene --size 152x64 --scale 1 -o panels.png base.png@0,0 dusk.png@52,0 night.png@104,0
-pxart scene --size 152x64 --scale 4 -o panels.x4.png base.png@0,0 dusk.png@52,0 night.png@104,0
+pxart scene --size 608x256 --scale 1 -o panels.x4.png \
+  base.x4.png@0,0 dusk.x4.png@208,0 night.x4.png@416,0
 
 # ---------------------------------------------------------------------------------------
 # 04-drawing: run draw.sh a line at a time, keeping a copy of chest.px after each step.
