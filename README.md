@@ -72,7 +72,9 @@ pxart 1
   updates (or adds) the `@anim` line, and `anim-set hero.px:walk/down/1 ms=250` sets one
   frame's `ms` (or `pivot`). Only that line changes; `ms=` with no value clears it.
 - **`@palette file.px`:** imports keys from a palette-only file, so a whole sprite set
-  shares one palette. Keys defined locally win.
+  shares one palette. Keys defined locally win. A path inside a file (`@palette`, a map's
+  legend) is read from that file's directory; a path typed on the command line (`--match`,
+  `--palette`, `--labels`, ...) from the current directory, and an `E_FILE` says so.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
   `--variant night`.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every

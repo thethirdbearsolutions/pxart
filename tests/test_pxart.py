@@ -16500,6 +16500,9 @@ def help_fixtures(d):
     (d / "dungeon" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,wall-stone-top,cap\n")
     (d / "creatures" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,skeleton,\n")
     (d / "game" / "wip").mkdir(parents=True)
+    (d / "game" / "pal.px").write_text("k #1a1423\nw #efe6d2\ny #f3cf6b\n")
+    (d / "wick").mkdir()
+    (d / "wick" / "pal.px").write_text("k #1a1423\nw #efe6d2\ny #f3cf6b\n@variant dark\nw #403f4a\ny #806030\n")
     (d / "game" / "room.px").write_text("pxart 1\nk #1a1423\n@frame room\nkk\n")
     (d / "game" / "tiles.px").write_text("pxart 1\nk #1a1423\n@frame floor\nk\n")
     (d / "game" / "wip" / "broken.px").write_text("pxart 1\nk #1a1423\n@frame x\nkq\n")
@@ -16550,12 +16553,13 @@ def test_zsh_hint_line_has_the_command_and_is_one_line(tmp_path):
 def test_missing_input_under_cwd_shows_a_relative_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     msg = run_err("render", tmp_path / "hero.pxalk" / "0", "-o", "x.png")
-    assert msg.startswith("render: hero.pxalk/0: E_FILE: ") and str(tmp_path) not in msg
+    assert msg.startswith("render: hero.pxalk/0 (from the current directory): E_FILE: ") and str(tmp_path) not in msg
 
 
 def test_missing_input_as_typed_relative(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert run_err("flip", "sub/nope.px").startswith("flip: sub/nope.px: E_FILE: No such file or directory")
+    assert run_err("flip", "sub/nope.px").startswith("flip: sub/nope.px (from the current directory): E_FILE: No such "
+                                                     "file or directory")
 
 
 def test_missing_input_outside_cwd_stays_absolute(tmp_path, monkeypatch):
@@ -16566,9 +16570,10 @@ def test_missing_input_outside_cwd_stays_absolute(tmp_path, monkeypatch):
 
 def test_file_error_unit():
     e = FileNotFoundError(2, "No such file or directory", "a.pxb")
-    assert pxart.file_error("check", e).startswith("check: a.pxb: E_FILE: No such file or directory; 'a.pxb' looks")
+    assert pxart.file_error("check", e).startswith("check: a.pxb (from the current directory): E_FILE: No such file or "
+                                                   "directory; 'a.pxb' looks")
     e = PermissionError(13, "Permission denied", "b.px")
-    assert pxart.file_error("flip", e) == "flip: b.px: E_FILE: Permission denied"
+    assert pxart.file_error("flip", e) == "flip: b.px (from the current directory): E_FILE: Permission denied"
     assert pxart.file_error("flip", OSError("boom")) == "flip: E_FILE: boom"
 
 
@@ -16643,7 +16648,8 @@ def test_check_missing_file_has_the_command(tmp_path):
 
 
 def test_help_documents_e_file_prefix():
-    assert "'render: hero.pxalk/0: E_FILE: No such file or directory; 'hero.pxalk/0' looks like zsh" in " ".join(
+    assert "'render: hero.pxalk/0 (from the current directory): E_FILE: No such file or directory; 'hero.pxalk/0' " \
+        "looks like zsh" in " ".join(
         pxart.__doc__.split())
 
 
@@ -20258,3 +20264,236 @@ def test_help_documents_stats_colors_and_at():
         "that draw it ('#120e22 40 px (k)')" in text
     assert "--at x,y (repeatable) prints that pixel's key and its color in the base palette and in every variant" \
         in text
+
+
+# ---------------------------------------------------------------- loop R: what a relative path is read from
+# '--match ../wick/pal.px%dark' failed with a bare E_FILE, and nothing said whether ../ was from the current directory
+# or from FILE's. Every path typed on the command line is read from the current directory; the E_FILE says so.
+
+def paths_tree(tmp_path):
+    (tmp_path / "game").mkdir()
+    (tmp_path / "wick").mkdir()
+    write(tmp_path / "game", "pal.px", "k #1a1423\nw #efe6d2\ny #f3cf6b\n")
+    write(tmp_path / "wick", "pal.px", "k #1a1423\nw #efe6d2\ny #f3cf6b\n@variant dark\nw #403f4a\ny #806030\n")
+    return tmp_path
+
+
+def test_match_is_read_from_the_current_directory(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    assert run("palette", "game/pal.px", "--variant", "dark", "--derive-from", "base", "--match", "wick/pal.px%dark") \
+        == 0
+
+
+def test_match_relative_to_file_dir_fails_and_says_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    msg = run_err("palette", "game/pal.px", "--variant", "dark", "--derive-from", "base", "--match",
+                  "../wick/pal.px%dark")
+    assert msg == ("palette: --match (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: "
+                   "No such file or directory")
+
+
+def test_match_from_inside_the_file_dir_works(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t / "game")
+    assert run("palette", "pal.px", "--variant", "dark", "--derive-from", "base", "--match", "../wick/pal.px%dark") == 0
+
+
+def test_check_palette_option_names_itself_and_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    msg = run_err("check", "game/pal.px", "--palette", "nope.gpl")
+    assert msg == "check: --palette (nope.gpl): nope.gpl (from the current directory): E_FILE: No such file or directory"
+
+
+def test_check_palette_px_missing(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    msg = run_err("check", "game/pal.px", "--palette", "pal.px")
+    assert msg.startswith("check: --palette (pal.px): pal.px (from the current directory): E_FILE")
+
+
+def test_new_palette_missing_says_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    msg = run_err("new", "game/x.px", "--size", "2x2", "--palette", "pal.px")
+    assert msg == ("new: --palette (pal.px): E_PALETTE_FILE: can't find palette file pal.px (from the current "
+                   "directory)")
+
+
+def test_new_palette_is_read_from_cwd_not_out_dir(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    assert run("new", "game/x.px", "--size", "2x2", "--palette", "game/pal.px") == 0
+    assert pxart.parse(t / "game" / "x.px").palette_refs == ["pal.px"]  # written from x.px's own directory
+
+
+def test_from_png_palette_missing_says_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(t / "i.png")
+    msg = run_err("from-png", "i.png", "--palette", "nope.px", "-o", "game/i.px")
+    assert "E_PALETTE_FILE: can't find palette file nope.px (from the current directory)" in msg
+
+
+def test_import_missing_says_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    write(t / "game", "s.px", "pxart 1\nk #1a1423\n@frame f\nk\n")
+    msg = run_err("palette", "game/s.px", "--import", "pal.px")
+    assert msg == ("palette: --import (pal.px): E_PALETTE_FILE: can't find palette file pal.px (from the current "
+                   "directory)")
+
+
+def test_import_from_cwd_is_repointed_from_file_dir(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    write(t / "game", "s.px", "pxart 1\nk #1a1423\n@frame f\nk\n")
+    assert run("palette", "game/s.px", "--import", "wick/pal.px") == 0
+    assert pxart.parse(t / "game" / "s.px").palette_refs == ["../wick/pal.px"]
+
+
+def test_labels_missing_says_the_option_and_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    Image.new("RGBA", (1, 1), (1, 2, 3, 255)).save(t / "i.png")
+    msg = run_err("from-png", "i.png", "--labels", "labels.csv", "-o", "o.px")
+    assert msg == ("from-png: --labels (labels.csv): labels.csv (from the current directory): E_FILE: No such file or "
+                   "directory")
+
+
+def test_map_missing_says_the_option_and_base(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    msg = run_err("scene", "-o", "s.png", "--map", "nope.map")
+    assert msg == "scene: --map (nope.map): nope.map (from the current directory): E_FILE: No such file or directory"
+
+
+def test_map_legend_is_read_from_the_map_dir(tmp_path, monkeypatch):
+    (tmp_path / "maps").mkdir()
+    write(tmp_path / "maps", "t.px", "k #101010\nk\n")
+    (tmp_path / "maps" / "m.map").write_text("t t.px\n\nt\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "-o", "s.png", "--map", "maps/m.map", "--tile", "1x1") == 0
+
+
+def test_in_dir_missing_is_e_file(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    msg = run_err("palette", "game/pal.px", "--in", "nodir")
+    assert msg == "palette: E_FILE: --in nodir (from the current directory): not a directory"
+
+
+def test_in_dir_missing_with_remove_is_e_file(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    assert "E_FILE: --in nodir (from the current directory)" in run_err("palette", "game/pal.px", "--remove", "y",
+                                                                        "--in", "nodir")
+
+
+def test_in_dir_is_read_from_cwd(tmp_path, monkeypatch, capsys):
+    t = paths_tree(tmp_path)
+    write(t / "game", "s.px", "pxart 1\n@palette pal.px\n@frame f\nk\n")
+    monkeypatch.chdir(t)
+    assert run("palette", "game/pal.px", "--in", "game") == 0
+    assert "imported by 1 of the .px files under game" in capsys.readouterr().out
+
+
+def test_copy_to_missing_says_the_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    monkeypatch.chdir(t)
+    write(t, "a.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    msg = run_err("frames", "a.px", "--copy-to", "game/nope.px")
+    assert msg.startswith("frames: E_FILE: --copy-to game/nope.px (from the current directory): no such file")
+
+
+def test_into_missing_names_the_option(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    msg = run_err("paste", "a.px:x", "--into", "nope.px", "--at", "0,0")
+    assert msg == "paste: --into (nope.px): nope.px (from the current directory): E_FILE: No such file or directory"
+
+
+def test_positional_input_says_the_base_without_an_option(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_err("render", "nope.px") == "render: nope.px (from the current directory): E_FILE: No such file or " \
+        "directory"
+
+
+def test_absolute_path_outside_cwd_has_no_base(tmp_path, monkeypatch):
+    (tmp_path / "here").mkdir()
+    monkeypatch.chdir(tmp_path / "here")
+    msg = run_err("render", tmp_path / "nope.px")
+    assert msg == f"render: {tmp_path / 'nope.px'}: E_FILE: No such file or directory"
+
+
+def test_absolute_path_option_outside_cwd_has_no_base(tmp_path, monkeypatch):
+    t = paths_tree(tmp_path)
+    (t / "here").mkdir()
+    monkeypatch.chdir(t / "here")
+    msg = run_err("check", t / "game" / "pal.px", "--palette", t / "nope.gpl")
+    assert msg == f"check: --palette ({t / 'nope.gpl'}): {t / 'nope.gpl'}: E_FILE: No such file or directory"
+
+
+def test_at_palette_line_says_it_is_relative_to_the_file(tmp_path):
+    t = paths_tree(tmp_path)
+    p = write(t / "game", "s.px", "pxart 1\n@palette wick/pal.px\n@frame f\nk\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    text = str(e.value)
+    assert "can't find palette file 'wick/pal.px' (relative to this file, so " in text
+    assert str(t / "game" / "wick" / "pal.px") in text
+
+
+def test_output_write_error_says_the_base(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame x\nk\n")
+    (tmp_path / "ro").mkdir()
+    (tmp_path / "ro" / "o.png").mkdir()  # a directory where the PNG would go
+    msg = run_err("render", "a.px", "-o", "ro/o.png")
+    assert "ro/o.png (from the current directory): E_FILE" in msg
+
+
+def test_typed_path_unit():
+    assert pxart.typed_path("a/b.px") == "a/b.px (from the current directory)"
+    assert pxart.typed_path("../b.px") == "../b.px (from the current directory)"
+    assert pxart.typed_path("/x/b.px") == "/x/b.px"
+
+
+def test_file_error_names_the_option():
+    e = FileNotFoundError(2, "No such file or directory", "p.px")
+    e.option = "--match (p.px%dark)"
+    assert pxart.file_error("palette", e) == ("palette: --match (p.px%dark): p.px (from the current directory): "
+                                              "E_FILE: No such file or directory")
+
+
+def test_reading_tags_only_path_options():
+    for label, tagged in (("--match (x)", True), ("layer 1 (x.px)", False), ("FILE (x.px)", False)):
+        with pytest.raises(OSError) as e:
+            with pxart.reading(label):
+                raise FileNotFoundError(2, "No such file or directory", "x.px")
+        assert (getattr(e.value, "option", None) == label) == tagged, label
+
+
+def test_reading_innermost_option_wins():
+    with pytest.raises(OSError) as e:
+        with pxart.reading("--outer (a)"):
+            with pxart.reading("--inner (b)"):
+                raise FileNotFoundError(2, "nope", "b")
+    assert e.value.option == "--inner (b)"
+
+
+def test_help_documents_paths():
+    text = " ".join(pxart.__doc__.split())
+    assert "Paths: a path typed on the command line is read from the current directory, as the shell's are" in text
+    assert "A path written inside a file is read from that file's directory: a .px's '@palette pal.px', a .map's " \
+        "legend entries, a --labels CSV's file names." in text
+    for opt in ("--palette", "--import", "--match", "--copy-to", "--into", "--map", "--labels", "--in",
+                "--extract-to", "--export", "--preview"):
+        assert opt in pxart.note("FORMAT: paths"), opt
+
+
+def test_paths_note_is_its_own_see_also_block(capsys):
+    out = cmd_help(capsys, "palette")
+    assert "FORMAT: paths (what a path is read from: the current directory, or a file's own)" in see_also(out)
+    assert "Paths: a path typed" not in pxart.note("FORMAT: selecting frames")

@@ -49,6 +49,17 @@ FORMAT (.px)
   modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
   letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
   An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash.
+  Paths: a path typed on the command line is read from the current directory, as the
+  shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
+  --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
+  --frames, --aseprite, --tiled). A path written inside a file is read from that file's
+  directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
+  names. Run from the folder holding game/ and wick/, 'palette game/pal.px --variant dark
+  --derive-from base --match wick/pal.px%dark' reads wick/pal.px, where game/pal.px's own
+  line would say '@palette ../wick/pal.px'. A file pxart writes in another directory gets
+  its @palette lines re-pointed from there. An E_FILE for a relative path says so, and a
+  path option's names the option: 'palette: --match (../wick/pal.px%dark): ../wick/pal.px
+  (from the current directory): E_FILE: No such file or directory'.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
@@ -770,8 +781,9 @@ ERROR CODES
   error in an input file also says which input it came from, then where in the file:
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
   A file that can't be read is one E_FILE line too, its path relative to the current
-  directory when it is under it: 'render: hero.pxalk/0: E_FILE: No such file or directory;
-  'hero.pxalk/0' looks like zsh ate a ':' ...'.
+  directory when it is under it, and said to be (see FORMAT: paths): 'render: hero.pxalk/0
+  (from the current directory): E_FILE: No such file or directory; 'hero.pxalk/0' looks like
+  zsh ate a ':' ...'.
   Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
@@ -840,13 +852,24 @@ def fail(code, msg, **kw):
 @contextlib.contextmanager
 def reading(label):
     """Errors inside name the input they came from: 'layer 2 (parts.px:hat)'; main adds the command in front.
-    The innermost label wins."""
+    The innermost label wins. A file a path option names that can't be read (an OSError) carries the option's label
+    too, for its E_FILE line: '--match (../wick/pal.px%dark)'."""
     try:
         yield
     except PxError as e:
         for i in e.issues:
             i.ctx = i.ctx or label
         raise
+    except OSError as e:
+        if label.startswith("--") and not getattr(e, "option", None):
+            e.option = label
+        raise
+
+
+def typed_path(p):
+    """A path as typed on the command line, for a message: with ' (from the current directory)' when it is relative,
+    since every such path is read from there (a path inside a file is read from that file's directory)."""
+    return f"{p} (from the current directory)" if not os.path.isabs(str(p)) else str(p)
 
 
 # ---------------------------------------------------------------------------- model
@@ -1086,7 +1109,7 @@ def start_doc(path, palette=None):
             try:
                 sub = parse(palette, palette_only=True)
             except FileNotFoundError:
-                fail("E_PALETTE_FILE", f"can't find palette file {str(palette)!r}")
+                fail("E_PALETTE_FILE", f"can't find palette file {typed_path(palette)}")
         imports(doc, pathlib.Path(os.path.relpath(pathlib.Path(palette).resolve(),
                                                   pathlib.Path(path).resolve().parent)).as_posix(), sub)
     return doc
@@ -1203,7 +1226,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 try:
                     sub = parse(target, strict, palette_only=True, _depth=_depth + 1)
                 except FileNotFoundError:
-                    err("E_PALETTE_FILE", f"can't find palette file {ref!r} (relative to this file)" + skip, n)
+                    err("E_PALETTE_FILE", f"can't find palette file {ref!r} (relative to this file, so {target})"
+                        + skip, n)
                     continue
                 except PxError as e:
                     err("E_PALETTE_FILE", f"palette file {ref!r} has errors: {e.issues[0]}" + skip, n)
@@ -1564,12 +1588,17 @@ ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
 
 def file_error(cmd, e):
     """An OSError as one E_FILE line that starts with the command, like every error line; the path relative to the
-    current directory when it is under it. A missing input like 'hero.pxalk/0' gets the zsh-modifier hint."""
+    current directory when it is under it, and then '(from the current directory)', the base every path typed on the
+    command line is read from. A path option's line names the option: 'palette: --match (../wick/pal.px%dark):
+    ../wick/pal.px (from the current directory): E_FILE: ...'. A missing input like 'hero.pxalk/0' gets the
+    zsh-modifier hint."""
     name = str(e.filename or "")
     if os.path.isabs(name):
         rel = os.path.relpath(name)
         name = name if rel.startswith("..") else rel
-    msg = f"{cmd}: {name}: E_FILE: {e.strerror or e}" if name else f"{cmd}: E_FILE: {e.strerror or e}"
+    where = typed_path(name) if name else ""
+    head = f"{cmd}: {e.option}" if getattr(e, "option", None) else cmd
+    msg = f"{head}: {where}: E_FILE: {e.strerror or e}" if name else f"{head}: E_FILE: {e.strerror or e}"
     if isinstance(e, FileNotFoundError) and any(ZSH_EATEN_RE.search(part) for part in pathlib.Path(name).parts):
         msg += (f"; {name!r} looks like zsh ate a ':' as a modifier (\"$F:walk/0\" applies :w to $F, \"$F:t\" "
                 "applies :t). Write \"${F}:walk/0\" or quote the whole argument.")
@@ -3026,7 +3055,7 @@ def frames_copy(a, doc, sel, picked):
              + "; ".join(f"{n} (from {', '.join(olds)})" for n, olds in twice.items())
              + "; rename them into different groups")
     if not pathlib.Path(dpath).exists():
-        fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames and {doc.path}'s palette: "
+        fail("E_FILE", f"--copy-to {typed_path(dpath)}: no such file; to start one with these frames and {doc.path}'s palette: "
              f"pxart extract {doc.path}{':' + sel if sel else ''} -o {dpath}; to copy them into a file that imports "
              f"another palette, start it empty first: pxart new {dpath} --empty --palette P.px")
     with reading(f"--copy-to ({dpath})"):
@@ -5097,6 +5126,8 @@ def key_color(m):
 def cmd_palette(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
+    if a.within and not os.path.isdir(a.within):
+        fail("E_FILE", f"--in {typed_path(a.within)}: not a directory")
     notes = comment_args(a.comment)
     derive = a.derive_from is not None
     if (a.darken is not None or a.tint or a.keep_lit or a.match or a.lift_darks) and not derive:
@@ -5614,7 +5645,7 @@ def import_palette(doc, pal):
         try:
             sub = parse(pal, palette_only=True)
         except FileNotFoundError:
-            fail("E_PALETTE_FILE", f"can't find palette file {str(pal)!r}")
+            fail("E_PALETTE_FILE", f"can't find palette file {typed_path(pal)}")
     target = pathlib.Path(pal).resolve()
     if target == doc.path.resolve() or doc.path.resolve() in import_chain(sub):
         fail("E_BAD_ARG", f"--import {pal}: {doc.path} can't import itself" + (
@@ -6115,7 +6146,7 @@ def loose_names(paths, a):
     fcol, lcol = a.file_col or "filename", a.label_col or "proposed_name"
     by_path, by_name = {}, {}  # resolved path -> (name, where); file name -> [(name, where)]
     for csv_path in a.labels:
-        with open(csv_path, newline="", encoding="utf-8-sig") as fh:
+        with reading(f"--labels ({csv_path})"), open(csv_path, newline="", encoding="utf-8-sig") as fh:
             rows = list(csv.reader(fh))
         head = [h.strip() for h in rows[0]] if rows else []
         missing = [c for c in (fcol, lcol) if c not in head]
@@ -6252,7 +6283,8 @@ NOTES = {
     "FORMAT: pivots and timing": ("  pivot=x,y (optional)", "  Frame groups that aren't animations"),
     "FORMAT: still groups": ("  Frame groups that aren't animations", "  Palette variants"),
     "FORMAT: variants": ("  Palette variants", "  Anywhere a command takes FILE"),
-    "FORMAT: selecting frames": ("  Anywhere a command takes FILE", "LOOKING"),
+    "FORMAT: selecting frames": ("  Anywhere a command takes FILE", "  Paths:"),
+    "FORMAT: paths": ("  Paths:", "LOOKING"),
     "LOOKING: centering": ("  Centering:", "CHECKING"),
     "EDITING": ("EDITING (writes .px", "  flip FILE"),
     "DRAWING": ("DRAWING (edits like EDITING", "  line FILE"),
@@ -6263,6 +6295,7 @@ GIST = {  # what each block (or another command's section) has, for the see-also
     "FORMAT: still groups": "@still GROUP, @still *",
     "FORMAT: variants": "@variant, %VARIANT",
     "FORMAT: selecting frames": "FILE:SEL, an unnamed grid's name, zsh's \"${F}:sel\"",
+    "FORMAT: paths": "what a path is read from: the current directory, or a file's own",
     "LOOKING: centering": "frames of different sizes, --bg",
     "EDITING": "-o OUT gets the whole file, only changed lines are rewritten, 'no change'",
     "DRAWING": "FILE[:SEL], KEY, clipping, 'painted N px'",
@@ -6274,8 +6307,8 @@ DRAWS = ["DRAWING", "EDITING", "FORMAT: selecting frames"]
 SEE = {  # what a command's section relies on: other commands' sections (by name) and NOTES, named, not pasted
     "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
-    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants"], "tint": ["scene"],
-    "check": ["FORMAT: still groups"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
+    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants", "FORMAT: paths"], "tint": ["scene"],
+    "check": ["FORMAT: still groups", "FORMAT: paths"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
     "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: selecting frames"],
@@ -6284,13 +6317,13 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "crop": ["compose"] + EDITS, "extract": ["FORMAT: variants"] + EDITS, "recolor": ["FORMAT: variants"] + EDITS,
     "paste": ["compose"] + EDITS, "compose": EDITS, "dup": ["FORMAT: frames and animation"] + EDITS,
     "anim-set": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups"] + EDITS,
-    "palette": ["FORMAT: variants"] + EDITS,
+    "palette": ["FORMAT: variants", "FORMAT: paths"] + EDITS,
     "line": DRAWS, "rect": DRAWS, "poly": DRAWS, "ellipse": DRAWS, "arc": DRAWS, "flood": DRAWS,
     "rotate": ["FORMAT: pivots and timing"] + DRAWS, "transpose": ["FORMAT: pivots and timing"] + DRAWS,
     "shade": DRAWS, "outline": DRAWS,
     "export": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: variants", "FORMAT: selecting frames"],
-    "from-png": [], "help": [],
+    "from-png": ["FORMAT: paths"], "help": [],
 }
 PASTE = {"rotate": ["transpose"]}  # transpose's section ends with the paragraph both share
 
