@@ -4714,7 +4714,8 @@ def test_rotate_help_has_the_shared_turn_paragraph(capsys):
 
 def test_reference_sections_end_at_the_next_command():
     assert "flood FILE" not in pxart.reference("arc") and "rect FILE" not in pxart.reference("line")
-    assert pxart.reference("stats").splitlines()[0] == "  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]"
+    assert pxart.reference("stats").splitlines()[0] == "  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] " \
+        "[--variant V]"
     assert "diff A B" not in pxart.reference("stats") and pxart.reference("diff").startswith("  diff A B")
     assert "CHECKING" not in pxart.reference("check") and "frames FILE" not in pxart.reference("stats")
     assert "ERROR CODES" not in pxart.reference("from-png")
@@ -27655,3 +27656,61 @@ def test_box_text_is_inclusive():
 
 def test_help_labels_stats_bbox():
     assert "Size, bbox ('x 1..22, y 0..20': ends included)" in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- stats: a frame drawn only in night keys, and --variant
+
+STATS_NIGHT = "k #000000\nL transparent\n@variant night\nL #f6e45a50\n@variant dusk\nL transparent\n" \
+    "@frame halo\n.LL.\nL..L\n.LL.\n@frame body\n.k..\n.L..\n"
+
+
+def test_stats_night_only_frame_says_what_is_drawn(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert run("stats", f"{p}:halo") == 0
+    assert capsys.readouterr().out == f"{p}:halo: 4x3 bbox none (6 px drawn, all transparent in the base; visible " \
+        "in night); colors=0 \n"
+
+
+def test_stats_variant_renders_every_frame_in_it(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert run("stats", p, "--variant", "night") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == [f"{p}:halo%night: 4x3 bbox x 0..3, y 0..2; colors=1 #f6e45a50",
+                   f"{p}:body%night: 4x2 bbox x 1..1, y 0..1; colors=2 #000000 #f6e45a50"]
+
+
+def test_stats_own_variant_wins_over_the_flag(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert run("stats", f"{p}:halo%dusk", "--variant", "night") == 0
+    assert capsys.readouterr().out == f"{p}:halo%dusk: 4x3 bbox none (6 px drawn, all transparent in dusk; visible " \
+        "in night); colors=0 \n"
+
+
+def test_stats_variant_at_names_only_that_variant(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert run("stats", f"{p}:halo", "--variant", "night", "--at", "1,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 1,0: key L; night #f6e45a50"
+
+
+def test_stats_frame_transparent_everywhere(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "L transparent\n@frame a\nLL\n")
+    assert run("stats", p) == 0
+    assert "bbox none (2 px drawn, all transparent in the base; in every variant too); colors=0" in \
+        capsys.readouterr().out
+
+
+def test_stats_unknown_variant_is_e_select(tmp_path):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert "unknown variant 'nite'" in run_err("stats", p, "--variant", "nite")
+
+
+def test_stats_variant_on_a_png_keeps_its_name(tmp_path, capsys):
+    p = tmp_path / "a.png"
+    Image.new("RGBA", (2, 1), (255, 0, 0, 255)).save(p)
+    assert run("stats", p, "--variant", "night") == 0
+    assert capsys.readouterr().out.startswith(f"{p}: 2x1 bbox x 0..1, y 0..0; colors=1 ")
+
+
+def test_help_documents_stats_variant(capsys):
+    assert "stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]" in pxart.__doc__
+    assert "FILE:SEL%VARIANT reads the colors a variant renders (--variant V: every FILE's)" in pxart.__doc__

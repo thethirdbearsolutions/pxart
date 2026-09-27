@@ -204,7 +204,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
   no frames, which `--strict` fails; one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
-  hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys, and `--at 3,4`
+  hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;
+  a frame drawn only in keys lit at night says `bbox none (96 px drawn, all transparent in the base; visible in
+  night)`), and `--at 3,4`
   one pixel's key and color in every variant), `diff A B` (renders pixel by pixel, one line per pair: how many
   pixels differ and where, exit 1 when they do, so a copy can be proved to render as its original;
   `diff town.px pack/ --labels pack/labels.csv` checks every frame against the pack's PNG its row names,

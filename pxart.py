@@ -242,13 +242,14 @@ CHECKING
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
-  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]
+  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
       Size, bbox ('x 1..22, y 0..20': ends included), colors (a directory, palette files and
-      --exclude as for sheet). FILE:SEL%VARIANT reads the colors a variant renders: 'stats
+      --exclude as for sheet).
+      FILE:SEL%VARIANT reads the colors a variant renders (--variant V: every FILE's): 'stats
       hero.px:idle/0%night'. --colors lists each frame's rendered colors, most pixels first,
-      each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
-      (repeatable) prints that pixel's key and its color in the base palette and in every
-      variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
+      each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y (repeatable) prints that pixel's key and its color in
+      the base palette and in every variant ('at 3,4: key k; base #3f2631, night #120e22'),
+      or only in the one named.
   diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]]
        [--labels CSV [--label-col C] [--file-col C]]
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
@@ -3506,21 +3507,37 @@ def cmd_check(a):
 def cmd_stats(a):
     spots = [coords(s, ("x", "y"), "--at") for s in a.at or []]
     for n, arg in enumerate(frames_only(in_dirs(a.files, exclude=a.exclude or ()), "stats"), 1):
+        name, own = split_variant(arg)
+        v = own or a.variant
         with reading(f"file {n} ({arg})"):
-            its = items(arg)
+            its = items(arg, a.variant)
         for it in its:
             cs, box = colors(it.img), it.img.getchannel("A").getbbox()
-            box = box and box_text(box)
-            print(f"{arg if not (it.frame and it.frame.id) else split_sel(split_variant(arg)[0])[0] + ':' + it.label}"
-                  + (f"%{split_variant(arg)[1]}" if split_variant(arg)[1] and it.frame and it.frame.id else "")
-                  + f": {it.img.width}x{it.img.height} bbox {box or 'none'}; colors={len(cs)} "
-                  + " ".join(rgba2hex(c) for c in cs[:32]))
+            print(f"{arg if not (it.frame and it.frame.id) else split_sel(name)[0] + ':' + it.label}"
+                  + (f"%{v}" if v and it.doc and (it.frame.id or not own) else "")
+                  + f": {it.img.width}x{it.img.height} bbox {box_text(box) if box else 'none' + unseen(it, v)}; "
+                  + f"colors={len(cs)} " + " ".join(rgba2hex(c) for c in cs[:32]))
             if a.colors:
                 for line in color_counts(it):
                     print(f"  {line}")
             for x, y in spots:
                 with reading(f"file {n} ({arg})"):
-                    print(f"  {pixel_at(it, int(x), int(y), split_variant(arg)[1])}")
+                    print(f"  {pixel_at(it, int(x), int(y), v)}")
+
+
+def unseen(it, variant=None):
+    """stats, for a frame that renders empty: ' (96 px drawn, all transparent in the base; visible in night)' when its
+    grid draws keys that its palette makes transparent (a halo lit only at night), else ''."""
+    if not it.frame:
+        return ""
+    drawn = [c for row in it.frame.grid for c in row if c != "."]
+    if not drawn:
+        return ""
+    d, keys = it.doc, set(drawn)
+    here = variant if variant and variant != "base" else "base"
+    seen = [n for n in ["base"] + variant_names(d) if n != here and any(d.resolved(n)[k][3] for k in keys)]
+    return (f" ({len(drawn)} px drawn, all transparent in {'the base' if here == 'base' else here}; "
+            + (f"visible in {listed(seen)}" if seen else "in every variant too") + ")")
 
 
 def color_counts(it):
@@ -8295,6 +8312,7 @@ def parser(describe=True):
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
+    p.add_argument("--variant", metavar="V", help="render every frame in V (a FILE's own %%V wins): its bbox and colors")
     p.add_argument("--colors", action="store_true", help="each frame's rendered colors, pixel counts and keys")
     p.add_argument("--at", action="append", metavar="x,y",
                    help="the pixel's key and its color in the base palette and every variant (repeatable)")
