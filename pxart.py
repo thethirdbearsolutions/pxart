@@ -38,6 +38,8 @@ FORMAT (.px)
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override, and a local key that repeats an
   imported one's color (with the palette --remove that drops its line when nothing changes).
+  A variant a file gets only from its @palette leaves the file's own keys at base colors;
+  commands that render it print a WARNING naming them and the fix, and check notes it.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. A file with
@@ -73,19 +75,17 @@ LOOKING
       PNGs in it are left out, a sheet rendered there too). --exclude GLOB (repeatable) leaves
       files out: one whose name or path under the directory matches ('_*.px', 'wip/*.px'), or
       every file under a directory that does ('wip'): 'sheet game/ --exclude wip --exclude
-      room.px -o set.png'. A glob that matches nothing gets a note; one that leaves out every
-      file is E_FILE (check, stats and export alike, files named directly too). A
-      palette file (no frames) among the inputs, a directory's or a glob's, is skipped with a
-      note ('note: sheet skips palette.px: a palette file, no frames'); given alone it is
-      E_NO_FRAMES. Every cell is
-      the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
+      room.px -o set.png'. A glob that leaves out every file is E_FILE (check, stats and
+      export alike, files named directly too). A palette file (no frames) among the inputs,
+      a directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
+      palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
+      frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
       --fit makes each cell its own frame's width (or its label's, if wider) and each row
       as tall as its tallest frame, --cols cells to a row, frames bottom-aligned in their
       row. A PNG whose four corners are exactly the --bg color (a scene rendered with the
       same --bg) doesn't count that color: it's the backdrop. Frames with the same id from
       different files are labeled with their file's stem in front (hero:idle/0,
-      beast:idle/0; the path as given when the stems match too); render and anim label them
-      the same way.
+      beast:idle/0); render and anim label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
       the group's frames are drawn on one canvas, every pivot on the same pixel (a frame
       without one uses its bottom-centre pixel), so a walk frame whose pivot says it stands
@@ -145,8 +145,7 @@ LOOKING
       The shift still moves all of A (pixels come into the band from above) and counts only
       the band's pixels. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color, at that color's alpha
-      (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead,
-      the PNG onion drew before --tint-a was the default (faint on the dark backdrop).
+      (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
@@ -619,13 +618,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       unchanged'.
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
-      --keep-lit y,W sets every key of FILE's palette (imported ones too) in night from its
-      base color (or from another variant's: --derive-from dusk), each channel times 1 - F
-      (--darken 0.35 keeps 65%), then the --tint color laid over at its alpha, the math of
-      scene --tint, so night looks like a tinted scene; the --keep-lit keys keep their
-      --derive-from color, listed as lamps kept lit. A key that comes out in its base color
-      gets no line. --add in the same call then sets single keys over the derived ones: a
-      whole night in one call, with the lamps still lit.
+      --keep-lit y,W sets every key of FILE's palette (imported ones too, unless FILE imports
+      a night) in night from its base color (or from another variant's: --derive-from
+      dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
+      over at its alpha, the math of scene --tint, so night looks like a tinted scene; the
+      --keep-lit keys keep their --derive-from color, listed as lamps kept lit. A key that
+      comes out in its base color gets no line. --add in the same call then sets single keys
+      over the derived ones: a whole night in one call, with the lamps still lit.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -1148,6 +1147,7 @@ class Doc:
 
     def image(self, f, variant=None):
         pal = self.resolved(variant)
+        warn_half(self, variant)
         w, h = f.size
         img = Image.new("RGBA", (w, h))
         img.putdata([pal[c] for row in f.grid for c in row])
@@ -2915,6 +2915,9 @@ def cmd_check(a):
                     pdoc = parse(path, a.strict, palette_only=True)
                     print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
                           + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                    for name, ks in half_variants(pdoc):
+                        print(f"     {path}: {said_half(pdoc, name, ks)}")
+                        tally["warnings"] += 1
                 except PxError as e:
                     failed = True
                     print(f"FAIL {path}: {len(e.issues)} error(s)")
@@ -2959,6 +2962,8 @@ def cmd_check(a):
                         notes.append(f"animation {g!r} mixes frame sizes ("
                                      + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
                                      + "); frames draw bottom-centered, and Tiled export needs one size")
+                for name, ks in half_variants(doc):
+                    notes.append(said_half(doc, name, ks))
                 for text, n in orphans(doc):
                     msg = f"{text!r} names a group with no frames; remove the line or add frames to it"
                     if a.strict:
@@ -3062,6 +3067,8 @@ def pixel_at(it, x, y, variant=None):
         return f"at {x},{y}: {fmt_color(it.img.getpixel((x, y)))}"
     k, d = it.frame.grid[y][x], it.doc
     names = [variant] if variant and variant != "base" else ["base"] + variant_names(d)
+    for n in names:
+        warn_half(d, n)
     return f"at {x},{y}: key {k}; " + ", ".join(f"{n} {fmt_color(d.resolved(n)[k])}" for n in names)
 
 
@@ -3317,6 +3324,9 @@ def frames_copy(a, doc, sel, picked):
     warn = said_vclash(label, doc, vclashes(dst, doc, keys, vmap, clear=True), dst, dpath, vmap,
                        "frames --copy-to --rekey", asked)
     uncovered = said_uncovered(label, doc, dst, dpath, vmap, import_keys(dst, doc, keys, vmap, clear=True))
+    for n, src in layer_variants(doc, vmap).items():  # a variant of DST the copies take from FILE's import alone
+        if n in variant_names(dst):
+            warn_half(doc, src)
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
     said = []
@@ -4578,6 +4588,50 @@ def variant_names(d):
     return list(d.variants) + [n for n in d.shared_variants if n not in d.variants]
 
 
+def half_variants(d, only=None):
+    """The variants d gets only through its @palette imports (no '@variant NAME' line of its own) that leave some of its
+    own keys at their base colors, since the palette file's variant can't know them: [(name, keys)], the keys in
+    palette order, those its frames draw (a palette file, with no frames: all its own). only: that variant alone. A
+    file with its own @variant line of that name has chosen what its keys do there, and is left alone."""
+    if not d.palette_refs:
+        return []
+    drawn = set("".join(r for f in d.frames for r in f.grid)) if d.frames else None
+    out = []
+    for name, over in d.shared_variants.items():
+        if name in d.variants or name == "base" or (only is not None and name != only):
+            continue
+        ks = [k for k, c in d.palette.items() if c[3] and k not in over and (drawn is None or k in drawn)]
+        if ks:
+            out.append((name, ks))
+    return out
+
+
+def said_half(d, name, ks):
+    """The words for one of half_variants: which file, which variant, the keys it leaves at base, and the fix."""
+    refs = d.palette_refs
+    pal = (d.path.parent / refs[0]).as_posix() if len(refs) == 1 else "P.px"
+    pal = os.path.normpath(pal) if len(refs) == 1 and not os.path.isabs(pal) else pal
+    many = len(ks) > 1
+    return (f"@variant {name} comes only from its @palette {' and '.join(refs)}, which doesn't list its own "
+            f"key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
+            f"color{'s' * many}. Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
+            f"--derive-from base --match {pal}' (--keep-lit KEYS for lights), or --add 'K=#rrggbb'")
+
+
+WARNED = set()  # (path, variant) whose half_variants WARNING this run printed: once per file and variant
+
+
+def warn_half(d, name):
+    """Rendering d in variant `name`: a WARNING (once per file and variant a run) when name comes only from d's
+    @palette and leaves keys of d's own at their base colors (half_variants)."""
+    if not name or name == "base" or d is None or d.path is None:
+        return
+    for n, ks in half_variants(d, name):
+        if (d.path.resolve(), n) not in WARNED:
+            WARNED.add((d.path.resolve(), n))
+            print(f"WARNING: {d.path}: {said_half(d, n, ks)}")
+
+
 def layer_variants(d, vmap):
     """{OUT's variant: the variant of d's file it takes}. A map entry NAME=V1,V2 only says where OUT's NAME comes from
     (d's first of NAME, V1, V2); every other variant of OUT reads d's variant of the same name, one the map also reads
@@ -5178,6 +5232,10 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         return {p: m for p, m in found.items() if m}, whys
     if not fresh and not osel and hasattr(a, "replace") and not getattr(a, "under", False):  # compose's plain OUT
         print(f"note: {opath} exists: keeping its palette ({kept}); --replace starts it fresh")
+    for d in {id(lay.doc): lay.doc for lay, *_ in layers}.values():  # OUT's variants from a layer's import alone
+        for n, src in layer_variants(d, vmap).items():
+            if n in variant_names(doc):
+                warn_half(d, src)
     for line in said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap,
                              rekey_said, fresh) + said_variants(opath, layers, doc, vmap, fresh):
         print(line)
@@ -5267,6 +5325,7 @@ def baked(doc, variant):
     base palette, every key its own and no variants, so the layer draws in V's colors in OUT's base and every variant,
     as scene draws it. It goes by FILE%V, a file of its own to compose, --rekey and the notes."""
     pal = doc.resolved(variant)
+    warn_half(doc, variant)
     doc.palette = {k: c for k, c in pal.items() if k != "."}
     doc.shared, doc.shared_variants, doc.variants, doc.palette_refs = {}, {}, {}, []
     doc.path = doc.path.with_name(f"{doc.path.name}%{variant}")
@@ -5628,6 +5687,8 @@ def cmd_palette(a):
               + f"; inherits: {' '.join(keeps) or 'nothing'}")
         for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
             print(f"    {l.strip()}")
+        for _, ks in half_variants(doc, name):
+            print(f"    WARNING: {said_half(doc, name, ks)}")
         for k in pal:
             said = comment_text(cmts.get(("vkey", name, k)))
             if said:
@@ -5763,10 +5824,11 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
             fail("E_VARIANT_KEY", f"--keep-lit {k!r}: the base palette doesn't define it", path=doc.path)
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
+    own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
     over = doc.variants.setdefault(name, {})
     recolored, held = [], []
     for k, c in base.items():
-        if k == "." or not c[3]:
+        if k == "." or not c[3] or (own and k not in doc.palette):
             continue
         if k in lit:
             got = from_[k]
@@ -5787,7 +5849,8 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
                     + ([how] if how else []))
     said = [f"new @variant {name}" if made else f"@variant {name}",
-            f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"]
+            f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"
+            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones)" if own else "")]
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
@@ -7146,6 +7209,7 @@ def main(argv=None):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
     elif extra:
         ap.parse_args(args)  # argparse's own error
+    WARNED.clear()
     told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:
         with contextlib.redirect_stdout(told):

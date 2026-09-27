@@ -84,7 +84,11 @@ pxart 1
   legend) is read from that file's directory; a path typed on the command line (`--match`,
   `--palette`, `--labels`, ...) from the current directory, and an `E_FILE` says so.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
-  `--variant night`.
+  `--variant night`. A variant a sprite gets only from its `@palette` can't know the
+  sprite's own keys and leaves them at their base colors (a white wick at dusk): every
+  command that renders it prints a `WARNING` naming them, `check` says so too, and
+  `palette wick.px --variant dusk --derive-from base --match pal.px` gives the sprite a dusk
+  of its own, fitted to the palette's.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`

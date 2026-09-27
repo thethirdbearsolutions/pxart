@@ -22352,3 +22352,294 @@ def test_help_says_each_shared_rule_once():
     assert doc.count("OUT:frame of an existing OUT adds that frame") == 0
     assert doc.count("recolors otherwise in a variant (a market's awning red") == 0
     assert doc.count("The layers' files are read, never written") == 1
+
+
+# ---------------------------------------------------------------- a variant only the @palette has leaves own keys at base
+
+HALF_PAL = "pxart 1\no #3f2631\ng #84c669\n@variant dusk\no #4b241e\ng #988f4d\n@variant night\no #1b1422\ng #293931\n"
+HALF_SPRITE = "pxart 1\n@palette pal.px\nM #ffe07a\nP #fff6d0\nZ #f7c282\n@variant night\nM #ffe07a\nP #403f4a\n" \
+              "@anim wick/idle ms=180\n@frame wick/idle/0\noMPo\ngggg\n@frame wick/idle/1\noPMo\ngggg\n"
+
+
+def half(tmp_path, sprite=HALF_SPRITE, pal=HALF_PAL):
+    write(tmp_path, "pal.px", pal)
+    return write(tmp_path, "wick.px", sprite)
+
+
+HALF_WARN = "WARNING: {p}: @variant dusk comes only from its @palette pal.px, which doesn't list its own keys M P: in " \
+            "dusk they stay at their base colors. Give it a dusk of its own: 'pxart palette {p} --variant dusk " \
+            "--derive-from base --match {pal}' (--keep-lit KEYS for lights), or --add 'K=#rrggbb'"
+
+
+def test_half_variants_lists_own_drawn_keys_the_import_leaves(tmp_path):
+    doc = pxart.parse(half(tmp_path))
+    assert pxart.half_variants(doc) == [("dusk", ["M", "P"])]  # Z isn't drawn; night is the file's own
+    assert pxart.half_variants(doc, "dusk") == [("dusk", ["M", "P"])]
+    assert pxart.half_variants(doc, "night") == [] and pxart.half_variants(doc, "base") == []
+
+
+def test_half_variants_none_without_an_import(tmp_path):
+    doc = pxart.parse(write(tmp_path, "a.px", "pxart 1\nk #000000\n@variant dusk\n@frame a\nk\n"))
+    assert pxart.half_variants(doc) == []
+
+
+def test_half_variants_none_when_the_file_has_its_own_line(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\n@anim"))
+    assert pxart.half_variants(pxart.parse(p)) == []
+
+
+def test_half_variants_an_own_empty_variant_is_a_choice(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\n\n@anim"))
+    doc = pxart.parse(p)
+    assert "dusk" in doc.variants and pxart.half_variants(doc) == []
+
+
+def test_half_variants_an_override_of_an_imported_key_is_covered(tmp_path):
+    # the sprite's own o overrides pal.px's o, and pal.px's dusk recolors o: not left at base
+    p = half(tmp_path, HALF_SPRITE.replace("M #ffe07a\n", "M #ffe07a\no #402020\n", 1))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"])]
+
+
+def test_half_variants_skips_transparent_keys(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282", "Z transparent").replace("oMPo\ngggg\n@frame wick/idle/1",
+                                                                                  "oMPZ\ngggg\n@frame wick/idle/1"))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"])]
+
+
+def test_half_variants_a_palette_file_counts_all_its_own_keys(tmp_path):
+    write(tmp_path, "pal.px", HALF_PAL)
+    p = write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\nw #efe6d2\n@variant night\ny #f3cf6b\n")
+    assert pxart.half_variants(pxart.parse(p, palette_only=True)) == [("dusk", ["y", "w"])]
+
+
+def test_half_variants_every_imported_variant_it_misses(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"]), ("night", ["M", "P"])]
+
+
+def test_half_variants_none_when_the_import_lists_them(tmp_path):
+    pal = HALF_PAL.replace("@variant dusk\n", "M #ffe07a\nP #fff6d0\n@variant dusk\nM #806030\nP #806060\n")
+    p = half(tmp_path, HALF_SPRITE.replace("M #ffe07a\nP #fff6d0\n", "", 1), pal)
+    assert pxart.half_variants(pxart.parse(p)) == []
+
+
+@pytest.mark.parametrize("argv", [
+    ["render", "wick.px%dusk", "-o", "r.png"],
+    ["render", "wick.px", "--variant", "dusk", "-o", "r.png"],
+    ["render", "wick.px:wick/idle/0%dusk", "-o", "r.png"],
+    ["sheet", "wick.px", "--variant", "dusk", "-o", "s.png"],
+    ["sheet", ".", "--variant", "dusk", "-o", "s.png"],
+    ["anim", "wick.px:wick/idle", "--variant", "dusk"],
+    ["anim", "wick.px:wick/idle%dusk", "-o", "a.gif"],
+    ["onion", "wick.px:wick/idle/0%dusk", "wick.px:wick/idle/1%dusk", "-o", "o.png"],
+    ["scene", "wick.px:wick/idle/0%dusk@0,0", "-o", "sc.png"],
+    ["scene", "--variant", "dusk", "wick.px:wick/idle/0@0,0", "-o", "sc.png"],
+    ["stats", "wick.px:wick/idle/0%dusk"],
+    ["stats", "wick.px:wick/idle/0", "--at", "1,0"],
+    ["stats", "wick.px:wick/idle/0%dusk", "--colors"],
+    ["diff", "wick.px:wick/idle/0%dusk", "wick.px:wick/idle/0%dusk"],
+    ["diff", "wick.px", "wick.px", "--variant", "dusk"],
+    ["export", "wick.px", "--variant", "dusk", "--frames", "out"],
+    ["export", "wick.px", "--variant", "dusk", "--aseprite", "x.json"],
+    ["export", "wick.px", "--variant", "dusk", "--tiled", "x.tsj"],
+])
+def test_every_variant_render_warns_about_own_keys_left_at_base(tmp_path, monkeypatch, capsys, argv):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    run(*argv)
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out
+    assert out.count("WARNING: wick.px: @variant dusk") == 1  # once a run, however many frames
+
+
+def test_scene_map_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "street.map", "--tile", "4x2", "--variant", "dusk", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_scene_map_legend_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0%dusk\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "street.map", "--tile", "4x2", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_warning_names_the_path_as_reached_from_a_map_in_another_folder(tmp_path, monkeypatch, capsys):
+    (tmp_path / "town").mkdir()
+    half(tmp_path / "town")
+    write(tmp_path / "town", "street.map", "w wick.px:wick/idle/0\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "town/street.map", "--tile", "4x2", "--variant", "dusk", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="town/wick.px", pal="town/pal.px") in capsys.readouterr().out
+
+
+def test_compose_map_legend_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0%dusk\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "street.map", "--tile", "4x2", "-o", "street.px") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_compose_warns_for_a_layer_whose_file_has_the_variant_only_by_import(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "out.px", "wick.px:wick/idle/0@0,0") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out and out.count("WARNING: wick.px: @variant") == 1
+    # OUT imports pal.px too, and has the keys at base in dusk as the layer did: its own render says so
+    assert pxart.half_variants(pxart.parse(tmp_path / "out.px")) == [("dusk", ["M", "P"])]
+
+
+def test_frames_copy_to_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "party.px", "pxart 1\n@palette pal.px\n@frame a\nog\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "wick.px:wick/idle", "--copy-to", "party.px") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv", [
+    ["render", "wick.px", "-o", "r.png"],
+    ["render", "wick.px%night", "-o", "r.png"],
+    ["render", "wick.px%base", "-o", "r.png"],
+    ["render", "wick.px", "--variant", "base", "-o", "r.png"],
+    ["scene", "--variant", "night", "wick.px:wick/idle/0@0,0", "-o", "sc.png"],
+    ["scene", "--variant", "dusk", "wick.px:wick/idle/0%base@0,0", "-o", "sc.png"],
+    ["anim", "wick.px:wick/idle"],
+    ["diff", "wick.px", "wick.px"],
+    ["stats", "wick.px:wick/idle/0%night", "--at", "1,0"],
+])
+def test_no_warning_where_the_variant_isnt_half(tmp_path, monkeypatch, capsys, argv):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    run(*argv)
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_no_warning_once_the_file_has_its_own_dusk(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--add", "M=#ffe07a", "P=#806060") == 0
+    capsys.readouterr()
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_failing_render_drops_the_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("render", "wick.px%dusk", "nope.px", "-o", "r.png")
+    assert "E_FILE" in err and "WARNING" not in capsys.readouterr().out
+
+
+def test_warning_again_in_a_second_run(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for _ in range(2):
+        assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+        assert capsys.readouterr().out.count("WARNING") == 1
+
+
+def test_half_variant_render_is_what_the_warning_says(tmp_path, monkeypatch):
+    # the keys named really are at their base colors in dusk, and the import's keys recolored
+    doc = pxart.parse(half(tmp_path))
+    img = doc.image(doc.frames[0], "dusk")
+    assert img.getpixel((1, 0)) == (0xff, 0xe0, 0x7a, 255) and img.getpixel((0, 0)) == (0x4b, 0x24, 0x1e, 255)
+
+
+def test_check_notes_a_half_variant(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "wick.px") == 0
+    out = capsys.readouterr().out
+    assert "     wick.px: " + HALF_WARN.format(p="wick.px", pal="pal.px")[len("WARNING: wick.px: "):] in out
+
+
+def test_check_counts_it_as_a_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", ".") == 0
+    out = capsys.readouterr().out
+    assert "2 files, 2 frames, 2 warnings" in out and "unused keys Z" in out  # the half variant, and Z
+
+
+def test_check_notes_a_palette_file_importing_one(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "pal.px", HALF_PAL)
+    write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\n@variant night\ny #f3cf6b\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "pal2.px", "pal.px") == 0
+    out = capsys.readouterr().out
+    assert "     pal2.px: @variant dusk comes only from its @palette pal.px, which doesn't list its own key y: in " \
+        "dusk it stays at its base color." in out
+    assert "2 files, 0 frames, 1 warning" in out
+
+
+def test_check_quiet_when_the_file_has_its_own(tmp_path, monkeypatch, capsys):
+    half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\nM #806030\n@anim"))
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "wick.px") == 0
+    assert "comes only from its @palette" not in capsys.readouterr().out
+
+
+def test_check_strict_does_not_fail_on_it(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "--strict", "wick.px") == 0
+
+
+def test_palette_listing_warns_under_the_variant(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px") == 0
+    lines = capsys.readouterr().out.splitlines()
+    at = next(i for i, l in enumerate(lines) if l.startswith("  dusk:"))
+    assert lines[at + 1] == "    WARNING: " + HALF_WARN.format(p="wick.px", pal="pal.px")[len("WARNING: wick.px: "):]
+    assert not any("WARNING" in l for l in lines[at + 2:])
+
+
+def test_derive_into_an_imported_variant_sets_only_own_keys(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--derive-from", "base", "--match", "pal.px") == 0
+    out = capsys.readouterr().out
+    assert "recolors 3 key(s) of its own (pal.px's dusk colors the imported ones)" in out
+    doc = pxart.parse(tmp_path / "wick.px")
+    assert set(doc.variants["dusk"]) == {"M", "P", "Z"}  # not o or g: pal.px's dusk has them exactly
+    assert doc.resolved("dusk")["o"] == (0x4b, 0x24, 0x1e, 255)
+    assert pxart.half_variants(doc) == []
+
+
+def test_derive_a_variant_the_import_lacks_still_sets_every_key(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "fog", "--derive-from", "base", "--darken", "0.2") == 0
+    assert "of its own" not in capsys.readouterr().out
+    assert set(pxart.parse(tmp_path / "wick.px").variants["fog"]) == {"o", "g", "M", "P", "Z"}
+
+
+def test_derive_the_fix_the_warning_gives_silences_it(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--derive-from", "base", "--match", "pal.px",
+               "--keep-lit", "M") == 0
+    capsys.readouterr()
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "wick.px").variants["dusk"]["M"] == (0xff, 0xe0, 0x7a, 255)  # kept lit: listed
+
+
+def test_help_says_a_half_variant_warns():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A variant a file gets only from its @palette leaves the file's own keys at base colors; commands that " \
+        "render it print a WARNING naming them and the fix, and check notes it." in doc
+    assert "(imported ones too, unless FILE imports a night)" in doc
+
+
+def test_readme_says_a_half_variant_warns():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "A variant a sprite gets only from its `@palette` can't know the sprite's own keys" in readme
