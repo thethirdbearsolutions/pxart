@@ -1346,7 +1346,7 @@ def test_compose_new_frame_in_group_follows_spacing(tmp_path):
 
 
 def test_help_documents_compose_placement():
-    assert "after the last frame of its\n      animation (like dup)" in pxart.__doc__
+    assert "after the last frame of its animation (like dup)" in " ".join(pxart.__doc__.split())
 
 
 # ---------------------------------------------------------------- loop E: frames --rm/--move output, still groups
@@ -13433,7 +13433,7 @@ def test_help_documents_compose_across_packs(capsys):
     doc = " ".join(pxart.__doc__.split())
     assert "That line is a WARNING when the file needs a key it lost" in doc
     assert "--rekey then keeps such keys under free keys in OUT" in doc
-    assert "The comments above the layers' key and @variant lines come along, as for palette --extract-to" in doc
+    assert "the comments above the layers' key and @variant lines come along, as for palette --extract-to" in doc
     assert "'# lamp colors (l, g) stay lit (renamed l>I g>J)'" in doc
     assert "so one file's variant never recolors another file's pixels" in doc
     assert "--variant-map dusk=night,dark (repeatable) builds OUT's dusk from each layer's first of dusk, night, dark" \
@@ -20648,3 +20648,225 @@ def test_help_documents_the_undrawn_note():
     text = " ".join(pxart.__doc__.split())
     assert "a new OUT's note names the keys its frame doesn't draw with, by file" in text
     assert "check's 'unused keys' note offers the palette --remove that drops them" in text
+
+
+# ---------------------------------------------------------------- loop R: compose and palette open with their rules
+# help all's compose paragraph was a wall of text, its key facts buried: a new OUT imports the shared @palette, and
+# variants merge by name. Both sections now open with a short list of rules and examples; 'pxart help compose-rules'
+# prints only the list. Each rule is checked against the tool below.
+
+def test_compose_section_opens_with_rules(capsys):
+    lines = pxart.reference("compose").splitlines()
+    assert lines[2].strip().startswith("Stack single frames") and lines[3].strip().startswith("Rules (")
+    assert lines[4].startswith("        - A new OUT gets the layers' whole palettes")
+
+
+def test_palette_section_opens_with_rules():
+    lines = pxart.reference("palette").splitlines()
+    at = next(i for i, l in enumerate(lines) if "Rules (" in l)
+    assert at == 6 and lines[at + 1].startswith("        - No flags lists the palette")
+
+
+def test_compose_h_shows_the_rules_near_the_top(capsys):
+    out = cmd_help(capsys, "compose")
+    head = out.split("Examples:")[0]
+    assert len(head.splitlines()) <= 20
+    for fact in ("OUT imports it too", "Variants merge by name", "E_KEY_CONFLICT; --rekey gives it a free key"):
+        assert fact in " ".join(head.split()), fact
+
+
+def test_help_compose_rules_prints_only_the_rules(capsys):
+    assert run("help", "compose-rules") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "compose: the rules ('pxart compose -h' has the whole section)"
+    assert all(l.startswith("        ") for l in out[1:]) and sum(l.startswith("        - ") for l in out) == 5
+    assert len(out) <= 14
+
+
+def test_help_palette_rules_prints_only_the_rules(capsys):
+    assert run("help", "palette-rules") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "palette: the rules ('pxart palette -h' has the whole section)"
+    assert sum(l.startswith("        - ") for l in out) == 5 and "Examples" not in "\n".join(out)
+
+
+def test_help_rules_of_a_command_without_them_is_bad_arg():
+    msg = run_err("help", "flip-rules")
+    assert "E_BAD_ARG" in msg and "compose-rules, palette-rules" in msg
+
+
+def test_rules_unit():
+    assert pxart.rules("compose").splitlines()[0].startswith("        - A new OUT")
+    assert pxart.rules("flip") is None and pxart.rules("nope") is None
+    assert set(pxart.RULED) == {c for c in pxart.parser(describe=False)[1].choices if pxart.rules(c)}
+
+
+def test_rules_are_lines_of_the_reference():
+    doc = pxart.__doc__.splitlines()
+    for cmd in pxart.RULED:
+        for line in pxart.rules(cmd).splitlines():
+            assert line in doc, (cmd, line)
+
+
+def test_help_documents_the_rules_topics():
+    text = " ".join(pxart.__doc__.split())
+    assert "'pxart help compose-rules' and 'pxart help palette-rules' print only that list" in text
+
+
+def test_detail_paragraphs_are_separated(capsys):
+    ref = pxart.reference("compose")
+    for lead in ("A new OUT starts with", "An existing OUT keeps its own palette, @palette and variants; each layer's "
+                 "keys are added", "Key conflicts:", "The report:", "Variants come along", "Comments:",
+                 "Frames and canvas:"):
+        i = " ".join(ref.split()).index(lead)
+        assert i > 0, lead
+    assert "\n\n      Key conflicts:" in ref and "\n\n      Frames and canvas:" in ref
+
+
+def test_palette_detail_paragraphs_are_labeled():
+    ref = pxart.reference("palette")
+    for label in ("Listing:", "Base keys:", "Authoring a variant:", "Deriving a variant:", "Comments:",
+                  "Removing keys:", "Order:", "Sharing a palette file:"):
+        assert f"\n\n      {label}" in ref, label
+
+
+# each compose rule, as the tool does it
+
+def test_compose_rule_new_out_imports_the_shared_palette(tmp_path):
+    write(tmp_path, "pal.px", "k #101010\nw #f0f0f0\n@variant night\nw #202040\n")
+    a = write(tmp_path, "a.px", "pxart 1\n@palette pal.px\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\n@palette pal.px\n@frame g\nw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:f@0,0", f"{b}:g@1,0") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and doc.palette == {}
+
+
+def test_compose_rule_new_out_without_one_shared_import_gets_key_lines(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\nX #202020\n@frame f\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:f@0,0") == 0
+    assert set(pxart.parse(out).palette) == {"k", "X"}  # the whole palette, drawn with or not
+
+
+def test_compose_rule_existing_out_keeps_its_palette(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\nX #202020\n@frame f\nk\n")
+    out = write(tmp_path, "o.px", "pxart 1\nk #101010\nq #999999\n@variant dusk\nq #111111\n@frame x\nq\n")
+    assert run("compose", "-o", f"{out}:y", f"{a}:f@0,0") == 0
+    doc = pxart.parse(out)
+    assert list(doc.palette) == ["k", "q"] and list(doc.variants) == ["dusk"]
+
+
+def test_compose_rule_variants_merge_by_name(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\n@variant night\nk #000030\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nw #f0f0f0\n@variant night\nw #303050\n@frame g\nw\n")
+    c = write(tmp_path, "c.px", "pxart 1\ny #f0d040\n@frame h\ny\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x1", f"{a}:f@0,0", f"{b}:g@1,0", f"{c}:h@2,0") == 0
+    doc = pxart.parse(out)
+    img = doc.image(doc.frames[0], "night")
+    assert [img.getpixel((x, 0)) for x in range(3)] == [(0, 0, 0x30, 255), (0x30, 0x30, 0x50, 255),
+                                                       (0xf0, 0xd0, 0x40, 255)]  # c has no night: base
+
+
+def test_compose_rule_variant_map_reads_another_name(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\n@variant dusk\nk #000030\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nw #f0f0f0\n@variant night\nw #303050\n@frame g\nw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:f@0,0", f"{b}:g@1,0", "--variant-map",
+               "dusk=night") == 0
+    doc = pxart.parse(out)
+    assert doc.image(doc.frames[0], "dusk").getpixel((1, 0)) == (0x30, 0x30, 0x50, 255)
+
+
+def test_compose_rule_conflict_then_rekey_and_files_unwritten(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #ff0000\n@frame g\nk\n")
+    before = (a.read_text(), b.read_text())
+    out = tmp_path / "o.px"
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", out, "--size", "2x1", f"{a}:f@0,0", f"{b}:g@1,0")
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:f@0,0", f"{b}:g@1,0", "--rekey") == 0
+    assert (a.read_text(), b.read_text()) == before
+    img = pxart.parse(out).image(pxart.parse(out).frames[0])
+    assert img.getpixel((0, 0)) == (0x10, 0x10, 0x10, 255) and img.getpixel((1, 0)) == (255, 0, 0, 255)
+
+
+def test_compose_rule_out_frame_adds_or_replaces(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\n@frame f\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", f"{out}:x/0", f"{a}:f@0,0") == 0
+    assert run("compose", "-o", f"{out}:x/1", f"{a}:f@0,0") == 0
+    assert run("compose", "-o", f"{out}:x/0", f"{a}:f@0,0") == 0
+    assert [f.id for f in pxart.parse(out).frames] == ["x/0", "x/1"]
+
+
+def test_compose_rule_plain_out_is_one_grid(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nk #101010\n@frame f\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:f@0,0") == 0
+    assert pxart.parse(out).implicit
+
+
+# each palette rule, as the tool does it
+
+def renders_all(p):
+    doc = pxart.parse(p)
+    return {(f.id, v): doc.image(f, v).tobytes() for f in doc.frames for v in [None] + pxart.variant_names(doc)}
+
+
+RULE_PX = ("pxart 1\n# outline\nk #101010\nw #f0f0f0\nq #123456\n@variant night\nw #202040\n"
+           "@frame f\nkw\nwk\n")
+
+
+@pytest.mark.parametrize("args", [
+    ["--add", "z=#abcdef"], ["--order", "wk"], ["--comment", "w", "white"], ["--comment-header", "hi"],
+    ["--remove", "q"],
+])
+def test_palette_rule_render_keeping_edits(tmp_path, args):
+    p = write(tmp_path, "s.px", RULE_PX)
+    before = renders_all(p)
+    assert run("palette", p, *args) == 0
+    assert renders_all(p) == before
+
+
+def test_palette_rule_import_keeps_the_render(tmp_path):
+    write(tmp_path, "pal.px", "k #101010\nw #f0f0f0\n@variant night\nw #202040\n")
+    p = write(tmp_path, "s.px", RULE_PX)
+    before = renders_all(p)
+    assert run("palette", p, "--import", tmp_path / "pal.px") == 0
+    assert renders_all(p) == before
+
+
+def test_palette_rule_extract_to_repoint_keeps_the_render(tmp_path):
+    p = write(tmp_path, "s.px", RULE_PX)
+    before = renders_all(p)
+    assert run("palette", p, "--extract-to", tmp_path / "pal.px", "--repoint") == 0
+    assert renders_all(p) == before
+
+
+def test_palette_rule_hoist_keeps_the_render(tmp_path):
+    write(tmp_path, "pal.px", "q #123456\n")
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nk #101010\n@variant night\nk #000000\n@frame f\nkq\n")
+    before = renders_all(p)
+    assert run("palette", p, "--hoist", "k") == 0
+    assert renders_all(p) == before
+
+
+def test_palette_rule_variant_edits_change_the_render(tmp_path):
+    p = write(tmp_path, "s.px", RULE_PX)
+    before = renders_all(p)
+    assert run("palette", p, "--variant", "night", "--add", "k=#000000") == 0
+    assert renders_all(p) != before
+
+
+def test_palette_rule_remove_to_changes_the_render(tmp_path):
+    p = write(tmp_path, "s.px", RULE_PX)
+    before = renders_all(p)
+    assert run("palette", p, "--remove", "w", "--to", "q") == 0
+    assert renders_all(p) != before
+
+
+def test_palette_rule_listing_says_what_each_variant_recolors(tmp_path, capsys):
+    p = write(tmp_path, "s.px", RULE_PX)
+    assert run("palette", p) == 0
+    assert "night: recolors (darker) w" in capsys.readouterr().out

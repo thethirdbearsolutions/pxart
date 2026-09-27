@@ -116,7 +116,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 LOOKING, CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS), and `pxart CMD -h` (or
 `pxart help CMD`) prints one command's part (`pxart poly -h`), then a see-also line naming
 the shared notes of the reference it relies on (EDITING, FORMAT: selecting frames, ...)
-rather than repeating them.
+rather than repeating them. `compose` and `palette`, the two longest, open with a short list of rules
+(a new OUT imports the layers' shared `@palette`; variants merge by name; ...) and examples;
+`pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 
 - **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
