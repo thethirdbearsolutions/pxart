@@ -16485,6 +16485,11 @@ def help_fixtures(d):
                                   "x tiles.px:crate+h\nS stall.px+b\nL lamp.px+b\nl lamp.px+hb\n\n"
                                   "cccccc\ncccccc\nwwwwww\n---\n......\n.S.L.l\nx.....\n")
     Image.new("RGBA", (96, 48), (40, 60, 80, 255)).save(d / "scene.png")
+    walk = Image.new("RGBA", (64, 64))
+    for c in range(4):
+        for r in range(4):
+            walk.putpixel((c * 16 + 8, r * 16 + 8), (200, 40 * c, 50 * r, 255))
+    walk.save(d / "Walk.png")
 
 
 def test_help_examples_are_found():
@@ -18251,3 +18256,240 @@ def test_help_documents_order():
 def test_readme_documents_order():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--order o,t,k` puts those key lines first, comments and all" in readme
+
+
+# ---------------------------------------------------------------- from-png SHEET --grid WxH [--names] [--by rows|cols]
+
+def sheet_png(tmp_path, cols=4, rows=3, w=4, h=4, empty=(), name="sheet.png", size=None, extra=None):
+    """A sheet of w x h cells; cell (r, c) has one pixel colored by its place (and so a distinct frame), except the
+    cells in `empty`."""
+    img = Image.new("RGBA", size or (cols * w, rows * h))
+    for r in range(rows):
+        for c in range(cols):
+            if (r, c) not in empty:
+                img.putpixel((c * w + 1, r * h + 1), (10 + 20 * r, 10 + 20 * c, 99, 255))
+    if extra:
+        img.putpixel(extra, (1, 2, 3, 255))
+    p = tmp_path / name
+    img.save(p)
+    return p
+
+
+def cell_of(path, fid):
+    doc = pxart.parse(path)
+    img = doc.image(doc.get(fid))
+    return next((x, y, img.getpixel((x, y))) for y in range(img.height) for x in range(img.width)
+                if img.getpixel((x, y))[3])
+
+
+def test_from_png_grid_by_rows_default_names(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "-o", out) == 0
+    assert capsys.readouterr().out == f"wrote {out} (12 frame(s): sheet/row0 4, sheet/row1 4, sheet/row2 4)\n"
+    doc = pxart.parse(out)
+    assert [f.id for f in doc.frames] == [f"sheet/row{r}/{c}" for r in range(3) for c in range(4)]
+    assert all(f.size == (4, 4) for f in doc.frames)
+    assert cell_of(out, "sheet/row1/2") == (1, 1, (30, 50, 99, 255))
+
+
+def test_from_png_grid_by_cols_with_names(tmp_path, capsys):
+    s = sheet_png(tmp_path, cols=4, rows=4)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--by", "cols", "--names", "walk/down,walk/up,walk/left,walk/right",
+               "-o", out) == 0
+    assert capsys.readouterr().out == (f"wrote {out} (16 frame(s): walk/down 4, walk/up 4, walk/left 4, "
+                                       "walk/right 4)\n")
+    ids = [f.id for f in pxart.parse(out).frames]
+    assert ids[:5] == ["walk/down/0", "walk/down/1", "walk/down/2", "walk/down/3", "walk/up/0"]
+    assert cell_of(out, "walk/left/3") == (1, 1, (70, 50, 99, 255))  # row 3, column 2
+
+
+def test_from_png_grid_names_by_rows(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "idle,walk,attack", "-o", out) == 0
+    assert cell_of(out, "attack/0") == (1, 1, (50, 10, 99, 255))
+    assert pxart.parse(out).groups().keys() == {"idle", "walk", "attack"}
+
+
+def test_from_png_grid_skips_empty_cells_and_counts_on(tmp_path, capsys):
+    s = sheet_png(tmp_path, empty={(0, 1), (2, 3)})
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "a,b,c", "-o", out) == 0
+    got = capsys.readouterr().out
+    assert "note: 2 empty cells skipped" in got and "(10 frame(s): a 3, b 4, c 3)" in got
+    assert cell_of(out, "a/1") == (1, 1, (10, 50, 99, 255))  # the third cell is frame 1
+
+
+def test_from_png_grid_one_empty_cell_note(tmp_path, capsys):
+    s = sheet_png(tmp_path, empty={(0, 1)})
+    assert run("from-png", s, "--grid", "4x4", "-o", tmp_path / "o.px") == 0
+    assert "note: 1 empty cell skipped" in capsys.readouterr().out
+
+
+def test_from_png_grid_empty_name_skips_a_row(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "a,,c", "-o", out) == 0
+    assert "note: row 1 skipped (its name is empty): 4 cell(s) with pixels" in capsys.readouterr().out
+    assert pxart.parse(out).groups().keys() == {"a", "c"}
+
+
+def test_from_png_grid_fewer_names_than_rows_need_empty_rows(tmp_path, capsys):
+    s = sheet_png(tmp_path, empty={(2, c) for c in range(4)})
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "a,b", "-o", out) == 0
+    assert pxart.parse(out).groups().keys() == {"a", "b"}
+    s2 = sheet_png(tmp_path, name="s2.png")
+    msg = run_err("from-png", s2, "--grid", "4x4", "--names", "a,b", "-o", tmp_path / "o2.px")
+    assert "E_BAD_ARG" in msg and "--names has 2 names, and row 2 of" in msg and "'' skips one" in msg
+
+
+def test_from_png_grid_too_many_names(tmp_path):
+    s = sheet_png(tmp_path)
+    msg = run_err("from-png", s, "--grid", "4x4", "--names", "a,b,c,d", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "--names has 4 names" in msg and "3 rows of 4x4 cells" in msg
+
+
+def test_from_png_grid_too_many_names_by_cols(tmp_path):
+    s = sheet_png(tmp_path)
+    msg = run_err("from-png", s, "--grid", "4x4", "--by", "cols", "--names", "a,b,c,d,e", "-o", tmp_path / "o.px")
+    assert "4 columns of 4x4 cells" in msg
+
+
+def test_from_png_grid_duplicate_names(tmp_path):
+    s = sheet_png(tmp_path)
+    msg = run_err("from-png", s, "--grid", "4x4", "--names", "a,a,c", "-o", tmp_path / "o.px")
+    assert "E_DUP_FRAME" in msg and "--names gives two rows one name" in msg
+
+
+def test_from_png_grid_bad_name(tmp_path):
+    s = sheet_png(tmp_path)
+    msg = run_err("from-png", s, "--grid", "4x4", "--names", "a b,c,d", "-o", tmp_path / "o.px")
+    assert "E_BAD_ID" in msg and "'a b/0' can't be a frame id" in msg
+
+
+def test_from_png_grid_leftover_empty_strip_is_a_note(tmp_path, capsys):
+    s = sheet_png(tmp_path, size=(18, 13))
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "-o", out) == 0
+    got = capsys.readouterr().out
+    assert f"note: {s} is 18x13: the 2px strip at the right is empty and left out" in got
+    assert f"note: {s} is 18x13: the 1px strip at the bottom is empty and left out" in got
+    assert len(pxart.parse(out).frames) == 12
+
+
+def test_from_png_grid_leftover_with_pixels_is_an_error(tmp_path):
+    s = sheet_png(tmp_path, size=(18, 12), extra=(17, 0))
+    msg = run_err("from-png", s, "--grid", "4x4", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "not a whole number of 4x4 cells, and the 2px strip at the right has pixels" in msg
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_from_png_grid_smaller_than_a_cell(tmp_path):
+    s = sheet_png(tmp_path, cols=1, rows=1)
+    assert "smaller than one cell" in run_err("from-png", s, "--grid", "8x8", "-o", tmp_path / "o.px")
+
+
+def test_from_png_grid_all_empty(tmp_path):
+    s = sheet_png(tmp_path, empty={(r, c) for r in range(3) for c in range(4)})
+    assert "every cell of" in run_err("from-png", s, "--grid", "4x4", "-o", tmp_path / "o.px")
+
+
+@pytest.mark.parametrize("grid", ["4", "4x", "0x4", "ax4", "4x4x4"])
+def test_from_png_grid_bad_size(tmp_path, grid):
+    s = sheet_png(tmp_path)
+    assert "--grid wants WxH like 16x16" in run_err("from-png", s, "--grid", grid, "-o", tmp_path / "o.px")
+
+
+def test_from_png_grid_bad_by(tmp_path):
+    s = sheet_png(tmp_path)
+    assert "--by diagonal: want rows" in run_err("from-png", s, "--grid", "4x4", "--by", "diagonal")
+
+
+def test_from_png_names_or_by_need_grid(tmp_path):
+    s = sheet_png(tmp_path)
+    assert "--names goes with --grid WxH" in run_err("from-png", s, "--names", "a")
+    assert "--by goes with --grid WxH" in run_err("from-png", s, "--by", "cols")
+
+
+def test_from_png_grid_one_sheet_only(tmp_path):
+    a, b = sheet_png(tmp_path), sheet_png(tmp_path, name="b.png")
+    assert "--grid slices one sheet; give one PNG (got 2)" in run_err("from-png", a, b, "--grid", "4x4")
+
+
+def test_from_png_grid_with_id_prefix(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--id", "boy", "--names", "idle,walk,attack", "-o", out) == 0
+    assert [f.id for f in pxart.parse(out).frames][:2] == ["boy/idle/0", "boy/idle/1"]
+    out2 = tmp_path / "o2.px"
+    assert run("from-png", s, "--grid", "4x4", "--id", "boy", "-o", out2) == 0
+    assert pxart.parse(out2).frames[0].id == "boy/row0/0"
+
+
+def test_from_png_grid_into_an_existing_out_shares_keys_and_replaces(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "a,b,c", "-o", out) == 0
+    pal = dict(pxart.parse(out).palette)
+    assert run("from-png", s, "--grid", "4x4", "--names", "a,b,c", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert dict(doc.palette) == pal and len(doc.frames) == 12
+
+
+def test_from_png_grid_with_palette(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    pal = write(tmp_path, "pal.px", "q #0a0a63\n")
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--palette", pal, "-o", out) == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and "q" in doc.frames[0].grid[1]
+
+
+def test_from_png_grid_without_o_prints(tmp_path, capsys):
+    s = sheet_png(tmp_path, cols=2, rows=1)
+    assert run("from-png", s, "--grid", "4x4") == 0
+    text = capsys.readouterr().out
+    assert "@frame sheet/row0/0" in text and "@frame sheet/row0/1" in text
+
+
+def test_from_png_grid_renders_the_cells(tmp_path, capsys):
+    s = sheet_png(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "-o", out) == 0
+    sheet, doc = Image.open(s).convert("RGBA"), pxart.parse(out)
+    for r in range(3):
+        for c in range(4):
+            want = sheet.crop((c * 4, r * 4, c * 4 + 4, r * 4 + 4))
+            assert doc.image(doc.get(f"sheet/row{r}/{c}")).tobytes() == want.tobytes()
+
+
+def test_from_png_grid_frames_animate(tmp_path, capsys):
+    s = sheet_png(tmp_path, cols=4, rows=1)
+    out = tmp_path / "o.px"
+    assert run("from-png", s, "--grid", "4x4", "--names", "walk", "-o", out) == 0
+    capsys.readouterr()
+    assert run("anim", f"{out}:walk") == 0
+    assert len([l for l in capsys.readouterr().out.splitlines() if " vs " in l]) == 4  # a loop: 0 vs 3 too
+
+
+def test_help_documents_from_png_grid():
+    text = " ".join(pxart.__doc__.split())
+    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]" in text
+    assert "from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] " \
+        "[--palette P.px]" in text
+    assert "--grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque pixel is skipped." \
+        in text
+
+
+def test_from_png_help_has_both_usage_lines(capsys):
+    text = pxart.command_help("from-png")
+    assert "--palette P.px]" in text.splitlines()[0] and "--grid WxH" in text.splitlines()[1]
+
+
+def test_readme_documents_from_png_grid():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right -o boy.px` " \
+        "slices a sheet into frames, a group per column (or row), skipping empty cells" in readme

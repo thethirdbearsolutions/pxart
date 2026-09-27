@@ -263,7 +263,9 @@ rather than repeating them.
     writes it as a palette file for `@palette`, variants included, with the comments on its
     key and `@variant` lines (and a palette file's header), and `--repoint` then makes
     hero.px import it.
-  - `from-png` converts a PNG to a sprite.
+  - `from-png` converts a PNG to a sprite; `from-png Walk.png --grid 16x16 --by cols --names
+    walk/down,walk/up,walk/left,walk/right -o boy.px` slices a sheet into frames, a group per
+    column (or row), skipping empty cells.
 
 ## Prior art
 

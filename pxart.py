@@ -685,12 +685,21 @@ CONVERTING
       group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
       badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others,
       and a Tiled map painted with the old tileset keeps the old ids.
-  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX]
+  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]
+  from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
       to OUT (replacing same-id frames). Colors already in OUT keep their keys, so
       frames imported in separate runs share one palette. --palette P.px starts a new
       OUT that imports P and reuses its keys.
+      --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
+      pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
+      to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
+      name skips its row), else they are STEM/row0, STEM/row1 (col0, ...); --id PREFIX goes
+      in front. A pack whose columns are directions and rows are steps:
+      'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
+      -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
+      is E_BAD_ARG, unless the strip left over is empty (then a note says so).
 
 HELP
   help [all | TOPIC | CMD]
@@ -5732,24 +5741,38 @@ def cmd_export(a):
 
 
 def cmd_from_png(a):
-    """PNG(s) -> .px. Colors already in OUT's palette keep their keys; new colors get free keys."""
-    imgs = [(pathlib.Path(p), Image.open(p).convert("RGBA")) for p in a.pngs]
+    """PNG(s) -> .px. Colors already in OUT's palette keep their keys; new colors get free keys. --grid slices one
+    sheet into frames (sheet_cells)."""
+    if (a.names or a.by) and not a.grid:
+        fail("E_BAD_ARG", f"{'--names' if a.names else '--by'} goes with --grid WxH (the sheet's cells)")
+    if a.grid and len(a.pngs) > 1:
+        fail("E_BAD_ARG", f"--grid slices one sheet; give one PNG (got {len(a.pngs)})")
+    imgs = []
+    for p in a.pngs:
+        with reading(f"PNG ({p})"):
+            imgs.append((pathlib.Path(p), Image.open(p).convert("RGBA")))
+    cells, notes = sheet_cells(imgs[0][0], imgs[0][1], a) if a.grid else (None, [])
     out = pathlib.Path(a.o) if a.o else None
     if out and out.exists():
         with reading(f"-o ({a.o})"):
             doc = parse(out, allow_empty=True)
     else:
         doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
-    named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
+    named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):
             fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid, and its name {doc.stem!r} can't be a frame id to "
                  "give it; import into a new file or one with @frame ids")
         doc.promote()
         print(f"note: {out}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
+    for n in notes:
+        print(f"note: {n}")
     keyof = {c: k for k, c in doc.resolved().items() if c[3]}
     free = [k for k in KEYS if k not in doc.resolved()]
-    for path, img in imgs:
+    entries = cells if cells is not None else [
+        (re.sub(r"[^A-Za-z0-9_\-./]", "_", f"{a.id}/{path.stem}" if a.id else path.stem), path, img)
+        for path, img in imgs]
+    for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
                 if not free:
@@ -5761,17 +5784,86 @@ def cmd_from_png(a):
         if not named:
             doc.implicit, doc.frames = True, [Frame(None, grid)]
             continue
-        fid = f"{a.id}/{path.stem}" if a.id else path.stem
-        fid = re.sub(r"[^A-Za-z0-9_\-./]", "_", fid)
         old = doc.get(fid)
         if old:
             old.grid = grid
         else:
             doc.frames.append(Frame(fid, grid))
     if out:
-        print(write_doc(doc, out) + (f" ({len(imgs)} frame(s))" if named else ""))
+        print(write_doc(doc, out) + (f" ({len(entries)} frame(s)" + (f": {said_cells(entries)}" if a.grid else "")
+                                     + ")" if named else ""))
     else:
         print(doc.text(), end="")
+
+
+def sheet_cells(path, img, a):
+    """from-png SHEET --grid WxH [--names A,B,...] [--by rows|cols]: the sheet's cells as frames, [(id, path, image)].
+    Each row (--by cols: each column) is a group: named by --names in turn, else row0, row1 (col0, ...) under the
+    sheet's stem; --id PREFIX goes in front of either. Its cells, left to right (top to bottom), are its frames 0, 1,
+    ... counting only cells with an opaque pixel: empty ones are skipped. An empty name skips its row. Returns the
+    cells and notes (a sheet whose size isn't a multiple of the grid, when the strip left over is empty)."""
+    w, h = parse_size(a.grid, "--grid")
+    by = a.by or "rows"
+    if by not in ("rows", "cols"):
+        fail("E_BAD_ARG", f"--by {by}: want rows (each row a group) or cols (each column a group)")
+    cols, rows = img.width // w, img.height // h
+    if not cols or not rows:
+        fail("E_BAD_ARG", f"--grid {a.grid}: {path} is {img.width}x{img.height}, smaller than one cell")
+    notes = []
+    for what, box in (("right", (cols * w, 0, img.width, img.height)), ("bottom", (0, rows * h, img.width, img.height))):
+        if box[0] < box[2] and box[1] < box[3]:
+            strip = f"the {box[2] - box[0] if what == 'right' else box[3] - box[1]}px strip at the {what}"
+            if img.crop(box).getchannel("A").getbbox():
+                fail("E_BAD_ARG", f"--grid {a.grid}: {path} is {img.width}x{img.height}, not a whole number of "
+                     f"{w}x{h} cells, and {strip} has pixels; check the cell size")
+            notes.append(f"{path} is {img.width}x{img.height}: {strip} is empty and left out")
+    groups = rows if by == "rows" else cols
+    names = a.names.split(",") if a.names is not None else None
+    word = "row" if by == "rows" else "column"
+    if names is not None and len(names) > groups:
+        fail("E_BAD_ARG", f"--names has {len(names)} names and {path} has {groups} {word}s of {w}x{h} cells")
+    out, blank = [], 0
+    for g in range(groups):
+        spots = [(g, c) for c in range(cols)] if by == "rows" else [(r, g) for r in range(rows)]
+        cells = [img.crop((c * w, r * h, c * w + w, r * h + h)) for r, c in spots]
+        full = [cell for cell in cells if cell.getchannel("A").getbbox()]
+        blank += len(cells) - len(full)
+        if names is not None and g >= len(names):
+            if full:
+                fail("E_BAD_ARG", f"--names has {len(names)} names, and {word} {g} of {path} has frames too; name "
+                     f"every {word} with frames ('' skips one)")
+            continue
+        stem = re.sub(r"[^A-Za-z0-9_\-.]", "_", path.stem)
+        name = names[g] if names is not None else ("" if a.id else f"{stem}/") + ("row" if by == "rows" else "col") \
+            + str(g)
+        if names is not None and name == "":
+            if full:
+                notes.append(f"{word} {g} skipped (its name is empty): {len(full)} cell(s) with pixels")
+            continue
+        fid_base = f"{a.id}/{name}" if a.id else name
+        for i, cell in enumerate(full):
+            fid = f"{fid_base}/{i}"
+            if not ID_RE.match(fid):
+                fail("E_BAD_ID", f"--names: {fid!r} can't be a frame id (letters, digits, _ - . and / between parts)")
+            out.append((fid, path, cell))
+    if not out:
+        fail("E_BAD_ARG", f"--grid {a.grid}: every cell of {path} is empty")
+    if blank:
+        notes.append(f"{blank} empty cell{'s' * (blank != 1)} skipped")
+    ids = [f for f, *_ in out]
+    if len(set(ids)) < len(ids):
+        dup = sorted({f for f in ids if ids.count(f) > 1})
+        fail("E_DUP_FRAME", f"--names gives two {word}s one name: {', '.join(dup)}")
+    return out, notes
+
+
+def said_cells(entries):
+    """'walk/down 4, walk/up 4': each group of the sliced frames and how many frames it got."""
+    groups = {}
+    for fid, *_ in entries:
+        g = fid.rsplit("/", 1)[0]
+        groups[g] = groups.get(g, 0) + 1
+    return ", ".join(f"{g} {n}" for g, n in groups.items())
 
 
 # ---------------------------------------------------------------------------- per-command help
@@ -6099,6 +6191,9 @@ def parser(describe=True):
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
+    p.add_argument("--names", metavar="A,B,...", help="with --grid: each row's (--by cols: column's) group name")
+    p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
         p.description, p.formatter_class = command_help(name), argparse.RawDescriptionHelpFormatter
     return ap, sub
