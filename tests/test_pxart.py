@@ -11110,3 +11110,17 @@ def test_paste_conflict_says_src(tmp_path):
     msg = run_err("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "0,0")
     assert msg.startswith(f"paste: SRC ({f}:grass_a): E_KEY_CONFLICT: 2 keys of SRC")
     assert "paste from that" in msg and "layer" not in msg and "compose" not in msg
+
+
+def test_paste_adds_new_keys_in_sorted_order_every_run(tmp_path):
+    # They were added in set order, which Python's per-run string hashing shuffles.
+    import subprocess
+    orders = set()
+    for seed in ("1", "2", "3", "4", "5", "6"):
+        d = write(tmp_path, "d.px", "k #000000\n@frame x\nkkkkk\n")
+        s = write(tmp_path, "s.px", "q #111111\nb #222222\nz #333333\na #444444\n\nqbza\n")
+        env = {**__import__("os").environ, "PYTHONHASHSEED": seed}
+        subprocess.run([sys.executable, pxart.__file__, "paste", str(s), "--into", f"{d}:x", "--at", "0,0"], env=env,
+                       check=True, capture_output=True)
+        orders.add(tuple(pxart.parse(d).palette))
+    assert orders == {("k", "a", "b", "q", "z")}

@@ -1571,7 +1571,7 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
     clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
-    for k in set("".join(src.grid)):
+    for k in sorted(set("".join(src.grid))):  # sorted: new keys land in one order every run
         if src_pal[k][3]:
             dst_doc.add_key(k, src_pal[k])
     x0, y0, w, h = parse_rect(region, src.size)
