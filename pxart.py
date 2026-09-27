@@ -197,7 +197,7 @@ LOOKING
           .S.L.l
           x.....
       'pxart scene --map market.map -o market.png' is 96x48: cobbles and water, then the
-      props over them. The stall's cell is 16,16, so it draws at 16 + (16-32)//2,
+      props over them (compose --map builds the same room as a .px). The stall's cell is 16,16, so it draws at 16 + (16-32)//2,
       16 + 16 - 32 = 8,0; the lamps at 48,0 and 80,0 (mirrored); the crate, mirrored, at its
       cell's top-left, 0,32.
       --variant V renders every map tile and .px item with V (a whole dark room), except
@@ -427,6 +427,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       (--variant-map too).
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] [--replace] LAYER@x,y ...
+  compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       Rules ('pxart help compose-rules' prints only these):
         - A new OUT gets the layers' whole palettes, drawn with or not (for shade ramps). When
@@ -567,6 +568,17 @@ EDITING (writes .px; -o defaults to editing the input in place)
       behind it: they fill only its empty pixels (a floor or a shadow under a finished
       sprite). The frame must exist. compose and dup note an output path that doesn't end in
       .px (zsh "$OUT:frame").
+
+      From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
+      legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
+      the LAYER@x,y given over them. The canvas is the map's size unless --size says otherwise,
+      and --tile is scene's (N means NxN). Palette, --rekey and --variant-map work as for any
+      layers. A legend entry with its own %VARIANT comes in that variant's colors, as a file of
+      its own (tiles.px%dark; --rekey tells it from tiles.px), and a PNG in keys of its own:
+      OUT's variants leave both as they are, as scene --variant does. So 'compose --map
+      market.map -o market.px' renders as 'scene --map market.map --bg transparent --scale 1
+      -o market.png' does, pixel for pixel, in every variant too, except where a translucent
+      pixel lands on another: a .px pixel is one key, so it replaces what scene blends.
   dup FILE:ID NEWID [--after ID] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
@@ -2055,9 +2067,11 @@ def conflict_issue(bad, src_doc, have, what, dst_name, redo, moves, whose=None, 
                 + ([f"; {' '.join(need)}: unused here, but {src_doc.path.name} needs "
                     f"{'them' if len(need) > 1 else 'it'}"] if need else []))
         fix = (f"; to keep both colors (no pixel changes color), add --rekey: {redo} then gives {whose_keys} keys "
-               f"free ones in {dst_name} ({mv}{why}) and leaves {src} as it is. Or "
-               + (f"give them those keys in {src} itself: {recipe}" if same else
-                  f"give them those keys in a copy and {REDO_FROM.get(redo, redo)} from that: {recipe}"))
+               f"free ones in {dst_name} ({mv}{why})" + (
+                   f" ({src_doc.made})" if getattr(src_doc, "made", None) else  # no file of its own to recolor
+                   f" and leaves {src} as it is. Or " + (
+                       f"give them those keys in {src} itself: {recipe}" if same else
+                       f"give them those keys in a copy and {REDO_FROM.get(redo, redo)} from that: {recipe}")))
     n = len(bad)
     each = ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
                      + (f", from {whose[k]}" if whose and whose.get(k) else "") + ")" for k in bad)
@@ -2649,14 +2663,15 @@ def read_map(path, tile, notes=None):
 
 
 def load_legend(path, variant=None):
-    """Load every legend entry as one frame: {item_arg: image}. A target that can't be loaded is an error at
-    its legend line, naming the path as written."""
+    """Load every legend entry as one frame: {item_arg: Item} (place_item's: its image, and for a .px its doc and
+    frame, mirrored by +h/+v). A target that can't be loaded is an error at its legend line, naming the path as
+    written."""
     legend, _, _, where = parse_map(path)
     imgs, issues = {}, []
     for ch, arg in legend.items():
         n, written = where[ch]
         try:
-            imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True).img
+            imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True)
         except PxError as e:
             for i in e.issues:
                 at = f" ({i.path}:{i.line})" if i.line else ""
@@ -2720,11 +2735,18 @@ def outside_px(img, x, y, w, h):
 SCENE_SIZE = (96, 64)  # scene without --size or --map: a small room of 16x16 tiles, 6 by 4
 
 
+def parse_tile(s):
+    """--tile: 'WxH', or 'N' for NxN."""
+    if re.match(r"^\d+$", s or ""):
+        s = f"{s}x{s}"
+    return parse_size(s, "--tile")
+
+
 def cmd_scene(a):
     tint = parse_tint(a.tint) if a.tint else None
     bg = parse_color(a.bg, "--bg")
     placed = []
-    tile = tuple(map(int, a.tile.split("x")))
+    tile = parse_tile(a.tile)
     if a.map:
         notes = []
         with reading(f"--map ({a.map})"):
@@ -2744,7 +2766,7 @@ def cmd_scene(a):
             cut.append((what, n))
         reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
     for arg, x, y in placed:
-        lay("the map", tiles[arg], *cell_spot(arg, tiles[arg], x, y, tile))
+        lay("the map", tiles[arg].img, *cell_spot(arg, tiles[arg].img, x, y, tile))
     for n, spec in enumerate(a.specs, 1):
         with reading(f"item {n} ({spec.rpartition('@')[0] or spec})"):
             path, x, y = split_at(spec)
@@ -4841,11 +4863,14 @@ def cmd_compose(a):
         with reading(f"-o ({a.o})"):
             odoc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() and not getattr(a, "replace", False) \
                 else None
-        def move(path, moves):  # every layer's doc of that file (each layer reads its own)
+        def move(path, moves):  # every layer's doc of that file (each layer reads its own; a map's cells share one)
             ds, frames, _ = files[path]
+            each = {}
             for d, f in zip(ds, frames):
+                each.setdefault(id(d), (d, []))[1].append(f)
+            for d, fs in each.values():
                 if moves:
-                    rekey(d, moves, [f])
+                    rekey(d, moves, fs)
                 gone.setdefault(id(d), set()).update(moves)
         def dry():  # where --rekey would move keys now: {path: moves}, {path: why}
             try:
@@ -5035,6 +5060,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         whose = {k: w[0] for k, w in seeded.items()}
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), "--size"
+    elif getattr(a, "map_size", None):
+        size, why = a.map_size, "--map"
     elif target.grid:
         size, why = target.size, "the frame being replaced"
     elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):
@@ -5119,16 +5146,22 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     for line in said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap,
                              rekey_said, fresh) + said_variants(opath, layers, doc, vmap, fresh):
         print(line)
+    map_cut = 0  # a map's cells are one thing to crop, as scene says it
     for lay, x, y, label in layers:
         w, h = lay.frame.size
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
                   if ch != "." and lay.doc.resolved()[ch][3]
                   and not (0 <= x + xx < size[0] and 0 <= y + yy < size[1]))
-        if cut and getattr(a, "cut_note", True):
+        if getattr(lay, "from_map", False):
+            map_cut += cut
+        elif cut and getattr(a, "cut_note", True):
             print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                   f"(size from {why}) and were cropped")
         with reading(label):
             stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap)
+    if map_cut:
+        print(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from {why}) "
+              "and were cropped")
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         pal = doc.resolved()
         target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
@@ -5194,8 +5227,87 @@ def said_variants(opath, layers, doc, vmap, fresh):
     return lines
 
 
+def baked(doc, variant):
+    """A --map legend entry FILE:frame%V as a compose layer: doc (parsed for this entry alone) with V's colors as its
+    base palette, every key its own and no variants, so the layer draws in V's colors in OUT's base and every variant,
+    as scene draws it. It goes by FILE%V, a file of its own to compose, --rekey and the notes."""
+    pal = doc.resolved(variant)
+    doc.palette = {k: c for k, c in pal.items() if k != "."}
+    doc.shared, doc.shared_variants, doc.variants, doc.palette_refs = {}, {}, {}, []
+    doc.path = doc.path.with_name(f"{doc.path.name}%{variant}")
+    doc.made = f"{doc.path.name} is a --map legend entry in its variant's colors, made in memory"
+    return doc
+
+
+def png_layer(path, img, keyof, taken):
+    """A --map legend entry that is a PNG as a compose layer: a one-grid doc of its colors, each under a key no other
+    layer's file (nor OUT) has, so no variant of OUT recolors it, as scene draws it; PNGs share keys for one color
+    (keyof). Pixels whose alpha is 0 are '.'."""
+    d = Doc(path)
+    d.made = f"{path.name} is a --map legend entry, a PNG made into keys in memory"
+    grid = []
+    for y in range(img.height):
+        row = ""
+        for x in range(img.width):
+            c = img.getpixel((x, y))
+            if not c[3]:
+                row += "."
+                continue
+            if c not in keyof:
+                free = [k for k in FREE_ORDER if k not in taken]
+                if not free:
+                    fail("E_BAD_ARG", f"--map: {path} needs more palette keys than there are ({len(KEYS)})")
+                keyof[c] = free[0]
+                taken.add(free[0])
+            d.palette[keyof[c]] = c
+            row += keyof[c]
+        grid.append(row)
+    d.frames, d.implicit = [Frame(None, grid)], True
+    return d
+
+
+def map_layers(a):
+    """compose --map MAP [--tile N]: the map's cells as layers, in scene's order (layer by layer, row by row), each
+    at the spot scene draws it (cell_spot: top-left, or +b bottom-aligned); returns them and the map's size. A legend
+    entry with its own %VARIANT is baked, a PNG made into keys (png_layer)."""
+    tile = parse_tile(a.tile)
+    notes = []
+    with reading(f"--map ({a.map})"):
+        placed, size = read_map(a.map, tile, notes)
+        its = load_legend(a.map)
+    for n in notes:
+        print("note:", n)
+    legend, _, _, where = parse_map(a.map)
+    written = {arg: (ch, where[ch][1]) for ch, arg in legend.items()}
+    for arg, it in its.items():
+        variant = split_variant(split_flip(arg)[0])[1]
+        if it.doc is not None and variant:
+            it.doc = baked(it.doc, variant)
+    opath = split_sel(a.o)[0]
+    taken = {k for it in its.values() if it.doc is not None for k in it.doc.resolved()}
+    if pathlib.Path(opath).exists() and not getattr(a, "replace", False):
+        with reading(f"-o ({a.o})"):
+            taken |= set(parse(opath, allow_empty=True).resolved())
+    keyof = {}
+    for arg, it in its.items():
+        if it.doc is None:
+            it.doc = png_layer(pathlib.Path(split_variant(split_flip(arg)[0])[0]), it.img, keyof, taken)
+            it.frame = it.doc.frames[0]
+        it.from_map = True
+    layers = []
+    for arg, x, y in placed:
+        it = its[arg]
+        ch, path = written[arg]
+        layers.append((it, *cell_spot(arg, it.img, x, y, tile), f"--map ({a.map}) {ch!r} ({path})"))
+    return layers, size
+
+
 def compose_layers(a):
     layers = []
+    if getattr(a, "map", None):
+        layers, a.map_size = map_layers(a)
+    elif not a.layers:
+        fail("E_BAD_ARG", "compose needs layers, LAYER@x,y ..., or a tilemap: --map MAP")
     for n, spec in enumerate(a.layers, 1):
         label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
         label = getattr(a, "words", {}).get("label", label)
@@ -6901,7 +7013,9 @@ def parser(describe=True):
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p.add_argument("--replace", action="store_true", help="overwrite an OUT that exists (its frames are lost)")
-    p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
+    p = sub.add_parser("compose"); p.add_argument("layers", nargs="*"); p.add_argument("-o", required=True)
+    p.add_argument("--map", help="tilemap file, as scene --map: its cells become the layers (the canvas is its size)")
+    p.add_argument("--tile", default="16x16", help="tile size for --map: WxH, or N for NxN (default 16x16)")
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)

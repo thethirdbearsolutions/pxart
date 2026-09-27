@@ -20672,8 +20672,9 @@ def test_help_documents_the_undrawn_note():
 
 def test_compose_section_opens_with_rules(capsys):
     lines = pxart.reference("compose").splitlines()
-    assert lines[2].strip().startswith("Stack single frames") and lines[3].strip().startswith("Rules (")
-    assert lines[4].startswith("        - A new OUT gets the layers' whole palettes")
+    assert lines[2].startswith("  compose --map MAP")  # its second usage line
+    assert lines[3].strip().startswith("Stack single frames") and lines[4].strip().startswith("Rules (")
+    assert lines[5].startswith("        - A new OUT gets the layers' whole palettes")
 
 
 def test_palette_section_opens_with_rules():
@@ -20685,7 +20686,7 @@ def test_palette_section_opens_with_rules():
 def test_compose_h_shows_the_rules_near_the_top(capsys):
     out = cmd_help(capsys, "compose")
     head = out.split("Examples:")[0]
-    assert len(head.splitlines()) <= 20
+    assert len(head.splitlines()) <= 22  # argparse's usage and the --map usage line take 2 more since compose --map
     for fact in ("OUT imports it too", "Variants merge by name", "E_KEY_CONFLICT; --rekey gives it a free key"):
         assert fact in " ".join(head.split()), fact
 
@@ -21765,3 +21766,353 @@ def test_readme_documents_diff_batches():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`diff town.px pack/ --labels pack/labels.csv` checks every frame against the pack's PNG" in readme
     assert "`--strict-alpha`" in readme
+
+
+# ---------------------------------------------------------------- compose --map: a tilemap into a .px frame
+# The street took 144 LAYER@x,y arguments written by a Python script. compose --map reads scene's map format and
+# draws each cell where scene would: the composed frame renders as scene --map does, pixel for pixel, in every
+# variant, with compose's palette, --rekey and --variant-map rules.
+
+def map_world(tmp_path):
+    """A small room: shared pal.px (with a night), a tile file, a 16x32 lamp, a 32x32 stall, a PNG bush."""
+    d = tmp_path / "world"
+    d.mkdir()
+    write(d, "pal.px", "k #1a1423\ng #3a7a3a\nG #5aa05a\nw #6a5a4a\ny #f3cf6b\n@variant night\ng #1a2a3a\n"
+                       "G #2a3a4a\nw #2a2a3a\n")
+    tiles = "pxart 1\n@palette pal.px\n"
+    tiles += "@frame grass\n" + "".join(("gG" * 8 if y % 2 else "Gg" * 8) + "\n" for y in range(16))
+    tiles += "@frame wall\n" + ("k" * 16 + "\n") + ("kwwwwwwwwwwwwwwk\n" * 14) + ("k" * 16 + "\n")
+    tiles += "@frame crate\n" + "".join(("." * y + "w" * (16 - y)) + "\n" for y in range(16))
+    write(d, "tiles.px", tiles)
+    write(d, "lamp.px", "pxart 1\n@palette pal.px\n" + ("......yy........\n" * 8) + ("......kk........\n" * 24))
+    write(d, "stall.px", "pxart 1\nr #c4473a\ns #e8d8b0\n@variant night\nr #6a2a3a\ns #6a6060\n"
+                         + "".join(("r" * 32 if y < 10 else "s" + "." * 30 + "s") + "\n" for y in range(32)))
+    bush = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(4, 16):
+        for x in range(2, 14 - (y % 3)):
+            bush.putpixel((x, y), (40, 120, 60, 255) if (x + y) % 3 else (26, 20, 35, 255))  # k's color too
+    bush.putpixel((0, 0), (255, 255, 255, 0))  # a transparent pixel with a color under it
+    bush.save(d / "bush.png")
+    return d
+
+
+MAP_MARKET = ("# ground, then props\ng tiles.px:grass\nw tiles.px:wall\nx tiles.px:crate+h\nS stall.px+b\n"
+          "L lamp.px+b\nl lamp.px+hb\nb bush.png\nB bush.png+h\n\n"
+          "wwwwww\ngggggg\ngggggg\n---\n......\n.S.L.l\nx.bB..\n")
+
+
+def scene_png(d, m, out, *extra):
+    assert run("scene", "--map", d / m, "--bg", "transparent", "--scale", "1", "-o", out, *extra) == 0
+    return Image.open(out).convert("RGBA")
+
+
+def composed(p, variant=None, fid=None):
+    doc = pxart.parse(p)
+    return doc.image(doc.get(fid) if fid else doc.frames[0], variant)
+
+
+def test_compose_map_renders_as_scene_map(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    want = scene_png(d, "market.map", tmp_path / "s.png")
+    assert run("compose", "--map", d / "market.map", "-o", tmp_path / "market.px") == 0
+    got = composed(tmp_path / "market.px")
+    assert got.size == (96, 48) and pxart.diff_images(got, want) is None
+
+
+def test_compose_map_renders_as_scene_map_by_diff(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    scene_png(d, "market.map", tmp_path / "s.png")
+    assert run("compose", "--map", d / "market.map", "-o", tmp_path / "market.px") == 0
+    capsys.readouterr()
+    assert run("diff", tmp_path / "market.px", tmp_path / "s.png") == 0
+    assert capsys.readouterr().out == "same: 96x48, every pixel\n"
+
+
+def test_compose_map_renders_as_scene_in_a_variant(tmp_path, capsys):
+    # the tiles, lamp and stall have night; the PNG bush has none, and scene draws it as it is
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    want = scene_png(d, "market.map", tmp_path / "s.png", "--variant", "night")
+    assert run("compose", "--map", d / "market.map", "-o", tmp_path / "market.px") == 0
+    assert pxart.diff_images(composed(tmp_path / "market.px", "night"), want) is None
+
+
+def test_compose_map_the_png_keeps_its_colors_in_every_variant(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "b.map", "b bush.png\n\nb\n")
+    assert run("compose", "--map", d / "b.map", "-o", tmp_path / "b.px") == 0
+    doc = pxart.parse(tmp_path / "b.px")
+    bush = Image.open(d / "bush.png").convert("RGBA")
+    assert pxart.diff_images(doc.image(doc.frames[0]), bush) is None
+
+
+def test_compose_map_png_keys_are_its_own(tmp_path, capsys):
+    # the bush's dark is k's color (#1a1423), but pal.px's night could recolor k: the PNG gets keys no file has
+    d = map_world(tmp_path)
+    write(d, "m.map", "g tiles.px:grass\nb bush.png\n\ng\n---\nb\n")
+    assert run("compose", "--map", d / "m.map", "-o", tmp_path / "m.px") == 0
+    doc = pxart.parse(tmp_path / "m.px")
+    tiles = pxart.parse(d / "tiles.px")
+    png_keys = {c for row in doc.frames[0].grid for c in row} - {"g", "G", "."}
+    assert png_keys and not png_keys & set(tiles.resolved())
+
+
+def test_compose_map_png_keys_avoid_an_existing_outs_keys(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "b.map", "b bush.png\n\nb\n")
+    out = write(tmp_path, "room.px", "pxart 1\na #ff00ff\nb #00ffff\nc #ffff00\n@frame old\nabc\n")
+    assert run("compose", "--map", d / "b.map", "-o", f"{out}:bush") == 0
+    doc = pxart.parse(out)
+    assert doc.palette["a"] == (255, 0, 255, 255) and doc.get("old").grid == ["abc"]
+    assert not {"a", "b", "c"} & set("".join(doc.get("bush").grid))
+    assert pxart.diff_images(doc.image(doc.get("bush")), Image.open(d / "bush.png").convert("RGBA")) is None
+
+
+def test_compose_map_a_shared_import_stays_imported(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "tiles.map", "g tiles.px:grass\nw tiles.px:wall\nL lamp.px+b\n\nwww\nggg\n---\n...\n.L.\n")
+    assert run("compose", "--map", d / "tiles.map", "-o", d / "room.px") == 0
+    doc = pxart.parse(d / "room.px")
+    assert doc.palette_refs == ["pal.px"] and doc.palette == {}
+    assert pxart.diff_images(doc.image(doc.frames[0], "night"),
+                             scene_png(d, "tiles.map", tmp_path / "s.png", "--variant", "night")) is None
+
+
+def test_compose_map_variant_entries_come_in_their_colors(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "dark.map", "g tiles.px:grass%night\nw tiles.px:wall%night\n\nww\ngg\n")
+    want = scene_png(d, "dark.map", tmp_path / "s.png")
+    assert run("compose", "--map", d / "dark.map", "-o", tmp_path / "dark.px") == 0
+    doc = pxart.parse(tmp_path / "dark.px")
+    assert pxart.diff_images(doc.image(doc.frames[0]), want) is None
+    assert doc.palette_refs == [] and doc.palette["g"] == (0x1a, 0x2a, 0x3a, 255)
+    for v in pxart.variant_names(doc):  # no variant recolors a baked entry
+        assert pxart.diff_images(doc.image(doc.frames[0], v), want) is None
+
+
+def test_compose_map_one_file_plain_and_in_a_variant_needs_rekey(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "t.map", "g tiles.px:grass\nD tiles.px:grass%night\n\ngD\nDg\n")
+    msg = run_err("compose", "--map", d / "t.map", "-o", tmp_path / "t.px")
+    assert "E_KEY_CONFLICT" in msg and "tiles.px%night" in msg and "add --rekey" in msg
+    assert "is a --map legend entry in its variant's colors, made in memory" in msg
+    assert "pxart recolor" not in msg  # no file to recolor: --rekey is the fix
+    assert not (tmp_path / "t.px").exists()
+    assert run("compose", "--map", d / "t.map", "-o", tmp_path / "t.px", "--rekey") == 0
+    assert pxart.diff_images(composed(tmp_path / "t.px"), scene_png(d, "t.map", tmp_path / "s.png")) is None
+    assert pxart.diff_images(composed(tmp_path / "t.px", "night"),
+                             scene_png(d, "t.map", tmp_path / "sn.png", "--variant", "night")) is None
+
+
+def test_compose_map_base_entry_stays_lit_at_night(tmp_path, capsys):
+    # 'L lamp.px%base': a lamp scene draws unrecolored in a --variant night room; so does OUT's night
+    d = map_world(tmp_path)
+    write(d, "lit.map", "g tiles.px:grass\nL lamp.px%base+b\n\ngg\n---\n.L\n")
+    assert run("compose", "--map", d / "lit.map", "-o", tmp_path / "lit.px", "--rekey") == 0
+    for v in (None, "night"):
+        extra = ("--variant", v) if v else ()
+        assert pxart.diff_images(composed(tmp_path / "lit.px", v),
+                                 scene_png(d, "lit.map", tmp_path / f"s{v}.png", *extra)) is None, v
+
+
+def test_compose_map_hash_legend_line_and_wall_rows(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "h.map", "# tiles.px:wall\ng tiles.px:grass\n\n###\ng#g\n")
+    assert run("compose", "--map", d / "h.map", "-o", tmp_path / "h.px") == 0
+    assert "is the legend line for '#', not a comment" in capsys.readouterr().out
+    assert pxart.diff_images(composed(tmp_path / "h.px"), scene_png(d, "h.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_path_with_spaces(tmp_path, capsys):
+    d = map_world(tmp_path)
+    (d / "my tiles").mkdir()
+    (d / "my tiles" / "t.px").write_text((d / "tiles.px").read_text().replace("@palette pal.px", "@palette ../pal.px"))
+    write(d, "sp.map", "g my tiles/t.px:grass\nw \"my tiles/t.px:wall\"\n\ngw\n")
+    assert run("compose", "--map", d / "sp.map", "-o", tmp_path / "sp.px") == 0
+    assert pxart.diff_images(composed(tmp_path / "sp.px"), scene_png(d, "sp.map", tmp_path / "s.png")) is None
+
+
+@pytest.mark.parametrize("tile", ["8", "8x8", "16x8", "20x20"])
+def test_compose_map_tile_sizes(tmp_path, capsys, tile):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    want = scene_png(d, "market.map", tmp_path / "s.png", "--tile", tile)
+    assert run("compose", "--map", d / "market.map", "--tile", tile, "-o", tmp_path / "m.px") == 0
+    assert pxart.diff_images(composed(tmp_path / "m.px"), want) is None
+
+
+def test_scene_tile_takes_n_for_nxn(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    a = scene_png(d, "market.map", tmp_path / "a.png", "--tile", "8")
+    b = scene_png(d, "market.map", tmp_path / "b.png", "--tile", "8x8")
+    assert a.size == (48, 24) and pxart.diff_images(a, b) is None
+
+
+@pytest.mark.parametrize("bad", ["0", "x", "8x", "-8"])
+def test_compose_map_bad_tile_is_bad_arg(tmp_path, capsys, bad):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    assert "--tile wants WxH" in run_err("compose", "--map", d / "market.map", "--tile=" + bad, "-o", tmp_path / "m.px")
+
+
+def test_compose_map_size_crops_with_one_note(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    want = scene_png(d, "market.map", tmp_path / "s.png", "--size", "40x30")
+    capsys.readouterr()
+    assert run("compose", "--map", d / "market.map", "--size", "40x30", "-o", tmp_path / "m.px") == 0
+    out = capsys.readouterr().out
+    notes = [l for l in out.splitlines() if "fall outside" in l]
+    assert len(notes) == 1 and notes[0].startswith("note: ") and f"px of the map ({d / 'market.map'}) fall outside " \
+        "the 40x30 canvas (size from --size) and were cropped" in notes[0]
+    assert pxart.diff_images(composed(tmp_path / "m.px"), want) is None
+
+
+def test_compose_map_lamps_above_row_0_crop_quietly_into_one_note(tmp_path, capsys):
+    # a +b lamp on row 0 rises off the top: scene crops it, and so does compose, in one note for the map
+    d = map_world(tmp_path)
+    write(d, "top.map", "g tiles.px:grass\nL lamp.px+b\n\ngg\n---\nL.\n")
+    capsys.readouterr()
+    assert run("compose", "--map", d / "top.map", "-o", tmp_path / "t.px") == 0
+    out = capsys.readouterr().out
+    assert "note: 32 px of the map" in out and "(size from --map)" in out
+    assert pxart.diff_images(composed(tmp_path / "t.px"), scene_png(d, "top.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_layers_on_top(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    hero = write(tmp_path, "hero.px", "q #ff00ff\n@frame idle\nqq\nqq\n")
+    want = scene_png(d, "market.map", tmp_path / "s.png", f"{hero}:idle@5,-1", f"{hero}:idle@94,46")
+    assert run("compose", "--map", d / "market.map", "-o", tmp_path / "m.px", f"{hero}:idle@5,-1",
+               f"{hero}:idle@94,46") == 0
+    assert pxart.diff_images(composed(tmp_path / "m.px"), want) is None
+
+
+def test_compose_map_into_a_frame_of_an_existing_file(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    out = write(tmp_path, "rooms.px", "pxart 1\nz #000001\n@frame rooms/hall\nz\n")
+    assert run("compose", "--map", d / "market.map", "-o", f"{out}:rooms/market", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert [f.id for f in doc.frames] == ["rooms/hall", "rooms/market"]
+    assert pxart.diff_images(doc.image(doc.get("rooms/market")),
+                             scene_png(d, "market.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_size_wins_over_the_frame_being_replaced(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "small.map", "g tiles.px:grass\n\ng\n")
+    out = write(tmp_path, "r.px", "pxart 1\n@palette world/pal.px\n@frame room\nkk\n")
+    assert run("compose", "--map", d / "small.map", "-o", f"{out}:room") == 0
+    assert pxart.parse(out).get("room").size == (16, 16)
+
+
+def test_compose_map_variant_map_merges(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "dusk.px", "u #806040\n@variant dusk\nu #403020\n@frame u\n" + ("u" * 16 + "\n") * 16)
+    write(d, "v.map", "g tiles.px:grass\nu dusk.px:u\n\ngu\n")
+    assert run("compose", "--map", d / "v.map", "-o", tmp_path / "v.px", "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(tmp_path / "v.px")
+    assert pxart.variant_names(doc) == ["dusk"]
+    img = doc.image(doc.frames[0], "dusk")
+    assert img.getpixel((0, 0)) in ((0x1a, 0x2a, 0x3a, 255), (0x2a, 0x3a, 0x4a, 255))  # grass at night
+    assert img.getpixel((20, 0)) == (0x40, 0x30, 0x20, 255)  # dusk's own
+
+
+def test_compose_map_translucent_key_replaces_where_scene_blends(tmp_path, capsys):
+    # the documented difference: a .px pixel is one key
+    d = map_world(tmp_path)
+    write(d, "shadow.px", "h #00000080\n@frame s\n" + ("h" * 16 + "\n") * 16)
+    write(d, "sh.map", "g tiles.px:grass\ns shadow.px:s\n\ng\n---\ns\n")
+    assert run("compose", "--map", d / "sh.map", "-o", tmp_path / "sh.px") == 0
+    got, want = composed(tmp_path / "sh.px"), scene_png(d, "sh.map", tmp_path / "s.png")
+    assert got.getpixel((0, 0)) == (0, 0, 0, 128) and want.getpixel((0, 0))[3] == 255
+
+
+def test_compose_map_bad_legend_entry_errors_at_its_line(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "bad.map", "g tiles.px:grass\nq tiles.px:nope\n\ngq\n")
+    msg = run_err("compose", "--map", d / "bad.map", "-o", tmp_path / "b.px")
+    assert f"compose: --map ({d / 'bad.map'}): " in msg and "legend 'q': 'tiles.px:nope'" in msg and "E_SELECT" in msg
+    assert f"{d / 'bad.map'}:2" in msg and not (tmp_path / "b.px").exists()
+
+
+def test_compose_map_unknown_row_char_is_an_error(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "bad.map", "g tiles.px:grass\n\ngz\n")
+    msg = run_err("compose", "--map", d / "bad.map", "-o", tmp_path / "b.px")
+    assert "E_UNKNOWN_KEY" in msg and "map char 'z' has no legend line" in msg
+
+
+def test_compose_map_missing_file_is_e_file(tmp_path, capsys):
+    msg = run_err("compose", "--map", tmp_path / "nope.map", "-o", tmp_path / "b.px")
+    assert "E_FILE" in msg and "--map" in msg
+
+
+def test_compose_without_layers_or_map_is_bad_arg(tmp_path, capsys):
+    msg = run_err("compose", "-o", tmp_path / "b.px")
+    assert "E_BAD_ARG" in msg and "compose needs layers, LAYER@x,y ..., or a tilemap: --map MAP" in msg
+
+
+def test_compose_map_conflict_labels_the_cells(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "other.px", "g #ff0000\n@frame o\n" + ("g" * 16 + "\n") * 16)
+    write(d, "c.map", "g tiles.px:grass\no other.px:o\n\ngo\n")
+    msg = run_err("compose", "--map", d / "c.map", "-o", tmp_path / "c.px")
+    assert "E_KEY_CONFLICT" in msg and f"--map ({d / 'c.map'}) 'o' (other.px:o)" in msg
+    assert run("compose", "--map", d / "c.map", "-o", tmp_path / "c.px", "--rekey") == 0
+    assert pxart.diff_images(composed(tmp_path / "c.px"), scene_png(d, "c.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_rekey_of_a_shared_cell_moves_its_keys_once(tmp_path, capsys):
+    # many cells share one legend entry's doc: --rekey renames its keys once, not once per cell
+    d = map_world(tmp_path)
+    write(d, "other.px", "g #ff0000\nh #00ff00\n@frame o\n" + ("gh" * 8 + "\n") * 16)
+    write(d, "c.map", "g tiles.px:grass\no other.px:o\n\ngoooo\nooogo\n")
+    assert run("compose", "--map", d / "c.map", "-o", tmp_path / "c.px", "--rekey") == 0
+    assert pxart.diff_images(composed(tmp_path / "c.px"), scene_png(d, "c.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_every_cell_where_scene_puts_it_mirrored_pngs_too(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "f.map", "b bush.png\nB bush.png+h\nV bush.png+v\nH bush.png+hv\nx tiles.px:crate\nX tiles.px:crate+hv\n\n"
+                      "bBVH\nxXxX\n")
+    assert run("compose", "--map", d / "f.map", "-o", tmp_path / "f.px") == 0
+    assert pxart.diff_images(composed(tmp_path / "f.px"), scene_png(d, "f.map", tmp_path / "s.png")) is None
+
+
+def test_compose_map_used_keys_only(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "o.map", "g tiles.px:grass\nS stall.px\n\ng\n---\nS\n")
+    assert run("compose", "--map", d / "o.map", "-o", tmp_path / "o.px", "--used-keys-only", "--size", "16x16") == 0
+    doc = pxart.parse(tmp_path / "o.px")
+    drawn = set("".join(doc.frames[0].grid))
+    assert set(doc.palette) <= drawn
+
+
+def test_compose_map_notes_a_file_without_the_variant(tmp_path, capsys):
+    d = map_world(tmp_path)
+    write(d, "plain.px", "u #806040\n@frame u\n" + ("u" * 16 + "\n") * 16)
+    write(d, "p.map", "g tiles.px:grass\nu plain.px:u\n\ngu\n")
+    capsys.readouterr()
+    assert run("compose", "--map", d / "p.map", "-o", tmp_path / "p.px") == 0
+    assert "@variant night covers" in capsys.readouterr().out
+
+
+def test_help_documents_compose_map():
+    doc = " ".join(pxart.__doc__.split())
+    assert "compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]" in doc
+    assert "From a map: --map MAP reads scene's tilemap" in doc
+    assert "renders as 'scene --map market.map --bg transparent --scale 1 -o market.png' does, pixel for pixel, " \
+        "in every variant too" in doc
+    assert "a .px pixel is one key, so it replaces what scene blends" in doc
+    assert "(compose --map builds the same room as a .px)" in doc
+
+
+def test_readme_documents_compose_map():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`compose --map room.map -o room.px` builds the map's room as a `.px` frame" in readme

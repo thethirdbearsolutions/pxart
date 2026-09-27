@@ -155,6 +155,9 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   draws from its cell's top-left, so a prop bigger than a tile hangs right and down; a
   legend entry ending in `+b` (`+hb` with a flip) stands it on its cell instead,
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart help LOOKING` has a worked map.
+  `compose --map room.map -o room.px` builds the map's room as a `.px` frame instead of a PNG,
+  with compose's palette, `--rekey` and `--variant-map` rules; it renders as `scene --map` does,
+  pixel for pixel, in every variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
