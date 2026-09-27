@@ -164,7 +164,8 @@ pxart scene --size 1040x448 --scale 1 -o panels.x2.png glade.x2.png@0,0 glade-du
 
 # ---------------------------------------------------------------------------------------
 # 07-import: lay the beetle's frames out as a PNG sheet, slice it back with from-png --grid,
-# and prove with diff that every frame came back pixel for pixel.
+# and prove with diff that every frame came back pixel for pixel. The README walks these
+# in order; the sheet and its 8x view are its "Where the sheet comes from" section.
 stage 07-import beetle.px beetle_pal.px
 items=()
 for i in 0 1 2 3; do
@@ -175,9 +176,8 @@ pxart scene --size 64x32 --scale 8 -o sheet.x8.png sheet.png@0,0
 txt from-png.txt from-png sheet.png --grid 16x16 --names walk/right,walk_cave/right \
   --palette beetle_pal.px -o imported.px
 pxart sheet imported.px --rows group --scale 4 -o imported.png
-txt diff.txt diff beetle.px:walk/right imported.px:walk/right
-txt diff-cave.txt diff beetle.px:walk_cave/right imported.px:walk_cave/right
-txt diff-mismatch.txt diff beetle.px:walk/right imported.px:walk_cave/right
+txt diff.txt diff beetle.px imported.px
+txt diff-mismatch.txt diff beetle.px:walk/right/0 imported.px:walk_cave/right/0 -o diff.png
 
 # ---------------------------------------------------------------------------------------
 # 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame.
