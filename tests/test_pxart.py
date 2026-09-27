@@ -11042,7 +11042,7 @@ def test_rekey_flags_on_the_commands():
 
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
-    assert "compose -o OUT[:frame] [--size WxH] [--under] [--rekey] LAYER@x,y" in doc
+    assert "compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] LAYER@x,y" in doc
     assert "--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never written)" in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
     assert "with no -o renames them in field.px itself, in every frame" in doc
@@ -11679,3 +11679,117 @@ def test_help_documents_sheet_fit():
     doc = " ".join(pxart.__doc__.split())
     assert "[--bg #3a3a44] [--fit]" in doc
     assert "--fit makes each cell its own frame's width (or its label's, if wider)" in doc
+
+
+# ---------------------------------------------------------------- compose --used-keys-only
+
+CLOAK = "X #1a1020\nx #302040\nc #504070\nC #7060a0\nw #a090d0\nk #000000\n@variant night\nc #202040\nC #303050\n" \
+        "@frame cloak\n.cc.\ncccc\n.kk.\n"
+
+
+def test_compose_new_out_keeps_whole_palette_by_default(tmp_path, capsys):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:cloak@0,0") == 0
+    assert list(pxart.parse(out).palette) == ["c", "k", "X", "x", "C", "w"]
+    capsys.readouterr()
+    assert run("check", out) == 0 and "unused keys XxCw" in capsys.readouterr().out
+    assert run("shade", out, "--ramp", "XxcCw", "--keys", "c") == 0  # why it's the default
+
+
+def test_compose_used_keys_only_new_out(tmp_path, capsys):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:cloak@0,0", "--used-keys-only") == 0
+    doc = pxart.parse(out)
+    assert list(doc.palette) == ["c", "k"] and doc.variants == {"night": {"c": pxart.hex2rgba("#202040")}}
+    capsys.readouterr()
+    assert run("check", out) == 0 and "unused" not in capsys.readouterr().out
+
+
+def test_compose_used_keys_only_renders_the_same(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    a, b = tmp_path / "a.px", tmp_path / "b.px"
+    assert run("compose", "-o", a, f"{p}:cloak@0,0") == 0
+    assert run("compose", "-o", b, f"{p}:cloak@0,0", "--used-keys-only") == 0
+    assert renders(a) == renders(b)
+
+
+def test_compose_used_keys_only_then_shade_ramp_needs_the_keys(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:cloak@0,0", "--used-keys-only") == 0
+    assert run("shade", out, "--ramp", "XxcCw", "--keys", "c") != 0
+
+
+def test_compose_used_keys_only_keeps_a_shared_import(tmp_path):
+    write(tmp_path, "pal.px", "X #1a1020\nc #504070\nC #7060a0\n")
+    p = write(tmp_path, "c.px", "@palette pal.px\nz #ffffff\n@frame a\ncz\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:a@0,0", "--used-keys-only") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and list(doc.palette) == ["z"]
+
+
+def test_compose_used_keys_only_several_layers_no_left_out_notes(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "h #111111\nn #222222\nq #999999\n\nh\n")
+    b = write(tmp_path, "b.px", "h #111111\nn #bbbbbb\nw #333333\n\nw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}@0,0", f"{b}@1,0", "--used-keys-only") == 0
+    got = capsys.readouterr().out
+    assert "leaves out" not in got and list(pxart.parse(out).palette) == ["h", "w"]
+
+
+def test_compose_default_several_layers_notes_left_out_as_before(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "h #111111\nn #222222\n\nh\n")
+    b = write(tmp_path, "b.px", "h #111111\nn #bbbbbb\nw #333333\n\nw\n")
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}@0,0", f"{b}@1,0") == 0
+    assert "leaves out" in capsys.readouterr().out
+
+
+def test_compose_used_keys_only_existing_out_is_the_plain_compose(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    o1 = write(tmp_path, "o1.px", "k #000000\n@frame x\nk\n")
+    o2 = write(tmp_path, "o2.px", "k #000000\n@frame x\nk\n")
+    assert run("compose", "-o", f"{o1}:y", f"{p}:cloak@0,0") == 0
+    assert run("compose", "-o", f"{o2}:y", f"{p}:cloak@0,0", "--used-keys-only") == 0
+    assert o1.read_text() == o2.read_text() and list(pxart.parse(o1).palette) == ["k", "c"]
+
+
+def test_compose_used_keys_only_with_rekey(tmp_path):
+    a = write(tmp_path, "a.px", "s #111111\nq #999999\n\ns\n")
+    b = write(tmp_path, "b.px", "s #00ff00\nr #888888\n\ns\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}@0,0", f"{b}@1,0", "--used-keys-only", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid == ["sa"] and list(doc.palette) == ["s", "a"]
+
+
+def test_crop_used_keys_only(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("crop", f"{p}:cloak", "0,2,4,1", "-o", out, "--used-keys-only") == 0
+    assert list(pxart.parse(out).palette) == ["k"]
+
+
+def test_help_documents_used_keys_only():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--used-keys-only gives a new OUT only the keys its frame uses" in doc
+    assert "It isn't the default because the unused keys are often a material's ramp" in doc
+
+
+def test_compose_used_keys_only_drops_keys_cropped_off_the_canvas(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "4x2", f"{p}:cloak@0,0", "--used-keys-only") == 0
+    doc = pxart.parse(out)
+    assert list(doc.palette) == ["c"] and doc.frames[0].grid == [".cc.", "cccc"]
+
+
+def test_compose_used_keys_only_drops_an_empty_variant_key_set_but_keeps_the_variant(tmp_path):
+    p = write(tmp_path, "c.px", CLOAK)
+    out = tmp_path / "o.px"
+    assert run("crop", f"{p}:cloak", "0,2,4,1", "-o", out, "--used-keys-only") == 0
+    doc = pxart.parse(out)
+    assert doc.variants == {"night": {}}
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == pxart.hex2rgba("#000000")

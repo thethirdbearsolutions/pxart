@@ -287,7 +287,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
       --rekey gives them free keys in DST, as compose's does.
-  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] LAYER@x,y [LAYER@x,y ...]
+  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] LAYER@x,y ...
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
       pixels (a floor or a shadow under a finished sprite). The frame must exist.
@@ -316,6 +316,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       layers have in different colors gets the color of the layer that uses it, else the
       earlier layer's, and a note names each layer's color left out and why. Variants come
       along for the keys OUT has (the first layer's win). crop writes a new OUT the same way.
+      --used-keys-only gives a new OUT only the keys its frame uses (and their variant
+      colors; a @palette they all import is still imported, since it adds no key lines), so
+      check has no 'unused keys' to note. It isn't the default because the unused keys are
+      often a material's ramp: a cloak drawn in its base key c still needs X x C w for
+      'shade --ramp XxcCw' to re-shade it. An existing OUT only ever gets the used keys.
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
       (OUT may be a palette-only file). A new frame goes after the last frame of its
       animation (like dup), or at the end when the animation is new. Canvas size: --size, else the frame being
@@ -3281,7 +3286,7 @@ def cmd_shade(a):
     print(f"{changes(by)};", write_doc(doc, out))
 
 
-def seed_palette(doc, layers, gone=None):
+def seed_palette(doc, layers, gone=None, used_only=False):
     """A new compose OUT starts with its layers' whole palettes, not only the keys they use, so a later shade ramp
     or recolor finds its keys. When every layer imports the same @palette files, OUT imports them too (re-pointed
     from OUT); otherwise their colors become key lines. Then each layer's keys join in layer order, the keys the
@@ -3290,7 +3295,8 @@ def seed_palette(doc, layers, gone=None):
     one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
     first layer's winning. Returns what was left out, [(key, the layer it's left out of, the layer whose color OUT
     has, whether that layer uses it)], and {key: (the layer whose color OUT has, whether it uses it)}. gone: {id(layer
-    doc): keys --rekey moved away}, which a shared import may still hold: never seeded."""
+    doc): keys --rekey moved away}, which a shared import may still hold: never seeded. used_only
+    (--used-keys-only): only the keys the layers use become key lines (a shared @palette is still imported)."""
     docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
     names = {}
     for lay, _, _, label in layers:
@@ -3303,7 +3309,7 @@ def seed_palette(doc, layers, gone=None):
         doc.shared_variants = {n: dict(v) for n, v in docs[0].shared_variants.items()}
     used = {id(d): {k for lay, *_ in layers if lay.doc is d for k in "".join(lay.frame.grid)} for d in docs}
     left, whose = [], {}  # whose: key -> (the layer whose color OUT has, whether that layer uses it)
-    for want_used in (True, False):
+    for want_used in (True,) if used_only else (True, False):
         for d in docs:
             for k, c in d.resolved().items():
                 if k == "." or (k in used[id(d)]) != want_used or (keep and k in d.shared and k not in d.palette) \
@@ -3381,7 +3387,7 @@ def compose(a, layers, dry=False, gone=None):
         target.grid = under
     whose = {}  # key -> the layer whose color OUT has
     if fresh:
-        left_out, seeded = seed_palette(doc, layers, gone)
+        left_out, seeded = seed_palette(doc, layers, gone, getattr(a, "used_keys_only", False))
         whose = {k: w[0] for k, w in seeded.items()}
         left = {}
         for k, lost, kept, uses in left_out:
@@ -3444,6 +3450,10 @@ def compose(a, layers, dry=False, gone=None):
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         pal = doc.resolved()
         target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
+    if fresh and getattr(a, "used_keys_only", False):  # keys that landed on the canvas; a cropped-away one goes
+        left = set("".join(target.grid))
+        doc.palette = {k: c for k, c in doc.palette.items() if k in left}
+        doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
     print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
 
 
@@ -3914,6 +3924,7 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
+USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
 REKEY_HELP = "give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are"
 
 
@@ -3975,6 +3986,7 @@ def parser(describe=True):
     p.add_argument("-o")
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
@@ -4018,6 +4030,7 @@ def parser(describe=True):
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
     p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

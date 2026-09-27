@@ -161,7 +161,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   pixels), `compose` (stack layers into a frame; a new
   frame lands after its animation; a new file gets the layers' whole palette, their shared
   `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
-  its keys; `--under` draws the layers behind the frame that's there, in its empty
+  its keys, or with `--used-keys-only` only the keys its frame uses; `--under` draws the layers behind the frame that's there, in its empty
   pixels; a key a layer has in another color than OUT's is `E_KEY_CONFLICT`, one line per
   source file with free keys for it, and `--rekey` gives it those keys in OUT and leaves
   the source file alone, as it does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set` (timing), `palette --add` (`palette FILE` alone lists the
