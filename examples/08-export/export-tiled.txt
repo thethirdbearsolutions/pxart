@@ -1,0 +1,2 @@
+$ pxart export harbor.px --tiled harbor.tsj
+wrote harbor.png harbor.tsj

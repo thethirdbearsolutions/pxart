@@ -148,6 +148,15 @@ txt diff-cave.txt diff beetle.px:walk_cave/right imported.px:walk_cave/right
 txt diff-mismatch.txt diff beetle.px:walk/right imported.px:walk_cave/right
 
 # ---------------------------------------------------------------------------------------
+# 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame.
+stage 08-export alchemist.px hero_pal.px harbor.px harbor-palette.px
+txt export-aseprite.txt export alchemist.px --aseprite alchemist.json
+txt export-tiled.txt export harbor.px --tiled harbor.tsj
+txt export-frames.txt export alchemist.px --frames frames
+pxart scene --size 96x96 --scale 4 -o alchemist.x4.png alchemist.png@0,0
+pxart scene --size 48x32 --scale 8 -o harbor.x8.png harbor.png@0,0
+
+# ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"
 cp -R "$WORK"/. "$DEST"/
 echo "built examples into $DEST"

@@ -1,0 +1,426 @@
+{
+ "frames": [
+  {
+   "filename": "walk/right/0",
+   "frame": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "walk/right/1",
+   "frame": {
+    "x": 24,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "walk/right/2",
+   "frame": {
+    "x": 48,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "walk/right/3",
+   "frame": {
+    "x": 72,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "walk/right/4",
+   "frame": {
+    "x": 0,
+    "y": 32,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "walk/right/5",
+   "frame": {
+    "x": 24,
+    "y": 32,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 100
+  },
+  {
+   "filename": "attack/right/0",
+   "frame": {
+    "x": 48,
+    "y": 32,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 200
+  },
+  {
+   "filename": "attack/right/1",
+   "frame": {
+    "x": 72,
+    "y": 32,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 110
+  },
+  {
+   "filename": "attack/right/2",
+   "frame": {
+    "x": 0,
+    "y": 64,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 110
+  },
+  {
+   "filename": "attack/right/3",
+   "frame": {
+    "x": 24,
+    "y": 64,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 110
+  },
+  {
+   "filename": "attack/right/4",
+   "frame": {
+    "x": 48,
+    "y": 64,
+    "w": 24,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 32
+   },
+   "duration": 110
+  }
+ ],
+ "meta": {
+  "app": "https://github.com/thethirdbearsolutions/pxart",
+  "version": "1",
+  "image": "alchemist.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 96,
+   "h": 96
+  },
+  "scale": "1",
+  "frameTags": [
+   {
+    "name": "walk/right",
+    "from": 0,
+    "to": 5,
+    "direction": "forward",
+    "color": "#000000ff"
+   },
+   {
+    "name": "attack/right",
+    "from": 6,
+    "to": 10,
+    "direction": "forward",
+    "color": "#000000ff",
+    "repeat": "1"
+   }
+  ],
+  "layers": [],
+  "slices": [
+   {
+    "name": "pivot",
+    "color": "#0000ffff",
+    "keys": [
+     {
+      "frame": 0,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 1,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 2,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 3,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 4,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 5,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 6,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 7,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 8,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 9,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     },
+     {
+      "frame": 10,
+      "bounds": {
+       "x": 0,
+       "y": 0,
+       "w": 24,
+       "h": 32
+      },
+      "pivot": {
+       "x": 12,
+       "y": 31
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

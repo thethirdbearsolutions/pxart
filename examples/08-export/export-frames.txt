@@ -1,0 +1,2 @@
+$ pxart export alchemist.px --frames frames
+wrote frames/walk/right/0.png frames/walk/right/1.png frames/walk/right/2.png frames/walk/right/3.png frames/walk/right/4.png frames/walk/right/5.png frames/attack/right/0.png frames/attack/right/1.png frames/attack/right/2.png frames/attack/right/3.png frames/attack/right/4.png frames/pivots.json
