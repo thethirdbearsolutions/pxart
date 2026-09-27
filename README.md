@@ -48,7 +48,9 @@ packs, tilemaps, import and export, checking.
   ASCII except `# @ . " \`.
 - **Grid:** rows of palette keys, all the same width. The sprite's size is the grid's
   size; nothing is declared or counted.
-- **Comments:** lines starting with `#`.
+- **Comments:** lines starting with `#`. A comment right above a line is that line's (a key's
+  comment); a file's header is the comments above `pxart 1`, or separated from its first line by a
+  blank line.
 - **Version line (optional):** a first line of `pxart 1`.
 
 ### Frames and animation
@@ -75,7 +77,9 @@ pxart 1
 - **`pivot=x,y`** on `@frame` or `@anim` (optional; a frame's own wins): the frame's anchor
   pixel from its top-left, say the feet. `anim` and `onion` line frames up by pivot instead
   of bottom-centre, and `export` writes it (`--aseprite` as Aseprite's own slice keys,
-  `--frames` as `pivots.json`). `anim-set hero.px:walk pivot=8,23` sets it.
+  `--frames` as `pivots.json`). `anim-set hero.px:walk pivot=8,23` sets it. `flip`, `rotate` and `transpose` move a pivot with its pixel
+  (x -> w-1-x); across an even width a note says that a pivot meant as the point between the two middle pixels ends
+  1px off it, since pivots are whole pixels.
 - **`anim-set`** writes both: `anim-set hero.px:walk/down ms=125 direction=pingpong`
   updates (or adds) the `@anim` line, and `anim-set hero.px:walk/down/1 ms=250` sets one
   frame's `ms` (or `pivot`). Only that line changes; `ms=` with no value clears it.
@@ -84,14 +88,25 @@ pxart 1
   legend) is read from that file's directory; a path typed on the command line (`--match`,
   `--palette`, `--labels`, ...) from the current directory, and an `E_FILE` says so.
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
-  `--variant night`.
+  `--variant night`. A variant a sprite gets only from its `@palette` can't know the
+  sprite's own keys and leaves them at their base colors (a white wick at dusk): every
+  command that renders it prints a `WARNING` naming them, `check` says so too, and
+  `palette wick.px --variant dusk --derive-from base --match pal.px --keep-lit M,m` gives the
+  sprite a dusk of its own, fitted to the palette's, with its lights kept lit: the WARNING
+  prints that command, the lights inferred from the file's other variants (a key one leaves at
+  base or brightens: `M left at base in night`).
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`
   starts a still group.
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
-`file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's
+`file.px:walk/down/0` (one frame); `'file.px:*'` (quoted for the shell) is every frame, as a
+plain `file.px` is. Pixel coordinates need you to say which frames they go to, so on a file of several frames `set`,
+`fill --region`, `line`, `rect`, `poly`, `ellipse`, `arc`, `flood`, `paste --at`, `mask --keep`
+and a `--region` of `shift`, `recolor` or `shade` want one of these, and the `E_SELECT` lists
+the frames. An edit that changes several frames names them before `wrote`: `edited 16 frames:
+walk/down/0, walk/down/1, walk/down/2 and 13 more`. A file with one unnamed grid calls it by the file's
 name (`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o
 ant.px:ant`) first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`:
 `"$F:walk/down"` applies a modifier, and a missing input like `hero.pxalk/down` is
@@ -113,7 +128,8 @@ compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, row 1): row
 ```
 
 A command that fails prints no notes or WARNINGs: they describe the write it was about to
-make, and nothing was written.
+make, and nothing was written. A command that writes into a directory that doesn't exist makes it and
+says so: `created out/`.
 
 Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
@@ -125,22 +141,30 @@ scene from a map, check an animation's feet. `pxart -h` is a short overview: the
 lines and the commands by topic.
 `pxart help all` has the full reference, `pxart help TOPIC` one part of it (FORMAT,
 LOOKING, CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS), and `pxart CMD -h` (or
-`pxart help CMD`) prints one command's part (`pxart poly -h`), then a see-also line naming
-the shared notes of the reference it relies on (EDITING, FORMAT: selecting frames, ...)
-rather than repeating them. `compose` and `palette`, the two longest, open with a short list of rules
+`pxart help CMD`) prints one command's part (`pxart poly -h`): its usage and a line or three
+saying what it's for, its options one per line, then the details and heuristics, then a
+see-also line naming the shared notes of the reference it relies on (EDITING, FORMAT:
+selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"`, not
+`"$F:walk"`; `pxart -h` says so in a box. `compose` and `palette`, the two longest, open with a short list of rules
 (a new OUT imports the layers' shared `@palette`; variants merge by name; ...) and examples;
 `pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 
-- **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
+- **Looking:** `render` and `sheet` draw a grey checkerboard behind each frame, so a dark outline and
+  the transparent pixels both show (`--bg COLOR` for a flat backdrop instead). `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
+  or in `--png DIR`, and prints the path; `--plain` writes one frame alone at its exact size, no grid,
+  rulers or labels, to `diff` against a scene's PNG), `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
   or a folder `wip`, in `check` and `stats` too; frames with one id from several files
   are labeled `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or
-  with `--fit` each frame's own, rows as tall as their tallest; `--align pivot` lines up
+  with `--fit` each frame's own, rows as tall as their tallest, and a frame over 8x the median
+  frame's area gets a note saying what it costs; `--align pivot` lines up
   each animation's frames by pivot, as `anim` does; `--rows group` puts each animation group
   on a row of its own), `anim` (one GIF, each
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
   motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
-  72px (20%)`, and writes nothing; "rows Y+ still" only when those rows are
+  72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
+  100%), and writes nothing; a file of several groups animates each on its own, a block of numbers per group, and
+  `-o DIR` writes one GIF per group (`DIR/walk/down.gif`); "rows Y+ still" only when those rows are
   pixel-identical and the legs keep their shape in every frame (an idle; a walk frame
   whose legs happen to stay put reads as its bob, `shift +0,+1 then 23px`), and for the
   rise and the fall of one breath alike; a ground tile or a sparse overlay like falling
@@ -156,6 +180,10 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
   does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.
+  `--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` prints the readout (notes and
+  WARNINGs too) and each output's size and layout (`sheet.png: 700x174 px, 5 frames in one row,
+  every cell 128x128 ...`) and writes nothing, saying `(dry run; nothing written)`; `-o` may
+  then be left off. An image over 4096 px on a side or 16M px gets a `WARNING`, dry run or not.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
   entry that can't load is an error at its legend line. A `#` line before the rows is a
@@ -168,7 +196,9 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart help LOOKING` has a worked map.
   `compose --map room.map -o room.px` builds the map's room as a `.px` frame instead of a PNG,
   with compose's palette, `--rekey` and `--variant-map` rules; it renders as `scene --map` does,
-  pixel for pixel, in every variant.
+  pixel for pixel, in every variant. A new OUT's header says how it was made (`# composed by:
+  pxart compose --map room.map -o room.px`, paths from its folder), so a variant `WARNING` about
+  it can offer composing it again once the map's sprites have that variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
@@ -178,14 +208,18 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   one pixel's key and color in every variant), `diff A B` (renders pixel by pixel, one line per pair: how many
   pixels differ and where, exit 1 when they do, so a copy can be proved to render as its original;
   `diff town.px pack/ --labels pack/labels.csv` checks every frame against the pack's PNG its row names,
-  `diff hero.px out/` against `out/<id>.png`, and two directories pair files by path; a transparent pixel
-  matches any other unless `--strict-alpha`),
+  `diff hero.px out/` against `out/<id>.png`, `diff town/ pack/ --labels pack/labels.csv` every frame of every
+  `.px` under `town/` (`--exclude GLOB` leaves some out), and two other directories pair files by path; a transparent pixel
+  matches any other unless `--strict-alpha`; `-o DIFF.png` draws A, B and the differing pixels in magenta
+  side by side (of several pairs, the one that differs, named), or for several pairs `-o DIR` one picture per
+  pair that differs; a size mismatch against a
+  render or a scaled copy gets a note naming `render --plain`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
   frame removes its `@anim`/`@still` line; `frames hero.px:walk --copy-to beast.px
   [--after ID]` copies frames into another file, in order, with their ms, pivots and
-  `@anim` line, under other ids with `--prefix wick/` or `--rename walk wick/walk`;
+  `@anim` line (a copy that lands as a still, a top-level id, drops its ms and keeps its pivot), under other ids with `--prefix wick/` or `--rename walk wick/walk`;
   `frames hero.px --rename walk hero/walk` renames a group in place, `@anim` and `@still`
   lines too, and is the rename there is no `rename` command for; a move puts the `@anim` lines
   in play order).
@@ -195,7 +229,7 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   frame's grid with rows from stdin, with optional
   palette lines merged like `compose`'s; checked like a file, errors at stdin's lines,
   nothing written on an error, and only that frame's lines change), `fill` (a region or
-  the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`,
+  the whole frame with one key; `fill hero.px:walk/2 .` clears a frame), `flip`, `shift` (the pixels it leaves behind become `.`,
   or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
@@ -229,14 +263,15 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   `--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and
   q, with a `WARNING` where their variant colors differ; `--rekey girl.px:T=V` is for one
   source file's T only; a color two files share, alike in every variant, keeps the one key
-  it got first), `dup` (copy a frame), `anim-set` (timing), `palette
+  it got first), `dup` (copy a frame; or a group, `dup hero.px:walk/right walk/left`, with its frames' timing and pivots and its
+  `@anim` line; `flip hero.px:walk/left -o hero.px:walk/right` copies a group and flips the copy in one step), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
   from the base colors, as `scene --tint` would, with the lamps still lit; `--match
   mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted
   gain and offset: warm lights, blue shadows), and a key darker than a quarter is never
-  brightened unless `--lift-darks`; `--hoist l,g`
+  brightened, by Rec. 709 luma (hue kept), unless `--lift-darks`; `--hoist l,g`
   moves a sprite's own keys into the palette file it imports; `--import pal.px` adds a
   `@palette pal.px` line to a sprite and drops its key lines pal.px has in the same colors, so it
   renders as before; `--order o,t,k` puts those key lines first, comments and all; `--remove k,n` takes out keys
@@ -247,7 +282,11 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   a key line, a variant or the file; `palette FILE` alone lists the keys with their comments, then what each
   variant recolors darker or brighter, relists in its base color and inherits, with its
   comment: `night: recolors (darker) k w; brightens y; relists unchanged: l g; inherits: e E q`;
-  `--in DIR` says how many files under DIR import a palette file and draw with each key). Edits rewrite only the lines
+  `--in DIR` says how many files under DIR import a palette file and draw with each key; any
+  edit takes `-o OUT` for an edited copy, and `--dry-run` prints the diff it would make and
+  writes nothing). Every edit, the drawing commands and `frames`, `dup` and `anim-set` too, takes `--dry-run`: it prints
+  what the edit says and the diff it would make, then `(dry run; nothing written)`. There is no undo: keep sprites in
+  git, or edit a copy with `-o`. Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and
@@ -265,7 +304,8 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   - `poly … x,y x,y x,y … [--fill]`: a closed polygon from line's pixels (filled by nonzero
     winding, so a star is solid).
   - `rect … x,y,w,h [--fill]`, `ellipse … cx,cy,rx,ry [--fill]` (clean, symmetric pixel
-    ellipses; `.5` centers and radii for even sizes), `flood … x,y [--diagonal]`.
+    ellipses; `.5` centers and radii for even sizes, or
+    `--box x,y,w,h`, the pixel box as `rect` takes it, with no half pixels at all), `flood … x,y [--diagonal]`.
   - `arc … cx,cy,r a0,a1 --width 3`: a smear or swoosh (degrees, 0 = right, counter-clockwise).
   - `shade hero.px:idle/0 --ramp XxcCw --keys c --light nw`: re-shades a material with a
     darkest-to-lightest ramp. Each pixel's tone comes from its outward normal against the

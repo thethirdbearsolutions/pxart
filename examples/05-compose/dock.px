@@ -1,3 +1,4 @@
+# composed by: pxart compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark harbor-market/harbor.px:water/0@0,0 harbor-market/harbor.px:water/0@16,0 harbor-market/harbor.px:water/0@32,0 harbor-market/harbor.px:water/0@48,0 harbor-market/harbor.px:water/0@64,0 harbor-market/harbor.px:cobble/a@0,16 harbor-market/harbor.px:cobble/b@16,16 harbor-market/harbor.px:cobble/c@32,16 harbor-market/harbor.px:cobble/a@48,16 harbor-market/harbor.px:cobble/b@64,16 harbor-market/harbor.px:cobble/c@0,32 harbor-market/harbor.px:cobble/a@16,32 harbor-market/harbor.px:cobble/b@32,32 harbor-market/harbor.px:cobble/c@48,32 harbor-market/harbor.px:cobble/a@64,32 harbor-market/harbor.px:stall@2,6 harbor-market/harbor.px:lamp@36,8 lighthouse-keeper/keeper.px:idle/down/0@42,14 wick/player.px:idle/0@62,28
 pxart 1
 
 # Harbor market palette: 20 colors, warm stone + sea blues, one hot accent (awning red) (from harbor.px)

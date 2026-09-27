@@ -147,12 +147,13 @@ What each piece means:
 pxart prints what it did:
 
 ```text
-new @variant dusk; derived from base (darkened 20%, tinted #ff6a3a38): recolors 15 key(s); l g kept lit (in their base colors); k N O held no brighter than their base colors (darker than a quarter: an outline stays dark; --lift-darks lets the derive brighten them); wrote derived/palette.px
+new @variant dusk; derived from base (darkened 20%, tinted #ff6a3a38): recolors 15 key(s); l g kept lit (in their base colors); k N O held no brighter than their base colors by Rec. 709 luma (darker than a quarter: an outline stays dark; --lift-darks lets the derive brighten them); wrote derived/palette.px
 ```
 
 A *key* is pxart's word for a letter in the palette. So: fifteen letters got new
 colors, the lamp was kept lit, and the three darkest letters (the outline and two
-shadows) were not allowed to get lighter, so outlines stay crisp.
+shadows) were not allowed to get lighter, so outlines stay crisp. (*Rec. 709 luma* is
+the standard way to measure how bright a color looks.)
 
 Render it from the copy, with `%dusk` and a sunset sky:
 

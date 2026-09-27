@@ -11,6 +11,7 @@ FORMAT (.px)
     ....kkkk....             grid rows: all the same width, only palette keys.
     ...kggggk...             The sprite's size is the grid's size: nothing to count.
 
+  A comment right above a line is that line's; a header is above 'pxart 1' or a blank line.
   Several frames per file: name each grid with @frame; the id is a path, and frames
   sharing a parent path form an animation (walk/down/0, walk/down/1 -> "walk/down"):
     @anim walk/down direction=forward repeat=0 ms=125
@@ -33,99 +34,97 @@ FORMAT (.px)
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
   ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
-  also lists them as 'still' in frames.
+  also lists them as 'still' in frames. A frame copied as a still (a top-level id, or a @still
+  group) drops its ms and keeps its pivot, with a note.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override, and a local key that repeats an
   imported one's color (with the palette --remove that drops its line when nothing changes).
+  A variant a file gets only from its @palette leaves the file's own keys at base colors;
+  commands that render it print a WARNING naming them and the fix, and check notes it.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. A file with
-  one unnamed grid (no @frame) calls it by the file's name, as frames lists it: ant.px's
-  grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
+  path (FILE:walk/down = every walk/down/* frame). No SEL (or *) means every frame. A
+  file with one unnamed grid (no @frame) calls it by the file's name, as frames lists it:
+  ant.px's grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
   ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
-  ant that is the frame written. Add
-  %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
-  modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
-  letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
-  An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash.
+  ant that is the frame written. Add %VARIANT to render with a variant: FILE:idle/0%night.
+  +----------------------------------------------------------------------------------------+
+  | zsh users: write "${F}:walk", not "$F:walk" (zsh reads ':w' as a modifier), or quote   |
+  | the whole argument. A missing hero.pxalk/0 or hero.pxidle is reported as that mistake. |
+  +----------------------------------------------------------------------------------------+
+  An output under a file (-o hero.px/walk/0) is E_FILE; an image output with no image
+  extension (-o /dev/null, -o x.px) is E_BAD_ARG.
   Paths: a path typed on the command line is read from the current directory, as the
   shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
   --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
   --frames, --aseprite, --tiled). A path written inside a file is read from that file's
   directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
-  names. Run from the folder holding game/ and wick/, 'palette game/pal.px --variant dark
-  --derive-from base --match wick/pal.px%dark' reads wick/pal.px, where game/pal.px's own
-  line would say '@palette ../wick/pal.px' (a file pxart writes elsewhere gets its @palette
-  lines re-pointed: see EDITING). An E_FILE for a relative path says so, and a
-  path option's names the option: 'palette: --match (../wick/pal.px%dark): ../wick/pal.px
-  (from the current directory): E_FILE: No such file or directory'.
+  names. A file pxart writes elsewhere gets its @palette lines re-pointed (see EDITING). An
+  output's missing directory is made, and said: 'created out/'. An E_FILE for a relative
+  path says so, and a path option's names the option: 'palette: --match
+  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such file or
+  directory'.
 
 LOOKING
-  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
+  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
+         [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
-      anim and onion default to 8 too). --png also writes a 1x PNG beside each
-      single-frame .px.
-  sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB]
+      anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
+      or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
+      (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
+      pads and labels).
+  sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
+        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
-      stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
-      PNGs in it are left out, a sheet rendered there too). --exclude GLOB (repeatable) leaves
-      files out: one whose name or path under the directory matches ('_*.px', 'wip/*.px'), or
-      every file under a directory that does ('wip'): 'sheet game/ --exclude wip --exclude
-      room.px -o set.png'. A glob that matches nothing gets a note; one that leaves out every
-      file is E_FILE (check, stats and export alike, files named directly too). A
-      palette file (no frames) among the inputs, a directory's or a glob's, is skipped with a
-      note ('note: sheet skips palette.px: a palette file, no frames'); given alone it is
-      E_NO_FRAMES. Every cell is
-      the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
-      --fit makes each cell its own frame's width (or its label's, if wider) and each row
-      as tall as its tallest frame, --cols cells to a row, frames bottom-aligned in their
-      row. A PNG whose four corners are exactly the --bg color (a scene rendered with the
-      same --bg) doesn't count that color: it's the backdrop. Frames with the same id from
-      different files are labeled with their file's stem in front (hero:idle/0,
-      beast:idle/0; the path as given when the stems match too); render and anim label them
-      the same way.
+      stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o
+      s.png'; PNGs in it are left out, a sheet rendered there too). --exclude GLOB
+      (repeatable) leaves files out: one whose name or path under the directory matches
+      ('_*.px', 'wip/*.px'), or every file under a directory that does ('wip'). A glob that
+      leaves out every file is E_FILE. A palette file (no frames) among the inputs, a
+      directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
+      palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
+      frame's size (a 16x16 tile beside a 64x64 beast gets a 64x64 cell; a frame over 8x the
+      median frame's area gets a note); --fit makes each cell its own frame's width (or its
+      label's, if wider) and each row as tall as its tallest frame, --cols cells to a row,
+      frames bottom-aligned in their row. A PNG whose four corners are exactly the --bg
+      color (a scene rendered with the same --bg) doesn't count that color: it's the
+      backdrop. Frames with the same id from different files are labeled with their file's
+      stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
-      the group's frames are drawn on one canvas, every pivot on the same pixel (a frame
-      without one uses its bottom-centre pixel), so a walk frame whose pivot says it stands
-      1px lower isn't shown 1px high. The label keeps the frame's own WxH. The default,
-      --align bottom, bottom-aligns each frame in its cell.
+      the group's frames are drawn on one canvas, every pivot on the same pixel. The
+      default, --align bottom, bottom-aligns each frame in its cell.
       --rows group starts a row for each animation group (one file's walk/down, then its
       walk/up, ...; a file's top-level frames share one; a PNG has its own) and wraps within
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
       --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
       row with --cols frames.
-  anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
+  anim FILE... [-o walk.gif|DIR] [--scale 8] [--fps N] [--variant V] [--dry-run]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
-      picture), plus walk.strip.png: row 1 = frames,
-      row 2 = what changed from the previous frame after removing the whole-sprite
-      shift ("shift dx,dy then N px (P%) (no shift: M px)"; P is N as a percent of the
-      frame's opaque pixels; a walk that's only a bob shows "then 0px (0%)"). When the
-      bottom of the sprite stays exactly put (rows Y down identical, 0 px changed) and only
-      the part above it moves (an idle breathing: chest up 1px, legs still), moving the
-      whole sprite would light up the legs, so the strip shows the unshifted diff instead:
-      "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)"; Y is the first identical
-      row. A walk whose leg moved even 1px keeps the shift. Both counts are always shown.
-      That reading is for an idle, whose legs keep their shape in every frame of the
-      animation. In a walk the legs move in other frames, so a frame whose legs happen to
-      stay put is the body's bob and keeps the smaller, truthful number: "shift +0,+1 then
-      23px (6%) (no shift: 201px)". A frame recolored whole (a glow) doesn't count as the
-      legs moving; a shadow that changes shape does.
-      So the rise and the fall of a breath read alike (the fall may carry an arm move that
-      a frame alone would call a shift): once one frame shows rows still, and rows Y down are
-      identical in every frame of the animation (legs that never move), every frame whose
-      shift would light those rows up shows the unshifted diff too. A walk over a static
-      shadow, where no frame shows its legs still on its own, keeps every shift.
-      Tiles and overlays scroll with wrap-around (shift --wrap): for frames that fill the
-      canvas and are a ground tile (every pixel opaque) or a sparse overlay (at most 1/4
-      of the pixels opaque: snow, rain), every scroll is tried too, and one that leaves
-      strictly fewer pixels changed than the best plain shift is shown as
-      "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
-      Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
-      to stdout, one line per frame; without -o, anim prints only those lines and writes
-      nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
-  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
+      picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
+      frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
+      P: N as a percent of the frame's opaque pixels, or of both frames' if more; a bob alone
+      shows "then 0px (0%)"). The numbers print too, a line per frame (a FILE of several
+      groups: a block each, animated alone; -o a DIR);
+      without -o, anim prints only those lines and writes nothing. Read the strip: the Read
+      tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
+      unless --fps is given.
+      An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
+      only the part above moves (a breath), shifting would light up the legs, so the strip
+      shows the unshifted diff: "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)".
+      Both counts are always shown. That is for an idle, whose legs keep their shape in every
+      frame of the animation: a walk whose leg moved even 1px keeps the shift, and in a walk
+      a frame whose legs happen to stay put is the body's bob: "shift +0,+1 then 23px (6%) (no
+      shift: 201px)". A frame recolored whole (a glow) doesn't count as the legs moving; a
+      shadow that changes shape does. So that the rise and the fall of a breath read alike,
+      once one frame shows rows still and rows Y down are identical in every frame of the
+      animation, every frame whose shift would light them up shows the unshifted diff too; a
+      walk over a static shadow keeps every shift.
+      Tiles and overlays: frames that fill the canvas and are a ground tile (every pixel
+      opaque) or a sparse overlay (at most 1/4 opaque: snow) also try every wrap-around scroll
+      (shift --wrap), shown when it leaves strictly fewer pixels changed than the best plain
+      shift: "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a] [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
       with render's grid and rulers, so where A shows past B is plain to see.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
@@ -133,29 +132,29 @@ LOOKING
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
       shift: 20px)": the head rose 1px, the feet stayed. Two different sprites (other sizes, or
       more than half the larger one's opaque pixels still changed at the whole sprites' best
-      shift, as a keeper beside a market kid; --rows and --feet don't change that; two frames
-      of one animation in one file are always one sprite, however much changed) print
+      shift; --rows and --feet don't change that; two frames of one animation in one file
+      are always one sprite, however much changed) print
       "...; different sprites: edges only": their edges still compare where the feet stand,
-      but a best shift between two characters means nothing. y grows down, so +1 is lower. The
-      edges are the sides of each frame's opaque bounding box (its leftmost, rightmost, top
-      and bottom opaque pixels): 'top -1' is B's top row of pixels 1px above A's.
+      but a best shift between two characters means nothing. y grows down, so +1 is lower.
+      The edges are the sides of each frame's opaque bounding box: 'top -1' is B's top row 1px
+      above A's.
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
       or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
-      weapon swing above doesn't hide what the feet did: 'B vs A (rows 20-23): left +0, ...'.
-      The shift still moves all of A (pixels come into the band from above) and counts only
-      the band's pixels. The PNG darkens the rows outside the band.
-      --tint-a COLOR draws the silhouette in another color, at that color's alpha
-      (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead,
-      the PNG onion drew before --tint-a was the default (faint on the dark backdrop).
+      weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
+      A opaque in 20-23, B in 21-23): left +0, ...'. The shift still moves all of A (pixels
+      come into the band from above) and counts only the band's pixels; when the bottom edges
+      agree, one up or down only lines up what moved above them, and the readout says no
+      shift. The PNG darkens the rows outside the band.
+      --tint-a COLOR draws the silhouette in another color, at that color's alpha. --fade-a
+      draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
-        [--tint #rrggbbaa] ITEM@x,y ...
+        [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
-      (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
-      where '!' would be history expansion). Map legend entries (which also take +b, see
+      (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
       legend lines '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend
       chars ('.' = empty). In a legend line the rest of the line is the path, relative to
@@ -208,17 +207,21 @@ LOOKING
       partly off the left/top edge), in scene and in compose.
       --tint '#10183080' lays that color, at its alpha, over the whole finished scene (bg,
       map, every item, those with their own %variant too) at 1x, before --scale: a night
-      scene in one step. To keep a light bright, render the scene untinted, mask the lit
-      circle out of it, and put that PNG over the tinted one.
+      scene in one step. To keep a light bright, mask its circle out of the untinted render
+      and lay that over the tinted one.
   tint IN.png '#rrggbbaa' [-o OUT.png]
       scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
       IN is rewritten.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
-  pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene, and
-  takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
-  --tint, tint, palette --add k=transparent; the '#' may be left off, and in a script a
-  '#' color needs quotes, or the shell reads a comment).
+  pixel going left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
+  behind frames; --bg (render, sheet, scene) takes a flat #rrggbb, #rrggbbaa or 'transparent'
+  (as does every color typed on the command line: --tint, tint, palette --add
+  k=transparent; the '#' may be left off, and in a script a '#' color needs quotes, or the
+  shell reads a comment).
+  --dry-run (render, sheet, anim, onion, scene) prints the readout and each output's size and
+  layout, writes nothing and says '(dry run; nothing written)'. -o may then be left off. An
+  image over 4096 px on a side or 16M px gets a WARNING, dry run or not.
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
@@ -246,27 +249,32 @@ CHECKING
       each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
       (repeatable) prints that pixel's key and its color in the base palette and in every
       variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
-  diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]
+  diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]]
+       [--labels CSV [--label-col C] [--file-col C]]
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
       differs: '12 px differ in 3,4,6,6 (x,y,w,h)', 'sizes 16x16 and 16x24') and for several a
       count ('132 frame(s): 130 same, 1 differ, 1 unpaired'). It exits 1 when anything differs
-      or has no pair, as check does, so a script can prove a copy, a rekey or a port renders
-      as the original: 'diff hero.px:idle/0 hero.px:idle/1'. A and B are:
+      or has no pair, as check does, so a script can prove a copy renders as the original.
+      A and B are:
         two files, FILE[:SEL][%VARIANT] or PNGs: one frame each, or frames paired by id (in
           order when their ids differ but their counts match: diff wick.px:walk
           party.px:wick/walk, copies made with --prefix wick/);
         a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames
-          writes them, or with --labels CSV against the PNG whose row names it so (read as
-          from-png's --labels): 'diff town.px pack/ --labels pack/labels.csv' proves a port
-          lossless in one call;
-        two directories: the .png and .px files under them paired by path (with --labels, a
-          PNG goes by its row's name), a .px pair frame by frame.
-      A frame with no PNG, or a file only one side has, is unpaired.
-      Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its
-      rgb (a PNG may keep a color under a transparent pixel; a render keeps none); any other
-      pixel compares on all four channels. --strict-alpha compares all four everywhere.
-      --variant V renders both sides with V, and a side's own %VARIANT wins (A%night against
-      B%dusk works too).
+          writes them, or with --labels CSV against the PNG whose row names it so: 'diff
+          town.px pack/ --labels pack/labels.csv' proves a port lossless in one call;
+        a directory of .px files and one of PNGs: every frame of every .px, as above ('diff
+          town/ pack/ --labels pack/labels.csv'; an id two files share is E_BAD_ARG; a note
+          counts the PNGs left over);
+        two other directories: the .png and .px files under them paired by path (with
+          --labels, a PNG goes by its row's name), a .px pair frame by frame.
+      A frame with no PNG, or a file only one side has, is unpaired. --exclude GLOB leaves
+      a directory's files out, as for check.
+      Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever
+      its rgb; any other pixel compares on all four channels. --strict-alpha compares all
+      four everywhere. --variant V renders both sides with V, and a side's own %VARIANT
+      wins. -o DIFF.png draws A, B and the differing pixels in magenta side by side
+      (top-left aligned) of the one pair that differs; -o DIR gets one per pair that differs.
+      A render or scaled copy of a frame gets a note naming render --plain.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -274,7 +282,7 @@ CHECKING
       and every frame under '@still *') and animations; or delete / reorder frames (prints
       what it removed or moved, not the listing; a move to where the frames already are
       prints "already in place" and writes nothing). FILE:SEL lists only those frames; 'frames
-      hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
+      hero.px:walk/left --rm' removes them (ids after --rm are frame ids, in SEL), and 'frames
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
       takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
       Removing a group's last frame removes its @anim and @still lines too. A move puts the
@@ -288,8 +296,7 @@ CHECKING
       Their keys join DST's palette and variants as compose's layers join an existing OUT
       (see compose): E_KEY_CONFLICT, the variant WARNINGs, --rekey [KEYS] and --variant-map
       dusk=night work alike. A frame id DST already has is E_DUP_FRAME, and so are two
-      copies --rename would give one id (--rename walk w --rename run w). To put back a
-      frame removed by mistake, copy it from a copy of the file, --after its neighbor.
+      copies --rename would give one id (--rename walk w --rename run w).
       DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
       --empty --palette P.px' one with no frames that imports P.
       Copies under other ids, when DST has those already (two packs' walk/*): --prefix wick/
@@ -303,18 +310,21 @@ CHECKING
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
-  frames edited and every other frame as it was (like editing a copy), and a note says so.
-  To get only some frames, extract them first (or after). An OUT in another directory gets
-  its @palette lines re-pointed from there (-o art/x.px of a file with '@palette pal.px'
-  writes '@palette ../pal.px'), so it imports the same palette file; an absolute path stays.
-  Edits rewrite only what changed: other lines keep their spelling and the blank lines and
-  comments above them, and new frames get the file's spacing between @frame blocks.
-  An edit that changes nothing (set to the same key, flip of a symmetric frame) prints
-  "no change: FILE" and leaves the file untouched.
+  frames edited and every other frame as it was, and a note says so.
+  To get only some frames, extract them. An OUT in another directory gets its @palette
+  lines re-pointed from there ('@palette ../pal.px' in -o art/x.px), so it imports the
+  same palette file. Edits rewrite only what changed: other lines keep their spelling and
+  the blank lines and comments above them, and new frames get the file's spacing between
+  @frame blocks. An edit changing nothing (set to the same key, flip of a symmetric frame) prints
+  "no change: FILE" and writes nothing; one that edits several frames names them.
+  --dry-run (any edit) prints its diff and writes nothing. There's no undo: use git.
+  Coordinates (x,y, --region, --at) need FILE:SEL on a file of several frames, saying which
+  ('FILE:*': all).
   Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
+      'flip hero.px:walk/left -o hero.px:walk/right' flips a copy: dup, then flip.
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap] [--fill KEY]
       Move the frame's pixels (or only the region's) by dx,dy. Pixels moved past the frame's
       edge are dropped, and the pixels the move leaves behind (vacated) become '.', or KEY
@@ -322,7 +332,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       outside the region; its '.' pixels don't overwrite what they land on.
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
-  fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
+  fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame; '.' clears)
   new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]
   new OUT --empty [--palette P.px]
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
@@ -346,15 +356,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
        [--keep-keys K,K | --drop-keys K,K] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
-      with a 4x4 ordered (Bayer) dither: a light radius in one command. --invert erases
-      the inside and keeps the outside: exactly the pixels the plain mask erases, dither
-      band mirrored, so a mask and its --invert split the image with no overlap or gap.
-      --keep and --keep-circle repeat, and mix: the kept area is their union (a pixel kept
-      by any shape is kept, where dither bands overlap too), and --dither and --invert
-      work over the union. Two lamps in one call:
+      with a 4x4 ordered (Bayer) dither: a light radius. --invert erases the inside and
+      keeps the outside, dither band mirrored, so a mask and its --invert split the image
+      with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
+      their union, and --dither and --invert work over the union. Two lamps in one call:
       'mask scene.png --keep-circle 20,30,12 --keep-circle 70,30,12 --dither 4'.
-      FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
-      pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
+      FILE may be a PNG (a rendered scene): outside pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
@@ -377,18 +384,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       'extract hero.px:walk/down -o walk.px'. An OUT that exists is E_FILE, since its frames
       would be lost (E_DUP_FRAME when it has one of the ids): 'frames FILE:SEL --copy-to OUT'
       adds them to it, and --replace overwrites it. --inline-palette
-      makes OUT self-contained for a hand-off: the imported keys its frames use (and any a
-      local @variant line sets) become key lines in OUT, each variant gets the imported
-      colors of the keys OUT has, and the @palette lines go. OUT renders exactly like the
+      makes OUT self-contained for a hand-off: the imported keys it uses become key lines,
+      with their variant colors, and the @palette lines go. OUT renders exactly like the
       source frames, in every variant.
   recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
       colors): when no pixel keeps a and a is FILE's own key, a's palette lines become b's
-      (a rename), else b is added and a stays. It frees a key without a visible change, say
-      before compose or frames --copy-to meets that key in another color; onto a key b
-      already in a's color (a near-duplicate), the error says to write a=b, a repaint that
+      (a rename), else b is added and a stays: it frees a key without a visible change;
+      onto a key b already in a's color (a near-duplicate), the error says to write a=b, a repaint that
       looks the same. c=#hex changes key c's color everywhere. '.' works as a source key.
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
@@ -397,9 +402,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       d to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look). A key the
       call keeps (pixels outside --region or the selection draw with it, it is imported, or
       c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
-      the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
-      :SEL moves keys in every frame; moves over more than one frame print "applied to N
-      frames".
+      the palette and don't move pixels, so c=#hex and c=d can share a call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
         [--variant-map NAME=V1,V2] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
@@ -467,9 +470,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       and =). A key any layer's file has isn't free, used here or not. Two ways to use them,
       both leaving the layers' files as they are:
         --rekey: compose gives those keys the free ones in OUT as it goes, and a note says
-          which: 'note: --rekey gives field.px's keys free ones
-          in scene.px: 's>a' 't>b' (field.px is unchanged)'. Composing from the same file into
-          OUT again reuses them (OUT has them in those colors by then).
+          which: 'note: --rekey gives field.px's keys free ones in scene.px: 's>a' 't>b'
+          (field.px is unchanged)'.
         a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside
           OUT), then compose from rekeyed/field.px; the line prints it ready to run.
 
@@ -507,8 +509,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       inlined (its variants are built, not imported). The map adds to the same-name lookup,
       never replaces it: it says only where OUT's dusk comes from, and OUT's other variants,
       night among them, still read each file's variant of the same name (a keeper's night is
-      then OUT's dusk and OUT's night too). One variant may feed several maps (--variant-map
-      dusk=night --variant-map rain=night). A new OUT merges a variant into the map's only
+      then OUT's dusk and OUT's night too), and may feed several maps. A new OUT merges a variant into the map's only
       when every file that has it gave it to the map (the keeper's night, read as dusk):
       then it gets no variant of its own. One that a file keeps as its own (its file has a
       dusk too) stays one of OUT's variants. With an existing OUT, whose variants stay its
@@ -532,6 +533,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       ('from visitors.px's @variant night; the rest from pal.px's night'). An OUT whose
       palette is inlined also gets the palette files' header comments at the top of its
       palette, each with the files it came from.
+      A new OUT's header says how it was made: '# composed by: pxart compose --map room.map -o
+      room.px', its paths from OUT's folder (composing OUT whole again updates it). A variant
+      WARNING about OUT then also offers composing it again, with --replace, once the sources
+      have that variant.
 
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
       parts.px:body@0,8. OUT:frame keeps OUT's other frames (OUT may be a palette-only file),
@@ -541,8 +546,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       else the first layer. Pixels that land outside the canvas
       are cropped, with a note saying how many. --under keeps OUT's frame and draws the layers
       behind it: they fill only its empty pixels (a floor or a shadow under a finished
-      sprite). The frame must exist. compose and dup note an output path that doesn't end in
-      .px (zsh "$OUT:frame").
+      sprite). The frame must exist.
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
@@ -555,11 +559,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       every variant too, except where a translucent pixel lands on another: a .px pixel is
       one key, so it replaces what scene blends.
   dup FILE:ID NEWID [--after ID] [-o OUT]
+  dup FILE:GROUP NEWGROUP [--after ID] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
+      A GROUP copies its frames (walk/0 -> run/0), @anim and @still lines too.
   anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still] [-o OUT]
-      Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
+      Write timing: updates the '@anim GROUP' line, or adds one, in the order of the frames.
       FILE:GROUP/ID (one frame) takes only ms=N and pivot=X,Y and sets that frame's own
       ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears
       a setting.
@@ -573,13 +579,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
            [--keep-lit KEYS] [--lift-darks]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
-          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS]
+          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS] [-o OUT] [--dry-run]
       Rules ('pxart help palette-rules' prints only these):
         - No flags lists the palette: each key, its color, where it comes from and how often
           it's drawn, then what each variant recolors.
-        - Edits write FILE's own lines. An imported key or variant is edited in its palette
-          file: --hoist moves FILE's keys there, and --remove of an imported key takes it out
-          there when no other sprite under the directory uses it.
+        - Edits write FILE's own lines (-o OUT: a copy; --dry-run: a diff, nothing written). An
+          imported key or variant is edited in its palette file: --hoist moves FILE's keys
+          there, and --remove of an imported key takes it out there when no other sprite under
+          the directory uses it.
         - A variant is key lines over the base: --variant NAME --add sets keys in it (a key in
           its base color stays lit), --keep lets keys inherit, and --derive-from builds a
           whole variant from the base (--match fits another palette's mood; keys darker than a
@@ -619,24 +626,24 @@ EDITING (writes .px; -o defaults to editing the input in place)
       unchanged'.
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
-      --keep-lit y,W sets every key of FILE's palette (imported ones too) in night from its
-      base color (or from another variant's: --derive-from dusk), each channel times 1 - F
-      (--darken 0.35 keeps 65%), then the --tint color laid over at its alpha, the math of
-      scene --tint, so night looks like a tinted scene; the --keep-lit keys keep their
+      --keep-lit y,W sets every key of FILE's palette (imported ones too, unless FILE imports
+      a night) in night from its base color (or from another variant's: --derive-from
+      dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
+      over at its alpha, the math of scene --tint; the --keep-lit keys keep their
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
-      gets no line. --add in the same call then sets single keys over the derived ones: a
-      whole night in one call, with the lamps still lit.
+      gets no line. --add in the same call then sets single keys over the derived ones.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
       fitted by least squares over the keys that variant recolors (not the ones it relists,
-      the lamps), then --darken and --tint as above: the example above gives the cast the
-      mood of another pack's dusk, warm lights and blue shadows included (a red gain, a blue
-      offset), where one darken and one tint move every channel alike. The output prints the
-      fit: 'r x0.92 -17, g x0.81 -11, b x0.78 +10'. A key darker than a quarter (Rec. 709
-      luma under 64) never comes out brighter than its --derive-from color: it is scaled
-      back to that brightness, its hue kept, and listed as held, so a near-black outline
-      stays dark under a blue tint or offset; when none is, the output says 'held: none'.
+      the lamps), then --darken and --tint as above: the example above gives the cast
+      another pack's dusk (a red gain, a blue offset), where one darken and one tint move
+      every channel alike. The output prints the fit: 'r x0.92 -17, g x0.81 -11, b x0.78
+      +10'. The hold: a key darker than a quarter (Rec. 709 luma, .2126 R + .7152 G + .0722
+      B of the sRGB values, under 64) never comes out with a higher luma than its
+      --derive-from color: it is scaled back to that luma, its hue kept (a warmer red may
+      look a shade lighter), and listed as held, so a near-black outline stays dark under a
+      blue tint or offset; else 'held: none'.
       --lift-darks lets the derive brighten them (a fog), and names the ones it did; --add
       sets one anyway.
 
@@ -649,8 +656,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       newline in the text makes two comment lines. One --comment takes several in turn
       ('palette pal.px --comment y "lamp" E "flame"'), and both repeat and go with --add in
       one call (the key added first): 'palette pal.px --variant night --add k=#120e22
-      --comment @variant night "night: only lamps glow"' (--variant night and @variant night
-      may name the same variant; two different ones are E_BAD_ARG).
+      --comment @variant night "night: only lamps glow"'.
 
       Removing keys: --remove k,n takes FILE's own keys out: their key lines, their lines in
       FILE's variants, and the comments above those. A key a frame still draws with is
@@ -660,8 +666,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       DIR uses it (draws with it, or lists it in a variant, with no key line of its own); DIR
       is --in DIR, else the directory holding both FILE and the palette file. Otherwise it
       stays there, and a line names who uses it: 'b stays in pal.px: cavegirl.px uses it'.
-      Removing a key from a palette file itself can't see the sprites that import it, so check
-      them after (palette pal.px --in DIR shows who draws with each key).
+      A palette file's own --remove can't see the sprites that import it: check them after
+      (palette pal.px --in DIR shows who draws with each key).
 
       Order: --order o,t,k (or otk) moves FILE's own key lines to the top of its palette in
       that order, each with the comment and blank lines above it, the other keys after them as
@@ -707,11 +713,12 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       next and from the last back to the first (1px, the same whichever way round it goes).
       --fill adds every pixel whose center is inside (nonzero winding: a self-crossing star
       is solid). Two points are a line. 'poly rock.px o 2,14 5,6 11,3 14,9 12,14 --fill'.
-  ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]
+  ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]
       The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
       center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
-      (3.5,3.5,3.5,2.5 is 8x6 at 0,1). A thin 8-connected outline (Zingl's algorithm), mirror-
-      symmetric, no stray pixels; boxes 1 or 2 px across are filled.
+      (3.5,3.5,3.5,2.5 is 8x6 at 0,1; so is --box 0,1,8,6, rect's x,y,w,h: no halves). A thin
+      8-connected outline (Zingl's algorithm), mirror-symmetric, no stray pixels; boxes 1 or
+      2 px across are filled.
   arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]
       Part of the circle ellipse cx,cy,r,r draws, from angle a0 to a1 in degrees, counter-
       clockwise, 0 = right, 90 = up (0,90 is the upper-right quarter; 300,60 wraps through 0;
@@ -735,8 +742,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       dark), or --base K. Keys are 'a,b,c' or 'abc'. Nothing outside the material changes.
       --region x,y,w,h repaints only the material inside it, shaded as part of the whole
       frame's material: the region's border is not an edge, only a real one is (an empty
-      pixel, another material, or the frame's side). Shade a half, and it matches that half
-      of the whole shading.
+      pixel, another material, or the frame's side).
       Algorithm, per pixel of the material (the shape: those pixels, over the whole frame;
       everything else, and off the frame, is outside):
         1. depth: its distance to the shape's edge (a vector distance transform from the
@@ -748,7 +754,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
            tone) --strength px in (default 2: a rim; the shape's radius: full form shading);
         4. banding: 0..1 splits evenly over the lights, -1..0 over the darks, rounding to the
            nearest step, ties toward the base; then a stray pixel (no 8-neighbor of its own
-           tone) takes its neighbors' commonest tone. Deterministic, no noise.
+           tone) takes its neighbors' commonest tone. No noise.
       --dither mixes adjacent tones with a 4x4 ordered (Bayer) pattern where the lighting is
       within a quarter step of a band boundary (and skips the stray-pixel pass). --light: n
       ne e se s sw w nw (default nw). --preview P.png renders the result (render's grid and
@@ -782,8 +788,7 @@ CONVERTING
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
       (--aseprite x.json and --tiled x.tsj share one identical x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
-      order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' leaves the 32x32
-      props out of a 16x16 tileset.
+      order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
       Several files and directories export together, file by file in the order named; a
       directory stands for every .px under it (palette files skipped, --exclude as for
       sheet): 'export town/ --frames out/'. No two frames may get one name: an id two files
@@ -798,9 +803,9 @@ CONVERTING
       in order of first appearance, and all top-level frames (no '/' in the id) together as
       one group where the first of them appears. A file that keeps each group together, and
       its top-level frames together, gets ids in file order; otherwise a frame moves up to
-      its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
-      badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others, and
-      a Tiled map painted with the old tileset keeps the old ids.
+      its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
+      walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
+      painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -818,10 +823,8 @@ CONVERTING
       one ('filename,proposed_name,...'): each PNG takes the --label-col (default
       proposed_name) of the row whose --file-col (default filename) names it, a path
       relative to the CSV's directory, or else its file name alone. --labels repeats, one
-      CSV per pack: 'from-png dungeon/tile_0002.png creatures/tile_0002.png --labels
-      dungeon/labels.csv --labels creatures/labels.csv --prefix-dir -o all.px' writes
-      dungeon/wall-stone-top and creatures/skeleton. A PNG no row names is E_SELECT.
-      --prefix-dir and --id PREFIX go in front of either.
+      CSV per pack (with --prefix-dir: dungeon/wall-stone-top, creatures/skeleton). A PNG no
+      row names is E_SELECT. --prefix-dir and --id PREFIX go in front of either.
       --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
       pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
       to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
@@ -834,11 +837,10 @@ CONVERTING
 HELP
   help [all | recipes | TOPIC | CMD]
       'pxart help recipes': six workflows, command by command. 'pxart help all' prints this
-      whole reference; 'pxart help TOPIC' one part of it (FORMAT, LOOKING, CHECKING,
-      EDITING, DRAWING, CONVERTING, HELP or ERRORS, any case); 'pxart help CMD' is 'pxart
-      CMD -h', its section and a see-also line naming the shared notes it relies on. 'pxart
-      help compose-rules' and 'pxart help palette-rules' print only the rules those sections
-      open with.
+      whole reference; 'pxart help TOPIC' one part of it (a heading here, any case); 'pxart
+      help CMD' is 'pxart CMD -h': its section and the shared notes it relies on, named.
+      'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
+      sections open with.
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
@@ -853,23 +855,24 @@ ERROR CODES
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
-  Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, csv, fnmatch, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
-from PIL import Image, ImageChops, ImageDraw
+import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 RECIPES = """RECIPES (pxart help recipes)
   Six workflows, end to end. Each runs as written from a folder holding the files it names;
   'pxart help CMD' has the rest of each command.
 
   1. Port a pack and prove it lossless
-     A pack's loose PNGs and the labels.csv it ships become one .px. One diff then checks every
-     frame against its PNG and exits 1 if any differs; so does a diff of two folders.
+     A pack's loose PNGs and the labels.csv it ships become one .px, or several in a folder.
+     One diff then checks every frame against its PNG and exits 1 if any differs: a .px's
+     frames, or every frame of every .px in the folder (--exclude GLOB leaves some out).
        $ pxart from-png pack/*.png --labels pack/labels.csv -o town.px
        $ pxart diff town.px pack/ --labels pack/labels.csv
-       $ pxart check town.px
-       $ pxart export town.px --frames out/
-       $ pxart diff out/ pack/ --labels pack/labels.csv
+       $ pxart from-png pack/tile_0000.png pack/tile_0002.png --labels pack/labels.csv -o town/ground.px
+       $ pxart from-png pack/tile_0001.png pack/tile_0003.png --labels pack/labels.csv -o town/props.px
+       $ pxart diff town/ pack/ --labels pack/labels.csv
+       $ pxart check town/
 
   2. Merge packs, variants and all
      Two characters from different packs into one file that imports a shared palette: --prefix
@@ -900,11 +903,13 @@ RECIPES = """RECIPES (pxart help recipes)
 
   5. Make a scene from a map
      A text tilemap (scene in 'pxart help LOOKING' has the format) renders as a PNG, or
-     composes into a .px room that renders the same, pixel for pixel. --rekey gives the map's
-     lamp.px%base its own keys, so the room's night leaves it lit, as scene does.
+     composes into a .px room that renders the same, pixel for pixel, base and night (the
+     proofs render at 1x on a transparent --bg). --rekey gives the map's lamp.px%base its own
+     keys, so the room's night leaves it lit, as scene does.
        $ pxart check market.map
-       $ pxart scene --map market.map -o market.png
        $ pxart compose --map market.map -o market.px --rekey
+       $ pxart scene --map market.map --bg transparent --scale 1 -o market.png
+       $ pxart diff market.px market.png
        $ pxart scene --map market.map --bg transparent --scale 1 --variant night -o night.png
        $ pxart diff market.px%night night.png
 
@@ -912,7 +917,9 @@ RECIPES = """RECIPES (pxart help recipes)
      anim prints what moved in each frame: 'rows 9+ still' says rows 9 down (the feet) never
      moved, where 'shift +0,+1 then 0px' would be the whole sprite bobbing, feet and all. onion
      --feet 3 reads the bottom 3 rows alone ('bottom +0': the feet stayed put). A pivot on the
-     feet then lines the frames up in sheet and anim.
+     feet then lines the frames up in sheet and anim. A whole-sprite bob ('shift +0,+1 then
+     0px', feet and all) isn't a feet problem, and no pivot fixes it: shift that frame back up
+     (shift FILE:frame --dy -1), then lower only the body (--region x,y,w,h above the feet).
        $ pxart anim hero.px:walk/down
        $ pxart onion hero.px:walk/down/0 hero.px:walk/down/1 --feet 3 -o feet.png
        $ pxart anim-set hero.px:walk/down pivot=8,11
@@ -971,6 +978,12 @@ class PxError(Exception):
 
     def __str__(self):
         return "\n".join(str(i) for i in self.issues)
+
+
+def guess(word, names):
+    """'; did you mean 'idle'?' for a misspelled name among names (difflib's closest), or ''."""
+    got = difflib.get_close_matches(word, [n for n in dict.fromkeys(names) if n != word], n=1)
+    return f"; did you mean {got[0]!r}?" if got else ""
 
 
 def fail(code, msg, **kw):
@@ -1077,6 +1090,8 @@ class Doc:
         self.dot_at = None          # where a '. transparent' line sat among the palette keys
         self.frame_gap = None       # blank lines the file puts between @frame blocks
         self.newline, self.final_newline = "\n", True
+        self.before = None          # edit_target: each frame's grid before the edit, to say what it touched
+        self.dest = None            # palette -o: where the edited file goes instead of path
 
     @property
     def stem(self):
@@ -1089,7 +1104,8 @@ class Doc:
         if variant and variant != "base":  # %base: the base palette, whatever --variant says
             if variant not in self.variants and variant not in self.shared_variants:
                 have = sorted(set(self.variants) | set(self.shared_variants))
-                fail("E_SELECT", f"no @variant {variant!r} (have: {', '.join(have) or 'none'})", path=self.path)
+                fail("E_SELECT", f"unknown variant {variant!r} (have: {', '.join(have) or 'none'})"
+                     + guess(variant, have), path=self.path)
             pal.update(self.shared_variants.get(variant, {}))
             pal.update(self.variants.get(variant, {}))
         return pal
@@ -1113,14 +1129,14 @@ class Doc:
         return f.pivot or self.anims.get(f.group, {}).get("pivot")
 
     def select(self, sel):
-        if not sel:
+        if not sel or sel == "*":  # FILE:* says every frame out loud
             return list(self.frames)
         if self.implicit and sel == self.stem:  # the unnamed grid goes by the file's name, as frames lists it
             return list(self.frames)
         got = [f for f in self.frames if f.id == sel or (f.id or "").startswith(sel + "/")]
         if not got:
-            fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}",
-                 path=self.path)
+            fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}"
+                 + guess(sel, self.paths()), path=self.path)
         return got
 
     def promote(self):
@@ -1133,6 +1149,14 @@ class Doc:
                     store[("row", fid, j)] = store.pop(("row", None, j))
         self.lead[("frame", fid)] = self.lead.pop(("row", fid, 0), None) or [""]
         self.implicit, f.id = False, fid
+
+    def paths(self):
+        """Every frame id and group path (walk/down/0, walk/down, walk): what FILE:SEL can name."""
+        out = []
+        for f in self.frames:
+            parts = self.label(f).split("/")
+            out += ["/".join(parts[:i]) for i in range(len(parts), 0, -1)]
+        return list(dict.fromkeys(out))
 
     def get(self, fid):
         for f in self.frames:
@@ -1148,6 +1172,7 @@ class Doc:
 
     def image(self, f, variant=None):
         pal = self.resolved(variant)
+        warn_half(self, variant)
         w, h = f.size
         img = Image.new("RGBA", (w, h))
         img.putdata([pal[c] for row in f.grid for c in row])
@@ -1201,9 +1226,12 @@ class Doc:
         """The file. Lines the file already had keep their spelling and the blank lines and comments
         above them; new lines follow the file's frame spacing (or the defaults)."""
         out = list(self.comments)
-        for anchor, gap, line in self.lines():
+        for n, (anchor, gap, line) in enumerate(self.lines()):
             lead = self.lead.get(anchor)
-            out += lead if lead is not None else [""] * gap if out else []
+            add = lead if lead is not None else [""] * gap if out else []
+            if n == 0 and anchor[0] == "key" and out and out[-1].strip() and not (add and not add[0].strip()):
+                add = [""] + add  # a header right above the first key line would read as that key's comment
+            out += add
             was = self.raw.get(anchor)
             out.append(was[1] if was and was[0] == line else line)
         out += self.tail
@@ -1314,6 +1342,12 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 err("E_VERSION", f"this pxart reads format version {FORMAT_VERSION}, file says {v!r}", n)
             doc.version = int(v) if v.isdigit() else None
             continue
+        if not started and not s.startswith("@") and PAL_RE.match(s):
+            # the first line a key line: the comments right above it (no blank line between) are its own; the header
+            # is what a blank line separates from it
+            cut = max((i for i, l in enumerate(doc.comments) if not l.strip()), default=-1) + 1
+            pending[:] = doc.comments[cut:]
+            del doc.comments[cut:]
         started = True
 
         if s.startswith("@"):
@@ -1590,9 +1624,7 @@ def in_dirs(args, exts=(".px",), exclude=()):
     out, hit = [], set()
 
     def excluded(rel):
-        parts = pathlib.PurePosixPath(rel).parts
-        heads = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]  # 'wip', 'wip/old', 'wip/old/a.px'
-        got = [g for g in exclude if fnmatch.fnmatchcase(parts[-1], g) or any(fnmatch.fnmatchcase(h, g) for h in heads)]
+        got = globs_hit(rel, exclude)
         hit.update(got)
         return bool(got)
     for arg in args:
@@ -1611,6 +1643,14 @@ def in_dirs(args, exts=(".px",), exclude=()):
         if g not in hit:
             print(f"note: --exclude {g} matches no file")
     return out
+
+
+def globs_hit(rel, globs):
+    """The --exclude globs that leave out the file at rel (a path under its directory, or as given): matching its name,
+    or its path or a directory's it is under ('wip', 'wip/old', 'wip/old/a.px')."""
+    parts = pathlib.PurePosixPath(rel).parts
+    heads = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    return [g for g in globs if fnmatch.fnmatchcase(parts[-1], g) or any(fnmatch.fnmatchcase(h, g) for h in heads)]
 
 
 def frames_only(args, cmd):
@@ -1696,19 +1736,129 @@ def upscale(img, scale, grid=False, rulers=False):
     return out
 
 
+LINE_H = 12  # a strip label line: the pixel font's 11px and a pixel between
+
+
+def strip_font():
+    """anim's strip labels: Pillow's pixel font (its spaces and colons show at 1x, where the default's small
+    FreeType face draws '(no shift: 79px)' as '(noshift 79px)'); the default where Pillow has no pixel font."""
+    try:
+        return ImageFont.load_default_imagefont()
+    except AttributeError:
+        return ImageFont.load_default()
+
+
+def fit_lines(d, text, width, font):
+    """text in lines no wider than width px, broken at spaces (a word wider than that alone is broken where it must
+    be); [] for ''."""
+    lines = []
+    for word in text.split():
+        cand = f"{lines[-1]} {word}" if lines else word
+        if lines and d.textlength(cand, font=font) <= width:
+            lines[-1] = cand
+            continue
+        while d.textlength(word, font=font) > width and len(word) > 1:
+            n = max(1, max(k for k in range(1, len(word) + 1) if d.textlength(word[:k], font=font) <= width)
+                    if d.textlength(word[:1], font=font) <= width else 1)
+            lines.append(word[:n])
+            word = word[n:]
+        lines.append(word)
+    return lines
+
+
 def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
 
-def outpath(p):
-    """Output path with its directory created; a file where a directory should be is a clear E_FILE."""
+def outpath(p, make=True):
+    """Output path with its directory created (not with make False: a dry run), saying so: 'created out/' for the
+    topmost directory it had to make, once a run (the ones under a directory this run made go unsaid). A file where a
+    directory should be is a clear E_FILE."""
     p = pathlib.Path(p)
     for d in reversed(p.parents):
         if d.exists() and not d.is_dir():
             hint = f" (a frame goes after ':', as in {d}:{p.relative_to(d).as_posix()})" if d.suffix == ".px" else ""
             fail("E_FILE", f"can't write {p}: {d} is a file, not a directory{hint}")
-    p.parent.mkdir(parents=True, exist_ok=True)
+    if make and not p.parent.exists():
+        top = next(d for d in reversed(p.parents) if not d.exists())
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not any(d.resolve() in CREATED for d in top.parents):
+            print(f"created {top.as_posix()}/")
+        CREATED.add(top.resolve())
     return p
+
+
+CREATED = set()  # directories outpath made this run: one 'created DIR/' line for a tree of them
+
+
+DRY = {"run": False}  # --dry-run (render, sheet, anim, onion, scene): everything computed and printed, nothing written
+
+
+def wrote(*paths):
+    """The line saying what a looking command wrote: 'wrote a.gif and a.strip.png', or on a dry run what it would
+    have, 'would write a.gif and a.strip.png (dry run; nothing written)'."""
+    paths = [str(p) for p in paths if p is not None]
+    if DRY["run"]:
+        return (f"would write {' and '.join(paths)} " if paths else "") + "(dry run; nothing written)"
+    return "wrote " + " and ".join(paths)
+
+
+HUGE_SIDE, HUGE_AREA = 4096, 16_000_000  # an image output past either gets a WARNING: viewers shrink or refuse it
+
+
+def huge(size):
+    """Why an image of this size is too big to look at comfortably, or None."""
+    w, h = size
+    if max(w, h) > HUGE_SIDE:
+        return f"over {HUGE_SIDE} px on a side"
+    if w * h > HUGE_AREA:
+        return f"over {HUGE_AREA // 1_000_000}M px"
+    return None
+
+
+def save_image(img, p, what="-o", about=None, smaller=None, **kw):
+    """img written to p (its directory made, as outpath does), in the format p's extension names. A name with no
+    extension, or one Pillow can't write (-o /dev/null, -o out.px), is E_BAD_ARG before anything is written, and so is
+    a format that can't hold the image (RGBA as .jpg); a file that can't be written is the usual E_FILE. Returns p.
+    A dry run prints the image's size and `about` (its layout) instead of writing it; an image huge() calls too big
+    gets a WARNING either way, with `smaller`, what would shrink it."""
+    if p is None and DRY["run"]:  # a dry run with no -o: nothing to check, only the size to tell
+        said_size(img, what if what != "-o" else "the image (no -o)", about, smaller)
+        return None
+    p = pathlib.Path(p)
+    ext = p.suffix.lower()
+    fmt = Image.registered_extensions().get(ext)
+    name = ".gif" if kw.get("save_all") else ".png"  # an animation, or a picture
+    if fmt is None or fmt not in Image.SAVE:
+        why = f"{ext!r} isn't an image type pxart can write" if ext else "it has no extension to tell the image type by"
+        fail("E_BAD_ARG", f"{what} {p}: {why}; name it {name}")
+    if kw.get("save_all") and fmt not in Image.SAVE_ALL:
+        fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold an animation; name it {name}")
+    if kw.pop("check_only", False):  # only the name's checks, before a command prints anything
+        return p
+    p = outpath(p, make=not DRY["run"])
+    said_size(img, p.as_posix(), about, smaller)
+    if DRY["run"]:
+        return p
+    try:
+        img.save(p, **kw)
+    except OSError as e:
+        if e.errno is not None or e.filename:  # the file itself: PermissionError and the like, E_FILE in main
+            raise
+        fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold this image ({e}); name it {name}")
+    except (ValueError, KeyError, TypeError) as e:
+        fail("E_BAD_ARG", f"{what} {p}: can't write it as {fmt} ({e}); name it {name}")
+    return p
+
+
+def said_size(img, name, about, smaller):
+    """save_image's lines: on a dry run 'sheet.png: 1234x567 px, 12 cells in ...'; a WARNING for a huge image."""
+    if DRY["run"]:
+        print(f"{name}: {img.width}x{img.height} px" + (f", {about}" if about else ""))
+    why = huge(img.size)
+    if why:
+        print(f"WARNING: {name} {'would be' if DRY['run'] else 'is'} {img.width}x{img.height} px ({why}): image "
+              "viewers and the Read tool may shrink or refuse it" + (f"; {smaller}" if smaller else ""))
 
 
 ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
@@ -1746,7 +1896,22 @@ def sheet_rows(its, cols, rows="cols"):
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom", rows="cols"):
+CHECKER = ((0x5c, 0x5c, 0x66, 255), (0x6a, 0x6a, 0x74, 255))  # render's and sheet's default behind a frame: greys a
+CELL_BG = "#3a3a44"  # dark outline shows on. CELL_BG: a sheet cell around its frame (and --bg's old default)
+
+
+def checker(w, h, sq):
+    """A w x h checkerboard of sq-px squares in CHECKER's greys: what shows through a frame's transparent pixels."""
+    img = Image.new("RGBA", (w, h), CHECKER[0])
+    d = ImageDraw.Draw(img)
+    for y in range(0, h, sq):
+        for x in range((y // sq) % 2 * sq, w, 2 * sq):
+            d.rectangle([x, y, x + sq - 1, y + sq - 1], fill=CHECKER[1])
+    return img
+
+
+def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=False, align="bottom", rows="cols",
+          what="-o"):
     """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
     frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right. align 'pivot':
     the frames of one animation group (one file's) are drawn on one canvas each, lined up by pivot as anim does
@@ -1764,6 +1929,7 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             for it, at in zip(g, lay[2] if lay else ()):
                 shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
     tiles = [(it, upscale(shown[id(it)], scale, grid, rulers)) for it in its]
+    ruled = 16 if grid and rulers and scale >= 4 else 0  # where upscale's rulers put the frame in its tile
     lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
     lw = max(lws)
     iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
@@ -1789,24 +1955,58 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             for c, n in enumerate(line):
                 spots[n] = (pad + c * (cw + pad), pad + r * (ch + lab + pad), cw, ch, lw)
         size = (pad + max(len(line) for line in lines) * (cw + pad), pad + len(lines) * (ch + lab + pad))
+    widest = max(len(line) for line in lines)
+    about = (f"{len(its)} frame{'s' * (len(its) != 1)} in " + (f"{len(lines)} rows of up to {widest}" if len(lines) > 1
+                                                             else "one row"))
+    if fit:
+        about += " (--fit: each cell its own frame's size)"
+    else:
+        about += ", every cell " + cell_size(its, tiles, cw, ch, scale)
+    about += (f", at --scale {scale}" if fit else "") + (" (--rows group: a row per animation group)" if rows == "group"
+                                                          else "")
     tiles, spots = [tiles[n] for n in order], [spots[n] for n in order]
     s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
     for (it, big), (x, y, cw, ch, lw) in zip(tiles, spots):
-        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg))
-        s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
+        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg if bg is not None else CELL_BG))
+        at = (x + (cw - big.width) // 2, y + ch - big.height)
+        if bg is None:  # no --bg: a checkerboard behind the frame itself, a square per pixel (4 px at least)
+            fw, fh = shown[id(it)].width * scale, shown[id(it)].height * scale
+            s.alpha_composite(checker(fw, fh, scale * max(1, -(-4 // scale))), (at[0] + ruled, at[1] + ruled))
+        s.alpha_composite(big, at)
         if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
-    s.save(outpath(out))
+    save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
+               smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
     return out
+
+
+def cell_size(its, tiles, cw, ch, scale):
+    """The dry run's 'every cell WxH: ...': the largest frame at --scale (and with its rulers), and what made the cell
+    bigger than it: a label wider than every frame, or a wider or taller frame."""
+    big, tile = max(tiles, key=lambda t: t[0].img.width * t[0].img.height)
+    one = len(its) == 1
+    said = f"{cw}x{ch}: {'frame' if one else 'the largest frame'} {big.img.width * scale}x{big.img.height * scale} " \
+        f"at x{scale}" + (f", {tile.width}x{tile.height} with its rulers" if tile.size != (big.img.width * scale,
+                                                                                            big.img.height * scale) else "")
+    if cw > max(t.width for _, t in tiles):
+        said += f", widened to fit {'its label' if one else 'the widest label'}"
+    elif cw > tile.width:
+        said += ", widened to fit the widest frame"
+    if ch > tile.height:
+        said += ", as tall as the tallest frame"
+    return said
 
 
 def n_colors(it, bg):
     """The sheet label's color count. A PNG (a scene rendered with this --bg) whose four corners are exactly the
     --bg color doesn't count that color: it's the backdrop, not the art's."""
-    cs, bg = colors(it.img), rgba(bg)
+    cs = colors(it.img)
+    if bg is None:  # the checkerboard: no backdrop color a PNG could have been rendered on
+        return len(cs)
+    bg = rgba(bg)
     w, h = it.img.size
     if it.doc is None and bg[3] and all(it.img.getpixel(c) == bg for c in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))):
         cs = [c for c in cs if c != bg]
@@ -2015,30 +2215,53 @@ def repoint(doc, out):
 
 def write_doc(doc, path=None):
     """Save doc unless the file already holds exactly its text; returns what to print. Written somewhere else, its
-    @palette lines are re-pointed from there (repoint)."""
-    path = pathlib.Path(path or doc.path)
+    @palette lines are re-pointed from there (repoint). doc.dest (palette -o) stands in for doc.path. A dry run
+    (palette --dry-run) prints the diff it would make and writes nothing."""
+    path = pathlib.Path(path or doc.dest or doc.path)
     repoint(doc, path)
-    text = doc.text()
+    if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
+        touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
+        if len(touched) > 1:
+            print(f"edited {len(touched)} frames: {listed(touched)}")
+    text, had = doc.text(), None
     try:
         with open(path, newline="") as fh:
-            if fh.read() == text:
-                return f"no change: {path}"
+            had = fh.read()
     except (OSError, ValueError):  # missing, or not text
         pass
+    if had == text:
+        return f"no change: {path}"
+    if DRY["run"]:  # a new OUT (palette -o) is shown against the FILE it copies
+        base, name = (had, path) if had is not None or not doc.path or not doc.path.exists() else \
+            (doc.path.read_text(), doc.path)
+        for line in difflib.unified_diff((base or "").splitlines(), text.splitlines(),
+                                         str(name) if base is not None else "/dev/null", str(path), lineterm="", n=0):
+            print(line)
+        return f"would write {path}"
     return f"wrote {doc.save(path)}"
 
 
-def edit_target(arg, out, label="FILE"):
+def edit_target(arg, out, label="FILE", coords=None):
     """The shared edit path: (doc, selected frames, where to write). -o gets the whole file with the selection
-    edited, never just the selection (that's extract)."""
+    edited, never just the selection (that's extract). coords names the pixel coordinates the command was given
+    ('x,y', '--region'): on a file of several frames they need FILE:SEL to say which frames they go to, FILE:* for
+    all."""
     path, sel = split_sel(arg)
     with reading(f"{label} ({arg})"):
         doc = parse(path)
+        if coords and not sel and len(doc.frames) > 1:
+            ids = [doc.label(f) for f in doc.frames]
+            group = next((f.group for f in doc.frames if f.group), None)
+            fail("E_SELECT", f"pixel coordinates ({coords}) need you to say which frames they go to: {path} has "
+                 f"{len(ids)} frames: {', '.join(ids)}; {path}:{ids[0]} (a frame)"
+                 + (f", {path}:{group} (a group)" if group else "") + f", or '{path}:*' (every frame; quoted, "
+                 "or the shell expands the *)", path=path)
         frames = doc.select(sel)
     out = pathlib.Path(out) if out else doc.path
-    if sel and out.resolve() != doc.path.resolve():
+    if sel and sel != "*" and out.resolve() != doc.path.resolve():
         print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
               f"'pxart extract {doc.path}:{sel} -o {out}'")
+    doc.before = {id(f): list(f.grid) for f in doc.frames}
     return doc, frames, out
 
 
@@ -2199,10 +2422,12 @@ def check_vmap(vmap, dst, dst_name, srcs, fresh=False):
         missing = [n for n in ns[1:] if n not in have]
         if missing:
             fail("E_SELECT", f"--variant-map {name}={','.join(ns[1:])}: no source file has @variant "
-                 f"{', '.join(map(repr, missing))} (they have: {', '.join(have) or 'none'})")
+                 f"{', '.join(map(repr, missing))} (they have: {', '.join(have) or 'none'})"
+                 + (guess(missing[0], have) if len(missing) == 1 else ""))
         if not fresh and name not in variant_names(dst):
             fail("E_SELECT", f"--variant-map {name}={','.join(ns[1:])}: {dst_name} has no @variant {name!r} (it has: "
-                 f"{', '.join(variant_names(dst)) or 'none'}); the map reads the sources' variants as DST's own")
+                 f"{', '.join(variant_names(dst)) or 'none'}); the map reads the sources' variants as DST's own"
+                 + guess(name, variant_names(dst)))
 
 
 def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
@@ -2436,28 +2661,138 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
 
 # ---------------------------------------------------------------------------- commands
 
+def need_o(a, eg):
+    """sheet, onion and scene write -o OUT, which only --dry-run (the readout and sizes alone) goes without."""
+    if a.o is None and not DRY["run"]:
+        fail("E_BAD_ARG", f"-o is required: -o {eg} (or --dry-run to print the readout and write nothing)")
+
+
 def cmd_render(a):
-    a.bg = parse_color(a.bg, "--bg")
     its = all_items(a.files, a.variant)
-    for f in a.files:
+    for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
-        if a.png and path.endswith(".px") and not sel:
-            doc = parse(path)
-            if len(doc.frames) == 1:
-                doc.image(doc.frames[0], a.variant).save(pathlib.Path(path).with_suffix(".png"))
-    print("wrote", sheet(its, a.o, a.scale, bg=a.bg, grid=not a.no_grid, rulers=not a.no_grid))
+        n = len(parse(path).frames) if path.endswith(".px") else 0
+        if sel or n != 1:
+            why = "a selection" if sel else "a PNG" if not path.endswith(".px") else f"{n} frames"
+            print(f"note: --png skips {f}: {why}; --png writes a single-frame .px at 1x ('render --plain FILE:ID -o "
+                  "x.png' writes one frame, 'export --frames DIR' every frame)")
+            continue
+        doc = parse(path)
+        out = (pathlib.Path(a.png) if a.png else pathlib.Path(path).parent) / (pathlib.Path(path).stem + ".png")
+        save_image(doc.image(doc.frames[0], a.variant), out, "--png", about=f"{path} at 1x")
+        print(f"{'would write' if DRY['run'] else 'wrote'} {out.as_posix()} (--png: {path} at 1x)")
+    if a.plain:
+        if len(its) != 1:
+            fail("E_BAD_ARG", f"--plain writes one frame alone, and {' '.join(a.files)} "
+                 f"{'is' if len(a.files) == 1 else 'are'} {len(its)} frames: pick one (FILE:ID), or 'export --frames DIR' "
+                 "writes each frame at 1x")
+        img = its[0].img
+        if a.bg is not None:
+            img = on_bg(img, img.width, img.height, parse_color(a.bg, "--bg"))
+        s = a.scale or 1
+        print(wrote(save_image(img.resize((img.width * s, img.height * s), Image.NEAREST), a.o,
+                               about=f"{its[0].label} alone, {img.width}x{img.height} at --scale {s}",
+                               smaller="a lower --scale makes it smaller")))
+        return
+    bg = parse_color(a.bg, "--bg") if a.bg else None
+    print(wrote(sheet(its, a.o, a.scale or 8, bg=bg, grid=not a.no_grid, rulers=not a.no_grid)))
 
 
 def cmd_sheet(a):
-    a.bg = parse_color(a.bg, "--bg")
+    a.bg = parse_color(a.bg, "--bg") if a.bg else None
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
-    print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
-                         align=a.align, rows=a.rows))
+    need_o(a, "sheet.png")
+    its = all_items(files, a.variant)
+    note = outsized(its, a.fit)
+    if note:
+        print(note)
+    print(wrote(sheet(its, a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit, align=a.align, rows=a.rows)))
+
+
+OUTSIZED = 8  # sheet notes a frame over this many times the median frame's area
+
+
+def outsized(its, fit):
+    """sheet's note for frames much bigger than the rest (over OUTSIZED times the median frame's area, among three or
+    more): with --fit each sets its row's height, and without it every cell's size. None when there are none."""
+    areas = sorted(it.img.width * it.img.height for it in its)
+    if len(areas) < 3:
+        return None
+    n = len(areas)
+    mid = areas[n // 2] if n % 2 else (areas[n // 2 - 1] + areas[n // 2]) / 2
+    big = [it for it in its if it.img.width * it.img.height > OUTSIZED * mid]
+    if not big:
+        return None
+    many = len(big) > 1
+    top = max(big, key=lambda it: it.img.width * it.img.height)
+    cost = (f"make{'' if many else 's'} its row {max(it.img.height for it in big)} px tall" if fit else
+            f"make{'' if many else 's'} every cell {top.img.width}x{top.img.height} (--fit sizes each cell to its frame)")
+    def home(it):
+        return it.doc.path.resolve() if it.doc else id(it)
+    shared = {home(it) for it in its if it not in big} & {home(it) for it in big}
+    names = sorted({it.doc.path.name for it in big if it.doc})
+    leave = ("pick the other frames with FILE:SEL" if shared else
+             f"--exclude {' --exclude '.join(names)}" if names and len(names) == len({home(it) for it in big}) else
+             f"--exclude {'their files' if many else 'its file'}")
+    return (f"note: {listed([f'{it.label} ({it.img.width}x{it.img.height})' for it in big], 5)} "
+            f"{'are' if many else 'is'} over {OUTSIZED}x the median frame's area ({mid:g} px) and {cost}: {leave}, "
+            f"or give {'them a sheet of their' if many else 'it a sheet of its'} own")
 
 
 def cmd_anim(a):
-    """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written)."""
-    its = all_items(a.files, a.variant)
+    """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written). A FILE or
+    FILE:SEL over several groups (a walk's four directions) animates each group on its own, with a block of numbers
+    each: -o then names one GIF only for one group, else a DIR that gets one per group (DIR/walk/down.gif)."""
+    per, paths = [], []  # each FILE's items, as all_items reads them
+    for n, arg in enumerate(a.files, 1):
+        with reading(f"file {n} ({arg})"):
+            per.append(items(arg, a.variant))
+        paths += [split_sel(arg)[0]] * len(per[-1])
+    tell_apart([it for got in per for it in got], paths)
+    blocks = []  # [[name, items, joined]]: a FILE over several groups gives one per group; the others play as one
+    for arg, got in zip(a.files, per):
+        groups = {}
+        for it in got:
+            groups.setdefault(it.frame.group if it.frame else "", []).append(it)
+        if len(groups) == 1:
+            if blocks and blocks[-1][2]:
+                blocks[-1][0] += " " + arg
+                blocks[-1][1].extend(got)
+            else:
+                blocks.append([arg, list(got), True])
+            continue
+        path = split_sel(arg)[0]
+        names = [g or "(top level)" for g in groups]
+        print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(names)}; animating each on its own; "
+              f"pick one with {path}:{next(g for g in groups if g)}")
+        blocks += [[f"{path}:{g}" if g else f"{path} (top level)", fs, False] for g, fs in groups.items()]
+    gif = a.o and pathlib.Path(a.o).suffix.lower() == ".gif"
+    if len(blocks) == 1:
+        if a.o and not gif:
+            fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
+        return animate(a, blocks[0][1], a.o)
+    if gif:
+        fail("E_BAD_ARG", f"-o {a.o} is one GIF, and these are {len(blocks)} animations: "
+             f"{listed([n for n, *_ in blocks])}; pick one group, or give -o a DIR for one GIF per group")
+    outs = [anim_path(a.o, fs) if a.o else None for _, fs, _ in blocks]
+    clash = next((o for o in outs if o and outs.count(o) > 1), None)
+    if clash:
+        fail("E_BAD_ARG", f"-o {a.o}: two animations would be written to {clash}; animate them apart")
+    for (name, got, _), out in zip(blocks, outs):
+        print(name)
+        animate(a, got, out)
+
+
+def anim_path(d, its):
+    """Where anim -o DIR writes one group's GIF: DIR/walk/down.gif, or DIR/<file stem>.gif for top-level frames."""
+    first = its[0]
+    stem = first.frame.group if first.frame and first.frame.group else \
+        (first.doc.stem if first.doc else pathlib.Path(first.label).stem)
+    return str(pathlib.Path(d) / f"{stem}.gif")
+
+
+def animate(a, its, out):
+    """One animation: its numbers, and with out (a .gif) its GIF and strip."""
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered
@@ -2467,7 +2802,7 @@ def cmd_anim(a):
         return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
     framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
-    if a.o:
+    if out or DRY["run"]:  # a dry run with no -o still tells the GIF's size
         gif = []
         for f in framed:
             canvas = Image.new("RGBA", (w * S + gap * 3 + w * 3, max(h * S, h * 3 + gap)), (30, 30, 36, 255))
@@ -2475,11 +2810,10 @@ def cmd_anim(a):
             canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-        gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
-        pad, lab, lab2 = 8, 14, 26
-        size = (pad + len(framed) * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2)
-        strip = Image.new("RGBA", size, (30, 30, 36, 255))
-        d = ImageDraw.Draw(strip)
+        save_image(gif[0], out, "-o" if out else "the GIF (no -o)", save_all=True, append_images=gif[1:],
+                   duration=durs, loop=0, disposal=2, smaller="a lower --scale makes it smaller",
+                   about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
+                         f"copies beside it, {sum(durs)} ms a loop")
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
@@ -2492,40 +2826,57 @@ def cmd_anim(a):
         # frame whose shift would light them
         moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m[4] is None and m[:2] != (0, 0) and not m[5]
                  else m for i, m in enumerate(moves)]
+    cells = []  # per frame: (framed, what changed, its label, head, alt), for the strip
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
         dx, dy, n_shift, n_none, still, wrapped = moves[i]
         opaque = sum(cur.getchannel("A").histogram()[1:])
 
-        def px(n):  # '72px (9%)': of the frame's opaque pixels
-            return f"{n}px ({(200 * n + opaque) // (2 * opaque)}%)" if opaque else f"{n}px"
+        def px(n, base):  # '72px (9%)': of the frame's opaque pixels, or when more changed (the frame before covered
+            op = opaque   # pixels this one doesn't), of the pixels opaque in either: never over 100%
+            if n > op:
+                op = max(n, sum(ImageChops.lighter(base.getchannel("A"), cur.getchannel("A")).histogram()[1:]))
+            return f"{n}px ({(200 * n + op) // (2 * op)}%)" if op else f"{n}px"
         if wrapped:
-            base, head = rolled(prev, dx, dy), f"shift {dx:+d},{dy:+d} (wrap) then {px(n_shift)}"
+            base = rolled(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} (wrap) then {px(n_shift, base)}"
             alt = f"(no shift: {n_none}px)"
         elif still is None:
-            base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {px(n_shift)}"
+            base = shifted(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} then {px(n_shift, base)}"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:
-            base, head = prev, f"no shift then {px(n_none)}"
+            base, head = prev, f"no shift then {px(n_none, prev)}"
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
-        if not a.o:
-            continue
+        cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
+    if not out and not DRY["run"]:
+        return
+    # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
+    # readout's own words (its spaces and colons too), the label rows as tall as the most lines any cell needs
+    pad, font = 8, strip_font()
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    wrap = [[fit_lines(probe, t, w * S, font) for t in c[2:]] for c in cells]
+    n1, n2 = max(len(x[0]) for x in wrap), max(len(x[1]) + len(x[2]) for x in wrap)
+    size = (pad + len(cells) * (w * S + pad), pad + 2 * (h * S + pad) + (n1 + n2) * LINE_H + 2)
+    strip = Image.new("RGBA", size, (30, 30, 36, 255))
+    d = ImageDraw.Draw(strip)
+    for i, ((fr, changed, *_), (label, head, alt)) in enumerate(zip(cells, wrap)):
         x = pad + i * (w * S + pad)
         strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
-        d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
-        y2 = pad * 2 + h * S + lab
-        strip.alpha_composite(upscale(on_bg(diff_frame(base, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
-        d.text((x, y2 + h * S + 1), head, fill=(255, 120, 220, 255))
-        d.text((x, y2 + h * S + 13), alt, fill=(200, 140, 190, 255))
-    if not a.o:
-        return
-    sp = pathlib.Path(a.o).with_suffix(".strip.png")
-    strip.save(sp)
-    print("wrote", a.o, "and", sp)
+        for j, line in enumerate(label):
+            d.text((x, pad + h * S + 1 + j * LINE_H), line, font=font, fill=(220, 220, 220, 255))
+        y2 = pad * 2 + h * S + n1 * LINE_H
+        strip.alpha_composite(upscale(on_bg(changed, w, h, "#1e1e24"), S, grid=True), (x, y2))
+        for j, (line, color) in enumerate([(l, (255, 120, 220, 255)) for l in head]
+                                          + [(l, (200, 140, 190, 255)) for l in alt]):
+            d.text((x, y2 + h * S + 1 + j * LINE_H), line, font=font, fill=color)
+    sp = pathlib.Path(out).with_suffix(".strip.png") if out else None
+    save_image(strip, sp, "the strip" if out else "the strip (no -o)", smaller="a lower --scale makes it smaller",
+               about=f"{len(cells)} frame{'s' * (len(cells) != 1)} over what changed, at --scale {S}")
+    print(wrote(out, sp))
 
 
 def cmd_onion(a):
+    need_o(a, "x.png")
     with reading(f"A ({a.a})"):
         ia = one_frame(a.a)
     with reading(f"B ({a.b})"):
@@ -2550,13 +2901,16 @@ def cmd_onion(a):
         ImageDraw.Draw(shade).rectangle([0, 0, w - 1, h - 1], fill=(0, 0, 0, 150))
         ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
         base.alpha_composite(shade)
-    upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
+    save_image(upscale(base, a.scale, grid=True, rulers=True), a.o, "-o" if a.o else "the onion (no -o)",
+               about=f"A and B on one {w}x{h} canvas at --scale {a.scale}, with the grid and rulers",
+               smaller="a lower --scale makes it smaller")
     one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
                and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
     kin = True if one else None if A.size == B.size else False
-    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin):
+    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin,
+                          feet=a.feet is not None):
         print(line)
-    print("wrote", a.o)
+    print(wrote(a.o))
 
 
 def onion_band(a, h):
@@ -2590,25 +2944,38 @@ def band_shift(prev, cur, y0, y1, reach=2):
     return best[1], best[2], best[0][0], n_changed(prev.crop(box), c)
 
 
-def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
+def spans_of(y0, y1):
+    """'row 20' or 'rows 20-23'."""
+    return f"row {y0}" if y0 == y1 else f"rows {y0}-{y1}"
+
+
+def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
     jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's). band (y0, y1): only
-    those canvas rows count, for the edges and the shift (band_shift). kin: True, frames of one animation (one sprite,
-    however much changed); False, two different sprites (other sizes); None, it depends: more than half the larger
-    one's opaque pixels still changed at the whole sprites' best shift (band or not) makes them two. Two different
-    sprites get their edges only: a best shift between two characters means nothing."""
+    those canvas rows count, for the edges and the shift (band_shift), and the readout names the band as what it is
+    (feet: --feet N's 'bottom N canvas rows', else --rows' 'canvas rows') and the rows each frame is opaque in there
+    ('bottom 3 canvas rows 13-15; A opaque in 13-15, B in 14-15'). In a band whose bottom edges agree (the feet stayed)
+    a best shift up or down only lines up what moved above them: the readout says no shift, and names that one as
+    such. kin: True, frames of one animation (one sprite, however much changed); False, two different sprites (other
+    sizes); None, it depends: more than half the larger one's opaque pixels still changed at the whole sprites' best
+    shift (band or not) makes them two. Two different sprites get their edges only: a best shift between two
+    characters means nothing."""
     clear = [placed(it.img, w, h, at, "#00000000") for it, at in zip((ia, ib), spots)]
     if band:
         alpha = [c.getchannel("A") for c in clear]
         mask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(mask).rectangle([0, band[0], w - 1, band[1]], fill=255)
         boxes = [ImageChops.multiply(al, mask).getbbox() for al in alpha]
-        rows = f"row {band[0]}" if band[0] == band[1] else f"rows {band[0]}-{band[1]}"
+        n = band[1] - band[0] + 1
+        name = (f"bottom {n} canvas {spans_of(*band)}" if feet else f"canvas {spans_of(*band)}")
+        opaque = [(f"{b[1]}" if b[1] == b[3] - 1 else f"{b[1]}-{b[3] - 1}") if b else None for b in boxes]
+        rows = name + ("; " + (f"opaque in {opaque[0]}" if opaque[0] == opaque[1] else
+                               f"A opaque in {opaque[0]}, B in {opaque[1]}") if all(boxes) else "")
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
-    where = f"{rows} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
+    where = f"{spans_of(*band)} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
     lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty" if not band
-                                    else "nothing opaque" if n == "A" else f"nothing opaque in {rows}")
+                                    else "nothing opaque" if n == "A" else f"nothing opaque in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
     if all(boxes):
@@ -2620,6 +2987,9 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
                 f"bottom {b1 - b0:+d}"
         if kin is False or (kin is None and 2 * whole[2] > most):
             lines.append(f"{edges}; different sprites: edges only")
+        elif band and b1 == b0 and dy:
+            lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
+                         f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
         else:
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
     return lines
@@ -2699,21 +3069,52 @@ def load_legend(path, variant=None):
     frame, mirrored by +h/+v). A target that can't be loaded is an error at its legend line, naming the path as
     written."""
     legend, _, _, where = parse_map(path)
-    imgs, issues = {}, []
+    imgs, failed = {}, []  # failed: (ch, line, as written, code, what went wrong, the line saying it for one entry)
     for ch, arg in legend.items():
         n, written = where[ch]
         try:
             imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True)
         except PxError as e:
             for i in e.issues:
-                at = f" ({i.path}:{i.line})" if i.line else ""
-                issues.append(Issue(i.code, f"legend {ch!r}: {written!r}: {i.msg}{at}", str(path), n))
+                msg = i.msg + (f" ({i.path}:{i.line})" if i.line else "")
+                failed.append((ch, n, written, i.code, msg, f"legend {ch!r}: {written!r}: {msg}"))
         except OSError as e:
-            issues.append(Issue("E_FILE", f"legend {ch!r}: can't load {written!r} (relative to the map file): "
-                                f"{e.strerror or e}", str(path), n))
-    if issues:
-        raise PxError(issues)
+            failed.append((ch, n, written, "E_FILE", f"can't load (relative to the map file): {e.strerror or e}",
+                           f"legend {ch!r}: can't load {written!r} (relative to the map file): {e.strerror or e}"))
+    if failed:
+        raise PxError(legend_issues(path, failed, variant, any(it.doc for it in imgs.values())))
     return imgs
+
+
+def legend_issues(path, failed, variant, some_have):
+    """load_legend's errors, one line per entry, except that entries failing alike share one line: a --variant no
+    legend file has is one line naming the variants they do have (with how many entries have each), and any other
+    message that repeats is one line naming its entries."""
+    lack = re.compile(r"^unknown variant '.*' \(have: (.*?)\)(; did you mean '.*'\?)?$")
+    issues = []
+    if variant and not some_have and any(lack.match(f[4]) for f in failed):
+        have = {}
+        for f in failed:
+            for v in lack.match(f[4]).group(1).split(", ") if lack.match(f[4]) else ():
+                have[v] = have.get(v, 0) + (v != "none")
+        have.pop("none", None)
+        issues.append(Issue("E_SELECT", f"no legend file has @variant {variant!r}; " + (
+            "the legend's variants: " + ", ".join(f"{v} ({c} entr{'y' if c == 1 else 'ies'})"
+                                                  for v, c in sorted(have.items(), key=lambda vc: (-vc[1], vc[0])))
+            if have else "its files have no variants"), str(path)))
+        failed = [f for f in failed if not lack.match(f[4])]
+    groups = {}  # a missing file is its own problem: entries of one file share a line
+    for f in failed:
+        groups.setdefault((f[3], f[4], split_sel(split_flip(f[2])[0])[0] if f[3] == "E_FILE" else None), []).append(f)
+    for (code, msg, _), fs in groups.items():
+        n = fs[0][1]
+        if len(fs) == 1:
+            issues.append(Issue(code, fs[0][5], str(path), n))
+            continue
+        files = list(dict.fromkeys(split_sel(split_flip(w)[0])[0] for _, _, w, *_ in fs))
+        issues.append(Issue(code, f"legend {listed(repr(f[0]) for f in fs)} (lines {spans([f[1] for f in fs])}; "
+                            f"{listed(repr(f) for f in files)}): {msg}", str(path), n))
+    return sorted(issues, key=lambda i: i.line or 0)
 
 
 def cell_spot(arg, img, x, y, tile):
@@ -2751,7 +3152,7 @@ def cmd_tint(a):
     if not a.file.endswith(".png") or not str(a.o or a.file).endswith(".png"):
         fail("E_BAD_ARG", "tint reads and writes PNGs (a rendered scene); for a whole scene use scene --tint")
     out = a.o or a.file
-    tinted(Image.open(a.file).convert("RGBA"), color).save(outpath(out))
+    save_image(tinted(Image.open(a.file).convert("RGBA"), color), out)
     print("wrote", out)
 
 
@@ -2775,6 +3176,7 @@ def parse_tile(s):
 
 
 def cmd_scene(a):
+    need_o(a, "s.png")
     tint = parse_tint(a.tint) if a.tint else None
     bg = parse_color(a.bg, "--bg")
     placed = []
@@ -2812,8 +3214,11 @@ def cmd_scene(a):
               f"--map); --size {reach[0]}x{reach[1]} holds every item")
     if tint:
         sc = tinted(sc, tint)
-    sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
-    print("wrote", a.o)
+    n = len(a.specs)
+    save_image(sc.resize((W * a.scale, H * a.scale), Image.NEAREST), a.o, "-o" if a.o else "the scene (no -o)",
+               about=f"a {W}x{H} scene at --scale {a.scale}" + (f", the map's {len(placed)} cells" if a.map else "")
+               + (f", {n} item{'s' * (n != 1)}" if n else ""), smaller="a lower --scale makes it smaller")
+    print(wrote(a.o))
 
 
 def check_map(path):
@@ -2915,6 +3320,9 @@ def cmd_check(a):
                     pdoc = parse(path, a.strict, palette_only=True)
                     print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
                           + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                    for name, ks in half_variants(pdoc):
+                        print(f"     {path}: {said_half(pdoc, name, ks)}")
+                        tally["warnings"] += 1
                 except PxError as e:
                     failed = True
                     print(f"FAIL {path}: {len(e.issues)} error(s)")
@@ -2959,6 +3367,8 @@ def cmd_check(a):
                         notes.append(f"animation {g!r} mixes frame sizes ("
                                      + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
                                      + "); frames draw bottom-centered, and Tiled export needs one size")
+                for name, ks in half_variants(doc):
+                    notes.append(said_half(doc, name, ks))
                 for text, n in orphans(doc):
                     msg = f"{text!r} names a group with no frames; remove the line or add frames to it"
                     if a.strict:
@@ -3062,6 +3472,8 @@ def pixel_at(it, x, y, variant=None):
         return f"at {x},{y}: {fmt_color(it.img.getpixel((x, y)))}"
     k, d = it.frame.grid[y][x], it.doc
     names = [variant] if variant and variant != "base" else ["base"] + variant_names(d)
+    for n in names:
+        warn_half(d, n)
     return f"at {x},{y}: key {k}; " + ", ".join(f"{n} {fmt_color(d.resolved(n)[k])}" for n in names)
 
 
@@ -3076,13 +3488,25 @@ def cmd_diff(a):
     dirs = [os.path.isdir(x) for x in (a.a, a.b)]
     if a.labels and not any(dirs):
         fail("E_BAD_ARG", "--labels names the PNGs of a directory: diff FILE.px DIR --labels DIR/labels.csv")
-    if all(dirs):
+    pxs = [d and any(p.is_file() for p in pathlib.Path(x).rglob("*.px")) for d, x in zip(dirs, (a.a, a.b))]
+    if a.exclude and not any(dirs):
+        fail("E_BAD_ARG", "--exclude leaves .px files out of a directory: diff DIR PNG_DIR --exclude GLOB")
+    if all(dirs) and pxs.count(True) == 1:  # a directory of .px against one of PNGs: frames by id (or --labels)
+        pairs = px_dir_pairs(a, flip=pxs[1])
+    elif all(dirs):
         pairs = dir_pairs(a)
+    elif a.exclude:
+        fail("E_BAD_ARG", f"--exclude leaves .px files out of a directory, and {a.a if dirs[1] else a.b} is a file: "
+             "drop --exclude, or give the directory")
     elif any(dirs):
         pairs = file_dir_pairs(a, flip=dirs[0])
     else:
         pairs = file_pairs(a)
+    one = len(pairs) == 1 and pairs[0][0] is None  # one frame each: -o is a PNG; else a directory of them
+    if a.o and (one and not isinstance(pairs[0][2], str) or not one and pathlib.Path(a.o).suffix):
+        save_image(Image.new("RGBA", (1, 1)), a.o, "-o", check_only=True)  # a bad -o fails before the readout
     same = differ = alone = 0
+    shown = []  # (label, A, B): the pairs that differ, for -o
     for lab, x, y in pairs:
         if isinstance(y, str):  # no pair: y says what's missing
             alone += 1
@@ -3092,11 +3516,106 @@ def cmd_diff(a):
         differ += said is not None
         same += said is None
         print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
+        if said:
+            shown.append((lab, x, y))
+        if x.img.size != y.img.size:
+            hint = rendered_hint(x, y)
+            if hint:
+                print(f"note: {hint}")
     if len(pairs) > 1 or (pairs and pairs[0][0] is not None):
         print(f"{len(pairs)} frame(s): {same} same" + (f", {differ} differ" if differ else "")
               + (f", {alone} unpaired" if alone else ""))
+    if a.o and not one and pathlib.Path(a.o).suffix:  # an image -o over several pairs: fine when one pair differs
+        if len(shown) > 1:
+            fail("E_BAD_ARG", f"-o {a.o}: {len(shown)} of the {len(pairs)} pairs differ ({listed(l for l, *_ in shown)}), "
+                 "and -o names one image; name a directory for them (one image per pair that differs): -o diffs/")
+        if shown:
+            print(wrote(save_image(diff_picture(*shown[0][1:], a.strict_alpha, a.scale), a.o))
+                  + f" (the one pair that differs: {shown[0][0]})")
+        else:
+            print(f"note: -o {a.o} not written: no pair differs")
+    elif a.o:
+        diff_pictures(a, shown, one)
     if differ or alone:
         sys.exit(1)
+
+
+SHEET_BACKDROP = (30, 30, 36, 255)  # render's and sheet's backdrop, around the cells
+
+
+def rendered_hint(x, y):
+    """For two sizes that differ: when one side is a PNG bigger than the other both ways and looks like a pxart render
+    (a sheet's backdrop in its corner) or the other scaled up whole, the words naming render --plain. Else None."""
+    for side, it, other in (("A", x, y), ("B", y, x)):
+        img, o = it.img, other.img
+        if it.doc is not None or img.width <= o.width or img.height <= o.height:
+            continue
+        k = img.width // o.width
+        if img.getpixel((0, 0)) == SHEET_BACKDROP:
+            return (f"{side} ({img.width}x{img.height}) looks like a pxart render or sheet of a {o.width}x{o.height} "
+                    "frame (its padding, labels, grid and rulers): 'pxart render --plain FILE:ID -o x.png' writes the "
+                    "frame alone at its exact size")
+        if k > 1 and img.size == (o.width * k, o.height * k):
+            return (f"{side} ({img.width}x{img.height}) is {o.width}x{o.height} times {k}: a render at --scale {k}? "
+                    "'pxart render --plain FILE:ID -o x.png' writes the frame at 1x")
+    return None
+
+
+DIFF_MARK = (255, 0, 255, 255)  # diff -o: a pixel that differs
+
+
+def diff_picture(x, y, strict=False, scale=None):
+    """diff -o's picture of one pair: A, B, and B dimmed with every pixel that differs in magenta, side by side, each
+    labeled, on render's backdrop. Frames of two sizes are compared top-left aligned, over both: a pixel only one side
+    has differs when it isn't transparent. scale: 8, or less to keep the picture within 2048 px wide."""
+    A, B = x.img, y.img
+    w, h = max(A.width, B.width), max(A.height, B.height)
+    pa, pb = Image.new("RGBA", (w, h), CLEAR), Image.new("RGBA", (w, h), CLEAR)
+    pa.paste(A, (0, 0)); pb.paste(B, (0, 0))
+    mark = Image.new("RGBA", (w, h), CLEAR)
+    gray = B.convert("LA").convert("RGBA")
+    gray.putalpha(B.getchannel("A").point(lambda v: v * 35 // 100))
+    mark.paste(gray, (0, 0))
+    n = 0
+    for i, (p, q) in enumerate(zip(pixels(pa), pixels(pb))):
+        if p != q and (strict or p[3] or q[3]):
+            mark.putpixel((i % w, i // w), DIFF_MARK)
+            n += 1
+    pad, lab = 8, 14
+    s = scale or max(1, min(8, (2048 - 4 * pad) // (3 * w)))
+    panels = ((pa, f"A {A.width}x{A.height}"), (pb, f"B {B.width}x{B.height}"), (mark, f"{n} px differ"))
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    cw = max([w * s] + [text_w(probe, words) + 4 for _, words in panels])
+    out = Image.new("RGBA", (pad + 3 * (cw + pad), pad + lab + h * s + pad), SHEET_BACKDROP)
+    d = ImageDraw.Draw(out)
+    for c, (img, words) in enumerate(panels):
+        at = pad + c * (cw + pad)
+        d.rectangle([at, pad + lab, at + w * s - 1, pad + lab + h * s - 1], fill=rgba("#3a3a44"))
+        out.alpha_composite(img.resize((w * s, h * s), Image.NEAREST), (at, pad + lab))
+        d.text((at, pad), words, fill=(255, 120, 220, 255) if c == 2 else (220, 220, 220, 255))
+    return out
+
+
+def diff_pictures(a, shown, one):
+    """diff -o: one pair's picture as -o, or with several pairs a picture per pair that differs in the directory -o,
+    each named by its pair's label ('walk/0' -> walk_0.png)."""
+    if one:
+        if shown:
+            print(wrote(save_image(diff_picture(*shown[0][1:], a.strict_alpha, a.scale), a.o)))
+        else:
+            print(f"note: -o {a.o} not written: nothing differs")
+        return
+    names = set()
+    for lab, x, y in shown:
+        name = re.sub(r"[^A-Za-z0-9_.-]+", "_", re.sub(r"\.(px|png)\b", "", lab)).strip("_") or "pair"
+        base, k = name, 2
+        while name in names:
+            name, k = f"{base}-{k}", k + 1
+        names.add(name)
+        save_image(diff_picture(x, y, a.strict_alpha, a.scale), pathlib.Path(a.o) / f"{name}.png")
+    d = pathlib.Path(a.o).as_posix().rstrip("/")
+    print(f"wrote {len(shown)} diff image{'s' * (len(shown) != 1)} in {d}/, one per pair that differs" if shown
+          else f"note: nothing written in {d}/: no pair differs")
 
 
 def file_pairs(a):
@@ -3158,15 +3677,59 @@ def file_dir_pairs(a, flip=False):
     return out
 
 
+def px_dir_pairs(a, flip=False):
+    """diff DIR PNG_DIR (or PNG_DIR DIR), one directory holding .px files and the other none: every frame of every .px
+    under DIR (sorted by path; palette files skipped, --exclude GLOB as for check) against the PNG under PNG_DIR named
+    like its id, or with --labels the one its CSV row names so, as for diff FILE DIR. An id two files share is
+    E_BAD_ARG (they'd claim one PNG). A frame no PNG is named like is unpaired; a note counts the PNGs no frame took."""
+    pdir, d = (a.b, a.a) if flip else (a.a, a.b)
+    files = [f for f in in_dirs([pdir], exclude=a.exclude or ()) if _has_grid(f)]
+    if not files:
+        fail("E_FILE", f"{pdir} holds no .px files with frames" + (" (after --exclude)" if a.exclude else ""))
+    pngs = dir_pngs(d, a)
+    out, whose, took = [], {}, set()
+    for f in files:
+        with reading(f"{'B' if flip else 'A'} ({f})"):
+            its = items(f, a.variant)
+        rel = pathlib.Path(f).relative_to(pdir).as_posix()
+        for it in its:
+            if it.label in whose and whose[it.label] != rel:
+                fail("E_BAD_ARG", f"{whose[it.label]} and {rel} under {pdir} both have a frame {it.label!r}, and "
+                     "would claim one PNG; diff them one at a time (diff FILE PNG_DIR), or --exclude one")
+            whose[it.label] = rel
+            name = rel if it.doc.implicit else f"{rel}:{it.label}"
+            p = pngs.get(it.label)
+            if p is None:
+                out.append((name, it, f"no PNG under {d} named {it.label} by --labels" if a.labels else
+                            f"no {pathlib.Path(d) / (it.label + '.png')}"))
+                continue
+            took.add(p)
+            with reading(f"{'A' if flip else 'B'} ({p})"):
+                png = items(str(p))[0]
+            lab = f"{name} vs {p.relative_to(d).as_posix()}"
+            out.append((lab, png, it) if flip else (lab, it, png))
+    left = [p.relative_to(d).as_posix() for p in pngs.values() if p not in took]
+    if left:
+        print(f"note: {len(left)} PNG{'s' * (len(left) > 1)} under {d} no frame is named like"
+              + (" by --labels" if a.labels else "") + f": {listed(left, 5)}")
+    return out
+
+
 def dir_pairs(a):
-    """diff DIR_A DIR_B: the .png and .px files under both, paired by path under each (with --labels, a PNG goes by the
-    name its row gives); a .px pair's frames paired as for two files, labeled 'path:id'. A file only one side has is
-    unpaired: (path, None, which side has it)."""
+    """diff DIR_A DIR_B: the .png and .px files under both (not palette files, nor those --exclude leaves out), paired by
+    path under each (with --labels, a PNG goes by the name its row gives); a .px pair's frames paired as for two files, labeled 'path:id'. A file only
+    one side has is unpaired: (path, None, which side has it)."""
     sides = []
     for d in (a.a, a.b):
         pngs = {f"{name}.png": p for name, p in dir_pngs(d, a).items()}
-        pxs = {p.relative_to(d).as_posix(): p for p in sorted(pathlib.Path(d).rglob("*.px"), key=lambda p: p.parts)}
-        sides.append({**pngs, **pxs})
+        pxs = {p.relative_to(d).as_posix(): p for p in sorted(pathlib.Path(d).rglob("*.px"), key=lambda p: p.parts)
+               if _has_grid(p)}  # a palette file has no frames to compare
+        sides.append({r: p for r, p in {**pngs, **pxs}.items()
+                      if not globs_hit(p.relative_to(d).as_posix(), a.exclude or ())})
+    for g in a.exclude or ():
+        if not any(globs_hit(p.relative_to(d).as_posix(), [g]) for d in (a.a, a.b)
+                   for p in pathlib.Path(d).rglob("*") if p.suffix in (".png", ".px")):
+            print(f"note: --exclude {g} matches no file")
     sa, sb = sides
     if not sa and not sb:
         fail("E_FILE", f"{a.a} and {a.b} hold no .png or .px files")
@@ -3211,6 +3774,9 @@ def cmd_frames(a):
              f"{path} --rename GROUP NEWGROUP")
     if a.rename and a.prefix is not None:
         fail("E_BAD_ARG", "give --prefix P (every copied id gets P in front) or --rename GROUP NEWGROUP, not both")
+    if a.dry_run and not (a.copy_to or a.rename or a.rm is not None or a.move or a.after or a.before):
+        fail("E_BAD_ARG", "--dry-run goes with an edit (--rm, --move, --after/--before, --rename, --copy-to); the "
+             "listing writes nothing")
     if a.copy_to:
         if a.rm is not None or a.move:
             fail("E_BAD_ARG", "--copy-to copies frames; --rm and --move edit FILE: give one")
@@ -3231,9 +3797,11 @@ def cmd_frames(a):
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
         if a.after and a.before:
             fail("E_BAD_ARG", "give --after or --before, not both")
-        had = set(doc.groups())
+        had, lines = set(doc.groups()), {anchor for anchor, _, _ in doc.lines()}
         did = (frames_sel_edit if sel else frames_edit)(a, doc, sel, picked)
-        print("; ".join(did + drop_orphans(doc, had - set(doc.groups())) + [write_doc(doc)]))
+        did += drop_orphans(doc, had - set(doc.groups()))
+        keep_spacing(doc, lines - {anchor for anchor, _, _ in doc.lines()})
+        print("; ".join(did + [write_doc(doc)]))
         return
     for g, fs in doc.groups(picked).items():
         meta = doc.anims.get(g, {})
@@ -3317,11 +3885,17 @@ def frames_copy(a, doc, sel, picked):
     warn = said_vclash(label, doc, vclashes(dst, doc, keys, vmap, clear=True), dst, dpath, vmap,
                        "frames --copy-to --rekey", asked)
     uncovered = said_uncovered(label, doc, dst, dpath, vmap, import_keys(dst, doc, keys, vmap, clear=True))
+    for n, src in layer_variants(doc, vmap).items():  # a variant of DST the copies take from FILE's import alone
+        if n in variant_names(dst):
+            warn_half(doc, src)
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
     said = []
+    landed = {Frame(new_id[id(f)]).group for f in picked}  # the groups the copies land in (a frame renamed top-level: none)
     for g in dict.fromkeys(f.group for f in picked if f.group):
         n = renamed_id(g, renames)
+        if n not in landed:  # no copy lands in it: its @anim or @still line would name a group with no frames
+            continue
         if g in doc.anims and n not in dst.anims:
             dst.anims[n] = dict(doc.anims[g])
             said.append(f"added @anim {n}")
@@ -3331,6 +3905,7 @@ def frames_copy(a, doc, sel, picked):
             dst.stills.append(n)
             said.append(f"added @still {n}")
     at = dst.frames.index(anchor) + (1 if a.after else 0) if anchor else None
+    stilled = []
     for f in picked:
         new = Frame(new_id[id(f)], list(f.grid), f.ms, pivot=f.pivot)
         if at is not None:
@@ -3339,6 +3914,9 @@ def frames_copy(a, doc, sel, picked):
         else:
             same = [x for x in dst.frames if x.group == new.group] if new.group else []
             dst.frames.insert(dst.frames.index(same[-1]) + 1 if same else len(dst.frames), new)
+        if doc.animated(f.group) and not dst.animated(new.group):  # an animation frame lands as a still
+            stilled.append(as_still(new, doc, f, dst))
+            continue
         if dst.ms(new) != doc.ms(f):
             new.ms = doc.ms(f)
         if dst.pivot(new) != doc.pivot(f):
@@ -3346,11 +3924,37 @@ def frames_copy(a, doc, sel, picked):
                 print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {new.group} pivot there")
             else:
                 new.pivot = doc.pivot(f)
+    for n in [n for n in dst.anims if f"added @anim {n}" in said]:
+        place_anim(dst, n)
+    if stilled:
+        print(said_stilled(stilled, dpath))
     where = f" ({'after' if a.after else 'before'} {anchor.id})" if anchor else ""
     names = [f"{o} as {n}" for o, n in renames if any(new_id[id(f)] != f.id and renamed_id(f.id, [(o, n)]) != f.id
                                                        for f in picked)]
     return "; ".join([f"copied {', '.join(f.id for f in picked)} to {dpath}{where}"
                       + (f", {', '.join(names)}" if names else "")] + said + [write_doc(dst)])
+
+
+def as_still(new, doc, f, dst):
+    """An animation frame f of doc copied as new into dst, where its id is a still (a top-level id, or a @still group):
+    stills have no timing, so its ms goes, and it keeps its pivot (its @anim's written on its own line). For the note:
+    (new id, the ms it had, the pivot it keeps, why it's a still)."""
+    new.ms, new.pivot = None, doc.pivot(f)
+    why = "a top-level id" if not new.group else f"@still {new.group}" if new.group in dst.stills else "@still *"
+    return new.id, doc.ms(f), new.pivot, why
+
+
+def said_stilled(stilled, dpath):
+    """The note for the frames as_still made stills: 'note: hero lands in beast.px as a still (a top-level id): its
+    ms=140 goes (stills have no timing); pivot 8,15 kept'."""
+    many = len(stilled) > 1
+    whys = list(dict.fromkeys(w for *_, w in stilled))
+    pivots = [f"{fmt_setting(p)}" for _, _, p, _ in stilled if p]
+    return (f"note: {', '.join(i for i, *_ in stilled)} land{'' if many else 's'} in {dpath} as "
+            f"{'stills' if many else 'a still'} "
+            f"({', '.join(whys)}): {'their' if many else 'its'} ms="
+            + ",".join(dict.fromkeys(str(ms) for _, ms, _, _ in stilled)) + " dropped (stills have no timing)"
+            + (f"; pivot{'s' * (len(pivots) > 1)} {' '.join(pivots)} kept" if pivots else ""))
 
 
 def renamed_id(fid, renames):
@@ -3369,7 +3973,8 @@ def check_renames(renames, ids, where):
     for old, new in renames:
         if not any(i == old or i.startswith(old + "/") for i in ids):
             fail("E_SELECT", f"--rename {old} {new}: no frame {old!r} or {old}/... in {where}; frames: "
-                 f"{', '.join(ids) or 'none'}")
+                 f"{', '.join(ids) or 'none'}" + guess(old, [i.rsplit("/", n)[0] for i in ids
+                                                              for n in range(i.count("/") + 1)]))
     bad = [renamed_id(i, renames) for i in ids if not ID_RE.match(renamed_id(i, renames))]
     if bad:
         fail("E_BAD_ID", f"--rename gives bad frame ids: {', '.join(map(repr, bad))} (ids are paths of letters, "
@@ -3428,6 +4033,24 @@ def drop_orphans(doc, emptied):
     return [f"removed {', '.join(gone)} (no frames left)"] if gone else []
 
 
+def keep_spacing(doc, gone):
+    """Lines just removed (anchors) take their comments with them, but not the blank lines above them: those go to the
+    next line the file had that is still there (in file order), unless it has blank lines above it already, so a
+    '@palette' line keeps its blank line after it when the @anim below it goes."""
+    order = sorted(doc.at, key=doc.at.get)
+    there = {anchor for anchor, _, _ in doc.lines()}
+    for anchor in sorted(gone, key=lambda x: doc.at.get(x, 0), reverse=True):  # last first: blanks move down once
+        lead = doc.lead.get(anchor) or []
+        blank = list(itertools.takewhile(lambda l: not l.strip(), lead))
+        if not blank or anchor not in doc.at:
+            continue
+        nxt = next((x for x in order if doc.at[x] > doc.at[anchor] and x in there), None)
+        if nxt is None or doc.lead.get(nxt) is None:
+            continue
+        if not (doc.lead[nxt] and not doc.lead[nxt][0].strip()):
+            doc.lead[nxt] = blank + doc.lead[nxt]
+
+
 def orphans(doc):
     """@anim / @still lines that name a group with no frames: [(line text, line number)]."""
     have = set(doc.groups())
@@ -3446,8 +4069,13 @@ def frames_edit(a, doc, sel, picked):
     did = []
     for fid in a.rm or []:
         f = doc.get(fid)
+        inside = [g.id for g in doc.frames if (g.id or "").startswith(fid + "/")]
+        if not f and inside:
+            fail("E_BAD_ARG", f"--rm {fid!r} is a group ({', '.join(inside)}); --rm takes frame ids. A group goes in "
+                 f"the selector: frames {doc.path}:{fid} --rm")
         if not f:
-            fail("E_SELECT", f"--rm {fid!r}: no such frame")
+            fail("E_SELECT", f"--rm {fid!r}: no such frame; frames: {', '.join(doc.label(g) for g in doc.frames)}"
+                 + guess(fid, [g.id for g in doc.frames]))
         doc.frames.remove(f)
     if a.rm:
         did.append("removed " + ", ".join(a.rm))
@@ -3490,6 +4118,11 @@ def frames_sel_edit(a, doc, sel, picked):
         if a.rm:
             ids = {f.id for f in picked}
             out = [fid for fid in a.rm if fid not in ids]
+            groups = [fid for fid in out if any(i.startswith(fid + "/") for i in ids)]
+            if groups:
+                fail("E_BAD_ARG", f"--rm {', '.join(groups)}: {'a group' if len(groups) == 1 else 'groups'} in "
+                     f"{sel!r}; --rm takes frame ids. A group goes in the selector: frames {doc.path}:{groups[0]} "
+                     "--rm")
             if out:
                 fail("E_SELECT", f"--rm {', '.join(out)}: not in {sel!r} ({', '.join(sorted(ids))}); drop the :SEL "
                      "to remove frames by id anywhere")
@@ -3544,12 +4177,45 @@ def move_pivots(doc, frames, how):
 
 
 def cmd_flip(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    opath, osel = split_sel(a.o) if a.o else (None, None)
+    said = []
+    if osel is not None:  # flip FILE:walk/right -o FILE:walk/left: copy the group (dup), flip the copy
+        path, sel = split_sel(a.file)
+        if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
+            fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP flips a copy of FILE:GROUP within FILE ('flip {path}:walk/right "
+                 f"-o {path}:walk/left'); to another file, copy first (frames --copy-to) and flip there")
+        with reading(f"FILE ({a.file})"):
+            doc = parse(path)
+            if doc.get(sel) or not any((f.id or "").startswith(sel + "/") for f in doc.frames):
+                doc.select(sel)  # a missing selector's error, with its guess
+                fail("E_BAD_ARG", f"-o {a.o}: flipping into a copy takes a group (FILE:GROUP); for one frame, dup it "
+                     f"first: dup {path}:{sel} NEWID, then flip {path}:NEWID")
+        said, frames = dup_group(doc, sel, osel)
+        out = doc.path
+    else:
+        doc, frames, out = edit_target(a.file, a.o)
     move_pivots(doc, frames, lambda f: (lambda x, y, h=f.size[1]: (x, h - 1 - y)) if a.v else
                 (lambda x, y, w=f.size[0]: (w - 1 - x, y)))
+    mirrored_pivots(doc, frames, "y" if a.v else "x")
     for f in frames:
         f.grid = f.grid[::-1] if a.v else [r[::-1] for r in f.grid]
-    print(write_doc(doc, out))
+    print("; ".join(said + [write_doc(doc, out)]))
+
+
+def mirrored_pivots(doc, frames, axes):
+    """flip, rotate: a note when a frame with a pivot is mirrored across an even size (axes: 'x' across its width, 'y'
+    its height, 'xy' both). The pivot keeps its pixel (x -> w-1-x), which is right for a pixel; a pivot meant as the
+    point between the two middle pixels lands 1px off it, and pivots have no half pixels."""
+    for axis in axes:
+        size = (lambda f: f.size[0]) if axis == "x" else (lambda f: f.size[1])
+        hit = [f for f in frames if doc.pivot(f) is not None and size(f) % 2 == 0]
+        if not hit:
+            continue
+        n = size(hit[0])
+        print(f"note: {listed([doc.label(f) for f in hit])}: pivot{'s' * (len(hit) > 1)} mirrored pixel for pixel "
+              f"({axis} -> {n - 1}-{axis} across {n} px); a pivot meant as the centre between two pixels ends 1px off "
+              "it (pivots are whole pixels): check with onion")
+        return
 
 
 LIGHTS = {"n": (0, -1), "ne": (1, -1), "e": (1, 0), "se": (1, 1), "s": (0, 1), "sw": (-1, 1), "w": (-1, 0),
@@ -3566,6 +4232,7 @@ def turn(a, how):
     """rotate / transpose: each selected frame's pixels (and its pivot) move by TURNS[how]."""
     doc, frames, out = edit_target(a.file, a.o)
     move, vec = TURNS[how]
+    mirrored_pivots(doc, frames, {"90": "y", "180": "xy", "270": "x", "transpose": ""}[how])  # what each mirrors
     move_pivots(doc, frames, lambda f: (lambda x, y, w=f.size[0], h=f.size[1]: move(x, y, w, h)))
     for f in frames:
         w, h = f.size
@@ -3597,7 +4264,7 @@ def cmd_transpose(a):
 
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     if a.fill is not None and a.wrap:
         fail("E_BAD_ARG", "--fill paints the pixels a shift leaves behind; --wrap leaves none")
@@ -3688,10 +4355,11 @@ def cmd_mask(a):
         if not erased and pathlib.Path(out).resolve() == pathlib.Path(path).resolve():
             print(f"erased 0 px; no change: {out}")
             return
-        img.save(outpath(out))
-        print(f"erased {erased} px; wrote {out}")
+        save_image(img, out)
+        print(f"erased {erased} px; " + wrote(out))
         return
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=(a.keep or a.keep_circle) and "--keep"
+                                   + "-circle" * (not a.keep))
     keys = set(key_list(by_key, "--keep-keys" if a.keep_keys else "--drop-keys")) if by_key else set()
     if keys - set(doc.resolved()):
         fail("E_SELECT", f"mask: keys {''.join(sorted(keys - set(doc.resolved())))!r} aren't in the palette")
@@ -3711,7 +4379,7 @@ def cmd_recolor(a):
     call, so they can't feed each other, and a key 'a>b' frees ('b>c' in the same call) can be a new key's name: 'a>b'
     'b>a' swaps two keys' names, pixels and colors staying as they look. Color changes (c=#hex) set the palette and
     are independent of moves."""
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     moves, said, renames = {}, {}, {}
     for m in a.maps:
@@ -3810,8 +4478,7 @@ def cmd_recolor(a):
         f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     rename_keys(doc, renames, left)
-    many = f"applied to {len(frames)} frames; " if moves and len(frames) > 1 else ""  # a whole file is easy to miss
-    print(many + write_doc(doc, out))
+    print(write_doc(doc, out))
 
 
 def rename_key(doc, k, v):
@@ -3855,7 +4522,7 @@ def rename_keys(doc, renames, left=None):
 
 
 def cmd_set(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords="x,y")
     if a.key not in doc.resolved():
         fail("E_SELECT", f"set: key {a.key!r} not in palette (add it with palette --add)")
     for f in frames:
@@ -3889,7 +4556,7 @@ def cmd_paste(a):
         src = place_item(a.src, "paste source")
         if not src.doc:
             fail("E_BAD_ARG", f"paste copies a .px frame, got {src.label}")
-    ddoc, dframes, out = edit_target(a.into, a.o, "--into")
+    ddoc, dframes, out = edit_target(a.into, a.o, "--into", coords="--at")
     ax, ay = map(int, a.at.split(","))
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, ddoc, out, [src.doc])
@@ -3936,6 +4603,23 @@ def cmd_extract(a):
     if a.inline_palette:
         inline_palette(doc)
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
+
+
+def place_anim(doc, group):
+    """A new '@anim GROUP' line (just added, so last) moves among the others to where its group's first frame puts it:
+    after the last line whose group starts earlier, so the lines follow the frames; the lines already there keep their
+    order. Blank lines above the first @anim line stay first."""
+    first = {}
+    for i, f in enumerate(doc.frames):
+        first.setdefault(f.group, i)
+    rest, end = [g for g in doc.anims if g != group], len(doc.frames)
+    at = max((i + 1 for i, g in enumerate(rest) if first.get(g, end) < first.get(group, end)), default=0)
+    if at == 0 and rest:  # it goes first: it takes the blank lines above the old first line, which keeps its comment
+        lead = doc.lead.get(("anim", rest[0]))
+        if lead is not None:
+            n = next((i for i, x in enumerate(lead) if x.strip()), len(lead))
+            doc.lead[("anim", group)], doc.lead[("anim", rest[0])] = lead[:n], lead[n:]
+    doc.anims = {g: doc.anims[g] for g in rest[:at] + [group] + rest[at:]}
 
 
 def order_anims(doc, groups):
@@ -4101,7 +4785,7 @@ def cmd_put(a):
 
 
 def cmd_fill(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     if a.key not in doc.resolved():
         fail("E_SELECT", f"fill: key {a.key!r} not in palette (add it with palette --add)")
     for f in frames:
@@ -4223,7 +4907,8 @@ def ellipse_box(cx, cy, rx, ry, what, radii=("rx", "ry")):
         if c - r != int(c - r):
             fail("E_BAD_ARG", f"{what}: {cn}={c:g} and {rn}={r:g} put the shape's edge on half a pixel "
                  f"({cn}-{rn}..{cn}+{rn} must be whole pixels): give {cn} and {rn} both whole ({eg[0]}: 7 across) "
-                 f"or both ending in .5 ({eg[1]}: 8 across)")
+                 f"or both ending in .5 ({eg[1]}: 8 across)"
+                 + ("; or give the pixel box instead, as rect's: --box x,y,w,h" if what == "ellipse" else ""))
     return tuple(int(v) for v in (cx - rx, cy - ry, cx + rx, cy + ry))
 
 
@@ -4282,7 +4967,9 @@ def paint(f, pts, key):
 
 def draw(a, shape):
     """The drawing commands' shared edit: paint shape(frame) -> pixels with a.key in each selected frame."""
-    doc, frames, out = edit_target(a.file, a.o)
+    where = {"line": "x0,y0 x1,y1", "rect": "x,y,w,h", "poly": "x,y ...", "ellipse": "cx,cy,rx,ry", "arc": "cx,cy,r",
+             "flood": "x,y"}[a.cmd] if not getattr(a, "box", None) else "--box"
+    doc, frames, out = edit_target(a.file, a.o, coords=where)
     if a.key not in doc.resolved():
         fail("E_SELECT", f"{a.cmd}: key {a.key!r} not in palette (add it with palette --add)")
     changed = 0
@@ -4322,8 +5009,16 @@ def cmd_poly(a):
 
 
 def cmd_ellipse(a):
-    cx, cy, rx, ry = coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True)
-    pts = ellipse_points(*ellipse_box(cx, cy, rx, ry, "ellipse"), fill=a.fill)
+    if (a.shape is None) == (a.box is None):
+        fail("E_BAD_ARG", "ellipse takes cx,cy,rx,ry or --box x,y,w,h (the pixel box it fills, as rect's), one of them")
+    if a.box:
+        x, y, w, h = coords(a.box, ("x", "y", "w", "h"), "--box")
+        if w < 1 or h < 1:
+            fail("E_BAD_ARG", f"--box {a.box}: w and h must be at least 1")
+        box = (x, y, x + w - 1, y + h - 1)
+    else:
+        box = ellipse_box(*coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True), "ellipse")
+    pts = ellipse_points(*box, fill=a.fill)
     draw(a, lambda f: sorted(pts, key=lambda p: (p[1], p[0])))
 
 
@@ -4401,7 +5096,7 @@ def changes(by, verb="changed"):
 def preview(doc, frames, png, what):
     """--preview: render the edited frames (render's grid and rulers) to png; the file isn't written."""
     its = [Item(doc.label(f), doc.image(f), doc.ms(f), doc, f) for f in frames]
-    return f"{what}; wrote {sheet(its, png, 8, grid=True, rulers=True)} (preview; {doc.path} unchanged)"
+    return f"{what}; wrote {sheet(its, png, 8, grid=True, rulers=True, what='--preview')} (preview; {doc.path} unchanged)"
 
 
 def cmd_outline(a):
@@ -4523,7 +5218,7 @@ def cmd_shade(a):
     """Re-shade a material (the pixels whose key is in --keys) with a ramp, lit from --light."""
     if a.preview and a.o:
         fail("E_BAD_ARG", "shade: --preview renders the result to a PNG and writes nothing; drop -o or --preview")
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     ramp = key_list(a.ramp, "--ramp")
     keys = key_list(a.keys, "--keys") if a.keys else list(ramp)
@@ -4576,6 +5271,94 @@ def variant_map(specs):
 def variant_names(d):
     """A doc's variants, its own first, then the imported ones."""
     return list(d.variants) + [n for n in d.shared_variants if n not in d.variants]
+
+
+def half_variants(d, only=None):
+    """The variants d gets only through its @palette imports (no '@variant NAME' line of its own) that leave some of its
+    own keys at their base colors, since the palette file's variant can't know them: [(name, keys)], the keys in
+    palette order, those its frames draw (a palette file, with no frames: all its own). only: that variant alone. A
+    file with its own @variant line of that name has chosen what its keys do there, and is left alone."""
+    if not d.palette_refs:
+        return []
+    drawn = set("".join(r for f in d.frames for r in f.grid)) if d.frames else None
+    out = []
+    for name, over in d.shared_variants.items():
+        if name in d.variants or name == "base" or (only is not None and name != only):
+            continue
+        ks = [k for k, c in d.palette.items() if c[3] and k not in over and (drawn is None or k in drawn)]
+        if ks:
+            out.append((name, ks))
+    return out
+
+
+def lit_keys(d):
+    """The keys of d's own (the ones a derive into an imported variant writes) that d's variants already treat as
+    lights: [(key, why)] in palette order. A light is a key some variant of d leaves at its base color (no line, or
+    relisted unchanged) or makes brighter; for a key d's @palette defines too, that palette's variants count as well.
+    A variant d gets only from its import can't know d's keys, so it says nothing about them."""
+    out = []
+    for k, c in d.palette.items():
+        if k == "." or not c[3]:
+            continue
+        whys = []
+        seen = [(n, f"{n}", c, d.variants[n]) for n in d.variants]
+        if k in d.shared:  # the import defines k too: its variants say what k does there
+            seen += [(n, f"{' and '.join(d.palette_refs)}'s {n}", d.shared[k], o)
+                     for n, o in d.shared_variants.items() if n not in d.variants]
+        for n, label, base, over in seen:
+            got = d.resolved(n)[k] if n in d.variants else over.get(k, base)
+            if brightness(got) > brightness(base):
+                whys.append(f"brighter in {label}")
+            elif got == base:
+                whys.append(f"{'relisted unchanged' if k in over else 'left at base'} in {label}")
+        if whys:
+            out.append((k, ", ".join(whys)))
+    return out
+
+
+def said_half(d, name, ks):
+    """The words for one of half_variants: which file, which variant, the keys it leaves at base, and the fix, with the
+    lights lit_keys infers kept lit (and why each), since a derive would dim them."""
+    refs = d.palette_refs
+    pal = (d.path.parent / refs[0]).as_posix() if len(refs) == 1 else "P.px"
+    pal = os.path.normpath(pal) if len(refs) == 1 and not os.path.isabs(pal) else pal
+    many = len(ks) > 1
+    lit = lit_keys(d)
+    whys = {}
+    for k, why in lit:
+        whys.setdefault(why, []).append(k)
+    told = ("lights inferred: " + "; ".join(f"{' '.join(v)} {w}" for w, v in whys.items())) if lit else \
+        "no lights inferred; add --keep-lit for any"
+    return (f"@variant {name} comes only from its @palette {' and '.join(refs)}, which gives no {name} "
+            f"color{'s' * many} to its own key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
+            f"color{'s' * many}. Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
+            f"--derive-from base --match {pal}" + (f" --keep-lit {','.join(k for k, _ in lit)}" if lit else "")
+            + f"' ({told}), or --add 'K=#rrggbb'" + said_recompose(d, name))
+
+
+def said_recompose(d, name):
+    """For a half variant of a file its header says compose made: composing it again, once its sources have a `name`
+    of their own, is the other fix (its layers' own variants color their pixels)."""
+    how = composed_from(d)
+    if how is None:
+        return ""
+    cmd, line = how
+    return (f"; or, since its header says it was composed ({line!r}), give its sources a {name} of their own and "
+            + (f"compose it again: '{cmd}'" if cmd else "compose it again from its map or layers"))
+
+
+WARNED = set()  # (path, variant) whose half_variants WARNING this run printed: once per file and variant
+
+
+def warn_half(d, name):
+    """Rendering d in variant `name`: a WARNING (once per file and variant a run) when name comes only from d's
+    @palette and leaves keys of d's own at their base colors (half_variants)."""
+    if not name or name == "base" or d is None or d.path is None:
+        return
+    for n, ks in half_variants(d, name):
+        if (d.path.resolve(), n) not in WARNED:
+            WARNED.add((d.path.resolve(), n))
+            print(f"WARNING: {d.path}: {said_half(d, n, ks)}")
 
 
 def layer_variants(d, vmap):
@@ -5178,6 +5961,10 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         return {p: m for p, m in found.items() if m}, whys
     if not fresh and not osel and hasattr(a, "replace") and not getattr(a, "under", False):  # compose's plain OUT
         print(f"note: {opath} exists: keeping its palette ({kept}); --replace starts it fresh")
+    for d in {id(lay.doc): lay.doc for lay, *_ in layers}.values():  # OUT's variants from a layer's import alone
+        for n, src in layer_variants(d, vmap).items():
+            if n in variant_names(doc):
+                warn_half(d, src)
     for line in said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap,
                              rekey_said, fresh) + said_variants(opath, layers, doc, vmap, fresh):
         print(line)
@@ -5212,9 +5999,64 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
         carry_header(doc, {d.path.name: (notes or {}).get(d.path.resolve(), ({}, {}, []))[2] for d in docs})
+    if getattr(a, "cmd", None) == "compose" and getattr(a, "argv", None) and (fresh or not osel):
+        stamp_composed(doc, a.argv, opath, fresh)
     did = write_doc(doc, opath)
     print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and did.startswith("wrote") else "")
                  if osel else ""))
+
+
+COMPOSED_RE = re.compile(r"^#\s*composed by:\s*(.*?)\s*$")  # compose's provenance line, in a file's header
+PATH_ARG_RE = re.compile(r"^(.*?\.(?:px|png|map))(?=$|[:%@+=])(.*)$", re.S)
+
+
+def repointed(args, src, dst):
+    """Command-line args with the path each starts with (a layer FILE.px:frame+h@x,y, -o OUT, --map room.map) read
+    from directory src re-pointed to be read from dst, relative as @palette lines are (an absolute one too), since a
+    path inside a file is read from its directory. Other args as they are."""
+    out = []
+    for x in args:
+        m = PATH_ARG_RE.match(x)
+        if m and not x.startswith("-"):
+            x = pathlib.Path(os.path.relpath(pathlib.Path(src, m.group(1)).resolve(), pathlib.Path(dst).resolve())
+                             ).as_posix() + m.group(2)
+        out.append(x)
+    return out
+
+
+def stamp_composed(doc, argv, opath, fresh):
+    """A compose OUT's header says how it was made: '# composed by: pxart compose ...', its paths re-pointed from
+    OUT's directory (as a path inside a file is), so the line runs from there. A new OUT gets it; an existing one
+    composed whole again has its line updated (and one without keeps its header as it is)."""
+    line = "# composed by: pxart " + shlex.join(["compose"] + repointed(argv[1:], ".", pathlib.Path(opath).parent))
+    at = next((i for i, l in enumerate(doc.comments) if COMPOSED_RE.match(l)), None)
+    if at is not None:
+        doc.comments[at] = line
+    elif fresh:
+        doc.comments = [line]
+
+
+def composed_from(d):
+    """How d's header says it was made: ('pxart compose ...' re-pointed to run from the current directory, with
+    --replace for a whole OUT (one that exists keeps its palette and variants otherwise), or None when the line has no
+    command; the line as written), or None when no header line says it was composed."""
+    for l in d.comments if d.path else ():
+        m = COMPOSED_RE.match(l)
+        if m or re.match(r"^#.*\bcomposed\b", l, re.I):
+            cmd = m.group(1) if m else ""
+            if cmd.startswith("pxart compose "):
+                try:
+                    args = shlex.split(cmd)[2:]
+                except ValueError:  # unbalanced quotes: say the line as it is
+                    args = None
+                out = next((v for o, v in zip(args or [], (args or [])[1:]) if o == "-o"), "")
+                if args is not None and "--replace" not in args and ":" not in out:  # an OUT that exists keeps its
+                    args.append("--replace")  # palette, variants too, unless started fresh
+                cmd = args and "pxart " + shlex.join(["compose"] + repointed(args, d.path.parent, "."))
+            else:
+                cmd = None
+            return cmd, l.strip()
+    return None
 
 
 def said_undrawn(opath, doc, target, owners):
@@ -5267,6 +6109,7 @@ def baked(doc, variant):
     base palette, every key its own and no variants, so the layer draws in V's colors in OUT's base and every variant,
     as scene draws it. It goes by FILE%V, a file of its own to compose, --rekey and the notes."""
     pal = doc.resolved(variant)
+    warn_half(doc, variant)
     doc.palette = {k: c for k, c in pal.items() if k != "."}
     doc.shared, doc.shared_variants, doc.variants, doc.palette_refs = {}, {}, {}, []
     doc.path = doc.path.with_name(f"{doc.path.name}%{variant}")
@@ -5360,12 +6203,17 @@ def cmd_dup(a):
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
     src = doc.get(sel) if sel else None
+    if not src and sel and any((f.id or "").startswith(sel + "/") for f in doc.frames):  # a group: dup GROUP NEWGROUP
+        note_suffix(a.o or doc.path)
+        print("; ".join(dup_group(doc, sel, a.new, a.after, a.o or doc.path)[0] + [write_doc(doc, a.o)]))
+        return
     if not src:
-        fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame; frames: "
-             f"{', '.join(doc.label(f) for f in doc.frames)}")
+        fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame, or FILE:GROUP; frames: "
+             f"{', '.join(doc.label(f) for f in doc.frames)}" + (guess(sel, doc.paths()) if sel else ""))
     if doc.get(a.new) or not ID_RE.match(a.new):
         fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
     new = Frame(a.new, list(src.grid), src.ms, pivot=src.pivot)
+    stilled = [as_still(new, doc, src, doc)] if doc.animated(src.group) and not doc.animated(new.group) else []
     if a.after:
         anchor = doc.get(a.after)
         if not anchor:
@@ -5377,8 +6225,55 @@ def cmd_dup(a):
     doc.frames.insert(doc.frames.index(anchor) + 1, new)
     if new.group and new.group not in doc.anims and src.group in doc.anims:
         doc.anims[new.group] = dict(doc.anims[src.group])
+        place_anim(doc, new.group)
     note_suffix(a.o or doc.path)
+    if stilled:
+        print(said_stilled(stilled, a.o or doc.path))
     print(write_doc(doc, a.o), "frame", a.new)
+
+
+def dup_group(doc, group, new, after=None, dpath=None):
+    """dup FILE:GROUP NEWGROUP: every frame under GROUP copied under NEWGROUP (walk/right/0 -> walk/left/0), with its
+    ms and pivot, and the @anim and @still lines of GROUP and the groups under it, placed as dup places a frame: after
+    NEWGROUP's last frame, else after GROUP's (or --after ID). Returns (what it did, for the line; the copies)."""
+    if not ID_RE.match(new):
+        fail("E_BAD_ID", f"can't use {new!r} as the new group (ids are paths of letters, digits, _ - and .)")
+    if new == group or new.startswith(group + "/"):
+        fail("E_BAD_ARG", f"{new!r} is inside {group!r}: its copies would be copied too; give another group")
+    src = [f for f in doc.frames if (f.id or "").startswith(group + "/")]
+    renames = [(group, new)]
+    taken = [renamed_id(f.id, renames) for f in src if doc.get(renamed_id(f.id, renames))]
+    if taken:
+        fail("E_DUP_FRAME", f"{listed(taken)} already in {doc.path}: dup {group} {new} would give those ids twice")
+    if after:
+        anchor = doc.get(after)
+        if not anchor:
+            fail("E_SELECT", f"--after {after!r}: no such frame" + guess(after, [f.id for f in doc.frames]))
+    else:
+        same = [f for f in doc.frames if (f.id or "").startswith(new + "/")]
+        anchor = (same or src)[-1]
+    said, stilled, copies = [], [], []
+    for g in dict.fromkeys(f.group for f in src):
+        n = renamed_id(g, renames)
+        if g in doc.anims and n not in doc.anims:
+            doc.anims[n] = dict(doc.anims[g])
+            said.append(f"added @anim {n}")
+        if g in doc.stills and n not in doc.stills:
+            doc.stills.append(n)
+            said.append(f"added @still {n}")
+    at = doc.frames.index(anchor) + 1
+    for f in src:
+        c = Frame(renamed_id(f.id, renames), list(f.grid), f.ms, pivot=f.pivot)
+        doc.frames.insert(at, c)
+        at += 1
+        copies.append(c)
+        if doc.animated(f.group) and not doc.animated(c.group):
+            stilled.append(as_still(c, doc, f, doc))
+    for n in [x[len("added @anim "):] for x in said if x.startswith("added @anim ")]:
+        place_anim(doc, n)
+    if stilled:
+        print(said_stilled(stilled, dpath or doc.path))
+    return [f"copied {group} ({len(src)} frame{'s' * (len(src) != 1)}) as {new}"] + said, copies
 
 
 def timing_value(k, v):
@@ -5426,6 +6321,8 @@ def cmd_anim_set(a):
     groups = doc.groups()
     if sel in groups and sel:
         anim = doc.anims.setdefault(sel, {})
+        if not anim:
+            place_anim(doc, sel)
         anim.update(kw)
         line = next(text for anchor, _, text in doc.lines() if anchor == ("anim", sel))
         for k in ("ms", "pivot"):
@@ -5437,7 +6334,7 @@ def cmd_anim_set(a):
         f = doc.get(sel)
         if not f:
             fail("E_SELECT", f"{sel!r} is neither an animation nor a frame; animations: "
-                 f"{', '.join(g for g in groups if g) or 'none'}", path=doc.path)
+                 f"{', '.join(g for g in groups if g) or 'none'}" + guess(sel, doc.paths()), path=doc.path)
         if set(kw) - {"ms", "pivot"}:
             fail("E_BAD_ARG", f"{sel!r} is one frame, which takes only ms= and pivot=; direction= and repeat= belong "
                  f"to its animation: anim-set {doc.path}:{f.group or 'GROUP'} ...", path=doc.path)
@@ -5495,8 +6392,31 @@ def key_color(m):
 
 
 def cmd_palette(a):
+    """-o OUT and --dry-run go with the edit modes; the listing and --export write no edited FILE."""
+    edits = a.add or a.keep or a.derive_from is not None or a.comment or a.comment_header is not None or a.remove \
+        or a.order or a.import_ or a.hoist or (a.extract_to and a.repoint)
+    for flag, on in ((f"-o {a.o}", a.o), ("--dry-run", a.dry_run)):
+        if on and not edits:
+            fail("E_BAD_ARG", f"{flag} goes with an edit of FILE (--add, --variant, --remove, --order, --import, "
+                 "--hoist, --comment, --extract-to --repoint): " + ("the listing writes nothing" if not
+                 (a.export or a.extract_to) else f"{'--export' if a.export else '--extract-to'} writes its own file"))
+    if a.o and a.hoist:
+        fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE, and --hoist edits the palette file FILE imports "
+             "too; run it without -o (--dry-run shows both changes)")
+    if a.o and a.export:
+        fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE; --export writes its own file: give them apart")
+    palette_edit(a)
+
+
+def palette_edit(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
+    if a.o:
+        doc.dest = pathlib.Path(a.o)
+        note_suffix(doc.dest)
+        if a.remove and any(k not in doc.palette for k in key_list(a.remove, "--remove")):
+            fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE, and --remove of an imported key edits the "
+                 "palette file that defines it too; run it without -o (--dry-run shows both changes)")
     if a.within and not os.path.isdir(a.within):
         fail("E_FILE", f"--in {typed_path(a.within)}: not a directory")
     notes = comment_args(a.comment)
@@ -5585,10 +6505,11 @@ def cmd_palette(a):
             body = "".join("%02x%02x%02x\n" % v[:3] for _, v in cols)
         else:
             fail("E_BAD_ARG", "--export wants a .gpl or .hex path")
-        outpath(a.export).write_text(body)
+        if not DRY["run"]:
+            outpath(a.export).write_text(body)
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
-        print("wrote", a.export)
+        print("would write" if DRY["run"] else "wrote", a.export)
     if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None or derive:
         return
     if a.within and doc.frames:
@@ -5628,6 +6549,8 @@ def cmd_palette(a):
               + f"; inherits: {' '.join(keeps) or 'nothing'}")
         for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
             print(f"    {l.strip()}")
+        for _, ks in half_variants(doc, name):
+            print(f"    WARNING: {said_half(doc, name, ks)}")
         for k in pal:
             said = comment_text(cmts.get(("vkey", name, k)))
             if said:
@@ -5696,7 +6619,8 @@ def variant_edit(doc, name, adds, keeps):
     have = name in doc.variants or name in doc.shared_variants
     if keeps and not adds and not have:
         fail("E_SELECT", f"--keep: {doc.path} has no @variant {name!r} (have: "
-             f"{', '.join(sorted(set(doc.variants) | set(doc.shared_variants))) or 'none'})", path=doc.path)
+             f"{', '.join(sorted(set(doc.variants) | set(doc.shared_variants))) or 'none'})"
+             + guess(name, variant_names(doc)), path=doc.path)
     base = doc.resolved()
     for k in [k for k, _ in adds] + keeps:
         if k not in base or k == ".":
@@ -5755,7 +6679,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     have = sorted(set(doc.variants) | set(doc.shared_variants))
     if src != "base" and src not in have:
         fail("E_SELECT", f"--derive-from {src}: {doc.path} has no @variant {src!r} (have: {', '.join(have) or 'none'}; "
-             "or base, the base palette)", path=doc.path)
+             "or base, the base palette)" + guess(src, have + ["base"]), path=doc.path)
     base = doc.resolved()
     from_ = doc.resolved(None if src == "base" else src)
     for k in lit:
@@ -5763,10 +6687,12 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
             fail("E_VARIANT_KEY", f"--keep-lit {k!r}: the base palette doesn't define it", path=doc.path)
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
+    own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
+    had = name in doc.variants
     over = doc.variants.setdefault(name, {})
     recolored, held = [], []
     for k, c in base.items():
-        if k == "." or not c[3]:
+        if k == "." or not c[3] or (own and k not in doc.palette):
             continue
         if k in lit:
             got = from_[k]
@@ -5783,11 +6709,18 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
         over[k] = got
         if got != c:
             recolored.append(k)
+    if own and not had and not over:  # every key is imported, and the import's variant colors them all: nothing to add
+        del doc.variants[name]
+        print(f"note: {doc.path}'s keys all come from {' and '.join(doc.palette_refs)}, whose @variant {name} colors "
+              f"them; no @variant {name} of its own to write (derive it in the palette file instead)" if not
+              doc.palette else f"note: the derive leaves {doc.path}'s own keys at their base colors; no @variant "
+              f"{name} of its own to write")
     how = ", ".join(([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else []))
     how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
                     + ([how] if how else []))
     said = [f"new @variant {name}" if made else f"@variant {name}",
-            f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"]
+            f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"
+            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones)" if own else "")]
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
@@ -5796,18 +6729,24 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
                     f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened")
     elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
-                    f"color{'s' * (len(held) > 1)} (darker than a quarter: an outline stays dark; --lift-darks lets "
-                    "the derive brighten them)")
+                    f"color{'s' * (len(held) > 1)} by Rec. 709 luma (darker than a quarter: an outline stays dark; "
+                    "--lift-darks lets the derive brighten them)")
     else:
         said.append("held: none (no key darker than a quarter came out brighter)")
     return said
 
 
 def no_brighter(c, ref):
-    """c scaled down (each channel, floored) to ref's brightness at most: its hue kept, never lighter than ref."""
+    """c scaled down (each channel, floored) to ref's brightness (Rec. 709 luma) at most: its hue kept, its luma never
+    above ref's (a channel steps down where float rounding would leave it a hair over)."""
     b = brightness(c)
-    f = brightness(ref) / b if b else 0
-    return tuple(int(v * f) for v in c[:3]) + (c[3],)
+    if b <= brightness(ref):
+        return c
+    f = brightness(ref) / b
+    out = [int(v * f) for v in c[:3]]
+    while brightness(tuple(out) + (c[3],)) > brightness(ref) and any(out):
+        out = [max(0, v - 1) for v in out]
+    return tuple(out) + (c[3],)
 
 
 def matched(c, fit):
@@ -5898,7 +6837,7 @@ def set_comments(doc, notes, variant=None, header=None):
                     f" (it imports that variant; comment it in the palette file: pxart palette "
                     f"{doc.palette_refs[0] if len(doc.palette_refs) == 1 else 'P.px'} --comment @variant {name} ...)"
                     if name in doc.shared_variants else
-                    f" (it has: {', '.join(doc.variants) or 'none'})"), path=doc.path)
+                    f" (it has: {', '.join(doc.variants) or 'none'})" + guess(name, doc.variants)), path=doc.path)
             anchor, what = ("variant", name), f"@variant {name}"
         elif variant:
             if name not in doc.variants.get(variant, {}):
@@ -6406,8 +7345,7 @@ def cmd_export(a):
     if a.frames:
         pngs = []
         for it in its:
-            p = outpath(pathlib.Path(a.frames) / (it.label + ".png"))
-            it.img.save(p)
+            p = save_image(it.img, pathlib.Path(a.frames) / (it.label + ".png"), "--frames")
             pngs.append(str(p))
         wrote += pngs if len(pngs) <= 8 else [f"{len(pngs)} PNGs under {a.frames} ({pngs[0]} ... {pngs[-1]})"]
         pivots = {it.label: dict(zip("xy", it.doc.pivot(it.frame))) for it in its if it.doc.pivot(it.frame)}
@@ -6423,8 +7361,7 @@ def cmd_export(a):
         its2 = grouped(its)
         sheet_img, spots, _, _, _ = pack(its2)
         jp = outpath(a.aseprite)
-        ip = jp.with_suffix(".png")
-        sheet_img.save(ip)
+        ip = save_image(sheet_img, jp.with_suffix(".png"), "--aseprite's sheet")
         frames, tags, i = [], [], 0
         for it, (x, y) in zip(its2, spots):
             w, h = it.img.size
@@ -6457,8 +7394,7 @@ def cmd_export(a):
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = outpath(a.tiled)
-        ip = tp.with_suffix(".png")
-        sheet_img.save(ip)
+        ip = save_image(sheet_img, tp.with_suffix(".png"), "--tiled's image")
         index = {id(it.frame): n for n, it in enumerate(its)}
         tiles = []
         for doc, g, fs, tag_name in groups():
@@ -6747,7 +7683,7 @@ GIST = {  # what each block (or another command's section) has, for the see-also
     "FORMAT: variants": "@variant, %VARIANT",
     "FORMAT: selecting frames": "FILE:SEL, an unnamed grid's name, zsh's \"${F}:sel\"",
     "FORMAT: paths": "what a path is read from: the current directory, or a file's own",
-    "LOOKING: centering": "frames of different sizes, --bg",
+    "LOOKING: centering": "frames of different sizes, --bg, --dry-run",
     "EDITING": "-o OUT gets the whole file, only changed lines are rewritten, 'no change'",
     "DRAWING": "FILE[:SEL], KEY, clipping, 'painted N px'",
     "compose": "OUT's palette, frame placement, E_KEY_CONFLICT, --rekey",
@@ -6758,7 +7694,8 @@ DRAWS = ["DRAWING", "EDITING", "FORMAT: selecting frames"]
 SEE = {  # what a command's section relies on: other commands' sections (by name) and NOTES, named, not pasted
     "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
-    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants", "FORMAT: paths"], "tint": ["scene"],
+    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"],
+    "scene": ["FORMAT: variants", "FORMAT: paths", "LOOKING: centering"], "tint": ["scene"],
     "check": ["FORMAT: still groups", "FORMAT: paths"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
     "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
@@ -6775,6 +7712,57 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "export": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: variants", "FORMAT: selecting frames"],
     "from-png": ["FORMAT: paths"], "help": [],
+}
+SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its options (its section's details follow them)
+    "render": "Render frames to a preview PNG with a pixel grid and x/y rulers, to look at while you edit.",
+    "sheet": "Many frames (.px/.png files, or every .px under a directory) side by side on one PNG, each\n"
+             "labeled with its id, size and color count.",
+    "anim": "An animation as one GIF, plus a strip of what changed frame to frame (the whole-sprite shift\n"
+            "taken out) and one line of numbers per frame, so a walk that's secretly a bob shows up.",
+    "onion": "Frame B drawn over A's silhouette, and a readout of how B's edges moved from A's ('top -1'),\n"
+             "for a 1px jump too faint to see; --feet N reads only the bottom rows.",
+    "scene": "Place .px/.png items at x,y (or a text tilemap with --map) on one canvas and render it,\n"
+             "optionally in a variant (--variant night) or tinted (--tint).",
+    "tint": "Lay a translucent color over a PNG, as scene --tint does (a night in one step).",
+    "check": "Check .px and .map files: format errors with a code and location, size, colors, budget and\n"
+             "unused keys; one line per file. Exits 1 on any failure.",
+    "stats": "Size, bounding box and colors of frames, a variant's rendered colors (--colors), or one\n"
+             "pixel's key and color in every variant (--at x,y).",
+    "diff": "Compare renders pixel by pixel (a frame, a file, a folder of PNGs) and exit 1 when they differ:\n"
+            "proof that a port or a copy renders as its original. -o DIFF.png draws what differs.",
+    "frames": "List a file's frames and animations; or remove (--rm), move (--after/--before), rename\n"
+              "(--rename) or copy them into another file (--copy-to).",
+    "flip": "", "rotate": "", "transpose": "", "set": "", "fill": "", "rect": "",  # their usage line says it
+    "shift": "Move a frame's pixels (or a region's) by dx,dy, dropping or wrapping what goes past the edge.",
+    "mask": "Erase every pixel outside rectangles or circles (or inside, --invert), or by key; a PNG too.",
+    "recolor": "Repaint, swap or rename palette keys in frames ('a=b', 'a<>b', 'a>b'), or give a key a new color.",
+    "crop": "Cut a rectangle out of one frame into a frame of its own, in the same file or another.",
+    "paste": "Copy one frame (or a region of it) onto another at x,y; '.' never overwrites.",
+    "new": "Start a frame, blank or filled with one key, in a new file or an existing one; or a file with\n"
+           "no frames that imports a palette (--empty).",
+    "put": "Replace one frame's grid with rows from stdin (palette lines first, optionally).",
+    "line": "Draw a line of a palette key between two points (Bresenham), --width N wide.",
+    "poly": "Draw a closed polygon through the points, optionally --fill'ed.",
+    "ellipse": "Draw a symmetric pixel ellipse (or circle), optionally --fill'ed; .5 centers give even sizes.",
+    "arc": "Draw part of a circle, from angle a0 to a1 (a smear or swoosh), --width N wide.",
+    "flood": "Bucket-fill the region of one key that touches x,y.",
+    "outline": "Outline a frame's shape with a key, optionally lit on the side facing the light (--lit).",
+    "shade": "Re-shade a material with a darkest-to-lightest ramp, by how each pixel faces the light.",
+    "extract": "Write only the selected frames to a new file, with their palette, imports and @anim lines.",
+    "compose": "Stack frames from any files (layers at x,y, or a --map's cells) into one frame of OUT,\n"
+               "bringing their keys and variants into OUT's palette. Add --rekey when two sources (or a source\n"
+               "and OUT) use the same key letter for different colors: E_KEY_CONFLICT says so.",
+    "dup": "Copy a frame under a new id, placed after its animation's last frame, to edit the copy; or a\n"
+           "whole group under a new name, with its timing, pivots and @anim line\n"
+           "(dup hero.px:walk/right walk/left).",
+    "anim-set": "Write an animation's timing and pivot on its @anim line (or one frame's), or mark it @still.",
+    "palette": "List a file's palette and what each variant does; or edit it: add keys and variants, derive a\n"
+               "night or dusk, hoist, import, remove, order, comment, export.",
+    "export": "Write frames as PNGs (--frames), an Aseprite sheet and JSON (--aseprite) or a Tiled tileset\n"
+              "(--tiled), from files or whole folders.",
+    "help": "The reference: all of it, a topic, one command, or the six worked recipes.",
+    "from-png": "Convert PNGs (loose, a pack with a labels CSV, or one sheet sliced by --grid) to .px with\n"
+                "exact pixels.",
 }
 PASTE = {"rotate": ["transpose"]}  # transpose's section ends with the paragraph both share
 
@@ -6810,7 +7798,11 @@ def overview():
     fmt = lines.index("FORMAT (.px)")
     sample = lines[fmt + 1:lines.index("", fmt + 7)]  # the palette-and-grid example FORMAT opens with
     rows = [f"  {t:<11} {' '.join(cs)}" for t, cs in commands_by_topic().items()]
+    box = lines.index(next(l for l in lines if l.startswith("  | zsh users:"))) - 1  # FORMAT's, as it is there
+    zsh = [l[2:] for l in lines[box:box + 4]]
     return "\n".join([lines[0], "", "A sprite is a .px text file: a palette, then a grid of its keys.", *sample, "",
+                      "Any command that takes FILE takes FILE:walk/down (a group) or FILE:walk/down/0 (a frame).",
+                      *zsh, "",
                       "Commands by topic ('pxart CMD -h' for one, 'pxart help TOPIC' for a topic's reference):",
                       *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
@@ -6890,16 +7882,40 @@ def note(name):
     return None if j is None else "\n".join(lines[i:j]).rstrip()
 
 
+def split_section(cmd):
+    """CMD's section of the reference as (its usage lines, the details under them): the usage lines are the leading
+    ones that name CMD (indent 2) or carry on its options ('[--fit] ...')."""
+    lines = (reference(cmd) or f"  (pxart help all has no section for {cmd})").splitlines()
+    n = 1
+    while n < len(lines) and (lines[n].lstrip().startswith("[") or lines[n].startswith(f"  {cmd} ")):
+        n += 1
+    return "\n".join(lines[:n]), "\n".join(lines[n:]).rstrip()
+
+
 def command_help(cmd):
-    """What 'pxart CMD -h' prints under argparse's usage line: CMD's section (and PASTE's), then one see-also line
-    naming the blocks of pxart -h it relies on, each with what it has."""
-    parts = [reference(cmd) or f"  (pxart help all has no section for {cmd})"]
+    """What 'pxart CMD -h' prints around argparse's options, as (above them, below them). Above: CMD's usage lines
+    from the reference and its SUMMARY, so the options come early. Below: the rest of its section (the details and
+    heuristics, and PASTE's), then one see-also line naming the blocks of pxart help all it relies on, each with what
+    it has."""
+    usage, details = split_section(cmd)
+    summary = "\n".join("      " + l for l in SUMMARY.get(cmd, "").splitlines())
+    parts = [details] if details else []
     parts += [f"{ref} (from pxart help all):\n{reference(ref)}" for ref in PASTE.get(cmd, [])]
     refs = SEE.get(cmd, [])
     if refs:
         also = "See also, in pxart help all: " + "; ".join(f"{r} ({GIST[r]})" for r in refs) + "."
         parts.append("\n".join(textwrap.wrap(also, 92, subsequent_indent="  ", break_on_hyphens=False)))
-    return "\n\n".join(parts) + "\n\npxart help all has the whole reference, pxart help TOPIC one part of it."
+    return (usage + ("\n" + summary if summary else ""),
+            "\n\n".join(parts + ["pxart help all has the whole reference, pxart help TOPIC one part of it."]))
+
+
+class OneLine(argparse.RawDescriptionHelpFormatter):
+    """'pxart CMD -h' lists each option on one line: its help beside the flag, never wrapped."""
+    def __init__(self, prog):
+        super().__init__(prog, max_help_position=38)
+
+    def _split_lines(self, text, width):
+        return [" ".join(text.split())]
 
 
 def said(cmd, issue):
@@ -6910,6 +7926,11 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
+EDIT_DRY = ("set", "fill", "put", "line", "rect", "poly", "ellipse", "arc", "flood", "shade", "outline", "flip", "shift",
+            "rotate", "transpose", "mask", "recolor", "crop", "paste", "dup", "frames", "anim-set", "palette")
+EDIT_DRY_HELP = "print what the edit says and a diff of the file it would change; write nothing"
+DRY_HELP = ("print the readout and each output's size and layout, write nothing ('(dry run; nothing written)'); -o "
+            "may be left off")
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
 TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
 REKEY_HELP = ("give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are. "
@@ -6923,24 +7944,34 @@ def parser(describe=True):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
-    p.add_argument("--png", action="store_true")
-    p.add_argument("--scale", type=int, default=8); p.add_argument("--bg", default="#3a3a44")
+    p.add_argument("--png", nargs="?", const="", metavar="DIR",
+                   help="also write each single-frame .px as a 1x PNG: FILE.png beside FILE, or DIR/FILE.png")
+    p.add_argument("--plain", action="store_true",
+                   help="-o is the one frame alone: its exact size at --scale (default 1), no grid, rulers or labels")
+    p.add_argument("--scale", type=int, help="default 8 (--plain: 1)")
+    p.add_argument("--bg", help="a flat color (default: a grey checkerboard behind each frame; --plain: none, "
+                   "transparent stays transparent)")
     p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
-    p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
+    p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
-    p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
+    p.add_argument("--bg", help="a flat color behind each frame (default: a grey checkerboard)")
+    p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
     p.add_argument("--rows", choices=["cols", "group"], default="cols",
                    help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
-    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
+    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers. A FILE of several groups: a DIR, "
+                                                         "one DIR/GROUP.gif each (DIR/walk/down.gif)")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
-    p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
-    p.add_argument("--scale", type=int, default=8)
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
+    p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o")
+    p.add_argument("--scale", type=int, default=8); p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     g = p.add_mutually_exclusive_group()
     g.add_argument("--rows", help="Y0-Y1: only these canvas rows count for the readout and the best shift")
     g.add_argument("--feet", type=int, metavar="N", help="only the bottom N rows count (--rows for the feet)")
@@ -6948,7 +7979,8 @@ def parser(describe=True):
     g.add_argument("--tint-a", nargs="?", const=TINT_A, metavar="COLOR",
                    help=f"draw A as a silhouette in COLOR (the default, in {TINT_A})")
     g.add_argument("--fade-a", action="store_true", help="draw A faded to 35%% instead, as onion once did")
-    p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
+    p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o")
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
     p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>' (rest of line = path), blank line, rows")
@@ -6977,7 +8009,18 @@ def parser(describe=True):
                    help="a directory's PNGs go by the names this CSV gives them, as from-png's --labels (repeatable)")
     p.add_argument("--label-col", metavar="COL", help="with --labels: the column of names (default proposed_name)")
     p.add_argument("--file-col", metavar="COL", help="with --labels: the column of PNG file names (default filename)")
-    p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="a directory of .px: leave out files whose name or path under it matches GLOB, or under a "
+                        "matching directory (repeatable)")
+    p.add_argument("-o", metavar="DIFF.png|DIR",
+                   help="picture A, B and the differing pixels in magenta; with several pairs, DIR gets one per pair "
+                        "that differs")
+    p.add_argument("--scale", type=int, metavar="N", help="with -o: default 8, or less to keep the picture within 2048 "
+                   "px wide")
+    p = sub.add_parser("frames"); p.add_argument("file")
+    p.add_argument("--rm", nargs="*", metavar="ID",
+                   help="remove these frame ids, or FILE:SEL's frames with none (a group goes in the selector: "
+                        "frames FILE:GROUP --rm)")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
@@ -6986,7 +8029,9 @@ def parser(describe=True):
                    help="GROUP's frames (or the frame GROUP) get NEWGROUP's ids, @anim/@still lines too; with "
                         "--copy-to, only the copies (repeatable)")
     p.add_argument("--prefix", metavar="P", help="with --copy-to: every copy's id gets P in front ('wick/')")
-    p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
+    p = sub.add_parser("flip"); p.add_argument("file")
+    p.add_argument("-o", help="OUT, or FILE:NEWGROUP to flip a copy of FILE:GROUP (dup GROUP NEWGROUP, then flip it)")
+    p.add_argument("--v", action="store_true")
     p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
     p.add_argument("-o")
     p = sub.add_parser("transpose"); p.add_argument("file"); p.add_argument("-o")
@@ -7030,7 +8075,9 @@ def parser(describe=True):
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("poly"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
-    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape")
+    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape", nargs="?")
+    p.add_argument("--box", metavar="x,y,w,h", help="instead of cx,cy,rx,ry: the pixel box it fills, as rect's (no "
+                   "half pixels: --box 0,0,8,6 is cx,cy,rx,ry 3.5,2.5,3.5,2.5)")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
     p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")
@@ -7067,35 +8114,52 @@ def parser(describe=True):
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
     g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")
-    p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--export")
-    p.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
-    p.add_argument("--variant", metavar="NAME", help="--add and --keep edit this variant (made if FILE has none)")
-    p.add_argument("--keep", metavar="KEYS", help="with --variant: these keys inherit the base colors in it")
-    p.add_argument("--hoist", metavar="KEYS", help="move these keys into the palette file FILE imports")
-    p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
-    p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
-    p.add_argument("--used", action="store_true")
-    p.add_argument("--in", dest="within", metavar="DIR",
+    p = sub.add_parser("palette", usage="pxart palette FILE [OPTIONS of one mode; the modes are below]")
+    p.add_argument("file")
+    g = p.add_argument_group("list (no edit options)", "Print the palette, where each key comes from and how "
+                             "often it's drawn, and what each variant recolors.")
+    g.add_argument("--in", dest="within", metavar="DIR",
                    help="for a palette file: how many .px files under DIR import it, and draw with each key")
-    p.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
-    p.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
-    p.add_argument("--derive-from", metavar="base|VARIANT",
+    g = p.add_argument_group("add / remove / order base keys", "Edit FILE's own palette lines.")
+    g.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
+    g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
+    g.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
+    g.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
+    g = p.add_argument_group("variants", "Set or inherit keys in one variant, by hand: --variant NAME --add k=#hex.")
+    g.add_argument("--variant", metavar="NAME", help="--add, --keep and --derive-from edit this variant (made if FILE "
+                   "has none)")
+    g.add_argument("--keep", metavar="KEYS", help="with --variant: these keys inherit the base colors in it")
+    g = p.add_argument_group("derive", "Build a whole variant from the base or another variant: --variant NAME "
+                             "--derive-from base.")
+    g.add_argument("--derive-from", metavar="base|VARIANT",
                    help="with --variant NAME: set every key in NAME from its color here, --darken'ed and --tint'ed")
-    p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
-    p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
-    p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
-    p.add_argument("--match", metavar="FILE[%VARIANT]",
+    g.add_argument("--match", metavar="FILE[%VARIANT]",
                    help="with --derive-from: first map each channel as FILE's base->VARIANT does (a fitted "
                         "gain and offset)")
-    p.add_argument("--lift-darks", action="store_true",
+    g.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
+    g.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
+    g.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
+    g.add_argument("--lift-darks", action="store_true",
                    help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
-    p.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
+    g = p.add_argument_group("import / hoist", "Share one palette file between sprites.")
+    g.add_argument("--import", dest="import_", metavar="P.px",
+                   help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
+    g.add_argument("--hoist", metavar="KEYS", help="move these keys into the palette file FILE imports")
+    g.add_argument("--extract-to", metavar="P.px", help="write FILE's palette and variants as a palette file")
+    g.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
+    g = p.add_argument_group("comments", "The comment lines above key and @variant lines, and FILE's header.")
+    g.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
                    help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
                         "comment line above that line ('' removes it)")
-    p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
-    p.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
-    p.add_argument("--import", dest="import_", metavar="P.px",
-                   help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
+    g.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
+    g = p.add_argument_group("export", "Write the palette for another tool.")
+    g.add_argument("--export", metavar="OUT.gpl|OUT.hex", help="write the base palette as a GIMP .gpl or a .hex list")
+    g.add_argument("--used", action="store_true", help="with --export: only the keys FILE's frames draw with")
+    g = p.add_argument_group("where an edit goes", "With any edit above (not the listing or --export).")
+    g.add_argument("-o", metavar="OUT", help="write the edited FILE to OUT (its @palette lines re-pointed from there); "
+                   "FILE stays as it is")
+    g.add_argument("--dry-run", action="store_true", help="print what the edit says and a diff of each file it would "
+                   "change; write nothing")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p.add_argument("--prefix-file", action="store_true",
@@ -7117,19 +8181,27 @@ def parser(describe=True):
     p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
     p.add_argument("--prefix-dir", action="store_true",
                    help="id each PNG FOLDER/STEM, FOLDER its directory's name (dungeon/tile_0002)")
-    for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
-        p.description, p.formatter_class = command_help(name), argparse.RawDescriptionHelpFormatter
+    for name in EDIT_DRY[:-1]:  # palette has its own, in its 'where an edit goes' group
+        sub.choices[name].add_argument("--dry-run", action="store_true", help=EDIT_DRY_HELP)
+    for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': usage, summary, options, details
+        (p.description, p.epilog), p.formatter_class = command_help(name), OneLine
     return ap, sub
+
+
+SPRITE_ARG_RE = re.compile(r"\.(px|png)([:%+].*)?$")  # 'hero.px', 'hero.px:walk/0', 'x.png': a file, not a DIR
 
 
 def rekey_args(args):
     """A bare --rekey followed by an argument that isn't a key list (a layer, crop's x,y,w,h) is written --rekey= for
-    argparse, which would otherwise take that argument as --rekey's KEYS."""
+    argparse, which would otherwise take that argument as --rekey's KEYS; so is a bare --png followed by a file
+    (render --png hero.px), which would be taken as its DIR."""
     out = list(args)
     for i, x in enumerate(out):
         nxt = out[i + 1] if i + 1 < len(out) else None
         if x == "--rekey" and (nxt is None or not REKEY_RE.match(nxt) or RECT_ARG_RE.match(nxt)):
             out[i] = "--rekey="
+        if x == "--png" and nxt is not None and SPRITE_ARG_RE.search(nxt):  # render --png hero.px: a file, not DIR
+            out[i] = "--png="
     return out
 
 
@@ -7140,12 +8212,16 @@ def main(argv=None):
     args = rekey_args(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["rename"]:
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
-    ap, _ = parser(describe="-h" in args or "--help" in args)
+    ap, sub = parser(describe="-h" in args or "--help" in args)
     a, extra = ap.parse_known_args(args)
+    a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
-    elif extra:
-        ap.parse_args(args)  # argparse's own error
+    elif extra:  # argparse's own error, with the command's usage (the top level's names no option of it)
+        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}")
+    WARNED.clear()
+    CREATED.clear()
+    DRY["run"] = bool(getattr(a, "dry_run", False))
     told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:
         with contextlib.redirect_stdout(told):
@@ -7159,6 +8235,8 @@ def main(argv=None):
     except BaseException:
         sys.stdout.write(told.getvalue())
         raise
+    if DRY["run"] and a.cmd in EDIT_DRY and "(dry run; nothing written)" not in told.getvalue():
+        print("(dry run; nothing written)", file=told)
     sys.stdout.write(told.getvalue())
 
 

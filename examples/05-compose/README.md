@@ -6,7 +6,8 @@ into one [`dock.px`](dock.px). They reuse the same letters for different colors 
 three different near-blacks), so the first try is an `E_KEY_CONFLICT` that names every
 clash and the fix. `--rekey` gives those keys free ones in `dock.px` (the packs' files
 are untouched), and `--variant-map dusk=night,dark` builds one dusk from each layer's
-dusk, night or dark, so the whole scene dims together.
+dusk, night or dark, so the whole scene dims together. `dock.px`'s first line,
+`# composed by: pxart compose -o dock.px ...`, is that command, to run again from its folder.
 
 ```sh
 H=harbor-market/harbor.px

@@ -1,3 +1,4 @@
+import difflib
 import io
 import json
 import math
@@ -69,6 +70,14 @@ def run_err(*argv):
         pxart.main([str(a) for a in argv])
     assert not isinstance(e.value.code, int) or e.value.code != 0
     return str(e.value.code)
+
+
+def unstamped(path):
+    """A compose OUT's text without the '# composed by: pxart compose ...' line compose heads a new OUT with (which it
+    must have)."""
+    first, rest = path.read_text().split("\n", 1)
+    assert first.startswith("# composed by: pxart compose "), first
+    return rest
 
 
 # ---------------------------------------------------------------- parsing
@@ -2124,7 +2133,9 @@ def test_big_upper_body_lift_is_unshifted(tmp_path):
 def test_strip_png_is_taller_for_the_second_label_line(tmp_path, capsys):
     anim_lines(tmp_path, capsys, BOB_0, BOB_1)
     strip = Image.open(tmp_path / "a.strip.png")
-    assert strip.height == 8 + 2 * (14 * 8 + 8) + 14 + 26
+    # the frame label, then the head and the '(no shift: ...)' line: at least three label lines
+    assert strip.height >= 8 + 2 * (14 * 8 + 8) + 3 * pxart.LINE_H + 2
+    assert (strip.height - (8 + 2 * (14 * 8 + 8)) - 2) % pxart.LINE_H == 0
 
 
 def test_help_documents_breathing_strip():
@@ -2339,7 +2350,7 @@ def test_edit_with_selector_and_output_writes_whole_file(tmp_path, capsys, argv)
 
 @pytest.mark.parametrize("argv", [
     ["flip", "{p}"], ["shift", "{p}", "--dx", "1"], ["set", "{p}:walk/0", "j", "2,1"],
-    ["recolor", "{p}", "k=j"], ["mask", "{p}", "--keep", "0,0,1,1"]])
+    ["recolor", "{p}", "k=j"], ["mask", "{p}:*", "--keep", "0,0,1,1"]])
 def test_no_selector_note_without_output_or_selector(tmp_path, capsys, argv):
     p = write(tmp_path, "h.px", EDITS)
     assert run(*[a.format(p=p) for a in argv]) == 0
@@ -2372,7 +2383,8 @@ def test_paste_goes_through_the_edit_path(tmp_path, capsys):
     s = write(tmp_path, "s.px", "k #000000\nk\n")
     assert run("paste", s, "--into", f"{p}:idle", "--at", "0,0") == 0
     assert "no change" in capsys.readouterr().out
-    assert run("paste", s, "--into", p, "--at", "2,1") == 0
+    assert "E_SELECT" in run_err("paste", s, "--into", p, "--at", "2,1")  # --at is one frame's x,y
+    assert run("paste", s, "--into", f"{p}:*", "--at", "2,1") == 0
     doc = pxart.parse(p)
     assert all(f.grid[1][2] == "k" for f in doc.frames)
 
@@ -2622,7 +2634,8 @@ def test_new_palette_creates_missing_output_directories(tmp_path, sub, capsys):
     doc = pxart.parse(out)
     assert doc.image(doc.frames[0]).getpixel((0, 0)) == (0x10, 0x20, 0x30, 255)
     assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (0, 0, 0, 255)
-    assert capsys.readouterr().out == f"wrote {out}\n"
+    top = tmp_path / pathlib.Path(sub).parts[0]
+    assert capsys.readouterr().out == f"created {top.as_posix()}/\nwrote {out}\n"
 
 
 def test_new_palette_frame_in_missing_directory(tmp_path):
@@ -2686,8 +2699,8 @@ PAL_HERO = "pxart 1\n@palette pal.px\n@anim w ms=90\n\n@frame w/0\nkg\n@frame w/
     ["recolor", "{h}", "k=g", "-o", "{o}/c.px"],
     ["set", "{h}:w/0", "g", "0,0", "-o", "{o}/c.px"],
     ["fill", "{h}", "g", "-o", "{o}/c.px"],
-    ["mask", "{h}", "--keep", "0,0,1,1", "-o", "{o}/c.px"],
-    ["line", "{h}", "g", "0,0", "1,0", "-o", "{o}/c.px"],
+    ["mask", "{h}:*", "--keep", "0,0,1,1", "-o", "{o}/c.px"],
+    ["line", "{h}:*", "g", "0,0", "1,0", "-o", "{o}/c.px"],
     ["outline", "{h}", "--key", "g", "--inside", "-o", "{o}/c.px"],
     ["paste", "{h}:w/0", "--into", "{h}:w/1", "--at", "1,0", "-o", "{o}/c.px"],
     ["shade", "{h}:w/0", "--ramp", "kg", "--keys", "kg", "-o", "{o}/c.px"],
@@ -3121,7 +3134,7 @@ def test_mask_invert_still_checks_args(tmp_path):
 
 
 def test_help_documents_mask_invert():
-    assert "--invert erases\n      the inside and keeps the outside" in pxart.__doc__
+    assert "--invert erases the inside and keeps the outside" in " ".join(pxart.__doc__.split())
 
 
 # ---------------------------------------------------------------- loop F: flipped scene items (+h / +v / +hv)
@@ -3991,7 +4004,7 @@ def test_recolor_swap_region_only(tmp_path):
 
 def test_recolor_swap_region_and_selection(tmp_path):
     p = write(tmp_path, "s.px", SWAP)
-    assert run("recolor", p, "r<>g", "--region", "2,1,2,1") == 0
+    assert run("recolor", f"{p}:*", "r<>g", "--region", "2,1,2,1") == 0
     assert grids(p) == {"a": ["kjrg", "jkrg"], "b": ["kkjj"]}
 
 
@@ -4467,17 +4480,133 @@ def test_every_subparser_has_a_section_in_the_top_level_help():
 
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_has_its_section(capsys, cmd):
+    # the whole section, split around the options: its usage lines (and the summary) above, the details below
     out = cmd_help(capsys, cmd)
     ref = pxart.reference(cmd)
+    usage, details = pxart.split_section(cmd)
     assert out.startswith(f"usage: pxart {cmd} ")
-    assert ref in out and ref.startswith(f"  {cmd}")
-    assert out.index(ref) < out.index("options:")
-    assert "pxart help all has the whole reference, pxart help TOPIC one part of it." in out
+    assert ref.startswith(f"  {cmd}") and ref == (usage + "\n" + details).rstrip()
+    assert usage in out and out.index(usage) < out.index("options:")
+    if details:
+        assert details in out and out.index("options:") < out.index(details)
+    assert out.rstrip().endswith("pxart help all has the whole reference, pxart help TOPIC one part of it.")
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_long_flag_too(capsys, cmd):
-    assert pxart.reference(cmd) in cmd_help(capsys, cmd, "--help")
+    out = cmd_help(capsys, cmd, "--help")
+    assert all(part in out for part in pxart.split_section(cmd))
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_order(capsys, cmd):
+    # usage, the summary, the options (one line each), then the details and heuristics, then the see-also
+    out = cmd_help(capsys, cmd)
+    usage, details = pxart.split_section(cmd)
+    at = [out.index(usage)]
+    for line in pxart.SUMMARY[cmd].splitlines():
+        at.append(out.index("      " + line + "\n"))
+    at.append(out.index("\noptions:\n"))
+    if details:
+        at.append(out.index(details))
+    if pxart.SEE.get(cmd):
+        at.append(out.index("See also, in pxart help all: "))
+    at.append(out.index("pxart help all has the whole reference"))
+    assert at == sorted(at) and len(set(at)) == len(at), cmd
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_options_one_line_each(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    opts = options_part(out, cmd)
+    block = [l for l in opts.splitlines() if l.startswith("  -")]
+    groups = [l for l in opts.splitlines() if l and not l.startswith(" ")]
+    assert block and (all(l.startswith("  -") for l in opts.split("\n\n", 1)[0].splitlines()) or groups), (cmd, block)
+    flags = [a for a in pxart.parser()[1].choices[cmd]._actions if a.option_strings]
+    assert len(block) == len(flags), cmd
+    for a in flags:
+        line = next(l for l in block if l.lstrip().startswith(", ".join(a.option_strings)))
+        if a.help and a.help != argparse_suppress():
+            assert " ".join(a.help.replace("%%", "%").split()) in line, (cmd, a.option_strings)
+
+
+def options_part(out, cmd):
+    """A command's -h from its options to its details: 'options:' and, for palette, its groups by mode."""
+    opts = out.split("\noptions:\n", 1)[1]
+    details = pxart.split_section(cmd)[1]
+    return opts[:opts.index(details)] if details else opts.split("\n\n", 1)[0]
+
+
+PALETTE_GROUPS = {
+    "list (no edit options)": ["--in"],
+    "add / remove / order base keys": ["--add", "--remove", "--to", "--order"],
+    "variants": ["--variant", "--keep"],
+    "derive": ["--derive-from", "--match", "--darken", "--tint", "--keep-lit", "--lift-darks"],
+    "import / hoist": ["--import", "--hoist", "--extract-to", "--repoint"],
+    "comments": ["--comment", "--comment-header"],
+    "export": ["--export", "--used"],
+    "where an edit goes": ["-o", "--dry-run"],
+}
+
+
+def test_palette_help_groups_its_options_by_mode(capsys):
+    # the gate's complaint: an 18-flag usage block, and no telling which option goes with which mode
+    out = cmd_help(capsys, "palette")
+    assert out.splitlines()[0] == "usage: pxart palette FILE [OPTIONS of one mode; the modes are below]"
+    opts = options_part(out, "palette")
+    parts = [p for p in opts.split("\n\n") if p.strip()]
+    titles = [p.splitlines()[0] for p in parts if not p.startswith(" ")]
+    assert titles == [t + ":" for t in PALETTE_GROUPS]
+    for title, flags in PALETTE_GROUPS.items():
+        head = opts.index("\n" + title + ":\n")
+        purpose = opts[head:].splitlines()[2]  # a one-line purpose under the title
+        assert purpose.startswith("  ") and not purpose.startswith("  -") and purpose.endswith("."), title
+        body = opts[head:].split("\n\n", 2)[1].splitlines()
+        assert [l.split()[0] for l in body] == flags, title
+    # nothing cut off: every flag palette takes is listed, with its help
+    every = [f for a in pxart.parser()[1].choices["palette"]._actions for f in a.option_strings if f.startswith("--")]
+    assert sorted(every) == sorted([f for fs in PALETTE_GROUPS.values() for f in fs if f != "-o"] + ["--help"])
+    for a in pxart.parser()[1].choices["palette"]._actions:
+        assert a.help or not a.option_strings, a.option_strings
+        for f in a.option_strings:
+            assert f in opts
+
+
+def argparse_suppress():
+    import argparse
+    return argparse.SUPPRESS
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_has_a_short_summary(cmd):
+    usage, _ = pxart.split_section(cmd)
+    summary = pxart.SUMMARY[cmd]
+    if not summary:  # its usage line says what it does: 'flip FILE ... mirror selected frames left-right'
+        assert re.search(r"\s{2,}[a-z]", usage.splitlines()[0].split("]")[-1] if "]" in usage else usage), cmd
+        return
+    lines = summary.splitlines()
+    assert 1 <= len(lines) <= 3 and all(len("      " + l) <= 104 for l in lines), cmd
+    assert summary.rstrip().endswith("."), cmd
+
+
+def test_summaries_name_every_command():
+    assert set(pxart.SUMMARY) == set(COMMANDS)
+
+
+def test_anim_help_options_come_before_the_heuristics(capsys):
+    # the gate's complaint: anim -h spent about 20 lines on heuristics before its options
+    out = cmd_help(capsys, "anim")
+    assert out.index("options:") < out.index("An idle: when the bottom stays exactly put")
+    assert out.index("options:") < out.index("Tiles and overlays:")
+    assert len(out[:out.index("options:")].splitlines()) <= 12
+
+
+def test_compose_help_says_when_to_rekey_on_its_first_screen(capsys):
+    # the gate's complaint: when --rekey is needed was only in the rules, well below the options
+    out = cmd_help(capsys, "compose")
+    first = " ".join(out[:out.index("options:")].split())
+    assert "Add --rekey when two sources (or a source and OUT) use the same key letter for different colors" in first
+    assert len(out[:out.index("options:")].splitlines()) <= 16
 
 
 def see_also(text):
@@ -4493,13 +4622,14 @@ def test_every_command_help_is_sliced_from_the_top_level_text(cmd):
     # One source of truth: every line of the per-command text (but the labels and the see-also line) is a line of
     # pxart -h.
     doc = pxart.__doc__.splitlines()
-    for part in pxart.command_help(cmd).split("\n\n"):
+    summary = ["      " + l for l in pxart.SUMMARY[cmd].splitlines()]  # the summary is -h's own
+    for part in "\n\n".join(pxart.command_help(cmd)).split("\n\n"):
         if part.startswith("See also, in pxart help all: "):
             continue
         for line in part.splitlines():
             if not line or line.endswith("(from pxart help all):") or line == "pxart help all has the whole reference, pxart help TOPIC one part of it.":
                 continue
-            assert line in doc, (cmd, line)
+            assert line in doc or line in summary, (cmd, line)
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
@@ -4534,7 +4664,7 @@ def test_every_command_help_is_short(capsys, cmd):
 
 def test_see_also_lines_are_wrapped(capsys):
     for cmd in COMMANDS:
-        for part in pxart.command_help(cmd).split("\n\n"):
+        for part in pxart.command_help(cmd)[1].split("\n\n"):
             if part.startswith("See also"):
                 lines = part.splitlines()
                 assert all(len(l) <= 92 for l in lines) and all(l.startswith("  ") for l in lines[1:]), (cmd, part)
@@ -4849,14 +4979,14 @@ def test_mask_keep_keys(tmp_path, capsys, keys):
     p = write(tmp_path, "m.px", MASKK)
     assert run("mask", p, "--keep-keys", keys) == 0
     assert grids(p) == {"a": ["WTt.", ".WTt"], "b": ["....", "WWWW"]}
-    assert capsys.readouterr().out == f"erased 6 px; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nerased 6 px; wrote {p}\n"
 
 
 def test_mask_drop_keys(tmp_path, capsys):
     p = write(tmp_path, "m.px", MASKK)
     assert run("mask", p, "--drop-keys", "W,k") == 0
     assert grids(p) == {"a": [".Tt.", "..Tt"], "b": ["....", "...."]}
-    assert capsys.readouterr().out == f"erased 12 px; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nerased 12 px; wrote {p}\n"
 
 
 def test_mask_keep_and_drop_split_every_pixel(tmp_path):
@@ -4946,26 +5076,27 @@ def test_help_documents_mask_keys():
 
 
 # ---------------------------------------------------------------- GAMES-295: recolor says how many frames
+# (now the edit path's "edited N frames": the frames whose pixels changed, named)
 
 @pytest.mark.parametrize("target, maps, want", [
-    ("{p}", ["k=j"], "applied to 3 frames; wrote {p}"),                  # no selector: every frame
+    ("{p}", ["k=j"], "edited 2 frames: a, b\nwrote {p}"),              # no selector: every frame; c has no k
     ("{p}:a", ["k=j"], "wrote {p}"),                                     # one frame: no count
-    ("{p}", ["k<>j"], "applied to 3 frames; wrote {p}"),
+    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nwrote {p}"),
     ("{p}", ["k=#123456"], "wrote {p}"),                                 # a color change moves no pixels
-    ("{p}", ["k=#123456", "j=r"], "applied to 3 frames; wrote {p}"),
-    ("{p}", ["q=r"], "applied to 3 frames; no change: {p}"),            # q is in no frame: nothing changes
+    ("{p}", ["k=#123456", "j=r"], "edited 2 frames: a, c\nwrote {p}"),
+    ("{p}", ["q=r"], "no change: {p}"),                                  # q is in no frame: nothing changes
 ])
 def test_recolor_says_applied_to_n_frames(tmp_path, capsys, target, maps, want):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\nr #ff0000\nq #00ff00\n@frame a\nkj\n@frame b\nkr\n"
               "@frame c\njj\n")
     assert run("recolor", target.format(p=p), *maps) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == want.format(p=p)
+    assert capsys.readouterr().out == want.format(p=p) + "\n"
 
 
 def test_recolor_group_selector_counts_its_frames(tmp_path, capsys):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame w/0\nk\n@frame w/1\nk\n@frame x\nk\n")
     assert run("recolor", f"{p}:w", "k=j") == 0
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"
     assert grids(p) == {"w/0": ["j"], "w/1": ["j"], "x": ["k"]}
 
 
@@ -5161,7 +5292,7 @@ def test_recolor_rename_whole_file_renames_the_lines_in_place(tmp_path, capsys):
     assert run("recolor", p, "w>Z") == 0
     assert p.read_text() == RENAME.replace("w #", "Z #").replace("kw\n", "kZ\n").replace("ww\n", "ZZ\n")
     assert renders(p) == before
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
 
 
 def test_recolor_rename_part_keeps_the_old_key(tmp_path, capsys):
@@ -6298,9 +6429,9 @@ def test_mask_without_a_shape_is_bad_arg(tmp_path):
 
 
 def test_help_documents_mask_union():
-    doc = pxart.__doc__
+    doc = " ".join(pxart.__doc__.split())
     assert "--keep and --keep-circle repeat" in doc and "the kept area is their union" in doc
-    assert "--dither and --invert\n      work over the union" in doc
+    assert "--dither and --invert work over the union" in doc
 
 
 # ---------------------------------------------------------------- loop H: anim without -o prints only the numbers
@@ -6346,7 +6477,7 @@ def test_anim_with_output_still_writes_gif_and_strip(tmp_path, capsys):
 
 def test_help_documents_anim_without_output():
     doc = pxart.__doc__
-    assert "anim FILE... [-o walk.gif]" in doc and "without -o, anim prints only those lines" in doc
+    assert "anim FILE... [-o walk.gif|DIR]" in doc and "without -o, anim prints only those lines" in doc
 
 
 # ---------------------------------------------------------------- loop H: frames move already in place
@@ -6551,7 +6682,7 @@ def test_scene_error_names_the_item(tmp_path):
 def test_scene_variant_error_names_the_item(tmp_path):
     ok = write(tmp_path, "ok.px", "k #000000\nkk\n")
     msg = run_err("scene", "-o", tmp_path / "s.png", "--variant", "night", f"{ok}@0,0")
-    assert msg.startswith(f"scene: item 1 ({ok}): {ok}: E_SELECT: no @variant 'night'")
+    assert msg.startswith(f"scene: item 1 ({ok}): {ok}: E_SELECT: unknown variant 'night'")
 
 
 def test_scene_map_error_names_the_map(tmp_path):
@@ -6976,8 +7107,8 @@ def test_rm_orphan_output_is_a_byte_exact_rewrite(tmp_path):
     p = write(tmp_path, "o.px", "k #000000\n# walk timing\n@anim walk ms=90\n@anim idle ms=200\n\n@frame walk/0\nk\n"
               "@frame idle/0\nk\n")
     assert run("frames", p, "--rm", "walk/0") == 0
-    # The comment goes with its @anim line; the blank line went with walk/0's @frame, as any --rm does.
-    assert p.read_text() == "k #000000\n@anim idle ms=200\n@frame idle/0\nk\n"
+    # The comment goes with its @anim line; the blank line above walk/0's @frame stays, now above idle/0's.
+    assert p.read_text() == "k #000000\n@anim idle ms=200\n\n@frame idle/0\nk\n"
 
 
 def test_check_notes_orphan_anim_and_still(tmp_path, capsys):
@@ -7634,7 +7765,7 @@ def test_flood_count(tmp_path, capsys):
 def test_help_documents_drawing():
     doc = pxart.__doc__
     for s in ("DRAWING", "line FILE[:frame] KEY x0,y0 x1,y1 [--width N]", "rect FILE[:frame] KEY x,y,w,h [--fill]",
-              "ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
+              "ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
               "flood FILE[:frame] KEY x,y [--diagonal]"):
         assert s in doc, s
 
@@ -8837,7 +8968,7 @@ def test_shade_count_sums_over_frames(tmp_path, capsys):
     body = "\n".join(square_rows(6, pad=0))
     p = write(tmp_path, "m.px", SHADE_PAL + f"@frame w/0\n{body}\n@frame w/1\n{body}\n")
     assert run("shade", f"{p}:w", "--ramp", RAMP, "--light", "n") == 0
-    assert capsys.readouterr().out == f"changed 48 px: 8->A, 16->B, 16->D, 8->E; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nchanged 48 px: 8->A, 16->B, 16->D, 8->E; wrote {p}\n"
 
 
 def test_help_documents_changed_counts():
@@ -9160,21 +9291,21 @@ REPOINT_CMDS = {
     "transpose": ["transpose", "{p}"],
     "shift": ["shift", "{p}", "--dx", "1"],
     "shift-wrap": ["shift", "{p}", "--dx", "1", "--wrap"],
-    "mask": ["mask", "{p}", "--keep", "0,0,2,2"],
+    "mask": ["mask", "{p}:*", "--keep", "0,0,2,2"],
     "recolor": ["recolor", "{p}", "k=r"],
     "recolor-color": ["recolor", "{p}", "g=#00ff00"],
     "set": ["set", "{p}:walk/0", "w", "0,0"],
-    "fill": ["fill", "{p}", "w", "--region", "0,0,1,1"],
-    "line": ["line", "{p}", "w", "0,0", "3,3"],
-    "rect": ["rect", "{p}", "w", "0,0,2,2"],
-    "poly": ["poly", "{p}", "w", "0,0", "3,0", "3,3", "--fill"],
-    "paste-under": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1", "--under"],
-    "ellipse": ["ellipse", "{p}", "w", "1,1,1,1"],
-    "arc": ["arc", "{p}", "w", "2,2,2", "0,90"],
-    "flood": ["flood", "{p}", "w", "3,0"],
+    "fill": ["fill", "{p}:*", "w", "--region", "0,0,1,1"],
+    "line": ["line", "{p}:*", "w", "0,0", "3,3"],
+    "rect": ["rect", "{p}:*", "w", "0,0,2,2"],
+    "poly": ["poly", "{p}:*", "w", "0,0", "3,0", "3,3", "--fill"],
+    "paste-under": ["paste", "{s}:walk/0", "--into", "{p}:*", "--at", "1,1", "--under"],
+    "ellipse": ["ellipse", "{p}:*", "w", "1,1,1,1"],
+    "arc": ["arc", "{p}:*", "w", "2,2,2", "0,90"],
+    "flood": ["flood", "{p}:*", "w", "3,0"],
     "outline": ["outline", "{p}", "--key", "w"],
     "shade": ["shade", "{p}", "--ramp", "krw", "--keys", "k"],
-    "paste": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1"],
+    "paste": ["paste", "{s}:walk/0", "--into", "{p}:*", "--at", "1,1"],
     "dup": ["dup", "{p}:walk/0", "walk/2"],
     "anim-set": ["anim-set", "{p}:walk", "ms=50"],
     "anim-set-frame": ["anim-set", "{p}:walk/1", "ms=50"],
@@ -9363,7 +9494,7 @@ def test_compose_new_out_keeps_shared_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "hero.px"
     assert run("compose", "-o", out, f"{p}:body@0,0", f"{p}:hat@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\nkmm\nkkm\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\nkmm\nkkm\n"
 
 
 def test_compose_new_out_then_shade_with_unused_ramp_keys(tmp_path):
@@ -9394,7 +9525,7 @@ def test_compose_new_out_named_frame_keeps_shared_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "hero.px"
     assert run("compose", "-o", f"{out}:idle/0", f"{p}:body@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\n@frame idle/0\nmmm\nmmm\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\n@frame idle/0\nmmm\nmmm\n"
 
 
 def test_compose_new_out_variant_comes_from_the_import(tmp_path):
@@ -9455,7 +9586,7 @@ def test_compose_new_out_different_imports_inline_everything(tmp_path):
     assert run("compose", "-o", out, f"{a}:body@0,0", f"{b}:hat@0,0") == 0
     doc = pxart.parse(out)
     assert doc.palette_refs == [] and list(doc.palette) == ["m", "q", "k", "d", "l", "w", "r"]
-    assert out.read_text().startswith("pxart 1\nm #804040\nq #123456\nk #101010\n")
+    assert unstamped(out).startswith("pxart 1\nm #804040\nq #123456\nk #101010\n")
 
 
 def test_compose_new_out_inlined_variants_come_along(tmp_path):
@@ -9485,7 +9616,7 @@ def test_compose_new_out_no_imports_inlines_all_keys(tmp_path):
     a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{a}:x@0,0") == 0
-    assert out.read_text() == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
+    assert unstamped(out) == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
 
 
 def test_compose_new_out_local_variant_copied(tmp_path):
@@ -9632,7 +9763,7 @@ def test_compose_new_out_flipped_layer_keeps_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{p}:hat+h@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\n.k\nkk\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\n.k\nkk\n"
 
 
 def test_compose_same_palette_spelled_differently_is_kept(tmp_path):
@@ -10931,7 +11062,7 @@ def test_compose_rekey_without_conflicts_is_a_plain_compose(tmp_path, capsys):
     assert run("compose", "-o", o1, f"{a}@0,0") == 0
     plain = capsys.readouterr().out.replace("o1", "o2")
     assert run("compose", "-o", o2, f"{a}@0,0", "--rekey") == 0
-    assert capsys.readouterr().out == plain and o1.read_text() == o2.read_text()
+    assert capsys.readouterr().out == plain and unstamped(o1) == unstamped(o2)
 
 
 def test_compose_rekey_mirrored_layer(tmp_path):
@@ -11212,7 +11343,7 @@ def test_paste_adds_new_keys_in_sorted_order_every_run(tmp_path):
 
 # ---------------------------------------------------------------- palette --extract-to keeps the palette's comments
 
-BEAST = ("# Beast: moss-backed guardian. 6 colors.\n"
+BEAST = ("# Beast: moss-backed guardian. 6 colors.\n\n"
          "o #221a26\n# bark: shadow -> light\nx #3e2c34\nX #5e4038\n# spirit glow (eyes, runes)\ne #fff6b0\nE #6ae0cc\n"
          "\n# dusk: the glow (e, E) is left out on purpose so it keeps its base color and reads as light.\n"
          "@variant dusk\no #150f1c\n# bark sinks\nx #261a2a\nX #3a2834\n")
@@ -11271,20 +11402,24 @@ def test_extract_to_uncommented_local_override_keeps_the_imports_comment(tmp_pat
 
 
 def test_extract_to_nested_imports_and_their_headers(tmp_path):
-    write(tmp_path, "a.px", "# A header\n# a key\na #111111\n")
+    write(tmp_path, "a.px", "# A header\n\n# a key\na #111111\n")
     write(tmp_path, "b.px", "# B header\n@palette a.px\n# b key\nb #222222\n")
     p = write(tmp_path, "s.px", "@palette b.px\n@frame f\nab\n")
     out = tmp_path / "out.px"
     assert run("palette", p, "--extract-to", out) == 0
-    # With no version line, a palette file's comments above its first key are its header (the parser can't tell).
-    assert out.read_text() == "# A header\n# a key\n# B header\npxart 1\na #111111\n# b key\nb #222222\n"
+    # a.px's header is the block a blank line separates from its first key; the comment right above that key is a's
+    assert out.read_text() == "# A header\n# B header\npxart 1\n# a key\na #111111\n# b key\nb #222222\n"
 
 
 def test_extract_to_header_of_a_palette_without_version_line(tmp_path):
     write(tmp_path, "base.px", "# base's skin\ns #f4c7a0\n")
     p = write(tmp_path, "hero.px", "@palette base.px\n@frame a\ns\n")
     assert run("palette", p, "--extract-to", tmp_path / "all.px") == 0
-    assert (tmp_path / "all.px").read_text() == "# base's skin\npxart 1\ns #f4c7a0\n"
+    # right above the first key, no blank line between: s's comment, not a header
+    assert (tmp_path / "all.px").read_text() == "pxart 1\n# base's skin\ns #f4c7a0\n"
+    write(tmp_path, "base.px", "# base palette\n\n# base's skin\ns #f4c7a0\n")
+    assert run("palette", p, "--extract-to", tmp_path / "all2.px") == 0
+    assert (tmp_path / "all2.px").read_text() == "# base palette\npxart 1\n# base's skin\ns #f4c7a0\n"
 
 
 def test_extract_to_blank_only_leads_keep_default_spacing(tmp_path):
@@ -11325,7 +11460,7 @@ def test_extract_to_repoint_keeps_the_import_lines_comment(tmp_path):
 
 def test_palette_notes_helper_cycle_is_safe(tmp_path):
     a = write(tmp_path, "a.px", "@palette b.px\n# a\na #111111\n")
-    write(tmp_path, "b.px", "# b\nb #222222\n")
+    write(tmp_path, "b.px", "# b\n\nb #222222\n")
     doc = pxart.parse(a, palette_only=True)
     doc.palette_refs.append("a.px")  # a cycle back to itself, as a nested file might have
     notes, head = pxart.palette_notes(doc)
@@ -11477,7 +11612,8 @@ def test_onion_feet_band_reads_the_feet_only(tmp_path, capsys):
     assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2") == [
         "A a: opaque x 2..4, y 3..4 (rows 3-4 of the 6x5 canvas, bottom-centered)",
         "B b: opaque x 2..4, y 3..4",
-        "B vs A (rows 3-4): left +0, right +0, top +0, bottom +0; best shift +0,+0 then 0px changed (no shift: 0px)",
+        "B vs A (bottom 2 canvas rows 3-4; opaque in 3-4): left +0, right +0, top +0, bottom +0; best shift +0,+0 then "
+        "0px changed (no shift: 0px)",
         f"wrote {tmp_path / 'o.png'}",
     ]
 
@@ -11486,9 +11622,11 @@ def test_onion_feet_band_sees_a_leg_move(tmp_path, capsys):
     p = write(tmp_path, "s.px", SWING)
     lines = onion_lines(tmp_path, capsys, f"{p}:b", f"{p}:c", "--feet", "1")
     assert lines[0] == "A b: opaque x 2..4, y 4..4 (row 4 of the 6x5 canvas, bottom-centered)"
-    # c's feet row is b's row above it moved down: the band's shift takes pixels from above the band.
-    assert lines[2] == ("B vs A (row 4): left +0, right -1, top +0, bottom +0; best shift +0,+1 then 0px changed "
-                        "(no shift: 2px)")
+    # c's feet row is b's row above it moved down: the band's shift takes pixels from above the band. The bottom
+    # edges agree, so that shift isn't the feet moving: the readout says no shift, and names the band's as what it is.
+    assert lines[2] == ("B vs A (bottom 1 canvas row 4; opaque in 4): left +0, right -1, top +0, bottom +0; bottom "
+                        "edges agree, so no shift: 2px changed (the band's best shift +0,+1 then 0px only lines up "
+                        "what moved above its bottom edge)")
 
 
 def test_onion_rows_band(tmp_path, capsys):
@@ -11496,23 +11634,27 @@ def test_onion_rows_band(tmp_path, capsys):
     lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--rows", "0-1")
     assert lines == ["A a: opaque x 2..3, y 1..1 (rows 0-1 of the 6x5 canvas, bottom-centered)",
                      "B b: opaque x 2..5, y 0..1",
-                     "B vs A (rows 0-1): left +0, right +2, top -1, bottom +0; best shift +0,+0 then 4px changed "
-                     "(no shift: 4px)", f"wrote {tmp_path / 'o.png'}"]
+                     "B vs A (canvas rows 0-1; A opaque in 1, B in 0-1): left +0, right +2, top -1, bottom +0; best "
+                     "shift +0,+0 then 4px changed (no shift: 4px)", f"wrote {tmp_path / 'o.png'}"]
 
 
 def test_onion_band_shift_brings_pixels_in_from_above(tmp_path, capsys):
     # The whole sprite drops 1px: in the feet band the new bottom row came from the row above the band.
     p = write(tmp_path, "d.px", "k #000000\nr #ff0000\n@frame a\n.k.\nrrr\nk.k\n...\n@frame b\n...\n.k.\nrrr\nk.k\n")
     lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2")
-    assert lines[2] == ("B vs A (rows 2-3): left +0, right +0, top +0, bottom +1; best shift +0,+1 then 0px changed "
-                        "(no shift: 5px)")
+    assert lines[2] == ("B vs A (bottom 2 canvas rows 2-3; A opaque in 2, B in 2-3): left +0, right +0, top +0, "
+                        "bottom +1; best shift +0,+1 then 0px changed (no shift: 5px)")
 
 
 def test_onion_band_same_as_whole_when_it_is_the_whole_canvas(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     whole = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
     band = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0-3")
-    assert band[2] == whole[2].replace("B vs A:", "B vs A (rows 0-3):")
+    # the same edges; the bob's shift is above the band's agreeing bottom edges, so the band says no shift
+    assert whole[2] == "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 3px changed (no shift: 5px)"
+    assert band[2] == ("B vs A (canvas rows 0-3; A opaque in 0-3, B in 1-3): left +0, right +0, top +1, bottom +0; "
+                       "bottom edges agree, so no shift: 5px changed (the band's best shift +0,+1 then 3px only lines "
+                       "up what moved above its bottom edge)")
     assert band[1] == whole[1] and band[0] == whole[0].replace("on the 3x4 canvas", "rows 0-3 of the 3x4 canvas")
 
 
@@ -11525,7 +11667,7 @@ def test_onion_feet_more_than_the_canvas_is_every_row(tmp_path, capsys):
 def test_onion_one_row(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "3")
-    assert "(row 3 of the 3x4 canvas" in lines[0] and lines[2].startswith("B vs A (row 3): ")
+    assert "(row 3 of the 3x4 canvas" in lines[0] and lines[2].startswith("B vs A (canvas row 3; opaque in 3): ")
 
 
 def test_onion_band_empty_in_a_or_b(tmp_path, capsys):
@@ -11541,7 +11683,7 @@ def test_onion_band_by_pivot(tmp_path, capsys):
     p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
     lines = onion_lines(tmp_path, capsys, f"{p}:a/0", f"{p}:a/1", "--rows", "0-1")
     assert lines[0] == "A a/0: opaque x 1..1, y 0..1 (rows 0-1 of the 4x4 canvas, lined up by pivot)"
-    assert lines[2].startswith("B vs A (rows 0-1): left +0, right +0, top +0, bottom +0; ")
+    assert lines[2].startswith("B vs A (canvas rows 0-1; opaque in 0-1): left +0, right +0, top +0, bottom +0; ")
 
 
 @pytest.mark.parametrize("flag, val, want", [
@@ -11766,7 +11908,7 @@ def test_sheet_fit_mixed_files_and_pngs(tmp_path):
 
 def test_help_documents_sheet_fit():
     doc = " ".join(pxart.__doc__.split())
-    assert "[--bg #3a3a44] [--fit]" in doc
+    assert "[--bg COLOR] [--fit]" in doc
     assert "--fit makes each cell its own frame's width (or its label's, if wider)" in doc
 
 
@@ -12093,7 +12235,8 @@ def test_onion_different_characters_band_edges_only_too(tmp_path, capsys):
     # The band doesn't make them one sprite: the whole sprites decide.
     a, b = write(tmp_path, "keeper.px", KEEPER_ISH), write(tmp_path, "kid.px", KID_ISH)
     lines = onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a", "--feet", "1")
-    assert lines[2] == "B vs A (row 3): left -1, right +1, top +0, bottom +0; different sprites: edges only"
+    assert lines[2] == ("B vs A (bottom 1 canvas row 3; opaque in 3): left -1, right +1, top +0, bottom +0; different "
+                        "sprites: edges only")
 
 
 def test_onion_different_sizes_different_files_edges_only(tmp_path, capsys):
@@ -12797,9 +12940,9 @@ def test_onion_top_level_frames_are_not_one_animation(tmp_path, capsys):
 
 # ---------------------------------------------------------------- compose across packs: comments, variants, lost keys
 
-MARKET_PAL = ("# Harbor market palette: warm stone, one hot accent (awning red)\nk #2b1e2f\nr #c4473a\nl #bcb6b4\n"
+MARKET_PAL = ("# Harbor market palette: warm stone, one hot accent (awning red)\n\nk #2b1e2f\nr #c4473a\nl #bcb6b4\n"
               "g #8f8a96\ny #f3cf6b\n\n@variant dusk\nk #1b1326\nr #a33a4c\nl #978ca6\ng #726a8a\ny #ffd66e\n")
-KEEPER_PAL = ("# Cozy seaside\nk #2a1f33\nr #c4473a\ns #f0c29a\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
+KEEPER_PAL = ("# Cozy seaside\n\nk #2a1f33\nr #c4473a\ns #f0c29a\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
               "# night: cool moonlight; lamp colors (l, g) stay lit\n@variant night\nk #120e22\nr #83344e\n"
               "s #b88f8c\nl #fff4b0\ng #ffc861\n")
 CANDLE_PAL = ("k #1a1423\nw #f6eed8\n# light-emitting keys: flame. Not in @variant dark, so it stays warm.\n"
@@ -13346,7 +13489,7 @@ def test_compose_carries_key_and_variant_comments(tmp_path, capsys):
                                 "# the dark outline\nk #000011\n@frame x\nkf\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{a}:x@0,0") == 0
-    assert out.read_text() == ("pxart 1\nk #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
+    assert unstamped(out) == ("pxart 1\nk #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
                                "# the dark outline\nk #000011\n\nkf\n")
 
 
@@ -13358,7 +13501,7 @@ def test_compose_carries_comments_from_the_layers_imports(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
     # the palette files' headers come too, at the top, each saying whose it is
-    assert out.read_text() == ("pxart 1\n\n# header (from a.px)\n\n# ink (from a.px)\nk #000000\n# the sun (from b.px)\n"
+    assert unstamped(out) == ("pxart 1\n\n# header (from a.px)\n\n# ink (from a.px)\nk #000000\n# the sun (from b.px)\n"
                                "y #ffff00\n\nky\n")
 
 
@@ -13371,8 +13514,8 @@ def test_compose_comment_of_a_left_out_key_goes(tmp_path, capsys):
 
 
 def test_compose_a_sprites_header_comment_stays_with_it(tmp_path, capsys):
-    # Comments above a file's first line are its header, about the sprite: not a key's comment.
-    a = write(tmp_path, "a.px", "# the hero\nk #000000\n@frame x\nk\n")
+    # Comments a blank line above a file's first line are its header, about the sprite: not a key's comment.
+    a = write(tmp_path, "a.px", "# the hero\n\nk #000000\n@frame x\nk\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, f"{a}:x@0,0")
     assert "# the hero" not in out.read_text()
@@ -13389,7 +13532,7 @@ def test_compose_used_keys_only_drops_the_comments_of_dropped_keys(tmp_path, cap
     a = write(tmp_path, "a.px", "pxart 1\n# ink\nk #000000\n# unused\nz #ffffff\n@frame x\nk\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, f"{a}:x@0,0", "--used-keys-only")
-    assert out.read_text() == "pxart 1\n# ink\nk #000000\n\nk\n"
+    assert unstamped(out) == "pxart 1\n# ink\nk #000000\n\nk\n"
 
 
 def test_compose_rekey_renamed_key_comment_says_so(tmp_path, capsys):
@@ -14213,7 +14356,7 @@ def test_readme_documents_the_compose_report():
 
 # ---------------------------------------------------------------- carried comments stay true in the new OUT
 
-GLOW_PAL = ("# WICK shared palette: cellar and flame\nk #1a1423\nw #f6eed8\n"
+GLOW_PAL = ("# WICK shared palette: cellar and flame\n\nk #1a1423\nw #f6eed8\n"
             "# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm.\n"
             "f #ffe07a\na #f58b3c\ni #fff6d0\n\n# darkness: everything that only reflects light goes cold\n"
             "@variant dark\nk #0c0a18\nw #403f4a\n")
@@ -14297,8 +14440,8 @@ def test_comment_blocks_through_an_import(tmp_path):
 
 
 def test_comment_blocks_a_files_header_is_no_block(tmp_path):
-    # Comments above a file's first line are its header (palette_notes), not a key's comment.
-    doc = pxart.parse(write(tmp_path, "p.px", "# header\nf #ffe07a\na #f58b3c\n"), palette_only=True)
+    # Comments a blank line above a file's first line are its header (palette_notes), not a key's comment.
+    doc = pxart.parse(write(tmp_path, "p.px", "# header\n\nf #ffe07a\na #f58b3c\n"), palette_only=True)
     assert pxart.comment_blocks(doc) == {}
 
 
@@ -14385,14 +14528,14 @@ def test_labeled_helper():
 
 def test_carried_header_at_the_top_labeled(tmp_path, capsys):
     code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
-    lines = out.read_text().splitlines()
+    lines = unstamped(out).splitlines()
     assert lines[:6] == ["pxart 1", "", "# Harbor market palette: warm stone, one hot accent (awning red) (from stall.px)",
                          "# Cozy seaside (from keeper.px)", "# WICK shared palette: cellar and flame (from player.px)",
                          ""]
 
 
 def test_carried_header_one_line_for_files_that_share_it(tmp_path, capsys):
-    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    write(tmp_path, "pal.px", "# the one palette\n\nk #000000\nr #ff0000\n")
     a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
     c = write(tmp_path, "c.px", "q #00ff00\n@frame z\nq\n")
@@ -14402,7 +14545,7 @@ def test_carried_header_one_line_for_files_that_share_it(tmp_path, capsys):
 
 
 def test_carried_header_not_when_out_imports_the_palette(tmp_path, capsys):
-    write(tmp_path, "pal.px", "# the one palette\nk #000000\nr #ff0000\n")
+    write(tmp_path, "pal.px", "# the one palette\n\nk #000000\nr #ff0000\n")
     a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "@palette pal.px\n@frame y\nr\n")
     out = tmp_path / "o.px"
@@ -14411,7 +14554,7 @@ def test_carried_header_not_when_out_imports_the_palette(tmp_path, capsys):
 
 
 def test_carried_header_not_a_sprites_own(tmp_path, capsys):
-    a = write(tmp_path, "a.px", "# my hero sprite\nk #000000\n@frame x\nk\n")
+    a = write(tmp_path, "a.px", "# my hero sprite\n\nk #000000\n@frame x\nk\n")
     b = write(tmp_path, "b.px", "q #00ff00\n@frame z\nq\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
@@ -14459,7 +14602,7 @@ def test_carried_comments_two_layers_of_one_file_unlabeled(tmp_path, capsys):
                                 "@frame x\nkw\n@frame y\nwk\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:x@0,0", f"{a}:y@0,1") == 0
-    assert out.read_text() == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
+    assert unstamped(out) == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
 
 
 # ---------------------------------------------------------------- palette --add of a color a key already has
@@ -15181,7 +15324,7 @@ def test_top_help_has_the_format_sample(capsys):
     out = top_help(capsys, "-h")
     assert "    k #3f2631                palette: one key char" in out and "    ....kkkk....             grid rows" in out
     doc = pxart.__doc__.splitlines()
-    sample = out[out.index("A sprite is"):out.index("Commands by topic")].splitlines()[1:]
+    sample = out[out.index("A sprite is"):out.index("Any command that takes FILE")].splitlines()[1:]
     assert all(l in doc for l in sample)
 
 
@@ -16519,8 +16662,9 @@ def help_fixtures(d):
     (d / "town.px").write_text("pxart 1\ng #40c040\nr #c04040\n@frame grass\ngg\ngg\n@frame roof-red\nrr\nrr\n")
     (d / "town").mkdir()
     (d / "town" / "pal.px").write_text("k #1a1423\nr #c04040\n@variant night\nr #401010\n")
-    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nkk\n")
-    (d / "town" / "walls.px").write_text("pxart 1\n@palette pal.px\n@frame wall\nkr\nrk\n")
+    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nrr\n")
+    (d / "town" / "walls.px").write_text("pxart 1\n@palette pal.px\ng #40c040\n@variant night\ng #204020\n"
+                                         "@frame grass\ngg\ngg\n")
 
 
 def test_help_examples_are_found():
@@ -17088,7 +17232,7 @@ def test_recolor_rename_into_a_key_renamed_away(tmp_path, capsys):
     assert doc.palette == {"G": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
     assert doc.variants["dusk"] == {"G": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
     assert renders(p) == before
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
 
 
 def test_recolor_rename_into_a_freed_key_any_order(tmp_path):
@@ -17163,7 +17307,7 @@ def test_recolor_rename_swap_with_a_move(tmp_path):
 
 def test_recolor_rename_into_a_key_kept_by_the_region(tmp_path):
     p = write(tmp_path, "c.px", CHAIN)
-    msg = run_err("recolor", p, "g>G", "d>g", "--region", "0,0,1,1")
+    msg = run_err("recolor", f"{p}:*", "g>G", "d>g", "--region", "0,0,1,1")
     assert "E_BAD_ARG" in msg and "'g' stays one: 'g>G' leaves it in the palette (pixels outside the recolor " \
         "still draw with it)" in msg
     assert p.read_text() == CHAIN
@@ -17886,7 +18030,7 @@ def test_compose_replace_is_the_same_as_a_new_out(tmp_path, capsys):
     assert run("compose", "-o", out, f"{a}@0,0") == 0
     assert run("compose", "-o", out, f"{b}@0,0", f"{a}@0,1", "--size", "2x2", "--replace") == 0
     assert run("compose", "-o", new, f"{b}@0,0", f"{a}@0,1", "--size", "2x2") == 0
-    assert out.read_text() == new.read_text()
+    assert unstamped(out) == unstamped(new)
 
 
 def test_compose_replace_of_a_missing_out_is_a_plain_compose(tmp_path, capsys):
@@ -18529,7 +18673,7 @@ def test_help_documents_from_png_grid():
 
 
 def test_from_png_help_has_both_usage_lines(capsys):
-    text = pxart.command_help("from-png")
+    text = pxart.command_help("from-png")[0]
     lines = text.splitlines()
     assert "--palette P.px]" in lines[0] and "--labels FILE.csv" in lines[1] and "--grid WxH" in lines[2]
 
@@ -18638,7 +18782,7 @@ def test_match_unknown_variant(tmp_path):
     m = write(tmp_path, "moss.px", MOSS)
     p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
     msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--match", str(m))
-    assert "E_SELECT" in msg and "no @variant 'night'" in msg
+    assert "E_SELECT" in msg and "unknown variant 'night'" in msg
 
 
 def test_match_missing_file(tmp_path):
@@ -18675,8 +18819,8 @@ def test_derive_never_brightens_a_near_black(tmp_path, capsys):
     p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n")
     assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
     out = capsys.readouterr().out
-    assert "o held no brighter than its base color (darker than a quarter: an outline stays dark; --lift-darks lets " \
-        "the derive brighten them)" in out
+    assert "o held no brighter than its base color by Rec. 709 luma (darker than a quarter: an outline stays dark; " \
+        "--lift-darks lets the derive brighten them)" in out
     got = dv(p, "dusk", "o")
     assert pxart.brightness(got) <= pxart.brightness(pxart.hex2rgba("#141b1b"))
     assert got[2] > got[0]  # still bluish: the hue kept
@@ -18752,18 +18896,18 @@ def test_help_documents_match_and_hold():
     assert "--match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps each channel the " \
         "way FILE's own base -> dusk does, a gain and an offset per channel fitted by least squares over the keys " \
         "that variant recolors" in text
-    assert "A key darker than a quarter (Rec. 709 luma under 64) never comes out brighter than its --derive-from " \
-        "color" in text
+    assert "The hold: a key darker than a quarter (Rec. 709 luma, .2126 R + .7152 G + .0722 B of the sRGB values, " \
+        "under 64) never comes out with a higher luma than its --derive-from color" in text
     assert "--lift-darks lets the derive brighten them (a fog), and names the ones it did; --add sets one anyway." \
         in text
-    assert "when none is, the output says 'held: none'" in text
+    assert "blue tint or offset; else 'held: none'." in text
 
 
 def test_readme_documents_match_and_hold():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--match mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted gain " \
-        "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened unless " \
-        "`--lift-darks`" in readme
+        "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened, by Rec. 709 " \
+        "luma (hue kept), unless `--lift-darks`" in readme
 
 
 # ---------------------------------------------------------------- check notes local keys that repeat an import's color
@@ -20274,7 +20418,8 @@ def test_diff_proves_a_rekeyed_compose_renders_as_its_layer(tmp_path, capsys):
 
 def test_help_documents_diff():
     text = " ".join(pxart.__doc__.split())
-    assert "diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]" in text
+    assert "diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]] [--labels CSV " \
+        "[--label-col C] [--file-col C]]" in text
     assert "Compare renders pixel by pixel, one line per pair" in text
     assert "It exits 1 when anything differs or has no pair, as check does" in text
 
@@ -20687,9 +20832,11 @@ def test_palette_section_opens_with_rules():
 
 
 def test_compose_h_shows_the_rules_near_the_top(capsys):
+    # the rules open the details, right under the options (options first since loop V)
     out = cmd_help(capsys, "compose")
-    head = out.split("Examples:")[0]
-    assert len(head.splitlines()) <= 22  # argparse's usage and the --map usage line take 2 more since compose --map
+    details = out.split("\noptions:\n", 1)[1].split("\n\n", 1)[1]
+    head = details.split("Examples:")[0]
+    assert len(head.splitlines()) <= 14
     for fact in ("OUT imports it too", "Variants merge by name", "E_KEY_CONFLICT; --rekey gives it a free key"):
         assert fact in " ".join(head.split()), fact
 
@@ -20975,9 +21122,9 @@ def test_recolor_rename_onto_other_color_key_keeps_the_old_advice(tmp_path):
 
 def test_recolor_rename_onto_same_color_with_a_region(tmp_path):
     p = write(tmp_path, "s.px", SAMECOLOR)
-    msg = run_err("recolor", p, "i>y", "--region", "0,0,1,1")
+    msg = run_err("recolor", f"{p}:*", "i>y", "--region", "0,0,1,1")
     assert "write 'i=y'" in msg
-    assert run("recolor", p, "i=y", "--region", "0,0,1,1") == 0 and grids(p) == {"a": ["yyk"], "b": ["kki"]}
+    assert run("recolor", f"{p}:*", "i=y", "--region", "0,0,1,1") == 0 and grids(p) == {"a": ["yyk"], "b": ["kki"]}
 
 
 def test_recolor_rename_onto_same_color_other_moves_still_checked_first(tmp_path):
@@ -21025,6 +21172,7 @@ def test_compose_variant_comment_credits_only_the_files_that_gave_keys(tmp_path,
     night = lines.index("@variant night")
     assert lines[night - 1] == "# night: moonlit; glass y kept lit (from visitors.px's @variant night; the rest from " \
                                "pal.px's night)"
+    text = unstamped(out)
     assert "ground.px" not in text and "trees.px" not in text and "walls.px" not in text
 
 
@@ -21050,6 +21198,7 @@ def test_compose_variant_comment_the_files_own_comment_and_the_imports(tmp_path,
     block = lines[night - 3:night]
     assert "# visitors: fire stays lit (from visitors.px's @variant night; the rest from pal.px's night)" in block
     assert "# night: moonlit; glass y kept lit (from pal.px's night)" in block
+    text = unstamped(out)
     assert "ground.px" not in text and "trees.px" not in text
 
 
@@ -21190,7 +21339,7 @@ def test_export_directory_variant_a_file_lacks_names_it(tmp_path, capsys):
     d = town(tmp_path)
     write(d, "lone.px", "q #00ff00\n@frame lone\nq\n")
     msg = run_err("export", d, "--frames", tmp_path / "out", "--variant", "night")
-    assert "E_SELECT" in msg and "lone.px" in msg and "no @variant 'night'" in msg
+    assert "E_SELECT" in msg and "lone.px" in msg and "unknown variant 'night'" in msg
     assert not (tmp_path / "out").exists()
 
 
@@ -21432,7 +21581,8 @@ def test_export_many_pngs_summarized_on_the_wrote_line(tmp_path, capsys):
 def test_export_few_pngs_listed_on_the_wrote_line(tmp_path, capsys):
     p = write(tmp_path, "m.px", "k #000000\n@frame a\nk\n@frame b\nk\n")
     assert run("export", p, "--frames", tmp_path / "out") == 0
-    assert capsys.readouterr().out.strip() == f"wrote {tmp_path / 'out' / 'a.png'} {tmp_path / 'out' / 'b.png'}"
+    assert capsys.readouterr().out.strip() == f"created {(tmp_path / 'out').as_posix()}/\n" \
+                                              f"wrote {tmp_path / 'out' / 'a.png'} {tmp_path / 'out' / 'b.png'}"
 
 
 def test_export_no_output_flag_is_bad_arg_before_reading(tmp_path, capsys):
@@ -21777,7 +21927,10 @@ def test_help_documents_diff_batches_and_alpha():
     text = " ".join(pxart.__doc__.split())
     assert "a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames writes them, or " \
         "with --labels CSV against the PNG whose row names it so" in text
-    assert "two directories: the .png and .px files under them paired by path" in text
+    assert "two other directories: the .png and .px files under them paired by path" in text
+    assert "a directory of .px files and one of PNGs: every frame of every .px, as above ('diff town/ pack/ " \
+        "--labels pack/labels.csv'; an id two files share is E_BAD_ARG; a note counts the PNGs left over)" in text
+    assert "--exclude GLOB leaves a directory's files out, as for check." in text
     assert "a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its rgb" in text
     assert "--strict-alpha compares all four everywhere" in text
 
@@ -22302,7 +22455,8 @@ def test_recipe_feet_stay_planted(tmp_path, monkeypatch, capsys):
     anim = ran[0][2]
     assert anim.count("(rows 9+ still;") == 4
     onion = ran[1][2]
-    assert "B vs A (rows 9-11): left +0, right +0, top +0, bottom +0; best shift +0,+0" in onion
+    assert "B vs A (bottom 3 canvas rows 9-11; opaque in 9-11): left +0, right +0, top +0, bottom +0; best shift " \
+        "+0,+0" in onion
     assert pxart.parse(tmp_path / "hero.px").anims["walk/down"]["pivot"] == (8, 11)
 
 
@@ -22352,3 +22506,3675 @@ def test_help_says_each_shared_rule_once():
     assert doc.count("OUT:frame of an existing OUT adds that frame") == 0
     assert doc.count("recolors otherwise in a variant (a market's awning red") == 0
     assert doc.count("The layers' files are read, never written") == 1
+
+
+# ---------------------------------------------------------------- a variant only the @palette has leaves own keys at base
+
+HALF_PAL = "pxart 1\no #3f2631\ng #84c669\n@variant dusk\no #4b241e\ng #988f4d\n@variant night\no #1b1422\ng #293931\n"
+HALF_SPRITE = "pxart 1\n@palette pal.px\nM #ffe07a\nP #fff6d0\nZ #f7c282\n@variant night\nM #ffe07a\nP #403f4a\n" \
+              "@anim wick/idle ms=180\n@frame wick/idle/0\noMPo\ngggg\n@frame wick/idle/1\noPMo\ngggg\n"
+
+
+def half(tmp_path, sprite=HALF_SPRITE, pal=HALF_PAL):
+    write(tmp_path, "pal.px", pal)
+    return write(tmp_path, "wick.px", sprite)
+
+
+def test_half_variant_warning_says_the_palette_gives_no_colors(tmp_path, monkeypatch, capsys):
+    # the file does list M and P, in its base palette: the warning is about their dusk colors, which nothing gives
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "which gives no dusk colors to its own keys M P: in dusk they stay at their base colors" in out
+    assert "doesn't list" not in out
+
+
+HALF_WARN = "WARNING: {p}: @variant dusk comes only from its @palette pal.px, which gives no dusk colors to its own keys M P: in " \
+            "dusk they stay at their base colors. Give it a dusk of its own: 'pxart palette {p} --variant dusk " \
+            "--derive-from base --match {pal} --keep-lit M,Z' (lights inferred: M relisted unchanged in night; Z left " \
+            "at base in night), or --add 'K=#rrggbb'"
+
+
+def test_half_variants_lists_own_drawn_keys_the_import_leaves(tmp_path):
+    doc = pxart.parse(half(tmp_path))
+    assert pxart.half_variants(doc) == [("dusk", ["M", "P"])]  # Z isn't drawn; night is the file's own
+    assert pxart.half_variants(doc, "dusk") == [("dusk", ["M", "P"])]
+    assert pxart.half_variants(doc, "night") == [] and pxart.half_variants(doc, "base") == []
+
+
+def test_half_variants_none_without_an_import(tmp_path):
+    doc = pxart.parse(write(tmp_path, "a.px", "pxart 1\nk #000000\n@variant dusk\n@frame a\nk\n"))
+    assert pxart.half_variants(doc) == []
+
+
+def test_half_variants_none_when_the_file_has_its_own_line(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\n@anim"))
+    assert pxart.half_variants(pxart.parse(p)) == []
+
+
+def test_half_variants_an_own_empty_variant_is_a_choice(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\n\n@anim"))
+    doc = pxart.parse(p)
+    assert "dusk" in doc.variants and pxart.half_variants(doc) == []
+
+
+def test_half_variants_an_override_of_an_imported_key_is_covered(tmp_path):
+    # the sprite's own o overrides pal.px's o, and pal.px's dusk recolors o: not left at base
+    p = half(tmp_path, HALF_SPRITE.replace("M #ffe07a\n", "M #ffe07a\no #402020\n", 1))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"])]
+
+
+def test_half_variants_skips_transparent_keys(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282", "Z transparent").replace("oMPo\ngggg\n@frame wick/idle/1",
+                                                                                  "oMPZ\ngggg\n@frame wick/idle/1"))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"])]
+
+
+def test_half_variants_a_palette_file_counts_all_its_own_keys(tmp_path):
+    write(tmp_path, "pal.px", HALF_PAL)
+    p = write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\nw #efe6d2\n@variant night\ny #f3cf6b\n")
+    assert pxart.half_variants(pxart.parse(p, palette_only=True)) == [("dusk", ["y", "w"])]
+
+
+def test_half_variants_every_imported_variant_it_misses(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    assert pxart.half_variants(pxart.parse(p)) == [("dusk", ["M", "P"]), ("night", ["M", "P"])]
+
+
+def test_half_variants_none_when_the_import_lists_them(tmp_path):
+    pal = HALF_PAL.replace("@variant dusk\n", "M #ffe07a\nP #fff6d0\n@variant dusk\nM #806030\nP #806060\n")
+    p = half(tmp_path, HALF_SPRITE.replace("M #ffe07a\nP #fff6d0\n", "", 1), pal)
+    assert pxart.half_variants(pxart.parse(p)) == []
+
+
+@pytest.mark.parametrize("argv", [
+    ["render", "wick.px%dusk", "-o", "r.png"],
+    ["render", "wick.px", "--variant", "dusk", "-o", "r.png"],
+    ["render", "wick.px:wick/idle/0%dusk", "-o", "r.png"],
+    ["sheet", "wick.px", "--variant", "dusk", "-o", "s.png"],
+    ["sheet", ".", "--variant", "dusk", "-o", "s.png"],
+    ["anim", "wick.px:wick/idle", "--variant", "dusk"],
+    ["anim", "wick.px:wick/idle%dusk", "-o", "a.gif"],
+    ["onion", "wick.px:wick/idle/0%dusk", "wick.px:wick/idle/1%dusk", "-o", "o.png"],
+    ["scene", "wick.px:wick/idle/0%dusk@0,0", "-o", "sc.png"],
+    ["scene", "--variant", "dusk", "wick.px:wick/idle/0@0,0", "-o", "sc.png"],
+    ["stats", "wick.px:wick/idle/0%dusk"],
+    ["stats", "wick.px:wick/idle/0", "--at", "1,0"],
+    ["stats", "wick.px:wick/idle/0%dusk", "--colors"],
+    ["diff", "wick.px:wick/idle/0%dusk", "wick.px:wick/idle/0%dusk"],
+    ["diff", "wick.px", "wick.px", "--variant", "dusk"],
+    ["export", "wick.px", "--variant", "dusk", "--frames", "out"],
+    ["export", "wick.px", "--variant", "dusk", "--aseprite", "x.json"],
+    ["export", "wick.px", "--variant", "dusk", "--tiled", "x.tsj"],
+])
+def test_every_variant_render_warns_about_own_keys_left_at_base(tmp_path, monkeypatch, capsys, argv):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    run(*argv)
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out
+    assert out.count("WARNING: wick.px: @variant dusk") == 1  # once a run, however many frames
+
+
+def test_scene_map_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "street.map", "--tile", "4x2", "--variant", "dusk", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_scene_map_legend_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0%dusk\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "street.map", "--tile", "4x2", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_warning_names_the_path_as_reached_from_a_map_in_another_folder(tmp_path, monkeypatch, capsys):
+    (tmp_path / "town").mkdir()
+    half(tmp_path / "town")
+    write(tmp_path / "town", "street.map", "w wick.px:wick/idle/0\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "--map", "town/street.map", "--tile", "4x2", "--variant", "dusk", "-o", "s.png") == 0
+    assert HALF_WARN.format(p="town/wick.px", pal="town/pal.px") in capsys.readouterr().out
+
+
+def test_compose_map_legend_variant_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0%dusk\n\nw.\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "street.map", "--tile", "4x2", "-o", "street.px") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+def test_compose_warns_for_a_layer_whose_file_has_the_variant_only_by_import(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "out.px", "wick.px:wick/idle/0@0,0") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out and out.count("WARNING: wick.px: @variant") == 1
+    # OUT imports pal.px too, and has the keys at base in dusk as the layer did: its own render says so
+    assert pxart.half_variants(pxart.parse(tmp_path / "out.px")) == [("dusk", ["M", "P"])]
+
+
+def test_frames_copy_to_warns(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    write(tmp_path, "party.px", "pxart 1\n@palette pal.px\n@frame a\nog\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "wick.px:wick/idle", "--copy-to", "party.px") == 0
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv", [
+    ["render", "wick.px", "-o", "r.png"],
+    ["render", "wick.px%night", "-o", "r.png"],
+    ["render", "wick.px%base", "-o", "r.png"],
+    ["render", "wick.px", "--variant", "base", "-o", "r.png"],
+    ["scene", "--variant", "night", "wick.px:wick/idle/0@0,0", "-o", "sc.png"],
+    ["scene", "--variant", "dusk", "wick.px:wick/idle/0%base@0,0", "-o", "sc.png"],
+    ["anim", "wick.px:wick/idle"],
+    ["diff", "wick.px", "wick.px"],
+    ["stats", "wick.px:wick/idle/0%night", "--at", "1,0"],
+])
+def test_no_warning_where_the_variant_isnt_half(tmp_path, monkeypatch, capsys, argv):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    run(*argv)
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_no_warning_once_the_file_has_its_own_dusk(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--add", "M=#ffe07a", "P=#806060") == 0
+    capsys.readouterr()
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_failing_render_drops_the_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("render", "wick.px%dusk", "nope.px", "-o", "r.png")
+    assert "E_FILE" in err and "WARNING" not in capsys.readouterr().out
+
+
+def test_warning_again_in_a_second_run(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for _ in range(2):
+        assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+        assert capsys.readouterr().out.count("WARNING") == 1
+
+
+def test_half_variant_render_is_what_the_warning_says(tmp_path, monkeypatch):
+    # the keys named really are at their base colors in dusk, and the import's keys recolored
+    doc = pxart.parse(half(tmp_path))
+    img = doc.image(doc.frames[0], "dusk")
+    assert img.getpixel((1, 0)) == (0xff, 0xe0, 0x7a, 255) and img.getpixel((0, 0)) == (0x4b, 0x24, 0x1e, 255)
+
+
+def test_check_notes_a_half_variant(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "wick.px") == 0
+    out = capsys.readouterr().out
+    assert "     wick.px: " + HALF_WARN.format(p="wick.px", pal="pal.px")[len("WARNING: wick.px: "):] in out
+
+
+def test_check_counts_it_as_a_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", ".") == 0
+    out = capsys.readouterr().out
+    assert "2 files, 2 frames, 2 warnings" in out and "unused keys Z" in out  # the half variant, and Z
+
+
+def test_check_notes_a_palette_file_importing_one(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "pal.px", HALF_PAL)
+    write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\n@variant night\ny #f3cf6b\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "pal2.px", "pal.px") == 0
+    out = capsys.readouterr().out
+    assert "     pal2.px: @variant dusk comes only from its @palette pal.px, which gives no dusk color to its own key y: in " \
+        "dusk it stays at its base color." in out
+    assert "2 files, 0 frames, 1 warning" in out
+
+
+def test_check_quiet_when_the_file_has_its_own(tmp_path, monkeypatch, capsys):
+    half(tmp_path, HALF_SPRITE.replace("@anim", "@variant dusk\nM #806030\n@anim"))
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "wick.px") == 0
+    assert "comes only from its @palette" not in capsys.readouterr().out
+
+
+def test_check_strict_does_not_fail_on_it(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "--strict", "wick.px") == 0
+
+
+def test_palette_listing_warns_under_the_variant(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px") == 0
+    lines = capsys.readouterr().out.splitlines()
+    at = next(i for i, l in enumerate(lines) if l.startswith("  dusk:"))
+    assert lines[at + 1] == "    WARNING: " + HALF_WARN.format(p="wick.px", pal="pal.px")[len("WARNING: wick.px: "):]
+    assert not any("WARNING" in l for l in lines[at + 2:])
+
+
+def test_derive_into_an_imported_variant_sets_only_own_keys(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--derive-from", "base", "--match", "pal.px") == 0
+    out = capsys.readouterr().out
+    assert "recolors 3 key(s) of its own (pal.px's dusk colors the imported ones)" in out
+    doc = pxart.parse(tmp_path / "wick.px")
+    assert set(doc.variants["dusk"]) == {"M", "P", "Z"}  # not o or g: pal.px's dusk has them exactly
+    assert doc.resolved("dusk")["o"] == (0x4b, 0x24, 0x1e, 255)
+    assert pxart.half_variants(doc) == []
+
+
+def test_derive_a_variant_the_import_lacks_still_sets_every_key(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "fog", "--derive-from", "base", "--darken", "0.2") == 0
+    assert "of its own" not in capsys.readouterr().out
+    assert set(pxart.parse(tmp_path / "wick.px").variants["fog"]) == {"o", "g", "M", "P", "Z"}
+
+
+def test_derive_the_fix_the_warning_gives_silences_it(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "wick.px", "--variant", "dusk", "--derive-from", "base", "--match", "pal.px",
+               "--keep-lit", "M") == 0
+    capsys.readouterr()
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "wick.px").variants["dusk"]["M"] == (0xff, 0xe0, 0x7a, 255)  # kept lit: listed
+
+
+def test_lit_keys_from_the_files_own_variant(tmp_path):
+    # night relists M unchanged, darkens P, has no line for Z: M and Z are lights
+    assert pxart.lit_keys(pxart.parse(half(tmp_path))) == [("M", "relisted unchanged in night"),
+                                                          ("Z", "left at base in night")]
+
+
+def test_lit_keys_brighter_in_a_variant(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("P #403f4a", "P #ffffff"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night"), ("P", "brighter in night"),
+                                              ("Z", "left at base in night")]
+
+
+def test_lit_keys_every_variant_named(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant rain\nM #101010\nP #fff6d0\nZ #101010\n@anim"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night"),
+                                              ("P", "relisted unchanged in rain"), ("Z", "left at base in night")]
+
+
+def test_lit_keys_several_reasons_for_one_key(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant rain\n@anim"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night, left at base in rain"),
+                                              ("P", "left at base in rain"),
+                                              ("Z", "left at base in night, left at base in rain")]
+
+
+def test_lit_keys_none_without_variants_of_its_own(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    assert pxart.lit_keys(pxart.parse(p)) == []
+
+
+def test_lit_keys_none_when_every_own_key_is_dimmed(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n",
+                                           "@variant night\nM #403020\nP #403f4a\nZ #302010\n"))
+    assert pxart.lit_keys(pxart.parse(p)) == []
+
+
+def test_lit_keys_skips_transparent_and_imported_only_keys(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282", "Z transparent"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night")]  # not o, g: pal.px's own
+
+
+def test_lit_keys_an_overridden_key_reads_the_imports_variants(tmp_path):
+    # the sprite's own g overrides pal.px's g; pal.px's dusk darkens g, but pal.px's glow has no line for it
+    pal = HALF_PAL + "@variant glow\no #ffffff\n"
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\ng #84c669\n"), pal)
+    lit = dict(pxart.lit_keys(pxart.parse(p)))
+    assert lit["g"] == "left at base in pal.px's glow"  # night: pal.px's night darkens it
+
+
+def test_lit_keys_an_overridden_key_brighter_in_the_imports_variant(tmp_path):
+    pal = HALF_PAL + "@variant glow\ng #ffffff\n"
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\ng #84c669\n"), pal)
+    assert dict(pxart.lit_keys(pxart.parse(p)))["g"] == "brighter in pal.px's glow"
+
+
+def test_lit_keys_an_own_variant_the_import_colors_is_not_left_at_base(tmp_path):
+    # the sprite overrides o and has its own dusk with no o line: pal.px's dusk still recolors it there
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\no #3f2631\n").replace(
+        "@anim", "@variant dusk\nM #806030\nP #806060\nZ #806060\n@anim"))
+    lit = dict(pxart.lit_keys(pxart.parse(p)))
+    assert "o" not in lit  # its own night and dusk have no o line, but pal.px's night and dusk darken it
+    assert pxart.parse(p).resolved("dusk")["o"] == (0x4b, 0x24, 0x1e, 255)
+
+
+def test_warning_without_lights_says_so(tmp_path, monkeypatch, capsys):
+    half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    assert "--derive-from base --match pal.px' (no lights inferred; add --keep-lit for any), or --add" in out
+    assert "--keep-lit M" not in out
+
+
+def test_warning_names_the_lights_in_check_and_the_listing_too(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for argv in (["check", "wick.px"], ["palette", "wick.px"], ["render", "wick.px%dusk", "-o", "r.png"]):
+        assert run(*argv) == 0
+        out = capsys.readouterr().out
+        assert "--match pal.px --keep-lit M,Z' (lights inferred: M relisted unchanged in night; Z left at base in " \
+            "night)" in out, argv
+
+
+def test_following_the_warning_as_printed_keeps_the_lights_lit(tmp_path, monkeypatch, capsys):
+    # the gate's repro: running the printed command dimmed the flames when it said only '--keep-lit KEYS'
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    cmd = re.search(r"'pxart (palette [^']*)'", capsys.readouterr().out).group(1)
+    assert run(*shlex.split(cmd)) == 0
+    doc = pxart.parse(tmp_path / "wick.px")
+    dusk, base = doc.resolved("dusk"), doc.resolved()
+    assert dusk["M"] == base["M"] and dusk["Z"] == base["Z"]  # the lights, kept
+    assert dusk["P"] != base["P"]  # night dims P: so does the derived dusk
+    assert pxart.half_variants(doc) == []
+
+
+def test_following_the_warning_for_a_palette_file(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "pal.px", HALF_PAL)
+    write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\nw #203040\n@variant night\ny #f3cf6b\n"
+                               "w #101010\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "pal2.px") == 0
+    out = capsys.readouterr().out
+    assert "--match pal.px --keep-lit y' (lights inferred: y relisted unchanged in night)" in out
+
+
+def test_help_says_a_half_variant_warns():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A variant a file gets only from its @palette leaves the file's own keys at base colors; commands that " \
+        "render it print a WARNING naming them and the fix, and check notes it." in doc
+    assert "(imported ones too, unless FILE imports a night)" in doc
+
+
+def test_readme_says_a_half_variant_warns():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "A variant a sprite gets only from its `@palette` can't know the sprite's own keys" in readme
+
+
+# ---------------------------------------------------------------- the hold's measure: Rec. 709 luma, named and true
+
+def random_derive_doc(rng, tmp_path, n):
+    """A palette file of n random keys, some near-black, with a dusk that recolors them (for --derive-from dusk)."""
+    lines = ["pxart 1"]
+    keys = pxart.FREE_ORDER[:n]
+    for k in keys:
+        dark = rng.random() < 0.5
+        c = [rng.randrange(0, 90 if dark else 256) for _ in range(3)]
+        a = rng.choice([255, 255, 255, rng.randrange(1, 256)])
+        lines.append(f"{k} #{c[0]:02x}{c[1]:02x}{c[2]:02x}" + (f"{a:02x}" if a != 255 else ""))
+    lines.append("@variant dusk")
+    for k in keys:
+        lines.append(f"{k} #{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}")
+    return write(tmp_path, "p.px", "\n".join(lines) + "\n")
+
+
+@pytest.mark.parametrize("seed", range(150))
+def test_property_every_held_key_is_no_brighter_by_luma(tmp_path, seed):
+    import random
+    rng = random.Random(seed)
+    p = random_derive_doc(rng, tmp_path, rng.randrange(2, 24))
+    doc = pxart.parse(p, palette_only=True)
+    src = rng.choice(["base", "dusk"])
+    fit = [(rng.uniform(0.3, 1.6), rng.uniform(-60, 90)) for _ in range(3)] if rng.random() < 0.6 else None
+    tint = f"#{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}" \
+        if rng.random() < 0.7 else None
+    darken = rng.choice([0.0, rng.uniform(0, 0.9)])
+    from_ = doc.resolved(None if src == "base" else src)
+    said = pxart.derive_variant(doc, "night", src, darken, tint, [], ("fit", fit, 3) if fit else None)
+    got = doc.resolved("night")
+    held = next((s.split(" held no brighter")[0].split() for s in said if " held no brighter" in s), [])
+    for k in held:
+        assert pxart.brightness(got[k]) <= pxart.brightness(from_[k]), (k, got[k], from_[k])
+        assert got[k][3] == from_[k][3]
+    for k, c in from_.items():  # and no dark key came out brighter, held or not
+        if k != "." and c[3] and pxart.brightness(c) < pxart.DARK * c[3] / 255:
+            assert pxart.brightness(got[k]) <= pxart.brightness(c), (k, got[k], c)
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_property_no_brighter_never_exceeds_the_reference_luma(seed):
+    import random
+    rng = random.Random(seed)
+    c = tuple(rng.randrange(256) for _ in range(3)) + (rng.choice([255, rng.randrange(1, 256)]),)
+    ref = tuple(rng.randrange(256) for _ in range(3)) + (c[3],)
+    got = pxart.no_brighter(c, ref)
+    assert pxart.brightness(got) <= pxart.brightness(ref) and got[3] == c[3]
+    assert all(0 <= v <= 255 for v in got[:3])
+
+
+def test_no_brighter_keeps_the_hue_when_it_scales():
+    got = pxart.no_brighter((200, 100, 50, 255), (40, 40, 40, 255))
+    assert got[0] > got[1] > got[2] and pxart.brightness(got) <= 40
+
+
+def test_no_brighter_of_black_is_black():
+    assert pxart.no_brighter((0, 0, 0, 255), (0, 0, 0, 255)) == (0, 0, 0, 255)
+    assert pxart.no_brighter((10, 10, 10, 255), (0, 0, 0, 255)) == (0, 0, 0, 255)
+
+
+def test_hold_is_true_on_the_town_outline_that_looked_brighter():
+    # dusk o #4b241e against base #3f2631: redder, and by Rec. 709 luma of the sRGB values, not brighter (43.86 vs
+    # 44.11). The message names that measure; linear-light luminance would rank them the other way.
+    base, dusk = pxart.hex2rgba("#3f2631"), pxart.hex2rgba("#4b241e")
+    assert pxart.brightness(dusk) <= pxart.brightness(base)
+    assert round(pxart.brightness(base), 2) == 44.11 and round(pxart.brightness(dusk), 2) == 43.86
+
+
+def test_held_message_names_the_measure(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nn #1a1a2a\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
+    assert "o n held no brighter than their base colors by Rec. 709 luma (darker than a quarter" in \
+        capsys.readouterr().out
+
+
+def test_held_message_names_the_measure_from_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n@variant dusk\no #101418\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--tint", "#2040c0a0") == 0
+    assert "o held no brighter than its dusk color by Rec. 709 luma" in capsys.readouterr().out
+
+
+def test_help_names_the_luma_formula():
+    text = " ".join(pxart.__doc__.split())
+    assert ".2126 R + .7152 G + .0722 B of the sRGB values" in text
+    assert "its hue kept (a warmer red may look a shade lighter)" in text
+
+
+# ---------------------------------------------------------------- diff DIR_OF_PX PNG_DIR: every frame of every .px
+
+def pxdir_pack(d):
+    """pack/: four 2x2 PNGs and labels.csv; town/: two .px files whose frames render as them, named as the CSV does,
+    plus a palette file (skipped) and a subfolder."""
+    d = pathlib.Path(d)
+    (d / "pack").mkdir()
+    cols = {"grass": (64, 192, 64, 255), "roof-red": (192, 64, 64, 255), "wall": (106, 90, 74, 255),
+            "lamp": (243, 207, 107, 255)}
+    rows = "filename,proposed_name\n"
+    for n, (name, c) in enumerate(cols.items()):
+        Image.new("RGBA", (2, 2), c).save(d / "pack" / f"tile_{n:04}.png")
+        rows += f"tile_{n:04}.png,{name}\n"
+    (d / "pack" / "labels.csv").write_text(rows)
+    (d / "town" / "sub").mkdir(parents=True)
+    (d / "town" / "pal.px").write_text("pxart 1\ng #40c040\nr #c04040\nw #6a5a4a\ny #f3cf6b\n")
+    (d / "town" / "ground.px").write_text("pxart 1\n@palette pal.px\n@frame grass\ngg\ngg\n@frame wall\nww\nww\n")
+    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nrr\n")
+    (d / "town" / "sub" / "lamp.px").write_text("y #f3cf6b\nyy\nyy\n")  # one unnamed grid: goes by its stem
+    return d
+
+
+def test_diff_px_dir_against_png_dir_by_labels(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town/", "pack/", "--labels", "pack/labels.csv") == 0
+    out = capsys.readouterr().out
+    assert out.splitlines() == [
+        "ground.px:grass vs tile_0000.png: same: 2x2, every pixel",
+        "ground.px:wall vs tile_0002.png: same: 2x2, every pixel",
+        "roofs.px:roof-red vs tile_0001.png: same: 2x2, every pixel",
+        "sub/lamp.px vs tile_0003.png: same: 2x2, every pixel",
+        "4 frame(s): 4 same",
+    ]
+
+
+def test_diff_png_dir_against_px_dir_by_labels(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "pack", "town", "--labels", "pack/labels.csv") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs tile_0000.png: same: 2x2, every pixel" in out and out.endswith("4 frame(s): 4 same\n")
+
+
+def test_diff_px_dir_skips_palette_files(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 0
+    assert "pal.px" not in capsys.readouterr().out
+
+
+def test_diff_px_dir_catches_a_changed_pixel(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    img = Image.open(tmp_path / "pack" / "tile_0001.png").convert("RGBA")
+    img.putpixel((1, 1), (1, 2, 3, 255))
+    img.save(tmp_path / "pack" / "tile_0001.png")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 1
+    out = capsys.readouterr().out
+    assert "roofs.px:roof-red vs tile_0001.png: 1 px differ in 1,1,1,1 (x,y,w,h)" in out
+    assert out.endswith("4 frame(s): 3 same, 1 differ\n")
+
+
+def test_diff_px_dir_frame_without_png_is_unpaired(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "extra.px").write_text("pxart 1\n@palette pal.px\n@frame fence\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 1
+    out = capsys.readouterr().out
+    assert "extra.px:fence: no PNG under pack named fence by --labels" in out
+    assert out.endswith("5 frame(s): 4 same, 1 unpaired\n")
+
+
+def test_diff_px_dir_exclude_leaves_a_file_out(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "extra.px").write_text("pxart 1\n@palette pal.px\n@frame fence\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "extra.px") == 0
+    out = capsys.readouterr().out
+    assert "fence" not in out and out.endswith("4 frame(s): 4 same\n")
+
+
+def test_diff_px_dir_exclude_a_folder(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "sub") == 0
+    out = capsys.readouterr().out
+    assert "lamp" not in out.split("note:")[0] and "3 frame(s): 3 same" in out
+    assert "note: 1 PNG under pack no frame is named like by --labels: tile_0003.png" in out
+
+
+def test_diff_px_dir_exclude_glob_that_matches_nothing_notes(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "nope*.px") == 0
+    assert "note: --exclude nope*.px matches no file" in capsys.readouterr().out
+
+
+def test_diff_px_dir_exclude_everything_is_e_file(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv", "--exclude", "*.px")
+    assert "E_FILE" in err and "leaves out every file" in err
+
+
+def test_diff_px_dir_png_left_over_is_a_note_not_a_failure(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    Image.new("RGBA", (2, 2), (0, 0, 0, 255)).save(tmp_path / "pack" / "tile_0009.png")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv") == 0
+    assert "note: 1 PNG under pack no frame is named like by --labels: tile_0009.png" in capsys.readouterr().out
+
+
+def test_diff_px_dir_shared_id_is_an_error(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "more.px").write_text("pxart 1\n@palette pal.px\n@frame grass\ngg\ngg\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv")
+    assert "E_BAD_ARG" in err and "ground.px and more.px under town both have a frame 'grass'" in err
+    assert "--exclude one" in err
+
+
+def test_diff_px_dir_against_an_export_by_id(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "town", "--frames", "out") == 0
+    capsys.readouterr()
+    assert run("diff", "town", "out") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs grass.png: same: 2x2, every pixel" in out and "4 frame(s): 4 same" in out
+
+
+def test_diff_px_dir_without_labels_names_the_missing_png(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack") == 1
+    out = capsys.readouterr().out
+    assert f"ground.px:grass: no {pathlib.Path('pack') / 'grass.png'}" in out
+    assert "note: 4 PNGs under pack no frame is named like: tile_0000.png" in out
+
+
+def test_diff_px_dir_variant(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "pal.px").write_text("pxart 1\ng #40c040\nr #c04040\nw #6a5a4a\ny #f3cf6b\n"
+                                              "@variant night\ng #102010\nr #301010\nw #1a1612\ny #f3cf6b\n")
+    (tmp_path / "town" / "sub" / "lamp.px").unlink()
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "pack", "--labels", "pack/labels.csv", "--variant", "night") == 1
+    out = capsys.readouterr().out
+    assert "ground.px:grass vs tile_0000.png: 4 px differ" in out and "3 frame(s): 0 same, 3 differ" in out
+
+
+def test_diff_px_dirs_on_both_sides_still_pair_by_path(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 0
+    out = capsys.readouterr().out
+    assert "ground.px:grass: same: 2x2, every pixel" in out and "pal.px" not in out
+
+
+def test_diff_png_dirs_on_both_sides_still_pair_by_path(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "pack", tmp_path / "pack2")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "pack", "pack2") == 0
+    assert "tile_0000.png: same: 2x2, every pixel" in capsys.readouterr().out
+
+
+def test_diff_exclude_needs_a_directory(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town/roofs.px", "town/roofs.px", "--exclude", "x")
+    assert "E_BAD_ARG" in err and "--exclude leaves .px files out of a directory" in err
+    err = run_err("diff", "town/roofs.px", "pack", "--labels", "pack/labels.csv", "--exclude", "x")
+    assert "E_BAD_ARG" in err and "town/roofs.px is a file" in err
+
+
+def test_diff_px_dir_with_only_palette_files_is_e_file(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "pals").mkdir()
+    (tmp_path / "pals" / "pal.px").write_text("pxart 1\ng #40c040\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "pals", "pack")
+    assert "E_FILE" in err and "pals holds no .px files with frames" in err
+
+
+def test_diff_px_dir_error_in_a_file_names_it(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    (tmp_path / "town" / "bad.px").write_text("pxart 1\n@frame x\nq\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("diff", "town", "pack", "--labels", "pack/labels.csv")
+    assert "E_UNKNOWN_KEY" in err and "A (town/bad.px)" in err
+
+
+def test_recipe_port_shows_the_folder_form(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Port a pack and prove it lossless"])
+    folder = [out for argv, _, out in ran if argv[:2] == ["diff", "town/"]]
+    assert len(folder) == 1 and folder[0].endswith("4 frame(s): 4 same\n")
+    assert "ground.px:grass vs tile_0000.png: same: 16x16, every pixel" in folder[0]
+    assert "props.px:roof-red vs tile_0001.png: same: 16x16, every pixel" in folder[0]
+
+
+def test_diff_two_dirs_by_path_exclude(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    (tmp_path / "copy" / "sub" / "lamp.px").write_text("y #000000\nyy\nyy\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 1
+    capsys.readouterr()
+    assert run("diff", "town", "copy", "--exclude", "sub", "--exclude", "zz*") == 0
+    out = capsys.readouterr().out
+    assert "lamp" not in out and "note: --exclude zz* matches no file" in out and "3 frame(s): 3 same" in out
+
+
+def test_diff_two_dirs_by_path_skip_palette_files(tmp_path, monkeypatch, capsys):
+    pxdir_pack(tmp_path)
+    import shutil
+    shutil.copytree(tmp_path / "town", tmp_path / "copy")
+    (tmp_path / "copy" / "pal.px").unlink()  # only one side has it: a palette file isn't compared either way
+    (tmp_path / "copy" / "ground.px").write_text((tmp_path / "town" / "ground.px").read_text().replace(
+        "@palette pal.px", "@palette ../town/pal.px"))
+    (tmp_path / "copy" / "roofs.px").write_text((tmp_path / "town" / "roofs.px").read_text().replace(
+        "@palette pal.px", "@palette ../town/pal.px"))
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "town", "copy") == 0
+    assert "pal.px" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- image outputs: a clean error, never a traceback
+
+def image_out_fixtures(d):
+    d = pathlib.Path(d)
+    (d / "a.px").write_text("pxart 1\nk #1a1423\nw #efe6d2\n@anim walk ms=100\n@frame walk/0\nkw\nwk\n"
+                            "@frame walk/1\nwk\nkw\n")
+    Image.new("RGBA", (4, 4), (40, 60, 80, 255)).save(d / "s.png")
+    (d / "adir.png").mkdir()
+    (d / "afile").write_text("x")
+
+
+IMAGE_WRITERS = {  # command argv with OUT where the image path goes
+    "render": ["render", "a.px", "-o", "OUT"],
+    "sheet": ["sheet", "a.px", "-o", "OUT"],
+    "anim": ["anim", "a.px:walk", "-o", "OUT"],
+    "onion": ["onion", "a.px:walk/0", "a.px:walk/1", "-o", "OUT"],
+    "scene": ["scene", "a.px:walk/0@0,0", "-o", "OUT"],
+    "outline --preview": ["outline", "a.px:walk/0", "--key", "k", "--preview", "OUT"],
+    "shade --preview": ["shade", "a.px:walk/0", "--ramp", "kw", "--keys", "w", "--preview", "OUT"],
+}
+BAD_IMAGE_OUTS = {
+    "/dev/null": ("E_BAD_ARG", "it has no extension to tell the image type by"),
+    "noext": ("E_BAD_ARG", "it has no extension to tell the image type by"),
+    "x.bmpx": ("E_BAD_ARG", "'.bmpx' isn't an image type pxart can write"),
+    "x.px": ("E_BAD_ARG", "'.px' isn't an image type pxart can write"),
+    "x.txt": ("E_BAD_ARG", "'.txt' isn't an image type pxart can write"),
+    "adir.png": ("E_FILE", "adir.png (from the current directory): E_FILE: Is a directory"),
+    "afile/x.png": ("E_FILE", "afile is a file, not a directory"),
+}
+
+
+@pytest.mark.parametrize("cmd", list(IMAGE_WRITERS))
+@pytest.mark.parametrize("out", list(BAD_IMAGE_OUTS))
+def test_image_output_errors_are_clean(tmp_path, monkeypatch, capsys, cmd, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    argv = [out if x == "OUT" else x for x in IMAGE_WRITERS[cmd]]
+    err = run_err(*argv)  # a SystemExit with a message, not a traceback
+    code, words = BAD_IMAGE_OUTS[out] if cmd != "anim" else ("E_BAD_ARG", "anim writes a GIF")
+    assert code in err and words in err, err
+    assert err.startswith(argv[0] + ": "), err
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before  # nothing written
+    assert (tmp_path / "a.px").read_text().startswith("pxart 1\nk #1a1423\nw #efe6d2\n")
+
+
+@pytest.mark.parametrize("cmd", [c for c in IMAGE_WRITERS if c != "anim"])
+def test_image_output_jpeg_cant_hold_rgba(tmp_path, monkeypatch, capsys, cmd):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err(*[("x.jpg" if x == "OUT" else x) for x in IMAGE_WRITERS[cmd]])
+    assert "E_BAD_ARG" in err and "a JPEG can't hold this image" in err and "name it .png" in err
+    assert not (tmp_path / "x.jpg").exists()
+
+
+@pytest.mark.parametrize("out", ["x.jpg", "x.bmp", "x.tiff", "x.png", "x.webp", "x.GIFF"])
+def test_anim_output_must_be_a_gif(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("anim", "a.px:walk", "-o", out)
+    assert "E_BAD_ARG" in err and f"-o {out}: anim writes a GIF (and its strip beside it, as .strip.png); name " \
+        "it .gif" in err
+    assert not (tmp_path / out).exists() and not list(tmp_path.glob("*.strip.png"))
+
+
+@pytest.mark.parametrize("cmd", list(IMAGE_WRITERS))
+@pytest.mark.parametrize("out", ["ok.png", "ok.gif", "ok.bmp", "sub/dir/ok.png"])
+def test_image_outputs_that_work_still_work(tmp_path, monkeypatch, capsys, cmd, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    argv = [out if x == "OUT" else x for x in IMAGE_WRITERS[cmd]]
+    if cmd == "anim" and not out.endswith(".gif"):
+        pytest.skip("anim writes a GIF: test_anim_output_must_be_a_gif")
+    assert run(*argv) == 0
+    assert (tmp_path / out).is_file()
+
+
+def test_image_output_read_only_place_is_e_file(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    (tmp_path / "ro").mkdir()
+    (tmp_path / "ro").chmod(0o500)
+    monkeypatch.chdir(tmp_path)
+    try:
+        err = run_err("render", "a.px", "-o", "ro/x.png")
+    finally:
+        (tmp_path / "ro").chmod(0o700)
+    assert "E_FILE" in err and err.startswith("render: ")
+
+
+@pytest.mark.parametrize("out", ["/dev/null", "noext", "x.px"])
+def test_tint_output_errors_are_clean(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("tint", "s.png", "#10183080", "-o", out)
+    assert "E_BAD_ARG" in err and err.startswith("tint: ")
+
+
+@pytest.mark.parametrize("out", ["/dev/null", "noext", "x.px", "x.jpg"])
+def test_mask_png_output_errors_are_clean(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("mask", "s.png", "--keep", "0,0,2,2", "-o", out)
+    assert "E_BAD_ARG" in err and err.startswith("mask: ")
+
+
+def test_export_frames_under_a_file_is_e_file(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("export", "a.px", "--frames", "afile")
+    assert "E_FILE" in err and "afile is a file, not a directory" in err
+
+
+@pytest.mark.parametrize("flag", ["--aseprite", "--tiled"])
+def test_export_sheet_into_a_directory_named_png_is_e_file(tmp_path, monkeypatch, capsys, flag):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("export", "a.px", flag, "adir.json")
+    assert "adir.png (from the current directory): E_FILE: Is a directory" in err
+
+
+def test_render_png_beside_is_still_a_png(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--png", "-o", "p.png") == 0
+    assert Image.open(tmp_path / "one.png").size == (2, 1)
+
+
+def test_render_png_says_where_it_wrote(tmp_path, monkeypatch, capsys):
+    # the gate read --png as 'an extra 1x output'; it drops FILE.png beside the .px, and now says so
+    (tmp_path / "art").mkdir()
+    (tmp_path / "art" / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "art/one.px", "--png", "-o", "p.png") == 0
+    assert capsys.readouterr().out.splitlines() == ["wrote art/one.png (--png: art/one.px at 1x)", "wrote p.png"]
+    assert Image.open(tmp_path / "art" / "one.png").size == (2, 1)
+
+
+def test_render_png_dir_writes_there(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    (tmp_path / "two.px").write_text("k #1a1423\nk\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "two.px", "--png", "out", "-o", "p.png") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == ["created out/", "wrote out/one.png (--png: one.px at 1x)", "wrote out/two.png (--png: two.px at 1x)",
+                   "wrote p.png"]
+    assert Image.open(tmp_path / "out" / "one.png").size == (2, 1)
+    assert Image.open(tmp_path / "out" / "two.png").size == (1, 2)
+    assert not (tmp_path / "one.png").exists()
+
+
+def test_render_png_before_the_files_is_not_a_dir(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    (tmp_path / "two.px").write_text("k #1a1423\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "--png", "one.px", "two.px", "-o", "p.png") == 0
+    assert (tmp_path / "one.png").exists() and (tmp_path / "two.png").exists()
+    assert not (tmp_path / "one.px").is_dir()
+
+
+def test_render_png_notes_what_it_skips(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\n@frame w/0\nk\n@frame w/1\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "m.px", "m.px:w/0", "--png", "-o", "p.png") == 0
+    out = capsys.readouterr().out
+    assert "note: --png skips m.px: 2 frames; --png writes a single-frame .px at 1x" in out
+    assert "note: --png skips m.px:w/0: a selection;" in out and "'render --plain FILE:ID -o x.png'" in out
+    assert not (tmp_path / "m.png").exists()
+
+
+def test_render_png_dry_run_says_what_it_would_write(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--png", "--dry-run") == 0
+    assert "would write one.png (--png: one.px at 1x)" in capsys.readouterr().out
+    assert not (tmp_path / "one.png").exists()
+
+
+def test_render_plain_is_the_frame_at_its_exact_size(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\ng #00ff00\n@frame a\n.kk\nkgk\n@frame b\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "m.px:a", "--plain", "-o", "a.png") == 0
+    img = Image.open(tmp_path / "a.png").convert("RGBA")
+    assert img.size == (3, 2) and img.getpixel((0, 0))[3] == 0 and img.getpixel((1, 1)) == (0, 255, 0, 255)
+    assert run("diff", "m.px:a", "a.png") == 0
+    assert run("render", "m.px:a", "--plain", "--scale", "4", "-o", "a4.png") == 0
+    assert Image.open(tmp_path / "a4.png").size == (12, 8)
+    assert run("render", "m.px:a", "--plain", "--bg", "#ff0000", "-o", "abg.png") == 0
+    assert Image.open(tmp_path / "abg.png").convert("RGBA").getpixel((0, 0)) == (255, 0, 0, 255)
+
+
+def test_render_plain_wants_one_frame(tmp_path, monkeypatch, capsys):
+    (tmp_path / "m.px").write_text("k #1a1423\n@frame a\nk\n@frame b\nk\n")
+    monkeypatch.chdir(tmp_path)
+    err = run_err("render", "m.px", "--plain", "-o", "a.png")
+    assert "render: E_BAD_ARG: --plain writes one frame alone, and m.px is 2 frames: pick one (FILE:ID)" in err
+    assert not (tmp_path / "a.png").exists()
+
+
+def test_render_no_grid_scale_1_is_not_the_exact_size(tmp_path, monkeypatch, capsys):
+    # why --plain exists: the preview sheet pads and labels a frame even without its grid
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--no-grid", "--scale", "1", "-o", "p.png") == 0
+    assert Image.open(tmp_path / "p.png").size != (2, 1)
+
+
+def test_render_default_scale_and_bg_are_unchanged(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "-o", "a.png") == 0
+    assert run("render", "one.px", "-o", "b.png", "--scale", "8", "--bg", "#3a3a44") == 0
+    assert Image.open(tmp_path / "a.png").tobytes() == Image.open(tmp_path / "b.png").tobytes()
+
+
+DIFF_A = "k #000000\ng #00ff00\n@frame w/0\n..k\nkgk\n@frame w/1\n.kk\nkgk\n"
+DIFF_B = "k #000000\ng #00ff00\n@frame w/0\n..k\nkgk\n@frame w/1\n..k\nkkk\n"
+
+
+def diff_files(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", DIFF_A)
+    write(tmp_path, "b.px", DIFF_B)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_diff_o_draws_a_b_and_the_differing_pixels(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px:w/1", "b.px:w/1", "-o", "d.png", "--scale", "4") == 1  # still exits 1: they differ
+    out = capsys.readouterr().out.splitlines()
+    assert out == ["2 px differ in 1,0,1,2 (x,y,w,h)", "wrote d.png"]
+    img = Image.open(tmp_path / "d.png").convert("RGBA")
+    colors = {c for _, c in img.getcolors(1 << 16)}
+    assert pxart.DIFF_MARK in colors and (0, 255, 0, 255) in colors
+    # the third panel: the two differing pixels (x=1, rows 0 and 1) in magenta, 4x4 each
+    third = [(x, y) for x in range(img.width) for y in range(img.height) if img.getpixel((x, y)) == pxart.DIFF_MARK]
+    assert len(third) == 2 * 16
+
+
+def test_diff_picture_marks_only_what_differs():
+    a = Image.new("RGBA", (3, 2), (0, 0, 0, 255))
+    b = a.copy()
+    b.putpixel((2, 1), (255, 255, 255, 255))
+    img = pxart.diff_picture(pxart.Item("a", a, 100), pxart.Item("b", b, 100), scale=1)
+    assert sum(1 for p in pxart.pixels(img) if p == pxart.DIFF_MARK) == 1
+    # transparent pixels match whatever their rgb, as diff says, unless strict
+    c, d = Image.new("RGBA", (2, 1), (1, 2, 3, 0)), Image.new("RGBA", (2, 1), (9, 9, 9, 0))
+    loose = pxart.diff_picture(pxart.Item("c", c, 100), pxart.Item("d", d, 100), scale=1)
+    strict = pxart.diff_picture(pxart.Item("c", c, 100), pxart.Item("d", d, 100), strict=True, scale=1)
+    assert pxart.DIFF_MARK not in pxart.pixels(loose) and pxart.DIFF_MARK in pxart.pixels(strict)
+
+
+def test_diff_picture_of_two_sizes_compares_over_both():
+    a = Image.new("RGBA", (2, 2), (0, 0, 0, 255))
+    b = Image.new("RGBA", (3, 2), (0, 0, 0, 255))
+    img = pxart.diff_picture(pxart.Item("a", a, 100), pxart.Item("b", b, 100), scale=1)
+    assert sum(1 for p in pxart.pixels(img) if p == pxart.DIFF_MARK) == 2  # the column only B has
+
+
+def test_diff_picture_scale_keeps_it_within_2048():
+    big = Image.new("RGBA", (256, 224), (0, 0, 0, 255))
+    img = pxart.diff_picture(pxart.Item("a", big, 100), pxart.Item("b", big, 100))
+    assert img.width <= 2048 and img.width >= 3 * 256 * 2
+
+
+def test_diff_o_same_writes_nothing(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px:w/0", "b.px:w/0", "-o", "d.png") == 0
+    assert "note: -o d.png not written: nothing differs" in capsys.readouterr().out
+    assert not (tmp_path / "d.png").exists()
+
+
+def test_diff_o_dir_gets_a_picture_per_pair_that_differs(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px", "b.px", "-o", "diffs") == 1
+    out = capsys.readouterr().out
+    assert "created diffs/" in out and "wrote 1 diff image in diffs/, one per pair that differs" in out
+    assert listing(tmp_path / "diffs") == ["w_1.png"]
+
+
+def test_diff_o_png_for_several_pairs_one_differing_writes_it(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px", "b.px", "-o", "d.png", "--scale", "4") == 1  # still exits 1: a pair differs
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == "wrote d.png (the one pair that differs: w/1)"
+    one = tmp_path / "one.png"
+    assert run("diff", "a.px:w/1", "b.px:w/1", "-o", one, "--scale", "4") == 1
+    assert Image.open(tmp_path / "d.png").tobytes() == Image.open(one).tobytes()  # the same picture as that pair's
+
+
+def test_diff_o_png_for_several_pairs_differing_is_e_bad_arg(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    write(tmp_path, "c.px", DIFF_B.replace("@frame w/0\n..k", "@frame w/0\nk.k"))
+    err = run_err("diff", "a.px", "c.px", "-o", "d.png")
+    assert "diff: E_BAD_ARG: -o d.png: 2 of the 2 pairs differ (w/0, w/1), and -o names one image; name a directory " \
+        "for them (one image per pair that differs): -o diffs/" in err
+    assert not (tmp_path / "d.png").exists()
+    assert "w/0: " in capsys.readouterr().out  # the readout still says which
+
+
+def test_diff_o_png_for_several_pairs_none_differing(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px", "a.px", "-o", "d.png") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "note: -o d.png not written: no pair differs"
+    assert not (tmp_path / "d.png").exists()
+
+
+def test_diff_o_png_for_several_pairs_bad_name_fails_first(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    err = run_err("diff", "a.px", "b.px", "-o", "d.px")
+    assert "'.px' isn't an image type pxart can write; name it .png" in err
+    assert "px differ" not in capsys.readouterr().out
+
+
+def test_diff_o_bad_name_fails_before_the_readout(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    err = run_err("diff", "a.px:w/1", "b.px:w/1", "-o", "d.px")
+    assert "diff: E_BAD_ARG: -o d.px: '.px' isn't an image type pxart can write; name it .png" in err
+    assert "px differ" not in capsys.readouterr().out
+
+
+def test_diff_notes_a_gridded_render(tmp_path, monkeypatch, capsys):
+    # the gate diffed a render against a scene PNG, and only learned the sizes differed
+    diff_files(tmp_path, monkeypatch)
+    assert run("render", "a.px:w/0", "-o", "r.png") == 0
+    capsys.readouterr()
+    assert run("diff", "a.px:w/0", "r.png") == 1
+    out = capsys.readouterr().out
+    assert "note: B (" in out and "looks like a pxart render or sheet of a 3x2 frame" in out
+    assert "'pxart render --plain FILE:ID -o x.png' writes the frame alone at its exact size" in out
+    assert run("render", "a.px:w/0", "--plain", "-o", "p.png") == 0
+    assert run("diff", "a.px:w/0", "p.png") == 0
+
+
+def test_diff_notes_a_scaled_copy(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("render", "a.px:w/0", "--plain", "--scale", "4", "-o", "r4.png") == 0
+    capsys.readouterr()
+    assert run("diff", "r4.png", "a.px:w/0") == 1
+    assert "note: A (12x8) is 3x2 times 4: a render at --scale 4?" in capsys.readouterr().out
+
+
+def test_diff_two_sizes_of_frames_get_no_render_note(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", "k #000000\nk\n")
+    write(tmp_path, "b.px", "k #000000\nkk\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "a.px", "b.px") == 1
+    assert "note:" not in capsys.readouterr().out
+
+
+def outsized_file(tmp_path, big=16):
+    tiles = "".join(f"@frame t{i}\n" + "kkkk\n" * 4 for i in range(4))
+    return write(tmp_path, "s.px", "k #000000\n" + tiles + "@frame big\n" + ("k" * big + "\n") * big)
+
+
+def test_sheet_fit_notes_a_frame_much_bigger_than_the_rest(tmp_path, monkeypatch, capsys):
+    outsized_file(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "s.px", "--fit", "-o", "a.png") == 0
+    out = capsys.readouterr().out
+    assert "note: big (16x16) is over 8x the median frame's area (16 px) and makes its row 16 px tall: pick the " \
+        "other frames with FILE:SEL, or give it a sheet of its own" in out
+
+
+def test_sheet_notes_a_big_frame_without_fit_too(tmp_path, monkeypatch, capsys):
+    outsized_file(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "s.px", "-o", "a.png") == 0
+    assert "and makes every cell 16x16 (--fit sizes each cell to its frame)" in capsys.readouterr().out
+
+
+def test_sheet_big_frame_alone_in_its_file_names_exclude(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "c.px", "k #000000\nkk\n")
+    write(tmp_path, "b.px", "k #000000\n" + "k" * 16 + "\n" + ("k" * 16 + "\n") * 15)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "c.px", "c.px", "b.px", "c.px", "-o", "x.png") == 0
+    out = capsys.readouterr().out
+    assert "b (16x16) is over 8x the median frame's area (2 px)" in out and ": --exclude b.px, or give it" in out
+    assert run("sheet", "c.px", "c.px", "c.px", "-o", "x.png", "--exclude", "b.px") == 0
+
+
+def test_sheet_no_note_at_8x_or_for_two_frames(tmp_path, monkeypatch, capsys):
+    tiles = "".join(f"@frame t{i}\n" + "kk\n" * 2 for i in range(4))
+    write(tmp_path, "e.px", "k #000000\n" + tiles + "@frame big\n" + "kkkk\n" * 8)  # 32 px: exactly 8x of 4
+    write(tmp_path, "two.px", "k #000000\n@frame a\nk\n@frame b\n" + "kkkkkkkk\n" * 8)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "e.px", "-o", "a.png") == 0 and run("sheet", "two.px", "-o", "b.png") == 0
+    assert "median" not in capsys.readouterr().out
+
+
+def test_help_says_image_outputs_are_checked():
+    assert "an image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG" in \
+        " ".join(pxart.__doc__.split())
+
+
+def test_anim_gif_upper_case_suffix_is_a_gif(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "a.px:walk", "-o", "W.GIF") == 0
+    assert Image.open(tmp_path / "W.GIF").format == "GIF" and (tmp_path / "W.strip.png").is_file()
+
+
+def test_save_image_refuses_an_animation_in_a_still_format(tmp_path):
+    img = Image.new("RGBA", (2, 2))
+    with pytest.raises(pxart.PxError) as e:
+        pxart.save_image(img, tmp_path / "x.bmp", save_all=True, append_images=[img])
+    assert codes(e) == ["E_BAD_ARG"] and "a BMP can't hold an animation; name it .gif" in str(e.value)
+    assert not (tmp_path / "x.bmp").exists()
+
+
+# ---------------------------------------------------------------- onion --feet: the band says what it is
+
+PLANTED = ("k #000000\nr #ff0000\n"
+           "@frame w/0\n..kk..\n..kk..\n..kk..\n..kk..\n.kkkk.\nk....k\n"
+           "@frame w/1\n......\n..kk..\n..kk..\n..kk..\n..kk..\nkkkkkk\n")
+
+
+def test_onion_feet_band_names_bottom_n_rows_and_where_each_is_opaque(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2].startswith("B vs A (bottom 3 canvas rows 3-5; opaque in 3-5): ")
+
+
+def test_onion_band_says_each_frames_opaque_rows_when_they_differ(tmp_path, capsys):
+    # A's feet fill rows 13-15 of the band; B's only 14-15: the band says so, not just 'rows 13-15'
+    rows_a = ["." * 4] * 13 + [".kk.", ".kk.", "kkkk"]
+    rows_b = ["." * 4] * 13 + ["....", ".kk.", "kkkk"]
+    p = write(tmp_path, "t.px", "k #000000\n@frame w/0\n" + "\n".join(rows_a) + "\n@frame w/1\n" + "\n".join(rows_b)
+              + "\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2].startswith("B vs A (bottom 3 canvas rows 13-15; A opaque in 13-15, B in 14-15): left +0, right "
+                               "+0, top +1, bottom +0; ")
+
+
+def test_onion_band_agreeing_bottoms_say_no_shift(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "3")
+    assert lines[2] == ("B vs A (bottom 3 canvas rows 3-5; opaque in 3-5): left +0, right +0, top +0, bottom +0; "
+                        "bottom edges agree, so no shift: 6px changed (the band's best shift +0,+1 then 2px only "
+                        "lines up what moved above its bottom edge)")
+    assert "; best shift" not in lines[2]
+
+
+def test_onion_band_agreeing_bottoms_with_no_vertical_shift_reads_as_before(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "k #000000\n@frame w/0\nk...\nkk..\n@frame w/1\n.k..\n.kk.\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "2")
+    assert lines[2] == ("B vs A (bottom 2 canvas rows 0-1; opaque in 0-1): left +1, right +1, top +0, bottom +0; best "
+                        "shift +1,+0 then 0px changed (no shift: 4px)")
+
+
+def test_onion_band_bottoms_that_moved_keep_the_best_shift(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\nr #ff0000\n@frame a\n.k.\nrrr\nk.k\n...\n@frame b\n...\n.k.\nrrr\nk.k\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2")
+    assert "bottom +1; best shift +0,+1 then 0px changed (no shift: 5px)" in lines[2]
+
+
+def test_onion_rows_band_is_canvas_rows(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "1-2")
+    assert lines[2].startswith("B vs A (canvas rows 1-2; opaque in 1-2): ")
+    assert "(rows 1-2 of the 6x6 canvas, bottom-centered)" in lines[0]
+
+
+def test_onion_band_with_nothing_opaque_in_b_names_no_rows(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0")
+    assert lines[1] == "B w/1: nothing opaque in row 0" and not any(l.startswith("B vs A") for l in lines)
+
+
+def test_onion_whole_canvas_readout_unchanged_by_the_band_wording(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
+    assert lines[2].startswith("B vs A: left +0, right +0, top +1, bottom +0; best shift ")
+
+
+def test_onion_feet_more_than_the_canvas_counts_the_rows_it_has(tmp_path, capsys):
+    p = write(tmp_path, "p.px", PLANTED)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "40")
+    assert lines[2].startswith("B vs A (bottom 6 canvas rows 0-5; A opaque in 0-5, B in 1-5): ")
+
+
+def test_help_says_how_the_band_reads():
+    text = " ".join(pxart.__doc__.split())
+    assert "'B vs A (bottom 4 canvas rows 20-23; A opaque in 20-23, B in 21-23): left +0, ...'" in text
+    assert "when the bottom edges agree, one up or down only lines up what moved above them, and the readout says " \
+        "no shift" in text
+
+
+# ---------------------------------------------------------------- recipes 5 and 6: the base proof, the whole-sprite bob
+
+def test_recipe_scene_proves_base_and_night(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Make a scene from a map"])
+    diffs = [(argv, out) for argv, _, out in ran if argv[0] == "diff"]
+    assert [argv[1:] for argv, _ in diffs] == [["market.px", "market.png"], ["market.px%night", "night.png"]]
+    assert all(out == "same: 96x48, every pixel\n" for _, out in diffs)
+
+
+def test_recipe_scene_base_proof_catches_a_change(tmp_path, monkeypatch, capsys):
+    cmds = dict(recipes())["Make a scene from a map"]
+    run_recipe(tmp_path, monkeypatch, capsys, cmds[:3])
+    doc = pxart.parse(tmp_path / "market.px")
+    doc.frames[0].grid[0] = "." + doc.frames[0].grid[0][1:]
+    doc.save()
+    assert run(*cmds[3]) == 1
+
+
+def test_recipe_scene_renders_proofs_at_1x_transparent():
+    block = pxart.RECIPES.split("  5. ")[1].split("  6. ")[0]
+    scenes = [l for l in block.splitlines() if "$ pxart scene" in l]
+    assert len(scenes) == 2 and all("--bg transparent --scale 1" in l for l in scenes)
+    assert "base and night" in " ".join(block.split())
+
+
+def test_recipe_feet_says_what_to_do_about_a_whole_sprite_bob():
+    block = " ".join(pxart.RECIPES.split("  6. ")[1].split())
+    assert "A whole-sprite bob ('shift +0,+1 then 0px', feet and all) isn't a feet problem, and no pivot fixes it: " \
+        "shift that frame back up (shift FILE:frame --dy -1), then lower only the body (--region x,y,w,h above the " \
+        "feet)." in block
+
+
+def test_recipe_feet_bob_fix_works(tmp_path, monkeypatch, capsys):
+    # a frame that is the whole sprite 1px lower: shift it back up and the strip reads no bob; then lower only the body
+    p = write(tmp_path, "b.px", "k #000000\nr #ff0000\n@anim w ms=100\n@frame w/0\n.k.\nkkk\nr.r\n...\n"
+                                "@frame w/1\n...\n.k.\nkkk\nr.r\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "b.px:w") == 0
+    assert "shift +0,+1 then 0px" in capsys.readouterr().out
+    assert run("shift", "b.px:w/1", "--dy", "-1") == 0
+    assert pxart.parse(p).get("w/1").grid == pxart.parse(p).get("w/0").grid
+    capsys.readouterr()
+    assert run("anim", "b.px:w") == 0
+    assert "shift +0,+1" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- frames --copy-to --rename: no @anim for a group left empty
+
+KEEPER_IDLE = ("pxart 1\nk #000000\nr #c4473a\n@anim idle/down ms=200 direction=pingpong\n@still ui\n"
+               "@frame idle/down/0\nk.\n@frame idle/down/1\n.k\n@frame ui/life\nrr\n")
+
+
+def test_copy_one_frame_renamed_top_level_adds_no_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "world.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("extract", "world.px:lighthouse", "-o", "coast.px") == 0
+    capsys.readouterr()
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    out = capsys.readouterr().out
+    assert "added @anim" not in out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.anims == {} and [f.id for f in doc.frames] == ["lighthouse", "keeper"]
+    assert "@anim" not in (tmp_path / "coast.px").read_text()
+    assert run("check", "--strict", "coast.px") == 0
+    assert "names a group with no frames" not in capsys.readouterr().out
+
+
+def test_copy_one_frame_renamed_top_level_drops_its_timing(tmp_path, monkeypatch, capsys):
+    # it was kept (ms=200 on its @frame line); a top-level id is a still, and stills have no timing (loop V)
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    assert pxart.parse(tmp_path / "coast.px").get("keeper").ms is None
+    assert "note: keeper lands in coast.px as a still (a top-level id): its ms=200 dropped (stills have no timing)\n" \
+        in capsys.readouterr().out
+
+
+def test_copy_one_frame_renamed_into_another_group_adds_no_source_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0",
+               "pose/0") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" not in doc.anims and [f.id for f in doc.frames] == ["lighthouse", "pose/0"]
+    assert pxart.orphans(doc) == []
+
+
+def test_copy_still_frame_renamed_top_level_adds_no_still(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\nr #c4473a\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:ui/life", "--copy-to", "coast.px", "--rename", "ui/life", "life") == 0
+    out = capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.stills == [] and "added @still" not in out and pxart.orphans(doc) == []
+
+
+def test_copy_group_renamed_still_adds_its_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down", "--copy-to", "coast.px", "--rename", "idle/down", "keeper/idle") == 0
+    assert "added @anim keeper/idle" in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.anims["keeper/idle"] == {"direction": "pingpong", "repeat": None, "ms": 200}
+
+
+def test_copy_one_frame_keeping_its_group_still_adds_the_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px") == 0
+    assert "added @anim idle/down" in capsys.readouterr().out
+    assert "idle/down" in pxart.parse(tmp_path / "coast.px").anims
+
+
+def test_copy_frame_renamed_within_its_group_adds_the_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/1", "--copy-to", "coast.px", "--rename", "idle/down/1",
+               "idle/down/0") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" in doc.anims and pxart.orphans(doc) == []
+
+
+def test_copy_two_frames_one_renamed_away_keeps_the_anim_for_the_other(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" in doc.anims and [f.id for f in doc.frames] == ["lighthouse", "keeper", "idle/down/1"]
+    assert pxart.orphans(doc) == []
+
+
+# ---------------------------------------------------------------- a comment right above the first key is that key's
+
+@pytest.mark.parametrize("text, header, lead", [
+    ("# outline\nk #000000\n", [], ["# outline"]),
+    ("# header\n\nk #000000\n", ["# header", ""], []),
+    ("# header\n\n# outline\nk #000000\n", ["# header", ""], ["# outline"]),
+    ("# h1\n# h2\n\n# o1\n# o2\nk #000000\n", ["# h1", "# h2", ""], ["# o1", "# o2"]),
+    ("# a\n\n# b\n\n# outline\nk #000000\n", ["# a", "", "# b", ""], ["# outline"]),
+    ("# header\npxart 1\nk #000000\n", ["# header"], []),
+    ("# header\npxart 1\n# outline\nk #000000\n", ["# header"], ["# outline"]),
+    ("\n# outline\nk #000000\n", [""], ["# outline"]),
+    ("k #000000\n", [], []),
+])
+def test_parse_splits_header_from_the_first_keys_comment(tmp_path, text, header, lead):
+    doc = pxart.parse(write(tmp_path, "p.px", text), palette_only=True)
+    assert doc.comments == header and (doc.lead.get(("key", "k")) or []) == lead
+    assert doc.text() == text
+
+
+def test_parse_first_key_dot_takes_its_comment(tmp_path):
+    doc = pxart.parse(write(tmp_path, "p.px", "# see-through\n. transparent\nk #000000\n\n.k\n"))
+    assert doc.comments == [] and doc.lead[("key", ".")] == ["# see-through"]
+
+
+@pytest.mark.parametrize("first", ["@palette pal.px", "@anim a"])
+def test_comment_above_a_first_line_that_is_no_key_is_the_header(tmp_path, first):
+    write(tmp_path, "pal.px", "k #000000\n")
+    text = f"# the sprite\n{first}\n" + ("k #000000\n" if first != "@palette pal.px" else "") + \
+        ("@frame a\n" if first == "@anim a" else "") + "k\n"
+    doc = pxart.parse(write(tmp_path, "s.px", text))
+    assert doc.comments == ["# the sprite"]
+
+
+def test_implicit_grid_file_first_key_comment(tmp_path):
+    doc = pxart.parse(write(tmp_path, "a.px", "# a small face\nk #3f2631\n\n.k.\n"))
+    assert doc.comments == [] and doc.lead[("key", "k")] == ["# a small face"]
+
+
+@pytest.mark.parametrize("text", [
+    "# outline\nk #000000\nw #ffffff\n",
+    "# header\n\n# outline\nk #000000\n# white\nw #ffffff\n",
+    "# header\npxart 1\n# outline\nk #000000\n",
+    "# header\n\nk #000000\n\n# night\n@variant night\nk #111111\n",
+    "\n\n# outline\nk #000000\n",
+    "# h\r\n\r\n# outline\r\nk #000000\r\n",
+    "# only comments, then a key\n# second line\nk #000000",
+])
+def test_header_and_key_comment_round_trip(tmp_path, text):
+    p = write(tmp_path, "p.px", text)
+    p.write_bytes(text.encode())
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.text() == text
+    assert run("palette", p, "--add", "z=#123456") == 0
+    again = pxart.parse(p, palette_only=True)
+    assert again.comments == doc.comments and again.lead.get(("key", "k")) == doc.lead.get(("key", "k"))
+
+
+def test_comment_header_on_a_file_whose_first_key_has_a_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--comment-header", "the header") == 0
+    assert p.read_text() == "# the header\n\n# outline\nk #000000\nw #ffffff\n"
+    doc = pxart.parse(p, palette_only=True)
+    assert [l for l in doc.comments if l.strip()] == ["# the header"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_comment_header_on_a_file_with_a_version_line(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment-header", "the header") == 0
+    assert p.read_text() == "# the header\npxart 1\n# outline\nk #000000\n"
+    doc = pxart.parse(p, palette_only=True)
+    assert doc.comments == ["# the header"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_comment_header_replaced_keeps_the_key_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# old\n\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment-header", "new") == 0
+    assert p.read_text() == "# new\n\n# outline\nk #000000\n"
+
+
+def test_comment_on_the_first_key_leaves_the_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\n")
+    assert run("palette", p, "--comment", "k", "plum outline") == 0
+    assert p.read_text() == "# header\n\n# plum outline\nk #000000\n"
+
+
+def test_comment_on_the_first_key_with_no_blank_line_is_its_own(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\n")
+    assert run("palette", p, "--comment", "k", "plum outline") == 0
+    assert p.read_text() == "# plum outline\nk #000000\n"
+
+
+def test_listing_shows_the_first_keys_comment_on_its_line(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# Cozy seaside\n\n# outline: plum-navy\nk #2a1f33\n# whitewash\nw #f6f1e4\n")
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "# Cozy seaside"
+    assert "# outline: plum-navy" not in lines[:2]
+    assert any(l.startswith("k #2a1f33") and l.endswith("# outline: plum-navy") for l in lines)
+
+
+def test_listing_no_header_when_the_comment_is_the_first_keys(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #2a1f33\n")
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(". transparent") and lines[1].endswith("# outline")
+
+
+def test_example_03_palette_lists_k_with_its_comment(capsys):
+    p = pathlib.Path(__file__).resolve().parent.parent / "examples" / "03-variants" / "palette.px"
+    assert run("palette", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "# Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline."
+    assert lines[2] == "k #2a1f33     local  # outline: plum-navy, not black"
+
+
+def test_extract_to_keeps_header_and_first_key_comment_apart(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# the palette\n\n# outline\nk #000000\n")
+    out = tmp_path / "copy.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "# the palette\npxart 1\n# outline\nk #000000\n"
+    doc = pxart.parse(out, palette_only=True)
+    assert doc.comments == ["# the palette"] and doc.lead[("key", "k")] == ["# outline"]
+
+
+def test_extract_to_first_key_comment_is_no_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\n")
+    out = tmp_path / "copy.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "pxart 1\n# outline\nk #000000\n"
+
+
+def test_remove_first_key_takes_its_comment_not_the_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--remove", "k") == 0
+    assert p.read_text() == "# header\n\nw #ffffff\n"
+
+
+def test_remove_first_key_takes_its_direct_comment(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# outline\nk #000000\nw #ffffff\n")
+    assert run("palette", p, "--remove", "k") == 0
+    assert p.read_text() == "w #ffffff\n"
+
+
+def test_order_moves_the_first_keys_comment_with_it(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\n# outline\nk #000000\n# white\nw #ffffff\n")
+    assert run("palette", p, "--order", "w,k") == 0
+    doc = pxart.parse(p, palette_only=True)
+    assert [l for l in doc.comments if l.strip()] == ["# header"]
+    assert doc.lead[("key", "w")][-1] == "# white" and doc.lead[("key", "k")][-1] == "# outline"
+
+
+def test_text_separates_a_header_from_a_first_key_comment():
+    doc = pxart.Doc()
+    doc.comments = ["# header"]
+    doc.palette = {"k": (0, 0, 0, 255)}
+    doc.lead[("key", "k")] = ["# outline"]
+    assert doc.text() == "# header\n\n# outline\nk #000000\n"
+    doc.lead[("key", "k")] = []
+    assert doc.text() == "# header\n\nk #000000\n"
+    doc.version = 1
+    assert doc.text() == "# header\npxart 1\nk #000000\n"
+
+
+def test_compose_carries_the_first_keys_comment_as_a_key_comment(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# outline: plum\nk #2a1f33\nr #c4473a\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "q #00ff00\n@frame z\nq\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
+    doc = pxart.parse(out)
+    assert any("# outline: plum" in l for l in doc.lead.get(("key", "k"), []))
+    assert not any("outline" in l for l in doc.comments)
+
+
+def test_help_and_readme_say_what_the_header_is():
+    assert "A comment right above a line is that line's; a header is above 'pxart 1' or a blank line." in \
+        pxart.__doc__
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "A comment right above a line is that line's (a key's comment); a file's header is the comments above " \
+        "`pxart 1`, or separated from its first line by a blank line." in readme
+
+
+# ---------------------------------------------------------------- frames --rm keeps the blank lines around what it removes
+
+def rm_layout_file(tmp_path, text):
+    write(tmp_path, "pal.px", "k #000000\n")
+    return write(tmp_path, "s.px", text)
+
+
+@pytest.mark.parametrize("text, argv, want", [
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n\n@frame idle\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@frame idle\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n# walking\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n",
+     ["", "--rm", "walk/0"],
+     "pxart 1\n@palette pal.px\n\n# walking\n@anim walk ms=100\n\n@frame walk/1\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n\n@frame walk/1\nk\n\n@frame walk/2\nk\n",
+     ["", "--rm", "walk/1"],
+     "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n\n@frame walk/2\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n# the walk\n@anim walk ms=100\n@still ui\n\n@frame walk/0\nk\n@frame ui/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@still ui\n\n@frame ui/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@still ui\n@anim walk ms=100\n\n@frame ui/0\nk\n@frame walk/0\nk\n",
+     [":ui", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk/0", "--rm"],
+     "pxart 1\n@palette pal.px\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+    ("pxart 1\n@palette pal.px\n\n\n@anim walk ms=100\n@anim idle ms=50\n\n@frame walk/0\nk\n@frame idle/0\nk\n",
+     [":walk", "--rm"],
+     "pxart 1\n@palette pal.px\n\n\n@anim idle ms=50\n\n@frame idle/0\nk\n"),
+])
+def test_frames_rm_keeps_the_layout(tmp_path, capsys, text, argv, want):
+    p = rm_layout_file(tmp_path, text)
+    assert run("frames", f"{p}{argv[0]}", *argv[1:]) == 0
+    assert p.read_text() == want
+
+
+def test_frames_rm_last_frames_at_the_end_leave_no_stray_blank(tmp_path, capsys):
+    p = rm_layout_file(tmp_path, "pxart 1\n@palette pal.px\n\n@frame a\nk\n\n@frame b\nk\n")
+    assert run("frames", p, "--rm", "b") == 0
+    assert p.read_text() == "pxart 1\n@palette pal.px\n\n@frame a\nk\n"
+
+
+def test_frames_rm_crlf_keeps_the_layout(tmp_path, capsys):
+    p = rm_layout_file(tmp_path, "x")
+    p.write_bytes(b"pxart 1\r\n@palette pal.px\r\n\r\n@anim walk ms=100\r\n@anim idle ms=50\r\n\r\n@frame walk/0\r\nk\r\n"
+                  b"@frame idle/0\r\nk\r\n")
+    assert run("frames", f"{p}:walk", "--rm") == 0
+    assert p.read_bytes() == b"pxart 1\r\n@palette pal.px\r\n\r\n@anim idle ms=50\r\n\r\n@frame idle/0\r\nk\r\n"
+
+
+def test_frames_move_is_unchanged_by_keep_spacing(tmp_path, capsys):
+    text = "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n\n@frame walk/0\nk\n@frame walk/1\nk\n"
+    p = rm_layout_file(tmp_path, text)
+    assert run("frames", p, "--move", "walk/1", "--before", "walk/0") == 0
+    # a move takes each line's blank lines with it, as it did: only removals hand them on
+    assert p.read_text() == "pxart 1\n@palette pal.px\n\n@anim walk ms=100\n@frame walk/1\nk\n\n@frame walk/0\nk\n"
+
+
+def test_keep_spacing_unit(tmp_path):
+    p = rm_layout_file(tmp_path, "pxart 1\n@palette pal.px\n\n@anim a\n@anim b\n@frame a/0\nk\n@frame b/0\nk\n")
+    doc = pxart.parse(p)
+    del doc.anims["a"]
+    doc.frames = [f for f in doc.frames if f.id != "a/0"]
+    pxart.keep_spacing(doc, {("anim", "a"), ("frame", "a/0"), ("row", "a/0", 0)})
+    assert doc.text() == "pxart 1\n@palette pal.px\n\n@anim b\n@frame b/0\nk\n"
+
+
+# ---------------------------------------------------------------- anim's strip labels: wrapped to the cell, the readout's words
+
+def strip_walk(tmp_path, w=24, h=8):
+    rows0 = ["." * w] * (h - 3) + ["." * 4 + "k" * (w - 8) + "." * 4] * 3
+    rows1 = ["." * w] * (h - 4) + ["." * 5 + "k" * (w - 8) + "." * 3] * 3 + ["." * w]
+    return write(tmp_path, "w.px", "k #000000\n@anim walk/down ms=100\n@frame walk/down/0\n" + "\n".join(rows0)
+                 + "\n@frame walk/down/1\n" + "\n".join(rows1) + "\n")
+
+
+def test_fit_lines_wraps_at_spaces():
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    one = d.textlength("x", font=font)
+    assert pxart.fit_lines(d, "shift +1,+0 then 21px (17%)", one * 12, font) == ["shift +1,+0", "then 21px", "(17%)"]
+    assert pxart.fit_lines(d, "(no shift: 79px)", one * 16, font) == ["(no shift: 79px)"]
+    assert pxart.fit_lines(d, "", 100, font) == []
+    assert pxart.fit_lines(d, "a b", 1000, font) == ["a b"]
+
+
+def test_fit_lines_breaks_a_word_wider_than_the_cell():
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    one = d.textlength("x", font=font)
+    got = pxart.fit_lines(d, "wick/walk/down/0 150ms", one * 6, font)
+    assert "".join(got[:-1]) == "wick/walk/down/0" and got[-1] == "150ms"
+    assert all(d.textlength(l, font=font) <= one * 6 for l in got)
+
+
+def test_fit_lines_never_wider_than_asked(tmp_path):
+    import random
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    rng = random.Random(7)
+    for _ in range(200):
+        text = " ".join("".join(rng.choice("abc/:(),+-0123 ") for _ in range(rng.randrange(1, 14)))
+                        for _ in range(rng.randrange(1, 6)))
+        width = rng.randrange(8, 120)
+        lines = pxart.fit_lines(d, text, width, font)
+        one = d.textlength("x", font=font)
+        assert all(d.textlength(l, font=font) <= max(width, one) for l in lines), (text, width, lines)
+        assert "".join(lines).replace(" ", "") == text.replace(" ", "")
+
+
+def test_strip_labels_stay_inside_their_cells(tmp_path, capsys):
+    p = strip_walk(tmp_path)
+    out = tmp_path / "w.gif"
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", out) == 0
+    strip = Image.open(tmp_path / "w.strip.png").convert("RGBA")
+    w, S, pad = 24, 4, 8
+    for i in range(2):  # the gap between cells (and past the last) is backdrop in every label row
+        for x in range(pad + i * (w * S + pad) + w * S, pad + (i + 1) * (w * S + pad)):
+            for y in range(strip.height):
+                assert strip.getpixel((x, y)) == (30, 30, 36, 255), (x, y)
+
+
+def test_strip_labels_are_the_readouts_words(tmp_path, capsys, monkeypatch):
+    p = strip_walk(tmp_path)
+    drawn = []
+    real = pxart.ImageDraw.ImageDraw.text
+
+    def spy(self, xy, text, *args, **kw):
+        drawn.append(text)
+        return real(self, xy, text, *args, **kw)
+    monkeypatch.setattr(pxart.ImageDraw.ImageDraw, "text", spy)
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", tmp_path / "w.gif") == 0
+    printed = capsys.readouterr().out
+    words = " ".join(drawn)
+    assert "(no shift:" in words and "(noshift" not in words
+    for line in printed.splitlines()[:2]:
+        said = line.split(": ", 1)[1]
+        assert all(wd in words for wd in said.split())
+
+
+def test_strip_is_as_tall_as_its_labels_need(tmp_path, capsys):
+    p = strip_walk(tmp_path)
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", tmp_path / "a.gif") == 0
+    assert run("anim", f"{p}:walk/down", "--scale", "12", "-o", tmp_path / "b.gif") == 0
+    a, b = (Image.open(tmp_path / n) for n in ("a.strip.png", "b.strip.png"))
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    lines_a = len(pxart.fit_lines(d, "walk/down/0 100ms", 24 * 4, font))
+    assert a.height >= 8 + 2 * (8 * 4 + 8) + (lines_a + 2) * pxart.LINE_H
+    assert b.height == 8 + 2 * (8 * 12 + 8) + 3 * pxart.LINE_H + 2  # wide cells: one line each
+
+
+def test_strip_font_is_a_pixel_font():
+    font = pxart.strip_font()
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    assert d.textlength(" ", font=font) >= 4 and d.textlength(":", font=font) >= 4
+
+
+# ---------------------------------------------------------------- compose heads a new OUT with how it was made
+
+def test_compose_new_out_says_how_it_was_composed(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0", "a.px:x+h@1,0") == 0
+    text = (tmp_path / "o.px").read_text()
+    assert text.splitlines()[0] == "# composed by: pxart compose -o o.px a.px:x@0,0 a.px:x+h@1,0"
+    assert text.splitlines()[1] == "pxart 1"
+    assert pxart.parse(tmp_path / "o.px").comments == ["# composed by: pxart compose -o o.px a.px:x@0,0 a.px:x+h@1,0"]
+
+
+def test_compose_provenance_paths_are_from_outs_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    (tmp_path / "packs").mkdir()
+    write(tmp_path / "packs", "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "town/o.px", "--size", "2x1", "packs/a.px:x%base@0,0") == 0
+    assert (tmp_path / "town/o.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose -o o.px --size 2x1 ../packs/a.px:x%base@0,0"
+
+
+def test_compose_provenance_absolute_paths_are_made_relative(tmp_path, monkeypatch):
+    a = write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    assert run("compose", "-o", tmp_path / "o.px", f"{a}:x@0,0") == 0
+    assert (tmp_path / "o.px").read_text().splitlines()[0] == "# composed by: pxart compose -o o.px a.px:x@0,0"
+
+
+def test_compose_provenance_runs_again_from_outs_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    write(tmp_path, "pal.px", "k #000000\ng #40a040\n@variant night\ng #102010\n")
+    write(tmp_path / "town", "a.px", "@palette ../pal.px\n@frame x\nkg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "town/o.px", "town/a.px:x@0,0", "town/a.px:x+h@2,0") == 0
+    first = (tmp_path / "town/o.px").read_text()
+    cmd = first.splitlines()[0][len("# composed by: pxart "):]
+    monkeypatch.chdir(tmp_path / "town")
+    assert run(*shlex.split(cmd.replace("-o o.px", "-o o2.px"))) == 0
+    assert (tmp_path / "town/o2.px").read_text() == first.replace("-o o.px", "-o o2.px")
+
+
+def test_compose_map_provenance(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    write(tmp_path / "town", "a.px", "k #000000\n@frame x\nkk\nkk\n")
+    write(tmp_path / "town", "room.map", "a a.px:x\n\naa\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "town/room.map", "--tile", "2", "-o", "town/room.px") == 0
+    assert (tmp_path / "town/room.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose --map room.map --tile 2 -o room.px"
+
+
+def test_compose_provenance_quotes_what_the_shell_would_mangle(tmp_path, monkeypatch):
+    write(tmp_path, "my parts.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "my parts.px:x@0,0") == 0
+    line = (tmp_path / "o.px").read_text().splitlines()[0]
+    assert line == "# composed by: pxart compose -o o.px 'my parts.px:x@0,0'"
+    assert shlex.split(line[len("# composed by: pxart "):]) == ["compose", "-o", "o.px", "my parts.px:x@0,0"]
+
+
+def test_compose_replace_is_stamped_with_its_own_command(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "o.px", "# my header\nz #ffffff\n\nz\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0", "--replace") == 0
+    assert (tmp_path / "o.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose -o o.px a.px:x@0,0 --replace"
+    assert "# my header" not in (tmp_path / "o.px").read_text()  # started fresh, as if new
+
+
+def test_compose_again_updates_the_line(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    assert run("compose", "-o", "o.px", "a.px:x@1,0", "--size", "2x1") == 0
+    lines = (tmp_path / "o.px").read_text().splitlines()
+    assert lines[0] == "# composed by: pxart compose -o o.px a.px:x@1,0 --size 2x1"
+    assert sum(l.startswith("# composed by:") for l in lines) == 1
+
+
+def test_compose_onto_an_existing_file_without_the_line_leaves_its_header(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "o.px", "# hand-made\nk #000000\n\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    text = (tmp_path / "o.px").read_text()
+    assert text.startswith("# hand-made\n") and "composed by" not in text
+
+
+def test_compose_into_a_frame_of_an_existing_file_leaves_its_header(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    before = (tmp_path / "o.px").read_text().splitlines()[0]
+    write(tmp_path, "h.px", "# hero\nk #000000\n@frame idle/0\nk\n")
+    assert run("compose", "-o", "h.px:idle/1", "a.px:x@0,0") == 0
+    assert (tmp_path / "h.px").read_text().startswith("# hero\n")
+    assert "composed by" not in (tmp_path / "h.px").read_text()
+    assert before == "# composed by: pxart compose -o o.px a.px:x@0,0"
+
+
+def test_crop_is_not_stamped(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nkk\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("crop", "a.px:x", "0,0,1,1", "-o", "c.px") == 0
+    assert "composed by" not in (tmp_path / "c.px").read_text()
+
+
+def test_failed_compose_writes_no_line(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "b.px", "k #ffffff\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", "o.px", "a.px:x@0,0", "b.px:x@0,0")
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_compose_stamp_renders_the_same(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\ng #40a040\n@variant night\ng #102010\n@frame x\nkg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    assert run("diff", "o.px", "a.px:x") == 0 and run("diff", "o.px%night", "a.px:x%night") == 0
+
+
+def test_composed_from_reads_the_line_back_from_the_current_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    p = write(tmp_path / "town", "o.px", "# composed by: pxart compose --map room.map -o o.px\npxart 1\nk #000000\n\nk\n")
+    monkeypatch.chdir(tmp_path)
+    doc = pxart.parse("town/o.px")
+    assert pxart.composed_from(doc) == ("pxart compose --map town/room.map -o town/o.px --replace",
+                                        "# composed by: pxart compose --map room.map -o o.px")
+    assert pxart.composed_from(pxart.parse(p)) is not None
+
+
+def test_composed_from_a_loose_comment(tmp_path):
+    p = write(tmp_path, "o.px", "# street, composed from street.map by hand-run script\n\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) == (None, "# street, composed from street.map by hand-run script")
+
+
+def test_composed_from_keeps_a_replace_it_has(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "o.px", "# composed by: pxart compose -o o.px a.px@0,0 --replace\npxart 1\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p))[0] == "pxart compose -o o.px a.px@0,0 --replace"
+
+
+def test_composed_from_a_frame_of_a_file_is_not_replaced_whole(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # -o o.px:street: compose replaces that frame; --replace would drop the file's other frames (and is an error)
+    p = write(tmp_path, "o.px", "# composed by: pxart compose -o o.px:street a.px@0,0\npxart 1\nk #000000\n"
+                                "@frame street\nk\n")
+    assert pxart.composed_from(pxart.parse(p))[0] == "pxart compose -o o.px:street a.px@0,0"
+
+
+def test_composed_from_none_without_a_line(tmp_path):
+    p = write(tmp_path, "o.px", "# a street\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) is None
+
+
+def test_composed_from_only_the_header(tmp_path):
+    p = write(tmp_path, "o.px", "k #000000\n\n# composed by: pxart compose -o o.px a.px@0,0\n@frame x\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) is None  # that comment is the frame's, not the file's
+
+
+def composed_half(tmp_path, head):
+    half(tmp_path)
+    return write(tmp_path, "street.px", head + HALF_SPRITE)
+
+
+def test_half_warning_on_a_composed_file_offers_composing_again(tmp_path, monkeypatch, capsys):
+    composed_half(tmp_path, "# composed by: pxart compose --map street.map -o street.px\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="street.px", pal="pal.px") + "; or, since its header says it was composed ('# composed " \
+        "by: pxart compose --map street.map -o street.px'), give its sources a dusk of their own and compose it " \
+        "again: 'pxart compose --map street.map -o street.px --replace'" in out
+
+
+def test_half_warning_on_a_composed_file_elsewhere_runs_from_here(tmp_path, monkeypatch, capsys):
+    (tmp_path / "town").mkdir()
+    composed_half(tmp_path / "town", "# composed by: pxart compose --map street.map -o street.px\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "town/street.px") == 0
+    assert "compose it again: 'pxart compose --map town/street.map -o town/street.px --replace'" in \
+        capsys.readouterr().out
+
+
+def test_half_warning_on_a_loosely_composed_file(tmp_path, monkeypatch, capsys):
+    composed_half(tmp_path, "# composed from the street layers\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "street.px") == 0
+    assert "; or, since its header says it was composed ('# composed from the street layers'), give its sources a " \
+        "dusk of their own and compose it again from its map or layers" in capsys.readouterr().out
+
+
+def test_half_warning_on_a_plain_file_says_nothing_of_compose(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "compose" not in capsys.readouterr().out
+
+
+def test_half_warning_a_real_composed_street_then_the_fix(tmp_path, monkeypatch, capsys):
+    # the gate's street: composed from a map whose visitor has no dusk; giving the visitor one (as its own warning
+    # says) and composing again leaves no warning
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0\n\nw\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "street.map", "--tile", "4x2", "-o", "street.px") == 0
+    capsys.readouterr()
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    fix = re.search(r"'pxart (palette wick\.px [^']*)'", out)
+    again = re.search(r"compose it again: 'pxart ([^']*)'", out)
+    assert again and again.group(1) == "compose --map street.map --tile 4x2 -o street.px --replace"
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    fix = re.search(r"'pxart (palette wick\.px [^']*)'", capsys.readouterr().out)
+    assert run(*shlex.split(fix.group(1))) == 0
+    assert run(*shlex.split(again.group(1))) == 0
+    capsys.readouterr()
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "street.px")
+    assert doc.resolved("dusk")["M"] == doc.resolved()["M"]  # the flame, kept lit through both steps
+
+
+def test_examples_dock_says_how_it_was_composed():
+    dock = pathlib.Path(pxart.__file__).parent / "examples/05-compose/dock.px"
+    first = dock.read_text().splitlines()[0]
+    assert first.startswith("# composed by: pxart compose -o dock.px --size 80x48 --rekey --variant-map "
+                            "dusk=night,dark harbor-market/harbor.px:water/0@0,0 ")
+
+
+def test_help_and_readme_document_the_composed_by_header():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A new OUT's header says how it was made: '# composed by: pxart compose --map room.map -o room.px', its " \
+        "paths from OUT's folder (composing OUT whole again updates it)." in doc
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "A new OUT's header says how it was made (`# composed by: pxart compose --map room.map -o room.px`, paths " \
+        "from its folder)" in readme
+
+
+# ---------------------------------------------------------------- frames --rm GROUP says the group goes in the selector
+
+RM_FILE = "k #000000\n@anim walk ms=100\n@frame walk/0\nk\n@frame walk/1\nk\n@frame idle\nk\n@frame walk2\nk\n"
+
+
+def test_frames_rm_a_group_says_it_is_one(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    err = run_err("frames", p, "--rm", "walk")
+    assert err == f"frames: E_BAD_ARG: --rm 'walk' is a group (walk/0, walk/1); --rm takes frame ids. A group goes " \
+                  f"in the selector: frames {p}:walk --rm"
+    assert p.read_text() == RM_FILE
+
+
+def test_frames_rm_group_suggestion_works(tmp_path, capsys):
+    p = write(tmp_path, "h.px", RM_FILE)
+    cmd = run_err("frames", p, "--rm", "walk").rsplit("selector: ", 1)[1]
+    assert run(*shlex.split(cmd)) == 0
+    assert "removed walk/0, walk/1" in capsys.readouterr().out
+    assert [f.id for f in pxart.parse(p).frames] == ["idle", "walk2"]
+    assert "@anim walk" not in p.read_text()
+
+
+def test_frames_rm_group_is_not_a_prefix_match(tmp_path):
+    # 'walk' names walk/0 and walk/1, never walk2
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "(walk/0, walk/1)" in run_err("frames", p, "--rm", "walk")
+
+
+def test_frames_rm_a_group_among_frames_writes_nothing(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "is a group" in run_err("frames", p, "--rm", "idle", "walk")
+    assert p.read_text() == RM_FILE
+
+
+def test_frames_rm_nested_group(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk/down/0\nk\n@frame walk/down/1\nk\n@frame walk/up/0\nk\n")
+    err = run_err("frames", p, "--rm", "walk/down")
+    assert "--rm 'walk/down' is a group (walk/down/0, walk/down/1)" in err and f"frames {p}:walk/down --rm" in err
+    assert "(walk/down/0, walk/down/1, walk/up/0)" in run_err("frames", p, "--rm", "walk")
+
+
+def test_frames_rm_unknown_id_lists_the_frames(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert run_err("frames", p, "--rm", "run") == "frames: E_SELECT: --rm 'run': no such frame; frames: walk/0, " \
+                                                 "walk/1, idle, walk2"
+
+
+def test_frames_sel_rm_a_group_inside_the_selection(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk/down/0\nk\n@frame walk/down/1\nk\n@frame walk/up/0\nk\n")
+    err = run_err("frames", f"{p}:walk", "--rm", "walk/down")
+    assert err == f"frames: E_BAD_ARG: --rm walk/down: a group in 'walk'; --rm takes frame ids. A group goes in the " \
+                  f"selector: frames {p}:walk/down --rm"
+    assert len(pxart.parse(p).frames) == 3
+
+
+def test_frames_sel_rm_an_id_outside_still_says_so(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "not in 'walk' (walk/0, walk/1)" in run_err("frames", f"{p}:walk", "--rm", "idle")
+
+
+def test_frames_rm_frame_ids_still_work(tmp_path, capsys):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert run("frames", p, "--rm", "walk/0", "idle") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["walk/1", "walk2"]
+
+
+def test_frames_rm_help_says_frame_ids_and_the_selector(capsys):
+    out = cmd_help(capsys, "frames")
+    line = " ".join(out.rsplit("  --rm [ID ...]", 1)[1].split("\n  -", 1)[0].split())
+    assert "frame ids" in line and "frames FILE:GROUP --rm" in line
+    assert "(ids after --rm are frame ids, in SEL)" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- --dry-run: the readout alone, nothing written
+
+DRY_ANIM = "k #000000\n@anim w ms=100\n@frame w/0\n.k.\nkkk\n@frame w/1\n..k\nkkk\n"
+
+
+def listing(d):
+    return sorted(p.relative_to(d).as_posix() for p in d.rglob("*"))
+
+
+@pytest.mark.parametrize("argv,said", [
+    (["render", "a.px", "-o", "out/r.png", "--dry-run"], "would write out/r.png (dry run; nothing written)"),
+    (["render", "a.px", "--dry-run"], "would write preview.png (dry run; nothing written)"),
+    (["render", "one.px", "--png", "--dry-run"], "would write preview.png (dry run; nothing written)"),
+    (["sheet", "a.px", "-o", "out/s.png", "--dry-run"], "would write out/s.png (dry run; nothing written)"),
+    (["sheet", "a.px", "--dry-run"], "(dry run; nothing written)"),
+    (["anim", "a.px:w", "-o", "out/w.gif", "--dry-run"],
+     "would write out/w.gif and out/w.strip.png (dry run; nothing written)"),
+    (["anim", "a.px:w", "--dry-run"], "(dry run; nothing written)"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "out/o.png", "--dry-run"], "would write out/o.png (dry run; nothing written)"),
+    (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"], "(dry run; nothing written)"),
+    (["scene", "a.px:w/0@0,0", "-o", "out/s.png", "--dry-run"], "would write out/s.png (dry run; nothing written)"),
+    (["scene", "a.px:w/0@0,0", "--dry-run"], "(dry run; nothing written)"),
+])
+def test_dry_run_writes_nothing_and_says_so(tmp_path, monkeypatch, capsys, argv, said):
+    write(tmp_path, "a.px", DRY_ANIM)
+    write(tmp_path, "one.px", "k #000000\nk\n")
+    monkeypatch.chdir(tmp_path)
+    before = listing(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == said
+    assert "wrote" not in out
+    assert listing(tmp_path) == before  # no file, no directory
+
+
+def test_dry_run_prints_the_same_readout(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    for real, dry in ((["anim", "a.px:w", "-o", "w.gif"], ["anim", "a.px:w", "--dry-run"]),
+                      (["onion", "a.px:w/0", "a.px:w/1", "-o", "o.png", "--feet", "1"],
+                       ["onion", "a.px:w/0", "a.px:w/1", "--feet", "1", "--dry-run"]),
+                      (["scene", "a.px:w/0@-1,0", "-o", "s.png"], ["scene", "a.px:w/0@-1,0", "--dry-run"])):
+        assert run(*real) == 0
+        got = capsys.readouterr().out.splitlines()
+        assert run(*dry) == 0
+        now = [l for l in capsys.readouterr().out.splitlines() if not SIZE_LINE.match(l)]  # the dry run's own lines
+        assert got[:-1] == now[:-1] and len(got) > 1 or real[0] == "scene", (real, got, now)
+        assert got[-1].startswith("wrote") and now[-1].endswith("(dry run; nothing written)")
+
+
+SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 700x174 px, 5 frames in ...'
+
+
+@pytest.mark.parametrize("argv,said", [
+    (["render", "a.px", "--dry-run"],
+     "preview.png: 124x78 px, 2 frames in one row, every cell 47x32: the largest frame 24x16 at x8, 40x32 with its "
+     "rulers, widened to fit the widest label"),
+    (["render", "a.px:w/0", "--plain", "--scale", "3", "--dry-run"], "preview.png: 9x6 px, w/0 alone, 3x2 at --scale 3"),
+    (["sheet", "a.px", "--cols", "1", "--dry-run", "-o", "s.png"],
+     "s.png: 67x114 px, 2 frames in 2 rows of up to 1, every cell 47x16: the largest frame 24x16 at x8, widened to fit "
+     "the widest label"),
+    (["sheet", "a.px", "--fit", "--rows", "group", "--dry-run"],
+     "the sheet (no -o): 124x62 px, 2 frames in one row (--fit: each cell its own frame's size), at --scale 8 "
+     "(--rows group: a row per animation group)"),
+    (["anim", "a.px:w", "--dry-run"],
+     "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),
+    (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x286 px, 2 frames over what changed, at --scale 8"),
+    (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"],
+     "the onion (no -o): 40x32 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers"),
+    (["scene", "a.px:w/0@0,0", "a.px:w/1@4,0", "--dry-run", "-o", "s.png"],
+     "s.png: 384x256 px, a 96x64 scene at --scale 4, 2 items"),
+])
+def test_dry_run_says_each_outputs_size_and_layout(tmp_path, monkeypatch, capsys, argv, said):
+    # the gate's complaint: sheet --dry-run printed only 'would write X'
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    before = listing(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert said in out
+    assert out[-1].endswith("(dry run; nothing written)") and "WARNING" not in "\n".join(out)
+    assert listing(tmp_path) == before
+
+
+def test_dry_run_sizes_match_what_a_real_run_writes(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    for argv in (["sheet", "a.px", "--fit", "-o", "s.png"], ["render", "a.px", "-o", "s.png"],
+                 ["onion", "a.px:w/0", "a.px:w/1", "-o", "s.png"], ["scene", "a.px:w/0@0,0", "-o", "s.png"],
+                 ["render", "a.px:w/1", "--plain", "-o", "s.png"], ["anim", "a.px:w", "-o", "s.gif"]):
+        assert run(*argv, "--dry-run") == 0
+        sizes = [re.match(r"^(\S+): (\d+)x(\d+) px", l) for l in capsys.readouterr().out.splitlines()]
+        sizes = [m for m in sizes if m]
+        assert sizes, argv
+        assert run(*argv) == 0
+        assert "px, " not in capsys.readouterr().out  # the size lines are the dry run's alone
+        for m in sizes:
+            assert Image.open(tmp_path / m.group(1)).size == (int(m.group(2)), int(m.group(3))), argv
+
+
+def test_huge_outputs_get_a_warning_on_real_and_dry_runs(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "--scale", "700", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: the sheet (no -o) would be " in out and "(over 4096 px on a side): image viewers and the Read " \
+        "tool may shrink or refuse it; a lower --scale, fewer frames, or other --cols makes it smaller" in out
+    assert run("render", "a.px:w/0", "--plain", "--scale", "1400", "-o", "big.png") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: big.png is 4200x2800 px (over 4096 px on a side): image viewers and the Read tool may shrink " \
+        "or refuse it; a lower --scale makes it smaller" in out and (tmp_path / "big.png").exists()
+
+
+def test_huge_by_area_too():
+    assert pxart.huge((4096, 4096)) == "over 16M px"
+    assert pxart.huge((4000, 4000)) is None and pxart.huge((4097, 1)) == "over 4096 px on a side"
+
+
+def test_dry_run_scene_prints_its_notes(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "a.px:w/0@-1,0", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "note: 1 px of item 1 (a.px:w/0) fall outside" in out and not (tmp_path / "s.png").exists()
+
+
+def test_dry_run_prints_the_half_variant_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out and not (tmp_path / "preview.png").exists()
+
+
+@pytest.mark.parametrize("argv,err", [
+    (["render", "a.px", "-o", "x.px", "--dry-run"], "render: E_BAD_ARG: -o x.px: '.px' isn't an image type"),
+    (["anim", "a.px:w", "-o", "w.png", "--dry-run"], "anim: E_BAD_ARG: -o w.png: anim writes a GIF"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "/dev/null", "--dry-run"], "onion: E_BAD_ARG: -o /dev/null: it has no"),
+    (["scene", "a.px:w/0@0,0", "-o", "a.px/s.png", "--dry-run"], "scene: E_FILE: can't write a.px/s.png: a.px is a file"),
+    (["sheet", "nope.px", "--dry-run"], "E_FILE"),
+])
+def test_dry_run_still_checks_the_output(tmp_path, monkeypatch, argv, err):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert err in run_err(*argv)
+
+
+@pytest.mark.parametrize("argv,eg", [
+    (["sheet", "a.px"], "sheet.png"), (["onion", "a.px:w/0", "a.px:w/1"], "x.png"), (["scene", "a.px:w/0@0,0"], "s.png"),
+])
+def test_without_o_or_dry_run_says_both(tmp_path, monkeypatch, argv, eg):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run_err(*argv) == f"{argv[0]}: E_BAD_ARG: -o is required: -o {eg} (or --dry-run to print the readout and " \
+                              "write nothing)"
+
+
+def test_dry_run_is_off_in_the_next_run(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "a.px", "--dry-run") == 0
+    assert run("render", "a.px") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "wrote preview.png"
+    assert (tmp_path / "preview.png").exists()
+
+
+def test_dry_run_does_not_touch_an_existing_output(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "s.png").write_bytes(b"keep")
+    assert run("scene", "a.px:w/0@0,0", "-o", "s.png", "--dry-run") == 0
+    assert (tmp_path / "s.png").read_bytes() == b"keep"
+
+
+def test_help_documents_dry_run():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--dry-run (render, sheet, anim, onion, scene) prints the readout and each output's size and layout, " \
+        "writes nothing and says '(dry run; nothing written)'. -o may then be left off. An image over 4096 px on a " \
+        "side or 16M px gets a WARNING, dry run or not." in doc
+    for cmd in ("render", "sheet", "anim", "onion", "scene"):
+        assert "[--dry-run]" in pxart.reference(cmd), cmd
+        assert "LOOKING: centering" in pxart.SEE[cmd], cmd
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "`--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` prints the readout" in readme
+    assert "each output's size and layout" in readme and "16M px gets a `WARNING`, dry run or not" in readme
+
+
+# ---------------------------------------------------------------- a writer that makes a directory says so
+
+@pytest.mark.parametrize("argv,made", [
+    (["sheet", "a.px", "-o", "sheets/s.png"], "sheets"),
+    (["sheet", "a.px", "-o", "deep/er/s.png"], "deep"),
+    (["render", "a.px", "-o", "r/r.png"], "r"),
+    (["anim", "a.px:w", "-o", "g/w.gif"], "g"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "o/o.png"], "o"),
+    (["scene", "a.px:w/0@0,0", "-o", "sc/s.png"], "sc"),
+    (["tint", "p.png", "#00000080", "-o", "t/t.png"], "t"),
+    (["mask", "p.png", "--keep", "0,0,1,1", "-o", "m/m.png"], "m"),
+    (["export", "a.px", "--frames", "fr"], "fr"),
+    (["export", "a.px", "--aseprite", "ase/x.json"], "ase"),
+    (["export", "a.px", "--tiled", "til/x.tsj"], "til"),
+    (["palette", "a.px", "--export", "pal/x.gpl"], "pal"),
+    (["palette", "a.px", "--extract-to", "pal2/p.px"], "pal2"),
+    (["new", "n/new.px", "--size", "1x1"], "n"),
+    (["flip", "a.px", "-o", "f/a.px"], "f"),
+    (["extract", "a.px:w", "-o", "x/w.px"], "x"),
+    (["compose", "-o", "c/c.px", "a.px:w/0@0,0"], "c"),
+    (["from-png", "p.png", "-o", "fp/p.px"], "fp"),
+])
+def test_every_writer_says_which_directory_it_created(tmp_path, monkeypatch, capsys, argv, made):
+    write(tmp_path, "a.px", DRY_ANIM)
+    Image.new("RGBA", (2, 2), (9, 9, 9, 255)).save(tmp_path / "p.png")
+    monkeypatch.chdir(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [l for l in out if l.startswith("created")] == [f"created {made}/"]
+    assert (tmp_path / made).is_dir()
+
+
+def test_no_created_line_when_the_directory_exists(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    (tmp_path / "sheets").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "-o", "sheets/s.png") == 0
+    assert capsys.readouterr().out == "wrote sheets/s.png\n"
+
+
+def test_created_once_for_a_tree(tmp_path, monkeypatch, capsys):
+    # export --frames makes out/ and out/w/ under it: one line, for out/
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "a.px", "--frames", "out") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [l for l in out if l.startswith("created")] == ["created out/"]
+    assert (tmp_path / "out/w/0.png").exists()
+
+
+def test_created_names_a_new_subdirectory_of_an_existing_one(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    (tmp_path / "out").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert run("export", "a.px", "--frames", "out") == 0
+    assert [l for l in capsys.readouterr().out.splitlines() if l.startswith("created")] == ["created out/w/"]
+
+
+def test_created_again_in_the_next_run_only_when_new(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "a.px", "-o", "s/1.png") == 0
+    assert run("sheet", "a.px", "-o", "s/2.png") == 0
+    assert capsys.readouterr().out.count("created") == 1
+
+
+def test_created_line_comes_before_the_wrote_line(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "a.px:w", "-o", "g/w.gif") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out.index("created g/") < out.index("wrote g/w.gif and g/w.strip.png")
+
+
+def test_a_failed_write_still_says_the_directory_it_made(tmp_path, monkeypatch, capsys):
+    # the directory is there: saying so is true even though the command failed after
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert "E_FILE" in run_err("render", "a.px", "nope.px", "-o", "d/r.png")
+    assert not (tmp_path / "d").exists()  # inputs load before anything is written: no directory either
+
+
+def test_help_and_readme_say_a_missing_directory_is_made_and_said():
+    doc = " ".join(pxart.__doc__.split())
+    assert "An output's missing directory is made, and said: 'created out/'." in doc
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "A command that writes into a directory that doesn't exist makes it and says so: `created out/`." in readme
+
+
+# ---------------------------------------------------------------- a frame copied as a still drops its ms, keeps its pivot
+
+STILL_SRC = ("pxart 1\nk #000000\n@anim walk/right ms=140 pivot=8,15\n@still ui\n"
+             "@frame walk/right/0\nk.\n@frame walk/right/1 ms=90 pivot=1,1\n.k\n@frame ui/life\nkk\n")
+
+
+def still_setup(tmp_path, monkeypatch, dst="pxart 1\nk #000000\n@frame lighthouse\nkk\n"):
+    write(tmp_path, "src.px", STILL_SRC)
+    write(tmp_path, "dst.px", dst)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_copy_to_top_level_drops_anim_ms_keeps_anim_pivot(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    out = capsys.readouterr().out
+    assert "note: hero lands in dst.px as a still (a top-level id): its ms=140 dropped (stills have no timing); " \
+        "pivot 8,15 kept\n" in out
+    assert "@frame hero pivot=8,15\n" in (tmp_path / "dst.px").read_text()
+    f = pxart.parse(tmp_path / "dst.px").get("hero")
+    assert f.ms is None and f.pivot == (8, 15)
+
+
+def test_copy_to_top_level_drops_own_ms_keeps_own_pivot(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/1", "--copy-to", "dst.px", "--rename", "walk/right/1", "hero") == 0
+    assert "its ms=90 dropped (stills have no timing); pivot 1,1 kept" in capsys.readouterr().out
+    assert "@frame hero pivot=1,1\n" in (tmp_path / "dst.px").read_text()
+
+
+def test_copy_two_frames_to_top_level_one_note(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right", "--copy-to", "dst.px", "--rename", "walk/right/0", "a",
+               "--rename", "walk/right/1", "b") == 0
+    out = capsys.readouterr().out
+    assert "note: a, b land in dst.px as stills (a top-level id): their ms=140,90 dropped (stills have no timing); " \
+        "pivots 8,15 1,1 kept\n" in out
+    doc = pxart.parse(tmp_path / "dst.px")
+    assert [doc.get(i).ms for i in "ab"] == [None, None] and "walk/right" not in doc.anims
+
+
+def test_copy_into_a_still_group_of_dst_drops_ms(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch, "pxart 1\nk #000000\n@still props\n@frame props/lamp\nkk\n")
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "props/hero") == 0
+    assert "note: props/hero lands in dst.px as a still (@still props): its ms=140 dropped (stills have no " \
+        "timing); pivot 8,15 kept" in capsys.readouterr().out
+    f = pxart.parse(tmp_path / "dst.px").get("props/hero")
+    assert f.ms is None and f.pivot == (8, 15)
+
+
+def test_copy_into_a_star_still_file_drops_ms(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch, "pxart 1\nk #000000\n@still *\n@frame lamp\nkk\n")
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--prefix", "p/") == 0
+    assert "note: p/walk/right/0 lands in dst.px as a still (@still *)" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "dst.px").get("p/walk/right/0").ms is None
+
+
+def test_copy_animation_keeps_timing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right", "--copy-to", "dst.px") == 0
+    assert "as a still" not in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "dst.px")
+    assert doc.ms(doc.get("walk/right/0")) == 140 and doc.get("walk/right/1").ms == 90
+
+
+def test_copy_a_still_as_a_still_says_nothing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:ui/life", "--copy-to", "dst.px", "--rename", "ui/life", "life") == 0
+    assert "as a still" not in capsys.readouterr().out
+
+
+def test_copied_still_renders_the_same(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    assert run("diff", "dst.px:hero", "src.px:walk/right/0") == 0
+
+
+def test_frames_lists_the_copied_still_without_timing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    capsys.readouterr()
+    assert run("frames", "dst.px") == 0
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.strip().startswith("hero"))
+    assert "ms" not in line and "pivot 8,15" in line
+
+
+def test_dup_to_top_level_drops_ms_keeps_pivot(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "hero") == 0
+    out = capsys.readouterr().out
+    assert out == "note: hero lands in src.px as a still (a top-level id): its ms=90 dropped (stills have no " \
+                  "timing); pivot 1,1 kept\nwrote src.px frame hero\n"
+    f = pxart.parse(tmp_path / "src.px").get("hero")
+    assert f.ms is None and f.pivot == (1, 1)
+
+
+def test_dup_to_top_level_keeps_the_anims_pivot(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/0", "hero") == 0
+    assert "its ms=140 dropped (stills have no timing); pivot 8,15 kept" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("hero").pivot == (8, 15)
+
+
+def test_dup_into_a_still_group(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "ui/hero") == 0
+    assert "(@still ui)" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("ui/hero").ms is None
+
+
+def test_dup_within_the_animation_keeps_its_ms(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "walk/right/2") == 0
+    assert "as a still" not in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("walk/right/2").ms == 90
+
+
+def test_dup_to_top_level_with_o(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/0", "hero", "-o", "out.px") == 0
+    assert "lands in out.px as a still" in capsys.readouterr().out
+    assert (tmp_path / "src.px").read_text() == STILL_SRC
+
+
+def test_help_says_a_copied_still_drops_its_ms():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A frame copied as a still (a top-level id, or a @still group) drops its ms and keeps its pivot, with a " \
+        "note." in doc
+
+
+# ---------------------------------------------------------------- zsh users: a boxed line in FORMAT and in pxart -h
+
+def zsh_box(lines):
+    at = next(i for i, l in enumerate(lines) if "| zsh users:" in l)
+    return lines[at - 1:at + 3]
+
+
+def test_format_selector_paragraph_has_the_zsh_box():
+    note = pxart.note("FORMAT: selecting frames").splitlines()
+    box = zsh_box(note)
+    assert box[0].strip().startswith("+--") and box[-1] == box[0]
+    assert len({len(l) for l in box}) == 1  # a real box: every line as wide
+    text = " ".join(" ".join(l.strip(" |") for l in box[1:-1]).split())
+    assert text == 'zsh users: write "${F}:walk", not "$F:walk" (zsh reads \':w\' as a modifier), or quote the ' \
+                   "whole argument. A missing hero.pxalk/0 or hero.pxidle is reported as that mistake."
+
+
+def test_top_help_has_the_zsh_box(capsys):
+    out = top_help(capsys, "-h").splitlines()
+    box = zsh_box(out)
+    doc_box = [l[2:] for l in zsh_box(pxart.__doc__.splitlines())]
+    assert box == doc_box
+    assert out.index(box[0]) < next(i for i, l in enumerate(out) if l.startswith("Commands by topic"))
+
+
+def test_commands_that_take_a_selector_point_at_the_zsh_box(capsys):
+    for cmd in ("frames", "stats", "diff", "flip", "export"):
+        assert "FORMAT: selecting frames" in pxart.SEE[cmd] and "zsh" in pxart.GIST["FORMAT: selecting frames"]
+
+
+def test_readme_describes_the_command_help_order():
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "its usage and a line or three saying what it's for, its options one per line, then the details and " \
+        "heuristics, then a see-also line" in readme
+    assert 'zsh users: write `"${F}:walk"`, not `"$F:walk"`' in readme
+
+
+# ---------------------------------------------------------------- pixel coordinates address one frame; an edit of
+# several frames names them
+
+SEVERAL = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nk.jk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n" \
+    "@frame w/2\njjjj\njjjj\njjjj\njjjj\n"
+ONE = "k #000000\nj #ffffff\nkkkk\nkjjk\nkjjk\nkkkk\n"
+
+# Commands given pixel coordinates: argv with {p} for the target, {s} for a paste source.
+COORD_CMDS = {
+    "set": ["set", "{p}", "j", "0,0"],
+    "set-many": ["set", "{p}", "j", "0,0", "3,3"],
+    "fill-region": ["fill", "{p}", "j", "--region", "0,0,2,2"],
+    "line": ["line", "{p}", "j", "0,0", "3,3"],
+    "rect": ["rect", "{p}", "j", "0,0,4,4"],
+    "rect-fill": ["rect", "{p}", "j", "0,0,2,2", "--fill"],
+    "poly": ["poly", "{p}", "j", "0,0", "3,0", "3,3", "--fill"],
+    "ellipse": ["ellipse", "{p}", "j", "1.5,1.5,1.5,1.5"],
+    "arc": ["arc", "{p}", "j", "2,2,2", "0,180"],
+    "flood": ["flood", "{p}", "j", "0,0"],
+    "paste": ["paste", "{s}", "--into", "{p}", "--at", "1,1"],
+    "paste-under": ["paste", "{s}", "--into", "{p}", "--at", "1,1", "--under"],
+    "mask-keep": ["mask", "{p}", "--keep", "0,0,2,2"],
+    "mask-circle": ["mask", "{p}", "--keep-circle", "1,1,1"],
+    "shift-region": ["shift", "{p}", "--dx", "1", "--region", "0,0,2,2"],
+    "recolor-region": ["recolor", "{p}", "k<>j", "--region", "0,0,2,2"],
+    "shade-region": ["shade", "{p}", "--ramp", "kj", "--keys", "kj", "--region", "0,0,3,3"],
+}
+
+
+def coord_argv(tmp_path, name, target):
+    s = write(tmp_path, "src.px", "k #000000\nj #ffffff\njj\njj\n")
+    return [a.format(p=target, s=s) for a in COORD_CMDS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_several_frames_need_a_selector(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    msg = run_err(*coord_argv(tmp_path, name, p))
+    assert "E_SELECT" in msg and "pixel coordinates (" in msg and "need you to say which frames they go to: " in msg
+    assert f"{p} has 3 frames: w/0, w/1, w/2" in msg
+    assert f"{p}:w/0 (a frame)" in msg and f"{p}:w (a group)" in msg and f"'{p}:*' (every frame" in msg
+    assert p.read_text() == SEVERAL  # nothing written
+    assert capsys.readouterr().out == ""  # a failed command prints no notes
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_with_star_edit_every_frame(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:*")) == 0
+    after = grids(p)
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    out = capsys.readouterr().out
+    assert "gets all of" not in out  # ':*' is the whole file: no note about the other frames
+    if len(touched) > 1:
+        assert f"edited {len(touched)} frames: {', '.join(touched)}\n" in out
+    else:
+        assert "edited" not in out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_with_one_frame_selected(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:w/0")) == 0
+    after = grids(p)
+    assert after["w/1"] == before["w/1"] and after["w/2"] == before["w/2"]
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_a_one_frame_file_need_no_selector(tmp_path, capsys, name):
+    p = write(tmp_path, "one.px", ONE)
+    assert run(*coord_argv(tmp_path, name, p)) == 0
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_a_one_frame_named_file_need_no_selector(tmp_path, name):
+    p = write(tmp_path, "one.px", "k #000000\nj #ffffff\n@frame solo\nkkkk\nkjjk\nkjjk\nkkkk\n")
+    assert run(*coord_argv(tmp_path, name, p)) == 0
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_group_selector_names_its_frames(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL.replace("@frame w/2", "@frame x"))
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:w")) == 0
+    after = grids(p)
+    assert after["x"] == before["x"]
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    out = capsys.readouterr().out
+    assert (f"edited {len(touched)} frames: {', '.join(touched)}\n" in out) == (len(touched) > 1)
+
+
+def test_coordinates_error_output_to_another_file_writes_nothing(tmp_path):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert "E_SELECT" in run_err("set", p, "j", "0,0", "-o", tmp_path / "o.px")
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_set_every_frame_reports_them(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("set", f"{p}:*", "j", "0,0") == 0
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"  # w/2's 0,0 is already j
+    assert [g[0][0] for g in grids(p).values()] == ["j", "j", "j"]
+
+
+def test_fill_without_region_is_a_whole_frame_edit(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("fill", p, "k") == 0
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {p}\n"
+    assert all(g == ["kkkk"] * 4 for g in grids(p).values())
+
+
+# Whole-frame edits: a plain FILE is every frame, and the note names what changed.
+WHOLE_CMDS = {
+    "flip": ["flip", "{p}"],
+    "flip-v": ["flip", "{p}", "--v"],
+    "rotate": ["rotate", "{p}", "90"],
+    "transpose": ["transpose", "{p}"],
+    "shift": ["shift", "{p}", "--dx", "1"],
+    "shift-wrap": ["shift", "{p}", "--dx", "1", "--wrap"],
+    "recolor": ["recolor", "{p}", "k<>j"],
+    "mask-keys": ["mask", "{p}", "--drop-keys", "k"],
+    "fill": ["fill", "{p}", "j"],
+    "outline": ["outline", "{p}", "--key", "j", "--inside"],
+    "shade": ["shade", "{p}", "--ramp", "kj", "--keys", "kj"],
+}
+WHOLE = "k #000000\nj #ffffff\n@frame a\nk...\nkk..\n@frame b\n..kk\n...k\n@frame c\nkkk.\n.k..\n@frame d\n....\n....\n"
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_keep_every_frame_and_name_them(tmp_path, capsys, name):
+    p = write(tmp_path, "w.px", WHOLE)
+    before = grids(p)
+    assert run(*[a.format(p=p) for a in WHOLE_CMDS[name]]) == 0
+    after = grids(p)
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    assert len(touched) > 1
+    out = capsys.readouterr().out
+    assert f"edited {len(touched)} frames: {', '.join(touched)}\n" in out
+    assert out.index("edited") < out.index("wrote")
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_of_one_frame_say_nothing_more(tmp_path, capsys, name):
+    p = write(tmp_path, "w.px", WHOLE)
+    assert run(*[a.format(p=f"{p}:a") for a in WHOLE_CMDS[name]]) == 0
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_with_star_match_a_plain_file(tmp_path, capsys, name):
+    p, q = write(tmp_path, "p.px", WHOLE), write(tmp_path, "q.px", WHOLE)
+    assert run(*[a.format(p=p) for a in WHOLE_CMDS[name]]) == 0
+    one = capsys.readouterr().out.replace(str(p), "F")
+    assert run(*[a.format(p=f"{q}:*") for a in WHOLE_CMDS[name]]) == 0
+    assert capsys.readouterr().out.replace(str(q), "F") == one
+    assert p.read_text() == q.read_text()
+
+
+def test_edited_note_truncates_a_long_list(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n" + "".join(f"@frame walk/down/{i}\nk.\n" for i in range(16)))
+    assert run("flip", p) == 0
+    assert capsys.readouterr().out == f"edited 16 frames: walk/down/0, walk/down/1, walk/down/2 and 13 more\nwrote {p}\n"
+
+
+def test_edited_note_counts_only_changed_frames(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nk.\n@frame b\nkk\n@frame c\n.k\n")
+    assert run("flip", p) == 0  # b is symmetric
+    assert capsys.readouterr().out == f"edited 2 frames: a, c\nwrote {p}\n"
+
+
+def test_edited_note_not_on_no_change(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nkk\n@frame b\nkk\n")
+    assert run("flip", p) == 0
+    assert capsys.readouterr().out == f"no change: {p}\n"
+
+
+def test_edited_note_not_on_preview(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("outline", p, "--key", "j", "--inside", "--preview", tmp_path / "v.png") == 0
+    assert not capsys.readouterr().out.startswith("edited")
+
+
+def test_edited_note_with_output_elsewhere(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    out = tmp_path / "o.px"
+    assert run("recolor", p, "k<>j", "-o", out) == 0
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {out}\n"
+    assert p.read_text() == SEVERAL
+
+
+def test_star_selects_every_frame_for_looking_too(tmp_path):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert [f.id for f in pxart.parse(p).select("*")] == ["w/0", "w/1", "w/2"]
+    assert run("render", f"{p}:*", "-o", tmp_path / "r.png") == 0
+
+
+def test_put_still_names_one_frame(tmp_path, monkeypatch):
+    p = write(tmp_path, "m.px", SEVERAL)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("kk\nkk\n"))
+    assert "E_SELECT" in run_err("put", p)
+    assert p.read_text() == SEVERAL
+
+
+def test_help_documents_selector_rule():
+    doc = " ".join(pxart.__doc__.split())
+    assert "Coordinates (x,y, --region, --at) need FILE:SEL on a file of several frames, saying which ('FILE:*': all)" \
+        in doc
+    assert "one that edits several frames names them" in doc
+    assert "No SEL (or *) means every frame" in doc
+
+
+# ---------------------------------------------------------------- a --variant the legend lacks is one line, not one
+# per legend entry; entries failing alike share a line
+
+def legend_room(tmp_path, dusk="dusk", night=None):
+    write(tmp_path, "a.px", f"k #000000\ng #00ff00\n@variant {dusk}\ng #004400\n@frame f\ngg\ngg\n@frame w\nkk\nkk\n"
+          "@frame p\ngk\nkg\n")
+    write(tmp_path, "b.px", "k #000000\nr #ff0000\n" + (f"@variant {night}\nr #440000\n" if night else "")
+          + "@frame s\nrr\nrr\n")
+    return write(tmp_path, "room.map", "f a.px:f\nW a.px:w\np a.px:p\ns b.px:s\n\nWWWW\nfpsf\n")
+
+
+def test_scene_variant_no_legend_file_has_is_one_line(tmp_path):
+    m = legend_room(tmp_path, night="night")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "midnight", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'midnight'; the "
+                                "legend's variants: dusk (3 entries), night (1 entry)"]
+    assert not (tmp_path / "s.png").exists()
+
+
+def test_scene_variant_no_legend_file_has_and_no_variants_at_all(tmp_path):
+    write(tmp_path, "b.px", "k #000000\n@frame s\nkk\n@frame t\nk.\n")
+    m = write(tmp_path, "room.map", "s b.px:s\nt b.px:t\n\nst\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x1", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'dusk'; its files "
+                                "have no variants"]
+
+
+def test_scene_variant_some_entries_lack_it_share_a_line(tmp_path):
+    m = legend_room(tmp_path, night="night")
+    write(tmp_path, "c.px", "k #000000\n@frame x\nkk\nkk\n@frame y\nk.\nk.\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\ny c.px:y\ns b.px:s\n\nfxys\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [
+        f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x', 'y' (lines 2-3; 'c.px'): unknown variant 'dusk' (have: none)",
+        f"scene: --map ({m}): {m}:4: E_SELECT: legend 's': 'b.px:s': unknown variant 'dusk' (have: night)"]
+
+
+def test_scene_variant_one_entry_lacking_keeps_its_own_line(tmp_path):
+    m = legend_room(tmp_path, night="dusk")
+    write(tmp_path, "c.px", "k #000000\n@frame x\nkk\nkk\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\n\nfx\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}:2: E_SELECT: legend 'x': 'c.px:x': unknown variant 'dusk' "
+                                "(have: none)"]
+
+
+def test_scene_variant_many_entries_collapse_and_list_is_truncated(tmp_path):
+    write(tmp_path, "t.px", "k #000000\n@variant dusk\nk #111111\n" + "".join(f"@frame t{i}\nk\n" for i in range(12)))
+    keys = "abcdefghijkl"
+    m = write(tmp_path, "room.map", "".join(f"{c} t.px:t{i}\n" for i, c in enumerate(keys)) + "\n" + keys + "\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "--variant", "midnight", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'midnight'; the "
+                                "legend's variants: dusk (12 entries)"]
+
+
+def test_scene_variant_that_exists_still_renders(tmp_path):
+    m = legend_room(tmp_path, night="dusk")
+    assert run("scene", "--map", m, "--tile", "2x2", "--variant", "dusk", "-o", tmp_path / "s.png") == 0
+
+
+def test_legend_same_missing_file_shares_a_line(tmp_path):
+    m = write(tmp_path, "room.map", "a gone.px:a\nb gone.px:b\nc other.px:c\n\nabc\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "-o", tmp_path / "s.png")
+    lines = msg.splitlines()
+    assert len(lines) == 2
+    assert f"{m}:1: E_FILE: legend 'a', 'b' (lines 1-2; 'gone.px'): can't load (relative to the map file): " in lines[0]
+    assert f"{m}:3: E_FILE: legend 'c': can't load 'other.px:c' (relative to the map file): " in lines[1]
+
+
+def test_legend_different_errors_keep_their_lines(tmp_path):
+    write(tmp_path, "t.px", "k #000000\n@frame a\nk\n")
+    m = write(tmp_path, "room.map", "a t.px:nope\nb t.px:gone\n\nab\n")
+    msg = run_err("scene", "--map", m, "--tile", "1x1", "-o", tmp_path / "s.png")
+    assert len(msg.splitlines()) == 2
+    assert "legend 'a': 't.px:nope'" in msg and "legend 'b': 't.px:gone'" in msg
+
+
+# ---------------------------------------------------------------- sheet --dry-run says where the cell size comes from
+
+def dry_sheet(tmp_path, capsys, text, *extra):
+    p = write(tmp_path, "d.px", text)
+    assert run("sheet", p, "--dry-run", *extra) == 0
+    return capsys.readouterr().out.splitlines()[0]
+
+
+def test_sheet_dry_run_cell_widened_to_its_label(tmp_path, capsys):
+    rows = "".join("k" * 16 + "\n" for _ in range(16))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a_really_long_frame_name/0\n{rows}", "--scale", "3")
+    assert got.endswith("1 frame in one row, every cell 159x48: frame 48x48 at x3, widened to fit its label")
+    assert "at --scale" not in got and "(the largest frame" not in got
+
+
+def test_sheet_dry_run_cell_is_the_frame(tmp_path, capsys):
+    rows = "".join("k" * 24 + "\n" for _ in range(32))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{rows}", "--scale", "3")
+    assert got.endswith("every cell 72x96: frame 72x96 at x3")
+
+
+def test_sheet_dry_run_cell_as_tall_as_the_tallest_frame(tmp_path, capsys):
+    wide = "".join("k" * 40 + "\n" for _ in range(24))
+    tall = "".join("k" * 8 + "\n" for _ in range(60))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{wide}@frame b\n{tall}", "--scale", "3")
+    assert got.endswith("every cell 120x180: the largest frame 120x72 at x3, as tall as the tallest frame")
+
+
+def test_sheet_dry_run_cell_widened_to_the_widest_frame(tmp_path, capsys):
+    big = "".join("k" * 30 + "\n" for _ in range(30))
+    wide = "".join("k" * 38 + "\n" for _ in range(23))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{big}@frame b\n{wide}", "--scale", "3")
+    assert got.endswith("every cell 114x90: the largest frame 90x90 at x3, widened to fit the widest frame")
+
+
+def test_sheet_dry_run_fit_keeps_its_wording(tmp_path, capsys):
+    got = dry_sheet(tmp_path, capsys, "k #000000\n@frame a\nk\n", "--fit")
+    assert got.endswith("1 frame in one row (--fit: each cell its own frame's size), at --scale 8")
+
+
+def test_render_dry_run_cell_counts_the_rulers(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\n" + "".join("k" * 24 + "\n" for _ in range(32)))
+    assert run("render", p, "--dry-run") == 0
+    assert capsys.readouterr().out.splitlines()[0].endswith(
+        "every cell 208x272: frame 192x256 at x8, 208x272 with its rulers")
+
+
+# ---------------------------------------------------------------- anim FILE:SEL over several groups says so
+
+DIRS = "k #000000\n" + "".join(f"@frame walk/{d}/{i}\n{'k.' if i else '.k'}\n" for d in ("down", "left", "right", "up")
+                                for i in range(2)) + "@frame idle/0\nkk\n@frame idle/1\nk.\n"
+
+
+def test_anim_selector_over_several_groups_notes_them(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == (f"note: {p}:walk is 4 groups: walk/down, walk/left, walk/right, walk/up; animating each on its "
+                      f"own; pick one with {p}:walk/down")
+    assert len(out) == 13  # the note, then per group its header and a line per frame
+    assert out[1] == f"{p}:walk/down" and out[4] == f"{p}:walk/left"
+    assert out[2].split() == ["walk/down/0", "100ms", "vs", "walk/down/1:", "shift", "+1,+0", "then", "0px", "(0%)",
+                              "(no", "shift:", "2px)"]  # a group's first frame against its own last
+
+
+def test_anim_plain_file_over_several_groups_needs_a_dir(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    msg = run_err("anim", p, "-o", tmp_path / "a.gif")
+    assert "E_BAD_ARG" in msg and f"-o {tmp_path / 'a.gif'} is one GIF, and these are 5 animations" in msg
+    assert "pick one group, or give -o a DIR for one GIF per group" in msg and not (tmp_path / "a.gif").exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_anim_plain_file_over_several_groups_writes_a_dir(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", p, "-o", tmp_path / "out") == 0
+    out = capsys.readouterr().out
+    assert f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating each on its own; pick one " \
+        f"with {p}:walk/down" in out
+    for g in ("walk/down", "walk/left", "walk/right", "walk/up", "idle"):
+        assert (tmp_path / "out" / f"{g}.gif").exists() and (tmp_path / "out" / f"{g}.strip.png").exists()
+        assert f"wrote {tmp_path / 'out' / g}.gif and {tmp_path / 'out' / g}.strip.png" in out
+    one = Image.open(tmp_path / "out" / "idle.gif")
+    assert one.n_frames == 2
+
+
+def test_anim_dir_matches_each_group_alone(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", p, "-o", tmp_path / "out") == 0
+    assert run("anim", f"{p}:walk/left", "-o", tmp_path / "left.gif") == 0
+    assert (tmp_path / "out" / "walk" / "left.gif").read_bytes() == (tmp_path / "left.gif").read_bytes()
+    assert (tmp_path / "out" / "walk" / "left.strip.png").read_bytes() == (tmp_path / "left.strip.png").read_bytes()
+
+
+def test_anim_one_group_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_two_files_one_group_each_have_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left", f"{p}:walk/right") == 0
+    out = capsys.readouterr().out
+    assert "note:" not in out and len(out.splitlines()) == 4  # asked for together: one animation, as before
+
+
+def test_anim_notes_each_file_that_spans_groups(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left", f"{p}:idle", p) == 0
+    lines = capsys.readouterr().out.splitlines()
+    notes = [l for l in lines if l.startswith("note:")]
+    assert notes == [f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating each on its own; "
+                     f"pick one with {p}:walk/down"]
+    assert f"{p}:walk/left {p}:idle" in lines  # the files of one group each play on as one, under their names
+
+
+def test_anim_top_level_frames_and_a_group(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame run/0\n.k\n@frame run/1\nk.\n")
+    assert run("anim", p) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"note: {p} is 2 groups: (top level), run; animating each on its own; pick one with {p}:run"
+    assert out[1] == f"{p} (top level)" and out[3] == f"{p}:run"
+
+
+def test_anim_top_level_block_goes_by_the_file_stem_in_a_dir(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame b\n.k\n@frame run/0\n.k\n@frame run/1\nk.\n")
+    assert run("anim", p, "-o", tmp_path / "d") == 0
+    assert (tmp_path / "d" / "h.gif").exists() and (tmp_path / "d" / "run.gif").exists()
+
+
+def test_anim_percent_never_over_100(tmp_path, capsys):
+    # a big frame, then a speck: more pixels change than the speck has
+    p = write(tmp_path, "h.px", "k #000000\n@frame s/0\nkkkk\nkkkk\nkkkk\nkkkk\n@frame s/1\n....\n....\n....\n.k..\n")
+    assert run("anim", p) == 0
+    out = capsys.readouterr().out
+    pcts = [int(x) for x in re.findall(r"\((\d+)%\)", out)]
+    assert pcts and max(pcts) <= 100
+    assert "then 15px (94%)" in out  # 15 of the 16 pixels opaque in either frame
+
+
+def test_anim_top_level_frames_alone_have_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame b\n.k\n")
+    assert run("anim", p) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_png_and_px_groups(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    Image.new("RGBA", (2, 1), (0, 0, 0, 255)).save(tmp_path / "x.png")
+    assert run("anim", tmp_path / "x.png", f"{p}:walk/left", tmp_path / "x.png", f"{p}:idle") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_variant_selector_note_names_the_selector(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS.replace("@frame", "@variant n\nk #111111\n@frame", 1))
+    assert run("anim", f"{p}:walk%n") == 0
+    assert capsys.readouterr().out.startswith(f"note: {p}:walk is 4 groups")
+
+
+def test_anim_group_note_on_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk", "--dry-run") == 0
+    assert capsys.readouterr().out.startswith(f"note: {p}:walk is 4 groups")
+
+
+# ---------------------------------------------------------------- palette -o OUT and --dry-run
+
+PO_PAL = "# shared\nk #101010\nr #c02020\n\n@variant night\nr #400000\n"
+PO_SPRITE = ("pxart 1\n# the hero\n@palette pal.px\ng #20c020\nw #f0f0f0\nx #777777\n\n@variant night\ng #104010\n\n"
+             "@frame a\nkg\nrw\n")
+
+# Every edit mode of palette: argv after FILE.
+PO_EDITS = {
+    "add": ["--add", "q=#123456"],
+    "variant-add": ["--variant", "night", "--add", "w=#202020"],
+    "variant-keep": ["--variant", "night", "--keep", "g"],
+    "derive": ["--variant", "dusk", "--derive-from", "base", "--darken", "0.3"],
+    "comment": ["--comment", "g", "grass"],
+    "comment-header": ["--comment-header", "a new header"],
+    "remove": ["--remove", "x"],
+    "remove-to": ["--remove", "w", "--to", "g"],
+    "order": ["--order", "wg"],
+    "import": ["--import", "{d}/more.px"],
+    "extract-repoint": ["--extract-to", "{d}/ex.px", "--repoint"],
+}
+
+
+def po_setup(tmp_path):
+    write(tmp_path, "pal.px", PO_PAL)
+    write(tmp_path, "more.px", "x #777777\nz #abcdef\n")
+    return write(tmp_path, "h.px", PO_SPRITE)
+
+
+def po_argv(name, d):
+    return [a.format(d=d) for a in PO_EDITS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_o_writes_what_in_place_would(tmp_path, capsys, name):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    pa, pb = po_setup(a), po_setup(b)
+    assert run("palette", pa, *po_argv(name, a)) == 0
+    assert run("palette", pb, *po_argv(name, b), "-o", b / "out.px") == 0
+    assert pb.read_text() == PO_SPRITE  # FILE stays as it is
+    assert (b / "out.px").read_text() == pa.read_text()
+    assert f"wrote {b / 'out.px'}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_o_elsewhere_repoints_and_renders_the_same(tmp_path, name):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    pa, pb = po_setup(a), po_setup(b)
+    assert run("palette", pa, *po_argv(name, a)) == 0
+    out = b / "deep" / "er" / "out.px"
+    assert run("palette", pb, *po_argv(name, b), "-o", out) == 0
+    doc = pxart.parse(out)
+    assert all(ref.startswith("../../") for ref in doc.palette_refs) and doc.palette_refs
+    assert renders(out) == renders(pa)
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_dry_run_writes_nothing_and_shows_the_diff(tmp_path, capsys, name):
+    p = po_setup(tmp_path)
+    before = {f.name: f.read_text() for f in tmp_path.iterdir()}
+    assert run("palette", p, *po_argv(name, tmp_path), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert {f.name: f.read_text() for f in tmp_path.iterdir()} == before
+    assert out.endswith("(dry run; nothing written)\n")
+    assert f"--- {p}\n+++ {p}\n" in out and f"would write {p}" in out
+    assert "wrote" not in out.replace("would write", "")
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_dry_run_diff_applies_to_the_real_edit(tmp_path, capsys, name):
+    # The diff's + and - lines are exactly the lines the edit adds and takes away.
+    p = po_setup(tmp_path)
+    assert run("palette", p, *po_argv(name, tmp_path), "--dry-run") == 0
+    lines = capsys.readouterr().out.splitlines()
+    start = lines.index(f"--- {p}")
+    end = next(i for i in range(start + 2, len(lines)) if lines[i].startswith("---") or
+               not (lines[i][:1] in "+-" or lines[i].startswith("@@")))
+    diff = lines[start + 2:end]
+    assert run("palette", p, *po_argv(name, tmp_path)) == 0
+    import difflib
+    want = [l for l in difflib.unified_diff(PO_SPRITE.splitlines(), p.read_text().splitlines(), lineterm="", n=0)][2:]
+    assert diff == want
+
+
+def test_palette_dry_run_with_o_diffs_against_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    out = tmp_path / "sub" / "o.px"
+    assert run("palette", p, "--add", "q=#123456", "-o", out, "--dry-run") == 0
+    got = capsys.readouterr().out
+    assert got == (f"--- {p}\n+++ {out}\n@@ -3 +3 @@\n-@palette pal.px\n+@palette ../pal.px\n@@ -6,0 +7 @@\n"
+                   f"+q #123456\nwould write {out}\n(dry run; nothing written)\n")
+    assert not (tmp_path / "sub").exists()
+
+
+def test_palette_dry_run_no_change(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--order", "gwx", "--dry-run") == 0
+    assert capsys.readouterr().out == f"already in that order; no change: {p}\n(dry run; nothing written)\n"
+
+
+def test_palette_dry_run_hoist_shows_both_files(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--hoist", "w", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"+++ {tmp_path / 'pal.px'}" in out and f"+++ {p}" in out and "+w #f0f0f0" in out and "-w #f0f0f0" in out
+    assert p.read_text() == PO_SPRITE and (tmp_path / "pal.px").read_text() == PO_PAL
+
+
+def test_palette_dry_run_extract_shows_the_new_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--extract-to", tmp_path / "ex.px", "--repoint", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"--- /dev/null\n+++ {tmp_path / 'ex.px'}" in out and f"would write {tmp_path / 'ex.px'}" in out
+    assert not (tmp_path / "ex.px").exists()
+
+
+def test_palette_dry_run_remove_imported_shows_the_palette_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--remove", "r", "--to", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"+++ {tmp_path / 'pal.px'}" in out and "-r #c02020" in out
+    assert (tmp_path / "pal.px").read_text() == PO_PAL and p.read_text() == PO_SPRITE
+
+
+def test_palette_dry_run_export_with_an_edit_writes_nothing(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--add", "q=#123456", "--export", tmp_path / "x.gpl", "--dry-run") == 0
+    assert not (tmp_path / "x.gpl").exists() and p.read_text() == PO_SPRITE
+    assert f"would write {tmp_path / 'x.gpl'}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv, want", [
+    (["-o", "{d}/o.px"], "-o {d}/o.px goes with an edit of FILE"),
+    (["--dry-run"], "--dry-run goes with an edit of FILE"),
+    (["--export", "{d}/x.gpl", "--dry-run"], "--export writes its own file"),
+    (["--extract-to", "{d}/ex.px", "-o", "{d}/o.px"], "--extract-to writes its own file"),
+    (["--in", "{d}", "-o", "{d}/o.px"], "the listing writes nothing"),
+    (["--hoist", "w", "-o", "{d}/o.px"], "--hoist edits the palette file FILE imports too"),
+    (["--remove", "r", "--to", "k", "-o", "{d}/o.px"], "--remove of an imported key edits the palette file"),
+    (["--add", "q=#123456", "--export", "{d}/x.gpl", "-o", "{d}/o.px"], "--export writes its own file"),
+])
+def test_palette_o_and_dry_run_errors(tmp_path, argv, want):
+    p = po_setup(tmp_path)
+    msg = run_err("palette", p, *[a.format(d=tmp_path) for a in argv])
+    assert "E_BAD_ARG" in msg and want.format(d=tmp_path) in msg
+    assert not (tmp_path / "o.px").exists() and p.read_text() == PO_SPRITE
+
+
+def test_palette_o_same_as_file_edits_in_place(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--add", "q=#123456", "-o", p) == 0
+    assert "q #123456" in p.read_text()
+
+
+def test_palette_o_of_a_palette_file(tmp_path):
+    write(tmp_path, "pal.px", PO_PAL)
+    assert run("palette", tmp_path / "pal.px", "--variant", "night", "--add", "k=#000000", "-o", tmp_path / "p2.px") == 0
+    assert (tmp_path / "pal.px").read_text() == PO_PAL
+    assert pxart.parse(tmp_path / "p2.px", palette_only=True).variants["night"]["k"] == pxart.hex2rgba("#000000")
+
+
+def test_palette_help_documents_o_and_dry_run():
+    doc = " ".join(pxart.__doc__.split())
+    assert "[--order KEYS] [-o OUT] [--dry-run]" in doc
+    assert "Edits write FILE's own lines (-o OUT: a copy; --dry-run: a diff, nothing written)" in doc
+
+
+# ---------------------------------------------------------------- a misspelled variant, frame or group: did you mean
+
+GUESS = "k #000000\n@variant night\nk #111111\n@anim fly/right ms=90\n@frame fly/right/0\nk\n@frame fly/right/1\nk\n" \
+    "@frame idle/0\nk\n"
+
+
+def test_unknown_variant_leads_with_it_and_guesses(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    msg = run_err("render", p, "--variant", "nigth", "-o", tmp_path / "x.png")
+    assert msg.endswith("E_SELECT: unknown variant 'nigth' (have: night); did you mean 'night'?")
+
+
+def test_unknown_variant_far_off_has_no_guess(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    msg = run_err("render", p, "--variant", "zzzz", "-o", tmp_path / "x.png")
+    assert msg.endswith("unknown variant 'zzzz' (have: night)") and "did you mean" not in msg
+
+
+@pytest.mark.parametrize("sel,want", [("idel", "idle"), ("fly/rigth", "fly/right"), ("fly/rihgt/1", "fly/right/1"),
+                                      ("fly", None)])
+def test_unknown_frame_guesses_a_frame_or_group(tmp_path, sel, want):
+    p = write(tmp_path, "b.px", GUESS)
+    if want is None:  # a real group: no error
+        assert run("render", f"{p}:{sel}", "-o", tmp_path / "x.png") == 0
+        return
+    msg = run_err("render", f"{p}:{sel}", "-o", tmp_path / "x.png")
+    assert f"no frame {sel!r}; frames: fly/right/0, fly/right/1, idle/0; did you mean {want!r}?" in msg
+
+
+def test_unknown_group_guesses_in_anim_set_frames_dup_and_derive(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    assert run_err("anim-set", f"{p}:idl", "ms=3").endswith("did you mean 'idle'?")
+    assert run_err("frames", p, "--rename", "fly/rigt", "x").endswith("did you mean 'fly/right'?")
+    assert run_err("frames", p, "--rm", "idle/1").endswith("did you mean 'idle/0'?")
+    assert run_err("dup", f"{p}:idel/0", "idle/1").endswith("did you mean 'idle/0'?")
+    assert run_err("palette", p, "--variant", "dusk", "--derive-from", "nigth").endswith(
+        "or base, the base palette); did you mean 'night'?")
+    assert run_err("palette", p, "--variant", "nihgt", "--keep", "k").endswith("did you mean 'night'?")
+
+
+def test_legend_variant_lines_still_collapse_with_a_guess(tmp_path):
+    write(tmp_path, "a.px", "k #000000\n@variant dusk\nk #111111\n@frame f\nkk\nkk\n")
+    write(tmp_path, "c.px", "k #000000\n@variant dusk\nk #111111\n@frame x\nkk\nkk\n")
+    m = write(tmp_path, "room.map", "f a.px:f\nx c.px:x\n\nfx\n")
+    msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dsuk", "-o", tmp_path / "s.png")
+    assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'dsuk'; the "
+                                "legend's variants: dusk (2 entries)"]
+
+
+# ---------------------------------------------------------------- --dry-run on every in-place edit; argparse's usage
+
+DRYSRC = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nk.jk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n"
+
+DRY_CMDS = {  # argv with {p} for the file; every one of them changes it
+    "set": ["set", "{p}:w/0", "j", "0,0"],
+    "fill": ["fill", "{p}:w/1", "."],
+    "put": ["put", "{p}:w/0"],
+    "line": ["line", "{p}:w/0", "j", "0,0", "3,3"],
+    "rect": ["rect", "{p}:w/1", "j", "0,0,4,4"],
+    "poly": ["poly", "{p}:w/0", "j", "0,0", "3,0", "3,3", "--fill"],
+    "ellipse": ["ellipse", "{p}:w/1", "j", "1.5,1.5,1.5,1.5"],
+    "arc": ["arc", "{p}:w/1", "j", "2,2,2", "0,180"],
+    "flood": ["flood", "{p}:w/0", "j", "0,0"],
+    "shade": ["shade", "{p}:w/0", "--ramp", "kj", "--keys", "kj"],
+    "outline": ["outline", "{p}:w/1", "--key", "j", "--inside"],
+    "flip": ["flip", "{p}:w/0", "--v"],
+    "shift": ["shift", "{p}:w/0", "--dx", "1"],
+    "rotate": ["rotate", "{p}:w/0", "90"],
+    "transpose": ["transpose", "{p}:w/0"],
+    "mask": ["mask", "{p}:w/0", "--keep", "0,0,2,2"],
+    "recolor": ["recolor", "{p}", "k<>j"],
+    "crop": ["crop", "{p}:w/0", "0,0,2,2", "-o", "{p}:part"],
+    "paste": ["paste", "{p}:w/0", "--into", "{p}:w/1", "--at", "1,1"],
+    "dup": ["dup", "{p}:w/0", "w/2"],
+    "frames-rm": ["frames", "{p}", "--rm", "w/1"],
+    "frames-move": ["frames", "{p}", "--move", "w/0", "--after", "w/1"],
+    "frames-rename": ["frames", "{p}", "--rename", "w", "v"],
+    "anim-set": ["anim-set", "{p}:w", "ms=50"],
+    "anim-set-still": ["anim-set", "{p}:w", "--still"],
+}
+
+
+def dry_argv(p, name):
+    return [a.format(p=p) for a in DRY_CMDS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_writes_nothing_and_prints_the_diff(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert p.read_text() == DRYSRC and sorted(x.name for x in tmp_path.iterdir()) == ["d.px"]
+    assert f"--- {p}\n+++ {p}\n" in out and "\n@@ " in out
+    assert out.endswith(f"would write {p}" + out.split(f"would write {p}", 1)[1].split("\n", 1)[0] +
+                        "\n(dry run; nothing written)\n")
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_diff_is_what_the_edit_writes(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    diff = [l for l in capsys.readouterr().out.splitlines() if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name)) == 0
+    got = [l for l in difflib.unified_diff(DRYSRC.splitlines(), p.read_text().splitlines(), lineterm="", n=0)
+           if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    assert diff == got
+    assert "dry run" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_says_what_the_edit_says(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    dry = [l for l in capsys.readouterr().out.splitlines() if not l.startswith(("---", "+++", "@@", "+", "-", "("))]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name)) == 0
+    real = capsys.readouterr().out.splitlines()
+    assert [l.replace("would write", "wrote") for l in dry] == real
+
+
+def test_edit_dry_run_with_o_in_a_new_directory_makes_nothing(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("flip", f"{p}:w/0", "-o", tmp_path / "sub" / "x.px", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert not (tmp_path / "sub").exists() and "created" not in out
+    assert f"would write {tmp_path / 'sub' / 'x.px'}\n(dry run; nothing written)\n" in out
+
+
+def test_edit_dry_run_no_change_still_says_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("set", f"{p}:w/0", "k", "0,0", "--dry-run") == 0
+    assert capsys.readouterr().out == f"no change: {p}\n(dry run; nothing written)\n"
+
+
+def test_edit_dry_run_on_a_png_mask(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("render", f"{p}:w/0", "--plain", "-o", tmp_path / "s.png") == 0
+    before = (tmp_path / "s.png").read_bytes()
+    capsys.readouterr()
+    assert run("mask", tmp_path / "s.png", "--keep", "0,0,2,2", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert (tmp_path / "s.png").read_bytes() == before
+    assert out.endswith("erased 11 px; would write " + str(tmp_path / "s.png") + " (dry run; nothing written)\n")
+    assert out.count("dry run") == 1
+
+
+def test_frames_copy_to_dry_run_shows_dst(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    dst = write(tmp_path, "e.px", "k #000000\n")
+    assert run("frames", f"{p}:w", "--copy-to", dst, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert dst.read_text() == "k #000000\n" and f"+++ {dst}" in out and "+@frame w/0" in out
+    assert out.endswith("(dry run; nothing written)\n")
+
+
+def test_frames_listing_with_dry_run_is_an_error(tmp_path):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert "E_BAD_ARG: --dry-run goes with an edit" in run_err("frames", p, "--dry-run")
+
+
+def test_palette_dry_run_still_says_it_once(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("palette", p, "--add", "z=#ff0000", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.count("(dry run; nothing written)") == 1 and out.endswith("(dry run; nothing written)\n")
+
+
+@pytest.mark.parametrize("name", sorted(pxart.EDIT_DRY))
+def test_every_edit_documents_dry_run_in_its_help(capsys, name):
+    assert "--dry-run" in cmd_help(capsys, name)
+
+
+@pytest.mark.parametrize("argv", [["rect", "x.px", "k", "0,0,1,1"], ["set", "x.px", "k", "0,0"], ["anim", "x.px"],
+                                  ["palette", "x.px"], ["frames", "x.px"], ["fill", "x.px", "."]])
+def test_unknown_option_shows_the_commands_usage(capsys, argv):
+    cmd = argv[0]
+    with pytest.raises(SystemExit) as e:
+        pxart.main(argv + ["--bogus"])
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and err.startswith(f"usage: pxart {cmd} ") and "{render,sheet" not in err
+    assert err.rstrip().endswith("error: unrecognized arguments: --bogus")
+
+
+def test_help_documents_dry_run_and_undo():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--dry-run (any edit) prints its diff and writes nothing. There's no undo: use git." in doc
+
+
+# ---------------------------------------------------------------- a new @anim line follows its frames' first appearance
+
+ORDER = "k #000000\n\n@anim idle ms=400\n@anim fly/left ms=90\n\n@frame fly/right/0\nk\n@frame fly/right/1\nk\n" \
+    "@frame fly/left/0\nk\n@frame idle/0\nk\n"
+
+
+def anim_at_lines(p):
+    return [l for l in p.read_text().splitlines() if l.startswith("@anim")]
+
+
+def test_anim_set_new_line_goes_where_its_frames_are(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n@anim fly/left ms=90\n@anim idle ms=400\n\n@frame fly/right/0\nk\n"
+              "@frame fly/left/0\nk\n@frame idle/0\nk\n@frame zz/0\nk\n")
+    assert run("anim-set", f"{p}:zz", "ms=50") == 0
+    assert anim_at_lines(p) == ["@anim fly/left ms=90", "@anim idle ms=400", "@anim zz ms=50"]
+    assert run("anim-set", f"{p}:fly/right", "ms=100") == 0
+    assert anim_at_lines(p) == ["@anim fly/right ms=100", "@anim fly/left ms=90", "@anim idle ms=400", "@anim zz ms=50"]
+    assert p.read_text().startswith("k #000000\n\n@anim fly/right ms=100\n@anim fly/left ms=90\n")  # one blank above
+
+
+def test_anim_set_new_line_leaves_lines_out_of_order_alone(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORDER)
+    assert run("anim-set", f"{p}:fly/right", "ms=100") == 0
+    # idle and fly/left were already out of order and stay so: the new line goes before the first line whose group
+    # starts after fly/right does
+    assert anim_at_lines(p) == ["@anim fly/right ms=100", "@anim idle ms=400", "@anim fly/left ms=90"]
+    before = ORDER.splitlines()
+    after = p.read_text().splitlines()
+    assert [l for l in after if l not in before] == ["@anim fly/right ms=100"]
+
+
+def test_anim_set_new_first_line_keeps_the_old_first_lines_comment(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n# slow\n@anim idle ms=400\n\n@frame run/0\nk\n@frame idle/0\nk\n")
+    assert run("anim-set", f"{p}:run", "ms=80") == 0
+    assert p.read_text() == "k #000000\n\n@anim run ms=80\n# slow\n@anim idle ms=400\n\n@frame run/0\nk\n" \
+        "@frame idle/0\nk\n"
+
+
+def test_anim_set_existing_line_stays_put(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORDER)
+    assert run("anim-set", f"{p}:fly/left", "ms=70") == 0
+    assert anim_at_lines(p) == ["@anim idle ms=400", "@anim fly/left ms=70"]
+
+
+def test_dup_new_group_anim_follows_the_frames(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n@anim a ms=90\n@anim b ms=50\n\n@frame a/0\nk\n@frame b/0\nk\n")
+    assert run("dup", f"{p}:a/0", "c/0", "--after", "a/0") == 0
+    assert anim_at_lines(p) == ["@anim a ms=90", "@anim c ms=90", "@anim b ms=50"]
+
+
+def test_copy_to_new_group_anim_follows_the_frames(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n@anim run ms=70\n@frame run/0\nk\n")
+    d = write(tmp_path, "d.px", "k #000000\n\n@anim a ms=90\n@anim b ms=50\n\n@frame a/0\nk\n@frame b/0\nk\n")
+    assert run("frames", s, "--copy-to", d, "--after", "a/0") == 0
+    assert anim_at_lines(d) == ["@anim a ms=90", "@anim run ms=70", "@anim b ms=50"]
+
+
+def test_help_says_anim_set_adds_in_frame_order():
+    assert "updates the '@anim GROUP' line, or adds one, in the order of the frames." in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- dup FILE:GROUP NEWGROUP; flip FILE:G -o FILE:NEWG
+
+BUGS = "k #000000\nj #ffffff\n\n@anim fly/right ms=90 pivot=2,1\n@anim idle ms=400\n@still ui\n\n" \
+    "@frame fly/right/0\nkj..\nk...\n@frame fly/right/1 ms=120\n.kj.\nk...\n@frame idle/0\nkk..\nk...\n" \
+    "@frame ui/0\nj...\nj...\n"
+
+
+def test_dup_group_copies_frames_timing_pivots_and_anim(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left") == 0
+    assert capsys.readouterr().out == f"copied fly/right (2 frames) as fly/left; added @anim fly/left; wrote {p}\n"
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["fly/right/0", "fly/right/1", "fly/left/0", "fly/left/1", "idle/0", "ui/0"]
+    assert d.get("fly/left/0").grid == d.get("fly/right/0").grid and d.get("fly/left/1").ms == 120
+    assert d.anims["fly/left"] == d.anims["fly/right"]
+    assert [l for l in p.read_text().splitlines() if l.startswith("@anim")] == [
+        "@anim fly/right ms=90 pivot=2,1", "@anim fly/left ms=90 pivot=2,1", "@anim idle ms=400"]
+    assert [l for l in p.read_text().splitlines() if l not in BUGS.splitlines()] == [
+        "@anim fly/left ms=90 pivot=2,1", "@frame fly/left/0", "@frame fly/left/1 ms=120"]
+
+
+def test_dup_group_renders_like_the_source(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left") == 0
+    d = pxart.parse(p)
+    for i in range(2):
+        assert pxart.pixels(d.image(d.get(f"fly/left/{i}"))) == pxart.pixels(d.image(d.get(f"fly/right/{i}")))
+        assert d.pivot(d.get(f"fly/left/{i}")) == d.pivot(d.get(f"fly/right/{i}")) and d.ms(d.get(f"fly/left/{i}")) \
+            == d.ms(d.get(f"fly/right/{i}"))
+
+
+def test_dup_group_copies_a_still_line(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:ui", "hud") == 0
+    assert "added @still hud" in capsys.readouterr().out and "hud" in pxart.parse(p).stills
+
+
+def test_dup_group_nested_groups_follow(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@anim walk/down ms=90\n@anim walk/up ms=80\n@frame walk/down/0\nk\n"
+              "@frame walk/up/0\nk\n")
+    assert run("dup", f"{p}:walk", "run") == 0
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["walk/down/0", "walk/up/0", "run/down/0", "run/up/0"]
+    assert d.anims["run/down"] == {"ms": 90} or d.anims["run/down"]["ms"] == 90
+    assert d.anims["run/up"]["ms"] == 80
+
+
+def test_dup_group_after(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left", "--after", "idle/0") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["fly/right/0", "fly/right/1", "idle/0", "fly/left/0",
+                                                      "fly/left/1", "ui/0"]
+
+
+def test_dup_group_ids_taken_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    msg = run_err("dup", f"{p}:fly/right", "idle")
+    assert "E_DUP_FRAME" in msg and "idle/0 already in" in msg and "dup fly/right idle would give" in msg
+    assert p.read_text() == BUGS and capsys.readouterr().out == ""
+
+
+def test_dup_group_into_itself_is_an_error(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ARG" in run_err("dup", f"{p}:fly", "fly/copy")
+
+
+def test_dup_group_bad_id(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ID" in run_err("dup", f"{p}:fly/right", "fly left")
+
+
+def test_dup_frame_still_wins_over_a_group_of_its_name(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a\nk\n@frame a/0\nk\n")
+    assert run("dup", f"{p}:a", "b") == 0
+    assert capsys.readouterr().out.endswith("frame b\n")
+
+
+def test_dup_group_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right", "fly/left", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert p.read_text() == BUGS and "+@frame fly/left/0" in out and out.endswith("(dry run; nothing written)\n")
+
+
+def test_flip_into_a_copy(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    q = write(tmp_path, "q.px", BUGS)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left") == 0
+    out = capsys.readouterr().out
+    assert out.endswith(f"copied fly/right (2 frames) as fly/left; added @anim fly/left; wrote {p}\n")
+    assert "edited" not in out
+    assert run("dup", f"{q}:fly/right", "fly/left") == 0 and run("flip", f"{q}:fly/left") == 0
+    assert p.read_text() == q.read_text()  # the same as dup, then flip
+    d = pxart.parse(p)
+    assert d.get("fly/left/0").grid == ["..jk", "...k"] and d.anims["fly/left"]["pivot"] == (1, 1)
+    assert d.get("fly/right/0").grid == ["kj..", "k..."]
+
+
+def test_flip_into_a_copy_needs_the_same_file_and_a_group(tmp_path):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_BAD_ARG" in run_err("flip", f"{p}:fly/right", "-o", tmp_path / "o.px:fly/left")
+    assert "E_BAD_ARG: -o" in run_err("flip", p, "-o", f"{p}:fly/left")
+    assert "dup it first" in run_err("flip", f"{p}:idle/0", "-o", f"{p}:x")
+    assert "did you mean" in run_err("flip", f"{p}:fly/rigth", "-o", f"{p}:fly/left")
+    assert p.read_text() == BUGS
+
+
+# ---------------------------------------------------------------- flip/rotate on an even size notes the pivot
+
+
+def test_flip_even_width_pivot_notes_the_half_pixel(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("flip", f"{p}:fly/right") == 0
+    out = capsys.readouterr().out
+    assert ("note: fly/right/0, fly/right/1: pivots mirrored pixel for pixel (x -> 3-x across 4 px); a pivot meant as "
+            "the centre between two pixels ends 1px off it (pivots are whole pixels): check with onion\n") in out
+
+
+def test_flip_odd_width_or_no_pivot_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@anim a pivot=1,0\n@frame a/0\nk..\n@frame b/0\nk.\n")
+    assert run("flip", f"{p}:a") == 0 and run("flip", f"{p}:b") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_flip_v_notes_an_even_height(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=0,0\nk..\n...\n")
+    assert run("flip", p, "--v") == 0
+    assert "(y -> 1-y across 2 px)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("angle,want", [("90", "(y -> 1-y across 2 px)"), ("270", "(x -> 3-x across 4 px)"),
+                                        ("180", "(x -> 3-x across 4 px)")])
+def test_rotate_even_size_notes_the_pivot(tmp_path, capsys, angle, want):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=0,0\nk...\n....\n")
+    assert run("rotate", p, angle) == 0
+    assert want in capsys.readouterr().out
+
+
+def test_transpose_has_no_pivot_note(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=1,0\nk...\n....\n")
+    assert run("transpose", p) == 0
+    assert "mirrored" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- fill FILE:ID . clears a frame
+
+def test_fill_dot_clears_one_frame(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n@frame a\nkk\nk.\n@frame b\nkk\nkk\n")
+    assert run("fill", f"{p}:a", ".") == 0
+    assert grids(p) == {"a": ["..", ".."], "b": ["kk", "kk"]}
+    assert capsys.readouterr().out == f"wrote {p}\n"
+
+
+def test_fill_dot_clears_with_a_palette_that_lists_no_dot(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "pxart 1\nk #000000\n@frame a\nkk\n")
+    assert run("fill", f"{p}:a", ".", "--region", "1,0,1,1") == 0
+    assert grids(p) == {"a": ["k."]}
+
+
+def test_help_says_fill_dot_clears():
+    assert "paint a rectangle (default: the frame; '.' clears)" in pxart.__doc__
+    assert "`fill hero.px:walk/2 .` clears a frame" in (pathlib.Path(__file__).resolve().parent.parent
+                                                         / "README.md").read_text()
+
+
+# ---------------------------------------------------------------- ellipse --box x,y,w,h: no half-pixel maths
+
+@pytest.mark.parametrize("box,shape", [("0,1,8,6", "3.5,3.5,3.5,2.5"), ("0,0,7,7", "3,3,3,3"), ("2,3,1,1", "2,3,0,0"),
+                                       ("1,1,2,5", "1.5,3,0.5,2"), ("-2,-1,6,4", "0.5,0.5,2.5,1.5"),
+                                       ("0,0,16,9", "7.5,4,7.5,4")])
+@pytest.mark.parametrize("fill", [[], ["--fill"]])
+def test_ellipse_box_draws_what_center_and_radii_draw(tmp_path, capsys, box, shape, fill):
+    blank = "k #000000\n" + "." * 16 + "\n" + ("." * 16 + "\n") * 11
+    a, b = write(tmp_path, "a.px", blank), write(tmp_path, "b.px", blank)
+    assert run("ellipse", a, "k", "--box", box, *fill) == 0
+    assert run("ellipse", b, "k", shape, *fill) == 0
+    assert a.read_text() == b.read_text() != blank
+
+
+def test_ellipse_box_or_shape_not_both_nor_neither(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "cx,cy,rx,ry or --box x,y,w,h" in run_err("ellipse", p, "k")
+    assert "cx,cy,rx,ry or --box x,y,w,h" in run_err("ellipse", p, "k", "1,1,1,1", "--box", "0,0,2,2")
+
+
+@pytest.mark.parametrize("box", ["0,0,0,3", "0,0,3,-1", "0,0,3", "0,0,1.5,2"])
+def test_ellipse_box_bad(tmp_path, box):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "E_BAD_ARG" in run_err("ellipse", p, "k", "--box", box)
+    assert p.read_text() == "k #000000\n....\n....\n"
+
+
+def test_ellipse_half_pixel_error_offers_box(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert run_err("ellipse", p, "k", "1.5,1,1.5,0.5").endswith(
+        "; or give the pixel box instead, as rect's: --box x,y,w,h")
+
+
+def test_arc_half_pixel_error_has_no_box(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "--box" not in run_err("arc", p, "k", "1.5,1,1", "0,90")
+
+
+def test_ellipse_box_on_several_frames_needs_a_selector(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n@frame a\n..\n@frame b\n..\n")
+    assert "pixel coordinates (--box) need you to say which frames" in run_err("ellipse", p, "k", "--box", "0,0,2,1")
+
+
+# ---------------------------------------------------------------- derive with nothing of its own writes no empty @variant
+
+DV_PAL = "k #202020\nw #e0e0e0\n@variant night\nk #101010\n"
+
+
+def test_derive_all_imported_keys_writes_no_empty_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3") == 0
+    out = capsys.readouterr().out
+    assert s.read_text() == "pxart 1\n@palette pal.px\n@frame a\nkw\n"
+    assert f"note: {s}'s keys all come from pal.px, whose @variant night colors them; no @variant night of its own " \
+        "to write (derive it in the palette file instead)\n" in out
+    assert out.rstrip().endswith(f"no change: {s}")
+
+
+def test_derive_all_imported_keys_dry_run_shows_no_diff(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "@@" not in out and "+@variant" not in out and "no @variant night of its own to write" in out
+
+
+def test_derive_own_keys_at_base_writes_no_empty_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nz #ff0000\n@frame a\nkwz\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0") == 0
+    out = capsys.readouterr().out
+    assert "@variant" not in s.read_text()
+    assert f"note: the derive leaves {s}'s own keys at their base colors; no @variant night of its own to write" in out
+
+
+def test_derive_own_keys_still_writes_them(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nz #ff0000\n@frame a\nkwz\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3") == 0
+    assert s.read_text().endswith("@variant night\nz #b20000\n@frame a\nkwz\n")
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_derive_a_variant_the_import_lacks_still_derives_imported_keys(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "dusk", "--derive-from", "base", "--darken", "0.3") == 0
+    assert "@variant dusk\nk #161616\nw #9d9d9d\n" in s.read_text()
+
+
+# ---------------------------------------------------------------- render/sheet: a checkerboard behind frames by default
+
+DARK = "o #1c1626\n@frame a\no..\n.o.\n"
+
+
+def test_render_default_bg_is_a_checkerboard_behind_the_frame(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    px = pxart.pixels(Image.open(tmp_path / "r.png").convert("RGBA"))
+    # 4 transparent pixels of 8x8 each, a square each: (1,0), (0,1), (2,1) of one grey, (2,0) of the other
+    assert px.count(pxart.CHECKER[0]) == 3 * 64 and px.count(pxart.CHECKER[1]) == 64
+
+
+def test_render_checker_squares_follow_the_pixels(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "o #1c1626\n@frame a\n....\n....\n")
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    img = Image.open(tmp_path / "r.png").convert("RGBA")
+    y0 = 10
+    x0 = next(x for x in range(img.width) if img.getpixel((x, y0 + 4)) in pxart.CHECKER)  # the frame's left edge
+    row = [img.getpixel((x0 + 8 * i + 4, y0 + 4))[:3] for i in range(4)]
+    assert img.getpixel((x0 + 32, y0 + 4)) not in pxart.CHECKER  # 4 px of 8: the checker ends with the frame
+    assert row[0] == row[2] != row[1] == row[3]
+    assert img.getpixel((x0 + 1, y0 + 1)) == img.getpixel((x0 + 6, y0 + 6))  # one square per pixel
+
+
+def test_render_dark_outline_contrasts_with_the_default(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    img = Image.open(tmp_path / "r.png").convert("RGBA")
+    lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    for c in pxart.CHECKER:
+        assert lum(c) - lum((0x1c, 0x16, 0x26)) > 60 and lum((0x3a, 0x3a, 0x44)) - lum((0x1c, 0x16, 0x26)) < 40
+
+
+def test_render_bg_flat_is_as_before(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--bg", "#3a3a44", "--no-grid") == 0
+    px = pxart.pixels(Image.open(tmp_path / "r.png").convert("RGBA"))
+    assert pxart.CHECKER[0] not in px and pxart.CHECKER[1] not in px and px.count((0x3a, 0x3a, 0x44, 255)) >= 6 * 64
+
+
+def test_sheet_default_bg_checker_only_behind_each_frame(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "o #1c1626\n@frame a\no.\n")
+    b = write(tmp_path, "b.px", "o #1c1626\n@frame b\no...\n....\n")
+    assert run("sheet", a, b, "-o", tmp_path / "s.png", "--scale", "4") == 0
+    px = pxart.pixels(Image.open(tmp_path / "s.png").convert("RGBA"))
+    # a's one transparent pixel and b's seven, 4x4 each at --scale 4: the checker covers those and nothing else of
+    # the cells (a's cell is b's size; the rest of it is the flat cell color)
+    assert px.count(pxart.CHECKER[0]) + px.count(pxart.CHECKER[1]) == 8 * 16
+    assert px.count((0x3a, 0x3a, 0x44, 255)) > 0
+
+
+def test_sheet_bg_given_is_flat(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "o #1c1626\n@frame a\n..\n")
+    assert run("sheet", a, "-o", tmp_path / "s.png", "--bg", "#102030") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    assert img.getpixel((12, 12)) == (0x10, 0x20, 0x30, 255)
+
+
+def test_sheet_color_count_with_checker_counts_every_color(tmp_path, capsys):
+    s = Image.new("RGBA", (4, 4), (0x3a, 0x3a, 0x44, 255))
+    s.putpixel((1, 1), (255, 0, 0, 255))
+    s.save(tmp_path / "scene.png")
+    it = pxart.Item("scene", Image.open(tmp_path / "scene.png").convert("RGBA"), 100)
+    assert pxart.n_colors(it, None) == 2 and pxart.n_colors(it, (0x3a, 0x3a, 0x44, 255)) == 1
+
+
+def test_checker_is_two_greys_in_squares():
+    img = pxart.checker(8, 4, 2)
+    assert img.getpixel((0, 0)) == pxart.CHECKER[1] and img.getpixel((2, 0)) == pxart.CHECKER[0]
+    assert img.getpixel((0, 2)) == pxart.CHECKER[0] and img.getpixel((1, 1)) == pxart.CHECKER[1]
+
+
+def test_help_says_render_draws_a_checkerboard():
+    doc = " ".join(pxart.__doc__.split())
+    assert "render and sheet put a grey checkerboard behind frames; --bg (render, sheet, scene) takes a flat" in doc
