@@ -564,7 +564,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
   anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still] [-o OUT]
-      Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
+      Write timing: updates the '@anim GROUP' line, or adds one, in the order of the frames.
       FILE:GROUP/ID (one frame) takes only ms=N and pivot=X,Y and sets that frame's own
       ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears
       a setting.
@@ -3901,6 +3901,8 @@ def frames_copy(a, doc, sel, picked):
                 print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {new.group} pivot there")
             else:
                 new.pivot = doc.pivot(f)
+    for n in [n for n in dst.anims if f"added @anim {n}" in said]:
+        place_anim(dst, n)
     if stilled:
         print(said_stilled(stilled, dpath))
     where = f" ({'after' if a.after else 'before'} {anchor.id})" if anchor else ""
@@ -4544,6 +4546,24 @@ def cmd_extract(a):
     if a.inline_palette:
         inline_palette(doc)
     print(write_doc(doc, out), f"({len(doc.frames)} frame(s))")
+
+
+def place_anim(doc, group):
+    """A new '@anim GROUP' line (just added, so last) moves among the others to where its group's first frame puts it,
+    so the lines follow the frames; the lines already there keep their order. Blank lines above the first @anim line
+    stay first."""
+    first = {}
+    for i, f in enumerate(doc.frames):
+        first.setdefault(f.group, i)
+    rest = [g for g in doc.anims if g != group]
+    at = next((i for i, g in enumerate(rest) if first.get(g, len(doc.frames)) > first.get(group, len(doc.frames))),
+              len(rest))
+    if at == 0 and rest:  # it goes first: it takes the blank lines above the old first line, which keeps its comment
+        lead = doc.lead.get(("anim", rest[0]))
+        if lead is not None:
+            n = next((i for i, x in enumerate(lead) if x.strip()), len(lead))
+            doc.lead[("anim", group)], doc.lead[("anim", rest[0])] = lead[:n], lead[n:]
+    doc.anims = {g: doc.anims[g] for g in rest[:at] + [group] + rest[at:]}
 
 
 def order_anims(doc, groups):
@@ -6136,6 +6156,7 @@ def cmd_dup(a):
     doc.frames.insert(doc.frames.index(anchor) + 1, new)
     if new.group and new.group not in doc.anims and src.group in doc.anims:
         doc.anims[new.group] = dict(doc.anims[src.group])
+        place_anim(doc, new.group)
     note_suffix(a.o or doc.path)
     if stilled:
         print(said_stilled(stilled, a.o or doc.path))
@@ -6187,6 +6208,8 @@ def cmd_anim_set(a):
     groups = doc.groups()
     if sel in groups and sel:
         anim = doc.anims.setdefault(sel, {})
+        if not anim:
+            place_anim(doc, sel)
         anim.update(kw)
         line = next(text for anchor, _, text in doc.lines() if anchor == ("anim", sel))
         for k in ("ms", "pivot"):

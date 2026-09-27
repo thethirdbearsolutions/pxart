@@ -25783,3 +25783,64 @@ def test_unknown_option_shows_the_commands_usage(capsys, argv):
 def test_help_documents_dry_run_and_undo():
     doc = " ".join(pxart.__doc__.split())
     assert "--dry-run (any edit) prints its diff and writes nothing. There's no undo: use git." in doc
+
+
+# ---------------------------------------------------------------- a new @anim line follows its frames' first appearance
+
+ORDER = "k #000000\n\n@anim idle ms=400\n@anim fly/left ms=90\n\n@frame fly/right/0\nk\n@frame fly/right/1\nk\n" \
+    "@frame fly/left/0\nk\n@frame idle/0\nk\n"
+
+
+def anim_at_lines(p):
+    return [l for l in p.read_text().splitlines() if l.startswith("@anim")]
+
+
+def test_anim_set_new_line_goes_where_its_frames_are(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n@anim fly/left ms=90\n@anim idle ms=400\n\n@frame fly/right/0\nk\n"
+              "@frame fly/left/0\nk\n@frame idle/0\nk\n@frame zz/0\nk\n")
+    assert run("anim-set", f"{p}:zz", "ms=50") == 0
+    assert anim_at_lines(p) == ["@anim fly/left ms=90", "@anim idle ms=400", "@anim zz ms=50"]
+    assert run("anim-set", f"{p}:fly/right", "ms=100") == 0
+    assert anim_at_lines(p) == ["@anim fly/right ms=100", "@anim fly/left ms=90", "@anim idle ms=400", "@anim zz ms=50"]
+    assert p.read_text().startswith("k #000000\n\n@anim fly/right ms=100\n@anim fly/left ms=90\n")  # one blank above
+
+
+def test_anim_set_new_line_leaves_lines_out_of_order_alone(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORDER)
+    assert run("anim-set", f"{p}:fly/right", "ms=100") == 0
+    # idle and fly/left were already out of order and stay so: the new line goes before the first line whose group
+    # starts after fly/right does
+    assert anim_at_lines(p) == ["@anim fly/right ms=100", "@anim idle ms=400", "@anim fly/left ms=90"]
+    before = ORDER.splitlines()
+    after = p.read_text().splitlines()
+    assert [l for l in after if l not in before] == ["@anim fly/right ms=100"]
+
+
+def test_anim_set_new_first_line_keeps_the_old_first_lines_comment(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n# slow\n@anim idle ms=400\n\n@frame run/0\nk\n@frame idle/0\nk\n")
+    assert run("anim-set", f"{p}:run", "ms=80") == 0
+    assert p.read_text() == "k #000000\n\n@anim run ms=80\n# slow\n@anim idle ms=400\n\n@frame run/0\nk\n" \
+        "@frame idle/0\nk\n"
+
+
+def test_anim_set_existing_line_stays_put(tmp_path, capsys):
+    p = write(tmp_path, "o.px", ORDER)
+    assert run("anim-set", f"{p}:fly/left", "ms=70") == 0
+    assert anim_at_lines(p) == ["@anim idle ms=400", "@anim fly/left ms=70"]
+
+
+def test_dup_new_group_anim_follows_the_frames(tmp_path, capsys):
+    p = write(tmp_path, "o.px", "k #000000\n\n@anim a ms=90\n@anim b ms=50\n\n@frame a/0\nk\n@frame b/0\nk\n")
+    assert run("dup", f"{p}:a/0", "c/0", "--after", "a/0") == 0
+    assert anim_at_lines(p) == ["@anim a ms=90", "@anim c ms=90", "@anim b ms=50"]
+
+
+def test_copy_to_new_group_anim_follows_the_frames(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n@anim run ms=70\n@frame run/0\nk\n")
+    d = write(tmp_path, "d.px", "k #000000\n\n@anim a ms=90\n@anim b ms=50\n\n@frame a/0\nk\n@frame b/0\nk\n")
+    assert run("frames", s, "--copy-to", d, "--after", "a/0") == 0
+    assert anim_at_lines(d) == ["@anim a ms=90", "@anim run ms=70", "@anim b ms=50"]
+
+
+def test_help_says_anim_set_adds_in_frame_order():
+    assert "updates the '@anim GROUP' line, or adds one, in the order of the frames." in " ".join(pxart.__doc__.split())
