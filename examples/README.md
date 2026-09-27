@@ -1,28 +1,68 @@
 # Examples
 
-Each folder holds the `.px` sources, the exact commands, and what they produce, all
-committed. [`build.sh`](build.sh) regenerates every output from the sources, and
-`tests/test_examples.py` rebuilds them and checks each is byte-identical, so these can't
-drift from the tool.
+Nine short tutorials, each in its own folder, each ending with a picture you made. They
+start from what a `.px` sprite file is and build up to animations, day-and-night
+palettes, whole scenes, and getting art in and out of other tools. Every step is one
+small command, with its output and its picture.
 
-To run an example's commands yourself, copy its folder somewhere, `cd` into the copy, and
-make `pxart` a command (`pip install git+https://github.com/thethirdbearsolutions/pxart`, or
-`alias pxart='python3 /path/to/pxart.py'`). Running them in the folder here overwrites the
-committed outputs.
 
-| | Feature | Shows |
+## Start here
+
+Go in order the first time; each one leans a little on the ones before it.
+
+1. [01 · Format basics](01-format): what a `.px` file is; draw a gem by hand.
+2. [02 · Animation](02-animation): frames, timing and pivots; check a walk frame by frame.
+3. [03 · Palette variants](03-variants): the same drawing by day, at dusk and at night.
+4. [04 · Drawing tools](04-drawing): a treasure chest from eleven commands.
+5. [05 · Compose across packs](05-compose): one scene from three packs whose colors clash.
+6. [06 · Scenes and maps](06-scene): a level from a text tilemap, in layers.
+7. [07 · Import from PNG](07-import): cut a sprite sheet into frames, and prove it lossless.
+8. [08 · Export](08-export): hand your art to Aseprite, Tiled or anything that reads PNGs.
+9. [09 · Checking](09-check): read `check`'s messages and fix a broken file.
+
+
+## Setting up
+
+Each tutorial runs `pxart` as a command. Either install it:
+
+```sh
+pip install git+https://github.com/thethirdbearsolutions/pxart
+```
+
+or point an alias at the script in this repo (`/path/to` being where you cloned it):
+
+```sh
+alias pxart='python3 /path/to/pxart.py'
+```
+
+Then copy an example's folder somewhere, `cd` into the copy, and follow its README from
+there. Running the commands in the folder here would overwrite the files it comes with.
+
+
+## What's in each
+
+| | Example | You'll use |
 |---|---|---|
-| <img src="01-format/barrel.preview.png" width="96"> | [01 · Format basics](01-format) | palette keys, a grid, `@palette` import; `render` |
-| <img src="02-animation/walk.gif" width="160"> | [02 · Animation](02-animation) | `@anim`/`@frame`, ms, pivots; `anim` GIF, strip and readout (a walk's shift, an idle's rows still); `onion --feet` |
-| <img src="03-variants/panels.x4.png" width="200"> | [03 · Palette variants](03-variants) | `@variant`, `%VARIANT`, `palette --derive-from --keep-lit`, `--add`, `--comment`, the palette listing |
-| <img src="04-drawing/chest.preview.png" width="96"> | [04 · Drawing tools](04-drawing) | `rect` `poly` `shade` `line` `flood` `ellipse` `outline`, one step at a time |
-| <img src="05-compose/dock-dusk.x4.png" width="200"> | [05 · Compose across packs](05-compose) | `compose --rekey --variant-map`, and the `E_KEY_CONFLICT` it starts from |
-| <img src="06-scene/glade-dusk.x2.png" width="200"> | [06 · Scenes and maps](06-scene) | a layered `.map`, `scene --map`, base and `--variant dusk` |
-| <img src="07-import/imported.png" width="200"> | [07 · Import](07-import) | `from-png --grid`, then `diff` proving it lossless |
-| <img src="08-export/alchemist.x4.png" width="160"> | [08 · Export](08-export) | `export --aseprite`, `--tiled`, `--frames` (PNG + JSON) |
-| <img src="09-check/fixed.png" width="200"> | [09 · Checking](09-check) | `check` on a broken file and its fix; `stats` |
+| <img src="01-format/barrel.preview.png" width="96"> | [01 · Format basics](01-format) | palette lines and a grid; `@palette`; `render`; `palette --import` |
+| <img src="02-animation/walk.gif" width="160"> | [02 · Animation](02-animation) | `@anim`, `@frame`, ms, pivots; `sheet`; `anim` and its numbers; `onion --feet` |
+| <img src="03-variants/panels.x4.png" width="200"> | [03 · Palette variants](03-variants) | `@variant`, `%VARIANT`; `palette --derive-from --keep-lit`, `--add`; the palette listing |
+| <img src="04-drawing/chest.preview.png" width="96"> | [04 · Drawing tools](04-drawing) | `new`, `rect`, `poly`, `shade`, `line`, `flood`, `ellipse`, `outline` |
+| <img src="05-compose/dock-dusk.x4.png" width="200"> | [05 · Compose across packs](05-compose) | `compose`, the `E_KEY_CONFLICT` error, `--rekey`, `--variant-map` |
+| <img src="06-scene/glade-dusk.x2.png" width="200"> | [06 · Scenes and maps](06-scene) | a layered `.map`; `check`; `scene --map`, `--variant dusk`; `compose --map` |
+| <img src="07-import/imported.png" width="200"> | [07 · Import from PNG](07-import) | `from-png --grid`; `diff`, and `diff -o` for a picture |
+| <img src="08-export/alchemist.x4.png" width="160"> | [08 · Export](08-export) | `export --aseprite`, `--tiled`, `--frames` |
+| <img src="09-check/fixed.png" width="200"> | [09 · Checking](09-check) | `check` and its error codes; `stats --colors` |
 
-Rebuild after changing a source (or pxart itself), then commit what changed:
+
+## How these stay correct
+
+Each folder holds the `.px` sources, the commands, and everything they produce, all
+committed. [`build.sh`](build.sh) regenerates every output from the sources, and
+`tests/test_examples.py` rebuilds them and checks each is byte-identical, and that every
+output a README quotes is what the command really printed. So the tutorials can't drift
+from the tool.
+
+After changing a source (or pxart itself), rebuild and commit what changed:
 
 ```sh
 examples/build.sh                 # in place
@@ -30,6 +70,6 @@ examples/build.sh /tmp/ex         # or into another directory
 PYTHON=.venv/bin/python examples/build.sh
 ```
 
-The art is from our own packs (the lighthouse keeper, the harbor market, wick) and our
+The art is from our own packs (the lighthouse keeper, the harbor market, Wick) and our
 own sprites (the SNES-scale hero and glade, the alchemist and her beetle), released with
 this repo.
