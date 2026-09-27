@@ -26420,3 +26420,164 @@ def test_compose_new_out_notes_an_undrawn_halo_key(tmp_path, capsys):
 
 def test_help_outline_shape_is_by_key():
     assert "every pixel that draws in some variant" in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- --replace: a copy over a group that exists
+# 'flip FILE:G -o FILE:NEWG' onto a NEWG that exists was E_DUP_FRAME with no way forward in one command. flip, rotate,
+# transpose and dup take --replace: NEWG's frames (and their @anim/@still lines) go, and the copy takes their place.
+
+STALE = BUGS.replace("@anim idle ms=400\n", "@anim idle ms=400\n@anim fly/left ms=50 pivot=0,0\n") \
+    .replace("@frame idle/0\n", "@frame fly/left/0\n....\n....\n@frame fly/left/1\n....\n....\n"
+             "@frame fly/left/2\n....\n....\n@frame idle/0\n")
+
+
+def test_flip_onto_an_existing_group_is_dup_frame_naming_replace_and_rm(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    err = run_err("flip", f"{p}:fly/right", "-o", f"{p}:fly/left")
+    assert "E_DUP_FRAME" in err and "--replace" in err and f"pxart frames {p}:fly/left --rm" in err
+    assert f"flip {p}:fly/right -o {p}:fly/left would give those ids twice" in err
+    assert p.read_text() == STALE
+
+
+def test_flip_replace_rebuilds_the_group(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left", "--replace") == 0
+    out = capsys.readouterr().out
+    assert out.endswith(f"copied fly/right (2 frames) as fly/left, replacing its 3 frames; wrote {p}\n")
+    assert "added @anim" not in out
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["fly/right/0", "fly/right/1", "fly/left/0", "fly/left/1", "idle/0", "ui/0"]
+    assert d.get("fly/left/0").grid == ["..jk", "...k"] and d.get("fly/left/1").ms == 120
+    assert d.anims["fly/left"] == {**d.anims["fly/right"], "pivot": (1, 1)}
+
+
+def test_flip_replace_is_the_same_as_rm_then_flip(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    q = write(tmp_path, "q.px", STALE)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left", "--replace") == 0
+    assert run("frames", f"{q}:fly/left", "--rm") == 0
+    assert run("flip", f"{q}:fly/right", "-o", f"{q}:fly/left") == 0
+    assert pxart.parse(p).get("fly/left/1").grid == pxart.parse(q).get("fly/left/1").grid
+    assert pxart.parse(p).anims == pxart.parse(q).anims
+    assert [f.id for f in pxart.parse(p).frames] == [f.id for f in pxart.parse(q).frames]
+
+
+def test_flip_replace_dry_run_writes_nothing(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    before, m = snap(p)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left", "--replace", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "replacing its 3 frames" in out and "-@frame fly/left/2" in out
+    assert out.endswith("(dry run; nothing written)\n") and untouched(p, before, m)
+
+
+def test_flip_replace_onto_a_new_group_is_a_plain_copy(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:fly/left", "--replace") == 0
+    assert capsys.readouterr().out.endswith(
+        f"copied fly/right (2 frames) as fly/left; added @anim fly/left; wrote {p}\n")
+
+
+def test_flip_replace_without_a_group_copy_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    err = run_err("flip", f"{p}:fly/right", "--replace")
+    assert "E_BAD_ARG" in err and "--replace goes with -o FILE:NEWGROUP" in err
+
+
+def test_flip_replace_of_a_group_holding_the_source_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    err = run_err("flip", f"{p}:fly/right", "-o", f"{p}:fly", "--replace")
+    assert "E_BAD_ARG" in err and "inside it" in err and p.read_text() == BUGS
+
+
+def test_flip_replace_drops_the_stale_groups_still_line(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("flip", f"{p}:fly/right", "-o", f"{p}:ui", "--replace") == 0
+    d = pxart.parse(p)
+    assert "ui" not in d.stills and "ui" in d.anims and d.get("ui/0").grid == ["..jk", "...k"]
+
+
+def test_rotate_into_a_copy(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("rotate", f"{p}:fly/right", "90", "-o", f"{p}:fly/down") == 0
+    out = capsys.readouterr().out
+    assert f"copied fly/right (2 frames) as fly/down; added @anim fly/down; wrote {p}" in out
+    d = pxart.parse(p)
+    assert d.get("fly/right/0").grid == ["kj..", "k..."] and d.get("fly/down/0").grid == ["kk", ".j", "..", ".."]
+    assert not (tmp_path / "b.px:fly/down").exists()
+
+
+def test_rotate_replace_over_an_existing_group(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    err = run_err("rotate", f"{p}:fly/right", "90", "-o", f"{p}:fly/left")
+    assert "E_DUP_FRAME" in err and "--replace" in err
+    assert run("rotate", f"{p}:fly/right", "90", "-o", f"{p}:fly/left", "--replace") == 0
+    assert "replacing its 3 frames" in capsys.readouterr().out
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames if f.group == "fly/left"] == ["fly/left/0", "fly/left/1"]
+    assert d.get("fly/left/0").grid == ["kk", ".j", "..", ".."]
+
+
+def test_transpose_replace_over_an_existing_group(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    assert run("transpose", f"{p}:fly/right", "-o", f"{p}:fly/left", "--replace") == 0
+    assert pxart.parse(p).get("fly/left/0").grid == ["kk", "j.", "..", ".."]
+
+
+def test_rotate_copy_to_another_file_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    err = run_err("rotate", f"{p}:fly/right", "90", "-o", f"{tmp_path / 'o.px'}:fly/down")
+    assert "E_BAD_ARG" in err and "turns a copy of FILE:GROUP within FILE" in err
+
+
+def test_dup_group_onto_existing_suggests_replace(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    err = run_err("dup", f"{p}:fly/right", "fly/left")
+    assert "E_DUP_FRAME" in err and "add --replace" in err and f"pxart frames {p}:fly/left --rm" in err
+
+
+def test_dup_group_replace(tmp_path, capsys):
+    p = write(tmp_path, "b.px", STALE)
+    assert run("dup", f"{p}:fly/right", "fly/left", "--replace") == 0
+    assert capsys.readouterr().out == f"copied fly/right (2 frames) as fly/left, replacing its 3 frames; wrote {p}\n"
+    d = pxart.parse(p)
+    assert d.get("fly/left/0").grid == d.get("fly/right/0").grid and d.anims["fly/left"] == d.anims["fly/right"]
+    assert d.get("fly/left/2") is None
+
+
+def test_dup_frame_onto_existing_suggests_replace(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    err = run_err("dup", f"{p}:fly/right/0", "idle/0")
+    assert "E_DUP_FRAME" in err and "add --replace" in err and f"pxart frames {p} --rm idle/0" in err
+
+
+def test_dup_frame_replace_keeps_its_place(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:fly/right/0", "idle/0", "--replace") == 0
+    assert capsys.readouterr().out == f"wrote {p} frame idle/0 (replaced the frame it had)\n"
+    d = pxart.parse(p)
+    assert [f.id for f in d.frames] == ["fly/right/0", "fly/right/1", "idle/0", "ui/0"]
+    assert d.get("idle/0").grid == ["kj..", "k..."]
+
+
+def test_dup_frame_replace_of_itself_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "is the frame being copied" in run_err("dup", f"{p}:idle/0", "idle/0", "--replace")
+
+
+def test_dup_frame_replace_with_after_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    err = run_err("dup", f"{p}:fly/right/0", "idle/0", "--replace", "--after", "ui/0")
+    assert "E_BAD_ARG" in err and "drop --after" in err
+
+
+def test_dup_frame_replace_onto_a_new_id_is_a_plain_dup(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert run("dup", f"{p}:idle/0", "idle/1", "--replace") == 0
+    assert capsys.readouterr().out == f"wrote {p} frame idle/1\n"
+
+
+def test_replace_is_in_the_help():
+    doc = " ".join(pxart.__doc__.split())
+    assert "flips a copy (--replace: over its frames)" in doc and "-o FILE:NEWGROUP turns a copy, as flip's" in doc
+    assert "dup FILE:GROUP NEWGROUP [--after ID] [--replace] [-o OUT]" in doc

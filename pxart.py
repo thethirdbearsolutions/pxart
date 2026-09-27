@@ -324,7 +324,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
   flip FILE [-o OUT] [--v]          mirror selected frames left-right (--v: top-bottom)
-      'flip hero.px:walk/left -o hero.px:walk/right' flips a copy: dup, then flip.
+      'flip hero.px:walk/left -o hero.px:walk/right' flips a copy (--replace: over its frames).
   shift FILE [-o OUT] --dx N --dy N [--region x,y,w,h] [--wrap] [--fill KEY]
       Move the frame's pixels (or only the region's) by dx,dy. Pixels moved past the frame's
       edge are dropped, and the pixels the move leaves behind (vacated) become '.', or KEY
@@ -558,8 +558,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --map market.map --bg transparent --scale 1 -o market.png' does, pixel for pixel, in
       every variant too, except where a translucent pixel lands on another: a .px pixel is
       one key, so it replaces what scene blends.
-  dup FILE:ID NEWID [--after ID] [-o OUT]
-  dup FILE:GROUP NEWGROUP [--after ID] [-o OUT]
+  dup FILE:ID NEWID [--after ID | --replace] [-o OUT]
+  dup FILE:GROUP NEWGROUP [--after ID] [--replace] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
@@ -730,10 +730,9 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       or corners too with --diagonal. A hole of another key stops it.
   rotate FILE[:SEL] 90|180|270 [-o OUT]    turn frames clockwise (a WxH frame becomes HxW)
   transpose FILE[:SEL] [-o OUT]            mirror across the top-left/bottom-right diagonal
-      For deriving path edges and corners from one tile. The shading turns with the pixels
-      (after rotate 90 a top-left light is top-right; transpose keeps top-left but swaps
-      top-right and bottom-left), so re-light with shade and outline --selective after. A
-      frame's pivot turns with it.
+      For deriving path edges and corners from one tile. -o FILE:NEWGROUP turns a copy, as
+      flip's. The shading turns with the pixels (a note says where the light went), so
+      re-light with shade and outline --selective after. A frame's pivot turns with it.
   shade FILE[:frame] --ramp d2,d1,base,l1[,l2] [--keys k1,k2] [--base K] [--light nw]
         [--strength N] [--region x,y,w,h] [--dither] [--preview P.png]
       Re-shade a material: the pixels whose key is in --keys (default: the ramp's keys, so a
@@ -4184,24 +4183,33 @@ def move_pivots(doc, frames, how):
             move_pivot(doc, f, how(f))
 
 
-def cmd_flip(a):
+def copy_target(a):
+    """flip, rotate, transpose: edit_target, or with -o FILE:NEWGROUP a copy of FILE:GROUP within FILE (dup_group; with
+    --replace over NEWGROUP's frames) as the frames to edit. (doc, frames, where to write, what the copy did)."""
     opath, osel = split_sel(a.o) if a.o else (None, None)
-    said = []
-    if osel is not None:  # flip FILE:walk/right -o FILE:walk/left: copy the group (dup), flip the copy
-        path, sel = split_sel(a.file)
-        if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
-            fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP flips a copy of FILE:GROUP within FILE ('flip {path}:walk/right "
-                 f"-o {path}:walk/left'); to another file, copy first (frames --copy-to) and flip there")
-        with reading(f"FILE ({a.file})"):
-            doc = parse(path)
-            if doc.get(sel) or not any((f.id or "").startswith(sel + "/") for f in doc.frames):
-                doc.select(sel)  # a missing selector's error, with its guess
-                fail("E_BAD_ARG", f"-o {a.o}: flipping into a copy takes a group (FILE:GROUP); for one frame, dup it "
-                     f"first: dup {path}:{sel} NEWID, then flip {path}:NEWID")
-        said, frames = dup_group(doc, sel, osel)
-        out = doc.path
-    else:
-        doc, frames, out = edit_target(a.file, a.o)
+    turn = f" {a.angle}" if a.cmd == "rotate" else ""
+    if osel is None:
+        if a.replace:
+            fail("E_BAD_ARG", f"--replace goes with -o FILE:NEWGROUP, a copy made over NEWGROUP's frames ('{a.cmd} "
+                 f"FILE:walk/right{turn} -o FILE:walk/left --replace')")
+        return edit_target(a.file, a.o) + ([],)
+    path, sel = split_sel(a.file)
+    verb = {"flip": "flips", "rotate": "turns", "transpose": "transposes"}[a.cmd]
+    if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
+        fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP {verb} a copy of FILE:GROUP within FILE ('{a.cmd} {path}:walk/right"
+             f"{turn} -o {path}:walk/left'); to another file, copy first (frames --copy-to) and {a.cmd} there")
+    with reading(f"FILE ({a.file})"):
+        doc = parse(path)
+        if doc.get(sel) or not any((f.id or "").startswith(sel + "/") for f in doc.frames):
+            doc.select(sel)  # a missing selector's error, with its guess
+            fail("E_BAD_ARG", f"-o {a.o}: {a.cmd} into a copy takes a group (FILE:GROUP); for one frame, dup it "
+                 f"first: dup {path}:{sel} NEWID, then {a.cmd} {path}:NEWID{turn}")
+    said, frames = dup_group(doc, sel, osel, how=f"{a.cmd} {a.file}{turn} -o {a.o}", replace=a.replace)
+    return doc, frames, doc.path, said
+
+
+def cmd_flip(a):
+    doc, frames, out, said = copy_target(a)
     move_pivots(doc, frames, lambda f: (lambda x, y, h=f.size[1]: (x, h - 1 - y)) if a.v else
                 (lambda x, y, w=f.size[0]: (w - 1 - x, y)))
     mirrored_pivots(doc, frames, "y" if a.v else "x")
@@ -4238,7 +4246,7 @@ TURNS = {  # how rotate/transpose move a pixel of a w x h frame, and a direction
 
 def turn(a, how):
     """rotate / transpose: each selected frame's pixels (and its pivot) move by TURNS[how]."""
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out, said = copy_target(a)
     move, vec = TURNS[how]
     mirrored_pivots(doc, frames, {"90": "y", "180": "xy", "270": "x", "transpose": ""}[how])  # what each mirrors
     move_pivots(doc, frames, lambda f: (lambda x, y, w=f.size[0], h=f.size[1]: move(x, y, w, h)))
@@ -4254,12 +4262,12 @@ def turn(a, how):
             print(f"note: {doc.label(f)} is now {f.size[0]}x{f.size[1]} (was {w}x{h})")
     names = {"nw": "top-left", "ne": "top-right", "se": "bottom-right", "sw": "bottom-left"}
     now = {k: next(n for n, v in LIGHTS.items() if v == vec(*LIGHTS[k])) for k in ("nw", "ne")}
-    said = f"a top-left light is now {names[now['nw']]} (--light {now['nw']})" if now["nw"] != "nw" else \
+    light = f"a top-left light is now {names[now['nw']]} (--light {now['nw']})" if now["nw"] != "nw" else \
         f"a top-left light stays top-left, a top-right one is now {names[now['ne']]} (--light {now['ne']})"
     msg = write_doc(doc, out)
     if not msg.startswith("no change"):
-        print(f"note: the shading turned with the pixels ({said}); re-light with 'shade' and 'outline --selective'")
-    print(msg)
+        print(f"note: the shading turned with the pixels ({light}); re-light with 'shade' and 'outline --selective'")
+    print("; ".join(said + [msg]))
 
 
 def cmd_rotate(a):
@@ -6215,14 +6223,29 @@ def cmd_dup(a):
     src = doc.get(sel) if sel else None
     if not src and sel and any((f.id or "").startswith(sel + "/") for f in doc.frames):  # a group: dup GROUP NEWGROUP
         note_suffix(a.o or doc.path)
-        print("; ".join(dup_group(doc, sel, a.new, a.after, a.o or doc.path)[0] + [write_doc(doc, a.o)]))
+        print("; ".join(dup_group(doc, sel, a.new, a.after, a.o or doc.path, replace=a.replace)[0]
+                        + [write_doc(doc, a.o)]))
         return
     if not src:
         fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame, or FILE:GROUP; frames: "
              f"{', '.join(doc.label(f) for f in doc.frames)}" + (guess(sel, doc.paths()) if sel else ""))
-    if doc.get(a.new) or not ID_RE.match(a.new):
-        fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
+    if not ID_RE.match(a.new):
+        fail("E_BAD_ID", f"can't use {a.new!r} as the new frame id")
+    old = doc.get(a.new)
+    if old is src:
+        fail("E_BAD_ARG", f"{a.new!r} is the frame being copied; give another id")
+    if old and not a.replace:
+        fail("E_DUP_FRAME", f"{doc.path} already has frame {a.new!r}; to replace it, add --replace, or remove it "
+             f"first: pxart frames {doc.path} --rm {a.new}")
     new = Frame(a.new, list(src.grid), src.ms, pivot=src.pivot)
+    if old:  # the copy takes its place, and its comments
+        if a.after:
+            fail("E_BAD_ARG", f"--replace puts the copy where {a.new!r} is; drop --after, or move it after: "
+                 f"frames {doc.path} --move {a.new} --after ID")
+        doc.frames[doc.frames.index(old)] = new
+        note_suffix(a.o or doc.path)
+        print(write_doc(doc, a.o), "frame", a.new, "(replaced the frame it had)")
+        return
     stilled = [as_still(new, doc, src, doc)] if doc.animated(src.group) and not doc.animated(new.group) else []
     if a.after:
         anchor = doc.get(a.after)
@@ -6242,36 +6265,52 @@ def cmd_dup(a):
     print(write_doc(doc, a.o), "frame", a.new)
 
 
-def dup_group(doc, group, new, after=None, dpath=None):
+def dup_group(doc, group, new, after=None, dpath=None, how=None, replace=False):
     """dup FILE:GROUP NEWGROUP: every frame under GROUP copied under NEWGROUP (walk/right/0 -> walk/left/0), with its
     ms and pivot, and the @anim and @still lines of GROUP and the groups under it, placed as dup places a frame: after
-    NEWGROUP's last frame, else after GROUP's (or --after ID). Returns (what it did, for the line; the copies)."""
+    NEWGROUP's last frame, else after GROUP's (or --after ID). replace: NEWGROUP's frames (and their @anim/@still lines)
+    go first, and the copies take their place. how: the command, for E_DUP_FRAME. Returns (what it did, for the line;
+    the copies)."""
     if not ID_RE.match(new):
         fail("E_BAD_ID", f"can't use {new!r} as the new group (ids are paths of letters, digits, _ - and .)")
     if new == group or new.startswith(group + "/"):
         fail("E_BAD_ARG", f"{new!r} is inside {group!r}: its copies would be copied too; give another group")
+    if replace and group.startswith(new + "/"):
+        fail("E_BAD_ARG", f"--replace removes {new!r}'s frames, and {group!r} is inside it; give another group")
     src = [f for f in doc.frames if (f.id or "").startswith(group + "/")]
     renames = [(group, new)]
-    taken = [renamed_id(f.id, renames) for f in src if doc.get(renamed_id(f.id, renames))]
+    old = [f for f in doc.frames if (f.id or "").startswith(new + "/")] if replace else []
+    taken = [renamed_id(f.id, renames) for f in src if doc.get(renamed_id(f.id, renames)) and not replace]
     if taken:
-        fail("E_DUP_FRAME", f"{listed(taken)} already in {doc.path}: dup {group} {new} would give those ids twice")
+        fail("E_DUP_FRAME", f"{listed(taken)} already in {doc.path}: {how or f'dup {group} {new}'} would give those ids "
+             f"twice; to replace {new}, add --replace, or remove it first: pxart frames {doc.path}:{new} --rm")
     if after:
         anchor = doc.get(after)
-        if not anchor:
-            fail("E_SELECT", f"--after {after!r}: no such frame" + guess(after, [f.id for f in doc.frames]))
-    else:
+        if not anchor or anchor in old:
+            fail("E_SELECT", f"--after {after!r}: no such frame" + (f" once --replace removes {new}" if anchor else
+                                                                  guess(after, [f.id for f in doc.frames])))
+    said, stilled, copies = [], [], []
+    lines, had = {x for x, _, _ in doc.lines()}, set(doc.anims) | set(doc.stills)
+    at = doc.frames.index(old[0]) if old else None  # the copies take the replaced frames' place
+    if old:
+        groups = set(doc.groups())
+        for f in old:
+            doc.frames.remove(f)
+        drop_orphans(doc, groups - set(doc.groups()))
+    if not after and at is None:
         same = [f for f in doc.frames if (f.id or "").startswith(new + "/")]
         anchor = (same or src)[-1]
-    said, stilled, copies = [], [], []
+    placed = []
     for g in dict.fromkeys(f.group for f in src):
         n = renamed_id(g, renames)
         if g in doc.anims and n not in doc.anims:
             doc.anims[n] = dict(doc.anims[g])
-            said.append(f"added @anim {n}")
+            placed.append(n)
+            said += [] if n in had else [f"added @anim {n}"]
         if g in doc.stills and n not in doc.stills:
             doc.stills.append(n)
-            said.append(f"added @still {n}")
-    at = doc.frames.index(anchor) + 1
+            said += [] if n in had else [f"added @still {n}"]
+    at = doc.frames.index(anchor) + 1 if after or at is None else at
     for f in src:
         c = Frame(renamed_id(f.id, renames), list(f.grid), f.ms, pivot=f.pivot)
         doc.frames.insert(at, c)
@@ -6279,11 +6318,14 @@ def dup_group(doc, group, new, after=None, dpath=None):
         copies.append(c)
         if doc.animated(f.group) and not doc.animated(c.group):
             stilled.append(as_still(c, doc, f, doc))
-    for n in [x[len("added @anim "):] for x in said if x.startswith("added @anim ")]:
+    for n in placed:
         place_anim(doc, n)
+    if old:  # a replaced id that no copy took leaves its blank lines to the next line
+        keep_spacing(doc, lines - {x for x, _, _ in doc.lines()})
     if stilled:
         print(said_stilled(stilled, dpath or doc.path))
-    return [f"copied {group} ({len(src)} frame{'s' * (len(src) != 1)}) as {new}"] + said, copies
+    return [f"copied {group} ({len(src)} frame{'s' * (len(src) != 1)}) as {new}"
+            + (f", replacing its {len(old)} frame{'s' * (len(old) != 1)}" if old else "")] + said, copies
 
 
 def timing_value(k, v):
@@ -7945,6 +7987,7 @@ USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' 
 TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
 REKEY_HELP = ("give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are. "
               "KEYS: only these ('o,r'), or KEY=OUTKEY to use OUT's key ('k=j,n=q')")
+REPLACE_HELP = "with -o FILE:NEWGROUP: NEWGROUP's frames go first, and the copy takes their place"
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
 
@@ -8041,10 +8084,13 @@ def parser(describe=True):
     p.add_argument("--prefix", metavar="P", help="with --copy-to: every copy's id gets P in front ('wick/')")
     p = sub.add_parser("flip"); p.add_argument("file")
     p.add_argument("-o", help="OUT, or FILE:NEWGROUP to flip a copy of FILE:GROUP (dup GROUP NEWGROUP, then flip it)")
-    p.add_argument("--v", action="store_true")
+    p.add_argument("--v", action="store_true"); p.add_argument("--replace", action="store_true", help=REPLACE_HELP)
     p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
-    p.add_argument("-o")
-    p = sub.add_parser("transpose"); p.add_argument("file"); p.add_argument("-o")
+    p.add_argument("-o", help="OUT, or FILE:NEWGROUP to turn a copy of FILE:GROUP")
+    p.add_argument("--replace", action="store_true", help=REPLACE_HELP)
+    p = sub.add_parser("transpose"); p.add_argument("file")
+    p.add_argument("-o", help="OUT, or FILE:NEWGROUP to transpose a copy of FILE:GROUP")
+    p.add_argument("--replace", action="store_true", help=REPLACE_HELP)
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")
@@ -8121,6 +8167,7 @@ def parser(describe=True):
     p.add_argument("--replace", action="store_true", help="a plain OUT that exists is started fresh, as if new")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
+    p.add_argument("--replace", action="store_true", help="NEWID (or NEWGROUP's frames) exists: the copy replaces it")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
     g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")

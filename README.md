@@ -264,7 +264,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   q, with a `WARNING` where their variant colors differ; `--rekey girl.px:T=V` is for one
   source file's T only; a color two files share, alike in every variant, keeps the one key
   it got first), `dup` (copy a frame; or a group, `dup hero.px:walk/right walk/left`, with its frames' timing and pivots and its
-  `@anim` line; `flip hero.px:walk/left -o hero.px:walk/right` copies a group and flips the copy in one step), `anim-set` (timing), `palette
+  `@anim` line; `flip hero.px:walk/left -o hero.px:walk/right` copies a group and flips the copy in one step, as
+  `rotate` and `transpose` turn one; onto a group or frame that exists, `--replace` puts the copy in its place), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
