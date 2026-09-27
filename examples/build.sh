@@ -101,6 +101,25 @@ pxart sheet steps/ --cols 6 --scale 4 -o steps.png
 pxart render chest.px -o chest.preview.png --png
 
 # ---------------------------------------------------------------------------------------
+# 05-compose: three packs, three palettes, three night-ish variants, one dusk dock.
+stage 05-compose harbor-market/harbor.px harbor-market/palette.px \
+  lighthouse-keeper/keeper.px lighthouse-keeper/palette.px wick/player.px wick/pal.px
+H=harbor-market/harbor.px
+layers=(
+  $H:water/0@0,0 $H:water/0@16,0 $H:water/0@32,0 $H:water/0@48,0 $H:water/0@64,0
+  $H:cobble/a@0,16 $H:cobble/b@16,16 $H:cobble/c@32,16 $H:cobble/a@48,16 $H:cobble/b@64,16
+  $H:cobble/c@0,32 $H:cobble/a@16,32 $H:cobble/b@32,32 $H:cobble/c@48,32 $H:cobble/a@64,32
+  $H:stall@2,6 $H:lamp@36,8
+  lighthouse-keeper/keeper.px:idle/down/0@42,14 wick/player.px:idle/0@62,28
+)
+txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}"
+txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}"
+pxart scene --size 80x48 --scale 1 -o dock.png dock.px@0,0
+pxart scene --size 80x48 --scale 4 -o dock.x4.png dock.px@0,0
+pxart scene --size 80x48 --scale 1 -o dock-dusk.png dock.px%dusk@0,0
+pxart scene --size 80x48 --scale 4 -o dock-dusk.x4.png dock.px%dusk@0,0
+
+# ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"
 cp -R "$WORK"/. "$DEST"/
 echo "built examples into $DEST"

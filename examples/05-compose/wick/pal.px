@@ -1,0 +1,38 @@
+# WICK shared palette: cold cellar ramp + warm wax/flame ramp
+k #1a1423
+d #262338
+n #39395a
+s #56608a
+l #8b98bf
+w #f6eed8
+c #d4bd92
+b #7a5238
+y #ffe07a
+o #f58b3c
+r #b8412e
+g #3f6b55
+m #7faa6a
+t #3d7fa6
+u #24506e
+# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm.
+f #ffe07a
+a #f58b3c
+i #fff6d0
+
+# darkness: everything that only reflects light goes cold and dim
+@variant dark
+k #0c0a18
+d #121122
+n #19182d
+s #23253b
+l #34374d
+w #403f4a
+c #38333a
+b #2b2027
+y #433d36
+o #3d2a28
+r #2e1820
+g #1c262e
+m #28332f
+t #1e2d43
+u #141f33

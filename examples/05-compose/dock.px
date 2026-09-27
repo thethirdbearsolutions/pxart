@@ -1,0 +1,138 @@
+pxart 1
+
+# Harbor market palette: 20 colors, warm stone + sea blues, one hot accent (awning red) (from harbor.px)
+# Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline. (from keeper.px)
+# WICK shared palette: cold cellar ramp + warm wax/flame ramp (from player.px)
+
+u #3f7fa8
+U #26496e
+c #a6dce4
+l #bcb6b4
+g #8f8a96
+G #5d5869
+k #2b1e2f
+w #efe6d2
+b #9b6440
+B #5e3a2a
+r #c4473a
+f #b4c9cc
+o #de8a3c
+y #f3cf6b
+s #f0c29a
+S #c98a6e
+Y #c98a2e
+n #3d4f86
+N #252c52
+O #5a3829
+e #8ccfd6
+j #2a1f33
+q #f6f1e4
+v #f2c14e
+F #c4473a
+x #7a5238
+z #d4bd92
+# light-emitting keys: flame and oil glint. Not in @variant dark, so they stay warm. (renamed f>C; from player.px, whose dark is dusk here)
+C #ffe07a
+a #f58b3c
+i #fff6d0
+D #1a1423
+E #f6eed8
+h #6e4230
+p #d8718c
+A #c9a66b
+H #fff4b0
+I #ffc861
+d #262338
+m #7faa6a
+t #3d7fa6
+
+# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>H g>I; from keeper.px's @variant night, dusk here)
+# darkness: everything that only reflects light goes cold and dim (from player.px's @variant dark, dusk here)
+# dusk: harbor.px's dusk, keeper.px's night, player.px's dark (compose --variant-map)
+@variant dusk
+k #1b1326
+w #d8bfbd
+l #978ca6
+g #726a8a
+G #463d5e
+b #7d4c49
+B #402733
+h #52303a
+r #a33a4c
+y #ffd66e
+u #3b5a8c
+U #202c56
+c #e8a79c
+f #9aa0b8
+o #c96f4c
+p #b25c86
+s #b88f8c
+S #7d5c70
+Y #7a6444
+n #28356a
+N #161b3e
+A #62637f
+O #3a2838
+e #5a86b0
+j #120e22
+q #9fb0d4
+v #b39a5a
+F #83344e
+H #fff4b0
+I #ffc861
+d #121122
+m #28332f
+t #1e2d43
+x #2b2027
+z #38333a
+D #0c0a18
+E #403f4a
+
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+uuuccuuuuuuuuuuuuuuccuuuuuuuuuuuuuuccuuuuuuuuuuuuuuccuuuuuuuuuuuuuuccuuuuuuuuuuu
+uucuucuuuuuUUuuuuucuucuuuuuUUuuuuucuucuuuuuUUuuuuucuucuuuuuUUuuuuucuucuuuuuUUuuu
+uuuuuuuuuUUuuuuuuuuuuuuuuUUuuuuuuuuuuuuuuUUuuuuuuuuuuuuuuUUuuuuuuuuuuuuuuUUuuuuu
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+UUuuuuuuuuuuuuuUUUuuuuuuuuuuuuuUUUuuuuuuuuuuuuuUUUuuuuuuuuuuuuuUUUuuuuuuuuuuuuuU
+uuUUkkkkkkkkkkkkkkkkkkkkkkkkkkkkuuUUuuuuuuucuuuuuuUUuuuuuuucuuuuuuUUuuuuuuucuuuu
+uuukrrrwwwwrrrrwwwwrrrrwwwwrrrrwkuuuuuuuuucuccuuuuuuuuuuuucuccuuuuuuuuuuuucuccuu
+uukrrrrwwwwrrrrwwwwrrrrwwwwrrrrwwkuuuuuuuukkkkuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+uukrrrrwwwwrrrrwwwwrrrrwwwwrrrrwwkuuuUUUukyyyykuuuuuuUUUuuuuuuuuuuuuuUUUuuuuuuuu
+uukrrrrwwwwrrrrwwwwrrrrwwwwrrrrwwkuuUuuukkkkkkkkuuuuUuuuUuuuuuuuuuuuUuuuUuuuuuuu
+uckrrrrwwwwrrrrwwwwrrrrwwwwrrrrwwkuuuuuukwyyyywkucuuuuuuuuuuuuuuucuuuuuuuuuuuuuu
+cukrrrrwwwwrrrrwwwwrrrrwwwwrrrrwwkccuuuukyyyyyykcuccuuuuuuuuuUUucuccuuuuuuuuuUUu
+uukkrrkkwwkkrrkkwwkkrrkkwwkkrrkkwkuuuuuukwyyyywkuuuuuuuuuuuUUuuUuuuuuuuuuuuUUuuU
+uuuukkuukkuukkuukkuukkuukkuukkuukuuuuuuukkkkkkkkuuuuuuuucuuuuuuuuuuuuuuucuuuuuuu
+uuukbBkuukuuukuukuuukuukuuukukbBkuuuuuuuukGGGGkuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+GGlkbBkGlkfkfkGGkfkfkllkfkfklkbBkggggGGGGGkGGkggGGllgGGGjjjjgGGGGGGgllllGGGgllGG
+GlgkbBkGlgkfkgGllkfkggglkfkggkbBkllgGGlgggkGGklGGlggggjjvvvvjjGllGggggglGggggglG
+gggkbBkGgkfffkGgkfffkggkfffkgkbBkGGGGGGlGGkGGkGGgggggjvvvvvvvvjggGggggggGggggggg
+GggkbBkGGkfffkGGkfffkggkfffkgkbBkGggggGGGgkGGkgGGgggjvvvvvvvvvvjGGGggggGGGgggggG
+GGGkbBkllkfffkGGkfffkGgkfffkGkbBkgggggggggkGGkggGGGGjvvvvvvvvvYjGGGGGGgllGGGGGGG
+lllkbBkggkkffkGGkkffkggkkffkgkbBklggggggllkGGkggllljYvvvvvvvvvYYjGglggggglGGglll
+gggkbBkgggkfkgGllkfkggggkfkGgkbBkGlllllGGGkGGkgGggjvvYYYYYYYYYYvvjgggggggglGgggg
+gggkbBkggggkgGGggGkggggggkGGGkbBkGGGGGGGggkGGkGGggjYYjjjjjjjjjjYYjGgggggggGGGggg
+GGkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkgGGGggggkGGkGgGGGjjssssssssssSjGGGGgggGGGGGGGG
+GGkcwcooocwcwcooocwcwcooocwcwcoookggGlggggkGGkGlGGlljssjssssjSSjGgllGGGGGGglllGG
+GlkwcokooocwcfkfffcwcokooocwcfkffklgGGlgggkGGkGGGlggjsqqqSSqqqSjggggggllgggggglG
+GgkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkGGGGGllgkGGkGGGggggjqqqqqqqejggggggggggggggggG
+GGkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkggggGGGgkGGkGGGGgggjjqqqqqejjGGggGgDggGGggggGG
+GGkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkgggggGggkGGkGgGGjjjvFjqqejFFvjjjGGDCDGlGGGGGGG
+GlkBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBkgggggGlgkGGkGlGjvvjvvvjjjvjjYjvvjDCCaDglGGgllG
+lgkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkllgGGGllkGGkGGljvvjvvvvvjvFjYjvvjDCiCDGGGggggl
+lgkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkGgllllGGkGGkGGljvYjvvvvvYvFjYjYvjlDaDGllllgGGG
+GlkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkggggglGgkGGklGGjvYjvvvvvjvjjvjYvDDDxDDDDggggGl
+GGkBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBkggggggGgkGGkggGjvYjvjjjvYvjjjjYDEEEEEEEzDgggGg
+GGkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkGggggGGkGGGGkGGjYYjvYYYvjvYYYjYDEEEEEEEzDggGGG
+GgkBbbbbbBbbbbbbBbbbbbbBbbbbbbbBbkGGGGgllkGGGGkGGjssjvvvvvYvvvYjsDEEDEEDEzDGGGGG
+GlkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkglggggkGGGGGGkGjSSjYYYYYYYYYYDzDEEDEEDEzDzDgGG
+GGlllllGGGGGllgGggggGlggggggggGllGggggggkkkkkkkkGGjjjjjjjjjjjjjDDDEEEEEEEzDDDgGl
+GGGGGGGGgggGGGGGgggGGGgggggggGGggGGgggggggGGGgggGGGGjnnnjggjnnnjgDzEEEEEzzDggGGg
+gggGGGgggggggGGgGGGGGGGGgggGGGGGGGGGGgggGGGGGGGGgggGjnnNjggjnnNjGDEzEEEEzzDGGGGG
+ggggGlggggggggGlGGlllgGGGGGGllgGGgllGGGGGGglllGGggggjNNNjggjNNNjGDDDDDDDDDDGllgG
+lllgGGlggggllgGGGlggggggllggggggggggggllgggggglGlllgjOOOjggjOOOjGlDDggggDDgggggg
+GGGGGGGllgGGGGGGGggggggggggggggggggggggggggggggGGGGGjOOOjgGjOOOjGgDDggggDDgggggg
+GgggggGGGggggGGGGGggggGGggggGggGGggGggggGGggggGGGgggjjjjjggjjjjjGGggggGGggggGggG
+gggggggGggggggGgGGGGGGGlGGGGGGGGGGGGGGGGlGGGGGGGgggggggGggggggGgGGGGGGGlGGGGGGGG
+GlgggggGlgggggGlGllgGGlggggGGllGGllGGgggglGGgllGGlgggggGlgggggGlGllgGGlggggGGllG
+GGllgGGGllllgGGGlggggGGGGGGGlgggggglGGGGGGGgggglGGllgGGGllllgGGGlggggGGGGGGGlggg
