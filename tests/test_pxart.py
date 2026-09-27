@@ -20414,8 +20414,8 @@ def test_diff_proves_a_rekeyed_compose_renders_as_its_layer(tmp_path, capsys):
 
 def test_help_documents_diff():
     text = " ".join(pxart.__doc__.split())
-    assert "diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [--labels CSV [--label-col C] [--file-col " \
-        "C]]" in text
+    assert "diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]] [--labels CSV " \
+        "[--label-col C] [--file-col C]]" in text
     assert "Compare renders pixel by pixel, one line per pair" in text
     assert "It exits 1 when anything differs or has no pair, as check does" in text
 
@@ -23445,6 +23445,113 @@ def test_render_default_scale_and_bg_are_unchanged(tmp_path, monkeypatch, capsys
     assert run("render", "one.px", "-o", "a.png") == 0
     assert run("render", "one.px", "-o", "b.png", "--scale", "8", "--bg", "#3a3a44") == 0
     assert Image.open(tmp_path / "a.png").tobytes() == Image.open(tmp_path / "b.png").tobytes()
+
+
+DIFF_A = "k #000000\ng #00ff00\n@frame w/0\n..k\nkgk\n@frame w/1\n.kk\nkgk\n"
+DIFF_B = "k #000000\ng #00ff00\n@frame w/0\n..k\nkgk\n@frame w/1\n..k\nkkk\n"
+
+
+def diff_files(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", DIFF_A)
+    write(tmp_path, "b.px", DIFF_B)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_diff_o_draws_a_b_and_the_differing_pixels(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px:w/1", "b.px:w/1", "-o", "d.png", "--scale", "4") == 1  # still exits 1: they differ
+    out = capsys.readouterr().out.splitlines()
+    assert out == ["2 px differ in 1,0,1,2 (x,y,w,h)", "wrote d.png"]
+    img = Image.open(tmp_path / "d.png").convert("RGBA")
+    colors = {c for _, c in img.getcolors(1 << 16)}
+    assert pxart.DIFF_MARK in colors and (0, 255, 0, 255) in colors
+    # the third panel: the two differing pixels (x=1, rows 0 and 1) in magenta, 4x4 each
+    third = [(x, y) for x in range(img.width) for y in range(img.height) if img.getpixel((x, y)) == pxart.DIFF_MARK]
+    assert len(third) == 2 * 16
+
+
+def test_diff_picture_marks_only_what_differs():
+    a = Image.new("RGBA", (3, 2), (0, 0, 0, 255))
+    b = a.copy()
+    b.putpixel((2, 1), (255, 255, 255, 255))
+    img = pxart.diff_picture(pxart.Item("a", a, 100), pxart.Item("b", b, 100), scale=1)
+    assert sum(1 for p in pxart.pixels(img) if p == pxart.DIFF_MARK) == 1
+    # transparent pixels match whatever their rgb, as diff says, unless strict
+    c, d = Image.new("RGBA", (2, 1), (1, 2, 3, 0)), Image.new("RGBA", (2, 1), (9, 9, 9, 0))
+    loose = pxart.diff_picture(pxart.Item("c", c, 100), pxart.Item("d", d, 100), scale=1)
+    strict = pxart.diff_picture(pxart.Item("c", c, 100), pxart.Item("d", d, 100), strict=True, scale=1)
+    assert pxart.DIFF_MARK not in pxart.pixels(loose) and pxart.DIFF_MARK in pxart.pixels(strict)
+
+
+def test_diff_picture_of_two_sizes_compares_over_both():
+    a = Image.new("RGBA", (2, 2), (0, 0, 0, 255))
+    b = Image.new("RGBA", (3, 2), (0, 0, 0, 255))
+    img = pxart.diff_picture(pxart.Item("a", a, 100), pxart.Item("b", b, 100), scale=1)
+    assert sum(1 for p in pxart.pixels(img) if p == pxart.DIFF_MARK) == 2  # the column only B has
+
+
+def test_diff_picture_scale_keeps_it_within_2048():
+    big = Image.new("RGBA", (256, 224), (0, 0, 0, 255))
+    img = pxart.diff_picture(pxart.Item("a", big, 100), pxart.Item("b", big, 100))
+    assert img.width <= 2048 and img.width >= 3 * 256 * 2
+
+
+def test_diff_o_same_writes_nothing(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px:w/0", "b.px:w/0", "-o", "d.png") == 0
+    assert "note: -o d.png not written: nothing differs" in capsys.readouterr().out
+    assert not (tmp_path / "d.png").exists()
+
+
+def test_diff_o_dir_gets_a_picture_per_pair_that_differs(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px", "b.px", "-o", "diffs") == 1
+    out = capsys.readouterr().out
+    assert "created diffs/" in out and "wrote 1 diff image in diffs/, one per pair that differs" in out
+    assert listing(tmp_path / "diffs") == ["w_1.png"]
+
+
+def test_diff_o_png_for_several_pairs_is_e_bad_arg(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    err = run_err("diff", "a.px", "b.px", "-o", "d.png")
+    assert "diff: E_BAD_ARG: -o d.png: diff compares 2 pairs here, and -o names a directory for them" in err
+    assert not (tmp_path / "d.png").exists()
+
+
+def test_diff_o_bad_name_fails_before_the_readout(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    err = run_err("diff", "a.px:w/1", "b.px:w/1", "-o", "d.px")
+    assert "diff: E_BAD_ARG: -o d.px: '.px' isn't an image type pxart can write; name it .png" in err
+    assert "px differ" not in capsys.readouterr().out
+
+
+def test_diff_notes_a_gridded_render(tmp_path, monkeypatch, capsys):
+    # the gate diffed a render against a scene PNG, and only learned the sizes differed
+    diff_files(tmp_path, monkeypatch)
+    assert run("render", "a.px:w/0", "-o", "r.png") == 0
+    capsys.readouterr()
+    assert run("diff", "a.px:w/0", "r.png") == 1
+    out = capsys.readouterr().out
+    assert "note: B (" in out and "looks like a pxart render or sheet of a 3x2 frame" in out
+    assert "'pxart render --plain FILE:ID -o x.png' writes the frame alone at its exact size" in out
+    assert run("render", "a.px:w/0", "--plain", "-o", "p.png") == 0
+    assert run("diff", "a.px:w/0", "p.png") == 0
+
+
+def test_diff_notes_a_scaled_copy(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("render", "a.px:w/0", "--plain", "--scale", "4", "-o", "r4.png") == 0
+    capsys.readouterr()
+    assert run("diff", "r4.png", "a.px:w/0") == 1
+    assert "note: A (12x8) is 3x2 times 4: a render at --scale 4?" in capsys.readouterr().out
+
+
+def test_diff_two_sizes_of_frames_get_no_render_note(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", "k #000000\nk\n")
+    write(tmp_path, "b.px", "k #000000\nkk\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("diff", "a.px", "b.px") == 1
+    assert "note:" not in capsys.readouterr().out
 
 
 def test_help_says_image_outputs_are_checked():

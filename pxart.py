@@ -53,8 +53,8 @@ FORMAT (.px)
   | zsh users: write "${F}:walk", not "$F:walk" (zsh reads ':w' as a modifier), or quote   |
   | the whole argument. A missing hero.pxalk/0 or hero.pxidle is reported as that mistake. |
   +----------------------------------------------------------------------------------------+
-  An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash; an
-  image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG.
+  An output under a path that is a file (-o hero.px/walk/0) is E_FILE; an image output
+  with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG.
   Paths: a path typed on the command line is read from the current directory, as the
   shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
   --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
@@ -246,7 +246,7 @@ CHECKING
       each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
       (repeatable) prints that pixel's key and its color in the base palette and in every
       variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
-  diff A B [--variant V] [--strict-alpha] [--exclude GLOB]
+  diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]]
        [--labels CSV [--label-col C] [--file-col C]]
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
       differs: '12 px differ in 3,4,6,6 (x,y,w,h)', 'sizes 16x16 and 16x24') and for several a
@@ -266,9 +266,12 @@ CHECKING
           --labels, a PNG goes by its row's name), a .px pair frame by frame.
       A frame with no PNG, or a file only one side has, is unpaired. --exclude GLOB leaves
       a directory's files out, as for check.
-      Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its
-      rgb; any other pixel compares on all four channels. --strict-alpha compares all four
-      everywhere. --variant V renders both sides with V, and a side's own %VARIANT wins.
+      Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever
+      its rgb; any other pixel compares on all four channels. --strict-alpha compares all
+      four everywhere. --variant V renders both sides with V, and a side's own %VARIANT
+      wins. -o DIFF.png draws A, B and the differing pixels in magenta side by side
+      (top-left aligned); for several pairs, -o DIR gets one per pair that differs. A render
+      or scaled copy of a frame gets a note naming render --plain.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -798,9 +801,9 @@ CONVERTING
       in order of first appearance, and all top-level frames (no '/' in the id) together as
       one group where the first of them appears. A file that keeps each group together, and
       its top-level frames together, gets ids in file order; otherwise a frame moves up to
-      its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
-      badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others, and
-      a Tiled map painted with the old tileset keeps the old ids.
+      its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
+      walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
+      painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -818,10 +821,8 @@ CONVERTING
       one ('filename,proposed_name,...'): each PNG takes the --label-col (default
       proposed_name) of the row whose --file-col (default filename) names it, a path
       relative to the CSV's directory, or else its file name alone. --labels repeats, one
-      CSV per pack: 'from-png dungeon/tile_0002.png creatures/tile_0002.png --labels
-      dungeon/labels.csv --labels creatures/labels.csv --prefix-dir -o all.px' writes
-      dungeon/wall-stone-top and creatures/skeleton. A PNG no row names is E_SELECT.
-      --prefix-dir and --id PREFIX go in front of either.
+      CSV per pack (with --prefix-dir: dungeon/wall-stone-top, creatures/skeleton). A PNG no
+      row names is E_SELECT. --prefix-dir and --id PREFIX go in front of either.
       --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
       pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
       to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
@@ -834,11 +835,10 @@ CONVERTING
 HELP
   help [all | recipes | TOPIC | CMD]
       'pxart help recipes': six workflows, command by command. 'pxart help all' prints this
-      whole reference; 'pxart help TOPIC' one part of it (FORMAT, LOOKING, CHECKING,
-      EDITING, DRAWING, CONVERTING, HELP or ERRORS, any case); 'pxart help CMD' is 'pxart
-      CMD -h', its section and a see-also line naming the shared notes it relies on. 'pxart
-      help compose-rules' and 'pxart help palette-rules' print only the rules those sections
-      open with.
+      whole reference; 'pxart help TOPIC' one part of it (a heading here, any case); 'pxart
+      help CMD' is 'pxart CMD -h': its section and the shared notes it relies on, named.
+      'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
+      sections open with.
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
@@ -1799,6 +1799,8 @@ def save_image(img, p, what="-o", **kw):
         fail("E_BAD_ARG", f"{what} {p}: {why}; name it {name}")
     if kw.get("save_all") and fmt not in Image.SAVE_ALL:
         fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold an animation; name it {name}")
+    if kw.pop("check_only", False):  # only the name's checks, before a command prints anything
+        return p
     p = outpath(p, make=not DRY["run"])
     if DRY["run"]:
         return p
@@ -3255,7 +3257,14 @@ def cmd_diff(a):
         pairs = file_dir_pairs(a, flip=dirs[0])
     else:
         pairs = file_pairs(a)
+    one = len(pairs) == 1 and pairs[0][0] is None  # one frame each: -o is a PNG; else a directory of them
+    if a.o and one and not isinstance(pairs[0][2], str):
+        save_image(Image.new("RGBA", (1, 1)), a.o, "-o", check_only=True)  # a bad -o fails before the readout
+    elif a.o and not one and pathlib.Path(a.o).suffix:
+        fail("E_BAD_ARG", f"-o {a.o}: diff compares {len(pairs)} pairs here, and -o names a directory for them (one "
+             "image per pair that differs): -o diffs/")
     same = differ = alone = 0
+    shown = []  # (label, A, B): the pairs that differ, for -o
     for lab, x, y in pairs:
         if isinstance(y, str):  # no pair: y says what's missing
             alone += 1
@@ -3265,11 +3274,97 @@ def cmd_diff(a):
         differ += said is not None
         same += said is None
         print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
+        if said:
+            shown.append((lab, x, y))
+        if x.img.size != y.img.size:
+            hint = rendered_hint(x, y)
+            if hint:
+                print(f"note: {hint}")
     if len(pairs) > 1 or (pairs and pairs[0][0] is not None):
         print(f"{len(pairs)} frame(s): {same} same" + (f", {differ} differ" if differ else "")
               + (f", {alone} unpaired" if alone else ""))
+    if a.o:
+        diff_pictures(a, shown, one)
     if differ or alone:
         sys.exit(1)
+
+
+SHEET_BACKDROP = (30, 30, 36, 255)  # render's and sheet's backdrop, around the cells
+
+
+def rendered_hint(x, y):
+    """For two sizes that differ: when one side is a PNG bigger than the other both ways and looks like a pxart render
+    (a sheet's backdrop in its corner) or the other scaled up whole, the words naming render --plain. Else None."""
+    for side, it, other in (("A", x, y), ("B", y, x)):
+        img, o = it.img, other.img
+        if it.doc is not None or img.width <= o.width or img.height <= o.height:
+            continue
+        k = img.width // o.width
+        if img.getpixel((0, 0)) == SHEET_BACKDROP:
+            return (f"{side} ({img.width}x{img.height}) looks like a pxart render or sheet of a {o.width}x{o.height} "
+                    "frame (its padding, labels, grid and rulers): 'pxart render --plain FILE:ID -o x.png' writes the "
+                    "frame alone at its exact size")
+        if k > 1 and img.size == (o.width * k, o.height * k):
+            return (f"{side} ({img.width}x{img.height}) is {o.width}x{o.height} times {k}: a render at --scale {k}? "
+                    "'pxart render --plain FILE:ID -o x.png' writes the frame at 1x")
+    return None
+
+
+DIFF_MARK = (255, 0, 255, 255)  # diff -o: a pixel that differs
+
+
+def diff_picture(x, y, strict=False, scale=None):
+    """diff -o's picture of one pair: A, B, and B dimmed with every pixel that differs in magenta, side by side, each
+    labeled, on render's backdrop. Frames of two sizes are compared top-left aligned, over both: a pixel only one side
+    has differs when it isn't transparent. scale: 8, or less to keep the picture within 2048 px wide."""
+    A, B = x.img, y.img
+    w, h = max(A.width, B.width), max(A.height, B.height)
+    pa, pb = Image.new("RGBA", (w, h), CLEAR), Image.new("RGBA", (w, h), CLEAR)
+    pa.paste(A, (0, 0)); pb.paste(B, (0, 0))
+    mark = Image.new("RGBA", (w, h), CLEAR)
+    gray = B.convert("LA").convert("RGBA")
+    gray.putalpha(B.getchannel("A").point(lambda v: v * 35 // 100))
+    mark.paste(gray, (0, 0))
+    n = 0
+    for i, (p, q) in enumerate(zip(pixels(pa), pixels(pb))):
+        if p != q and (strict or p[3] or q[3]):
+            mark.putpixel((i % w, i // w), DIFF_MARK)
+            n += 1
+    pad, lab = 8, 14
+    s = scale or max(1, min(8, (2048 - 4 * pad) // (3 * w)))
+    panels = ((pa, f"A {A.width}x{A.height}"), (pb, f"B {B.width}x{B.height}"), (mark, f"{n} px differ"))
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    cw = max([w * s] + [text_w(probe, words) + 4 for _, words in panels])
+    out = Image.new("RGBA", (pad + 3 * (cw + pad), pad + lab + h * s + pad), SHEET_BACKDROP)
+    d = ImageDraw.Draw(out)
+    for c, (img, words) in enumerate(panels):
+        at = pad + c * (cw + pad)
+        d.rectangle([at, pad + lab, at + w * s - 1, pad + lab + h * s - 1], fill=rgba("#3a3a44"))
+        out.alpha_composite(img.resize((w * s, h * s), Image.NEAREST), (at, pad + lab))
+        d.text((at, pad), words, fill=(255, 120, 220, 255) if c == 2 else (220, 220, 220, 255))
+    return out
+
+
+def diff_pictures(a, shown, one):
+    """diff -o: one pair's picture as -o, or with several pairs a picture per pair that differs in the directory -o,
+    each named by its pair's label ('walk/0' -> walk_0.png)."""
+    if one:
+        if shown:
+            print(wrote(save_image(diff_picture(*shown[0][1:], a.strict_alpha, a.scale), a.o)))
+        else:
+            print(f"note: -o {a.o} not written: nothing differs")
+        return
+    names = set()
+    for lab, x, y in shown:
+        name = re.sub(r"[^A-Za-z0-9_.-]+", "_", re.sub(r"\.(px|png)\b", "", lab)).strip("_") or "pair"
+        base, k = name, 2
+        while name in names:
+            name, k = f"{base}-{k}", k + 1
+        names.add(name)
+        save_image(diff_picture(x, y, a.strict_alpha, a.scale), pathlib.Path(a.o) / f"{name}.png")
+    d = pathlib.Path(a.o).as_posix().rstrip("/")
+    print(f"wrote {len(shown)} diff image{'s' * (len(shown) != 1)} in {d}/, one per pair that differs" if shown
+          else f"note: nothing written in {d}/: no pair differs")
 
 
 def file_pairs(a):
@@ -7231,7 +7326,7 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
     "stats": "Size, bounding box and colors of frames, a variant's rendered colors (--colors), or one\n"
              "pixel's key and color in every variant (--at x,y).",
     "diff": "Compare renders pixel by pixel (a frame, a file, a folder of PNGs) and exit 1 when they differ:\n"
-            "proof that a port or a copy renders as its original.",
+            "proof that a port or a copy renders as its original. -o DIFF.png draws what differs.",
     "frames": "List a file's frames and animations; or remove (--rm), move (--after/--before), rename\n"
               "(--rename) or copy them into another file (--copy-to).",
     "flip": "", "rotate": "", "transpose": "", "set": "", "fill": "", "rect": "",  # their usage line says it
@@ -7505,6 +7600,11 @@ def parser(describe=True):
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="a directory of .px: leave out files whose name or path under it matches GLOB, or under a "
                         "matching directory (repeatable)")
+    p.add_argument("-o", metavar="DIFF.png|DIR",
+                   help="picture A, B and the differing pixels in magenta; with several pairs, DIR gets one per pair "
+                        "that differs")
+    p.add_argument("--scale", type=int, metavar="N", help="with -o: default 8, or less to keep the picture within 2048 "
+                   "px wide")
     p = sub.add_parser("frames"); p.add_argument("file")
     p.add_argument("--rm", nargs="*", metavar="ID",
                    help="remove these frame ids, or FILE:SEL's frames with none (a group goes in the selector: "
