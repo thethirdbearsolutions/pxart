@@ -7785,7 +7785,7 @@ def test_flood_count(tmp_path, capsys):
 def test_help_documents_drawing():
     doc = pxart.__doc__
     for s in ("DRAWING", "line FILE[:frame] KEY x0,y0 x1,y1 [--width N]", "rect FILE[:frame] KEY x,y,w,h [--fill]",
-              "ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
+              "ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill | --ring N]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
               "flood FILE[:frame] KEY x,y [--diagonal]"):
         assert s in doc, s
 
@@ -26094,6 +26094,101 @@ def test_arc_half_pixel_error_has_no_box(tmp_path):
 def test_ellipse_box_on_several_frames_needs_a_selector(tmp_path):
     p = write(tmp_path, "e.px", "k #000000\n@frame a\n..\n@frame b\n..\n")
     assert "pixel coordinates (--box) need you to say which frames" in run_err("ellipse", p, "k", "--box", "0,0,2,1")
+
+
+# ---------------------------------------------------------------- ellipse --ring N: an outline N px thick, inside
+
+@pytest.mark.parametrize("w", range(1, 24))
+@pytest.mark.parametrize("h", range(1, 24, 3))
+def test_ellipse_ring_1_is_the_plain_outline(w, h):
+    assert pxart.ellipse_ring((0, 0, w - 1, h - 1), 1) == pxart.ellipse_points(0, 0, w - 1, h - 1)
+
+
+@pytest.mark.parametrize("w,h", [(16, 12), (21, 21), (9, 30), (5, 5), (24, 7)])
+@pytest.mark.parametrize("n", [1, 2, 3, 4])
+def test_ellipse_ring_is_inside_the_filled_shape_and_contains_the_outline(w, h, n):
+    box = (0, 0, w - 1, h - 1)
+    ring, filled = pxart.ellipse_ring(box, n), pxart.ellipse_points(*box, fill=True)
+    assert pxart.ellipse_points(*box) <= ring <= filled
+    assert pxart.ellipse_ring(box, n - 1 or 1) <= ring  # thicker rings grow inward, never lose a pixel
+
+
+@pytest.mark.parametrize("w,h", [(16, 12), (21, 21), (9, 30), (24, 7)])
+def test_ellipse_ring_is_mirror_symmetric(w, h):
+    ring = pxart.ellipse_ring((0, 0, w - 1, h - 1), 2)
+    assert ring == {(w - 1 - x, y) for x, y in ring} == {(x, h - 1 - y) for x, y in ring}
+
+
+def test_ellipse_ring_every_pixel_within_n_of_the_outside():
+    # each ring pixel is at most N 4-steps from a pixel outside the filled shape; each filled pixel left out is further
+    box, n = (0, 0, 20, 14), 3
+    filled, ring = pxart.ellipse_points(*box, fill=True), pxart.ellipse_ring(box, 3)
+
+    def depth(p):
+        d, frontier, seen = 0, {p}, {p}
+        while all(q in filled for q in frontier):
+            d += 1
+            frontier = {(x + dx, y + dy) for x, y in frontier for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))} - seen
+            seen |= frontier
+        return d
+    assert all(depth(p) <= n for p in ring) and all(depth(p) > n for p in filled - ring)
+
+
+def test_ellipse_ring_thicker_than_the_shape_is_the_filled_shape():
+    box = (0, 0, 6, 4)
+    assert pxart.ellipse_ring(box, 10) == pxart.ellipse_points(*box, fill=True)
+
+
+def test_ellipse_ring_draws_a_2px_ring(tmp_path, capsys):
+    p = write(tmp_path, "e.px", "k #000000\n" + ("." * 16 + "\n") * 12)
+    assert run("ellipse", p, "k", "--box", "0,0,16,12", "--ring", "2") == 0
+    rows = [l for l in p.read_text().splitlines() if not l.startswith("k ")]
+    assert rows == [
+        ".....kkkkkk.....",
+        "...kkkkkkkkkk...",
+        "..kkk......kkk..",
+        ".kk..........kk.",
+        "kk............kk",
+        "kk............kk",
+        "kk............kk",
+        "kk............kk",
+        ".kk..........kk.",
+        "..kkk......kkk..",
+        "...kkkkkkkkkk...",
+        ".....kkkkkk.....",
+    ]
+    assert capsys.readouterr().out == f"painted 68 px; wrote {p}\n"
+
+
+def test_ellipse_ring_with_center_and_radii(tmp_path):
+    blank = "k #000000\n" + ("." * 16 + "\n") * 12
+    a, b = write(tmp_path, "a.px", blank), write(tmp_path, "b.px", blank)
+    assert run("ellipse", a, "k", "--box", "0,0,16,12", "--ring", "3") == 0
+    assert run("ellipse", b, "k", "7.5,5.5,7.5,5.5", "--ring", "3") == 0
+    assert a.read_text() == b.read_text() != blank
+
+
+def test_ellipse_ring_1_draws_what_no_ring_draws(tmp_path):
+    blank = "k #000000\n" + ("." * 16 + "\n") * 12
+    a, b = write(tmp_path, "a.px", blank), write(tmp_path, "b.px", blank)
+    assert run("ellipse", a, "k", "--box", "1,2,13,9", "--ring", "1") == 0
+    assert run("ellipse", b, "k", "--box", "1,2,13,9") == 0
+    assert a.read_text() == b.read_text()
+
+
+@pytest.mark.parametrize("args,want", [(["--ring", "0"], "N >= 1"), (["--ring", "-2"], "N >= 1"),
+                                       (["--ring", "2", "--fill"], "give one of them")])
+def test_ellipse_ring_bad(tmp_path, args, want):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    msg = run_err("ellipse", p, "k", "--box", "0,0,4,2", *args)
+    assert "E_BAD_ARG" in msg and want in msg
+    assert p.read_text() == "k #000000\n....\n....\n"
+
+
+def test_ellipse_help_names_ring(capsys):
+    assert run("ellipse", "-h") == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--ring N" in out and "an outline N px thick, inside the shape" in out
 
 
 # ---------------------------------------------------------------- derive with nothing of its own writes no empty @variant

@@ -361,8 +361,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
       their union, and --dither and --invert work over the union. Two lamps in one call:
       'mask scene.png --keep-circle 20,30,12 --keep-circle 70,30,12 --dither 4'.
-      FILE may be a PNG (a rendered scene): outside pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
-      with --scale 1. -o, if given, must be a .png too.
+      FILE may be a PNG (a scene rendered at --scale 1: coordinates are its pixels): outside
+      pixels become transparent. -o, if given, must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
@@ -713,12 +713,12 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       next and from the last back to the first (1px, the same whichever way round it goes).
       --fill adds every pixel whose center is inside (nonzero winding: a self-crossing star
       is solid). Two points are a line. 'poly rock.px o 2,14 5,6 11,3 14,9 12,14 --fill'.
-  ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]
+  ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill | --ring N]
       The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
       center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
       (3.5,3.5,3.5,2.5 is 8x6 at 0,1; so is --box 0,1,8,6, rect's x,y,w,h: no halves). A thin
       8-connected outline (Zingl's algorithm), mirror-symmetric, no stray pixels; boxes 1 or
-      2 px across are filled.
+      2 px across are filled. --ring N: N px thick, inward (a halo).
   arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]
       Part of the circle ellipse cx,cy,r,r draws, from angle a0 to a1 in degrees, counter-
       clockwise, 0 = right, 90 = up (0,90 is the upper-right quarter; 300,60 wraps through 0;
@@ -5084,8 +5084,22 @@ def cmd_ellipse(a):
         box = (x, y, x + w - 1, y + h - 1)
     else:
         box = ellipse_box(*coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True), "ellipse")
-    pts = ellipse_points(*box, fill=a.fill)
+    if a.ring is not None and (a.ring < 1 or a.fill):
+        fail("E_BAD_ARG", f"--ring {a.ring}: the outline's thickness in px, N >= 1" if a.ring < 1 else
+             "--ring N draws an outline N px thick and --fill the whole shape: give one of them")
+    pts = ellipse_ring(box, a.ring) if a.ring else ellipse_points(*box, fill=a.fill)
     draw(a, lambda f: sorted(pts, key=lambda p: (p[1], p[0])))
+
+
+def ellipse_ring(box, n):
+    """ellipse --ring N: the outline N px thick, inside the shape: the filled ellipse less what is left of it after N
+    steps of peeling off every pixel with a side outside it. --ring 1 is the plain outline, pixel for pixel; a ring
+    thicker than half the shape is the filled shape."""
+    filled = ellipse_points(*box, fill=True)
+    core = set(filled)
+    for _ in range(n):
+        core = {(x, y) for x, y in core if {(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)} <= core}
+    return filled - core
 
 
 def cmd_arc(a):
@@ -8192,7 +8206,10 @@ def parser(describe=True):
     p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape", nargs="?")
     p.add_argument("--box", metavar="x,y,w,h", help="instead of cx,cy,rx,ry: the pixel box it fills, as rect's (no "
                    "half pixels: --box 0,0,8,6 is cx,cy,rx,ry 3.5,2.5,3.5,2.5)")
-    p.add_argument("--fill", action="store_true"); p.add_argument("-o")
+    p.add_argument("--fill", action="store_true")
+    p.add_argument("--ring", type=int, metavar="N", help="an outline N px thick, inside the shape (1: the plain "
+                   "outline); not with --fill")
+    p.add_argument("-o")
     p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
     p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")
     p = sub.add_parser("flood"); p.add_argument("file"); p.add_argument("key"); p.add_argument("at")
