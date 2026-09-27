@@ -13143,11 +13143,20 @@ def test_variant_map_bad_syntax(tmp_path):
         assert "E_BAD_ARG" in msg and "NAME=V1,V2" in msg, bad
 
 
-def test_variant_map_name_in_two_maps(tmp_path):
+def test_variant_map_one_source_in_two_maps(tmp_path, capsys):
+    # The map adds: one file's night may be OUT's dusk and OUT's eve both.
+    a = write(tmp_path, "a.px", "r #c4473a\n@variant night\nr #000001\n@frame a\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:a@0,0", "--variant-map", "dusk=night", "--variant-map", "eve=night") == 0
+    assert pxart.parse(out).variants == {"dusk": {"r": (0, 0, 1, 255)}, "eve": {"r": (0, 0, 1, 255)}}
+
+
+def test_variant_map_same_name_mapped_twice(tmp_path):
     a = write(tmp_path, "awning.px", AWNING)
     msg = run_err("compose", "-o", tmp_path / "o.px", f"{a}:a@0,0", "--variant-map", "dusk=night",
-                  "--variant-map", "eve=night")
-    assert "E_BAD_ARG" in msg and "'night' goes into both 'dusk' and 'eve'" in msg
+                  "--variant-map", "dusk=dark")
+    assert "E_BAD_ARG" in msg and "'dusk' is mapped twice (dusk=night and dusk=dark)" in msg
+    assert "dusk=V1,V2" in msg and not (tmp_path / "o.px").exists()
 
 
 def test_variant_map_unknown_source(tmp_path):
@@ -13189,7 +13198,8 @@ def test_variant_map_first_listed_variant_a_file_has_wins(tmp_path, capsys):
     a = write(tmp_path, "a.px", "r #c4473a\n@variant night\nr #000001\n@variant dark\nr #000002\n@frame a\nr\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{a}:a@0,0", "--variant-map", "dusk=dark,night") == 0
-    assert pxart.parse(out).variants == {"dusk": {"r": (0, 0, 2, 255)}}
+    # dusk takes dark; night, which the map didn't read as dusk here, stays a variant of its own (the map adds)
+    assert pxart.parse(out).variants == {"dusk": {"r": (0, 0, 2, 255)}, "night": {"r": (0, 0, 1, 255)}}
 
 
 def test_variant_map_leaves_unmapped_variants_alone(tmp_path, capsys):
@@ -15159,3 +15169,258 @@ def test_readme_documents_help_topics():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`pxart -h` is a short overview: the format in a few lines and the commands by topic." in readme
     assert "`pxart help all` has the full reference, `pxart help TOPIC` one part of it" in readme
+
+
+# ---------------------------------------------------------------- --variant-map adds to the same-name lookup
+# The crossover's palette has dusk and night; the keeper's only night. 'dusk=night' reads the keeper's night as DST's
+# dusk, and DST's night still reads the keeper's night: the map never stops a same-named variant being read.
+
+NIGHT_ONLY = ("r #c4473a\nk #000000\nz #20c020\n@variant night\nr #83344e\nk #000011\nz #103010\n"
+              "@anim walk ms=90\n@frame walk/0\nrk\nz.\n@frame walk/1\nkr\n.z\n")
+DUSK_NIGHT = ("r #c4473a\nk #000000\n@variant dusk\nr #a33a4c\n@variant night\nr #501020\n"
+              "@frame awning\nrk\n..\n")
+DUSK_NIGHT_RAIN = DUSK_NIGHT.replace("@frame", "@variant rain\nr #405060\n@frame")
+
+
+def night_pack(tmp_path, dst=DUSK_NIGHT):
+    return write(tmp_path, "keeper.px", NIGHT_ONLY), write(tmp_path, "party.px", dst)
+
+
+def reads_as(dst, fid, src, sfid, vmap, at=(0, 0)):
+    """dst's frame fid, in every variant of dst (and base), shows src's frame sfid's opaque pixels as src's file draws
+    them: in dst's variant V, src's first of vmap[V] (or V itself) its file has, else src's base colors."""
+    d, sd = pxart.parse(dst), pxart.parse(src)
+    have = pxart.variant_names(sd)
+    for v in [None] + pxart.variant_names(d):
+        want = next((n for n in vmap.get(v, [v]) if n in have), None) if v else None
+        img, simg = d.image(d.get(fid), v), sd.image(sd.get(sfid), want)
+        for y in range(simg.height):
+            for x in range(simg.width):
+                p = simg.getpixel((x, y))
+                if p[3]:
+                    assert img.getpixel((at[0] + x, at[1] + y)) == p, (v, want, x, y)
+    return True
+
+
+def color_in(path, fid, variant, xy):
+    doc = pxart.parse(path)
+    return doc.image(doc.get(fid), variant).getpixel(xy)
+
+
+NIGHT_Z = pxart.hex2rgba("#103010")
+KEEPER_NIGHT_R = pxart.hex2rgba("#83344e")
+DST_NIGHT_R = pxart.hex2rgba("#501020")
+
+
+def test_layer_variants_map_adds_to_the_same_name():
+    doc = pxart.Doc()
+    doc.variants = {"night": {}}
+    assert pxart.layer_variants(doc, {}) == {"night": "night"}
+    assert pxart.layer_variants(doc, {"dusk": ["dusk", "night"]}) == {"dusk": "night", "night": "night"}
+
+
+def test_layer_variants_a_file_with_the_map_name_uses_its_own():
+    doc = pxart.Doc()
+    doc.variants = {"dusk": {}, "night": {}}
+    assert pxart.layer_variants(doc, {"dusk": ["dusk", "night"]}) == {"dusk": "dusk", "night": "night"}
+
+
+def test_layer_variants_one_source_into_two_maps():
+    doc = pxart.Doc()
+    doc.variants = {"night": {}}
+    got = pxart.layer_variants(doc, {"dusk": ["dusk", "night"], "rain": ["rain", "night"]})
+    assert got == {"dusk": "night", "rain": "night", "night": "night"}
+
+
+def test_layer_variants_map_name_never_read_by_same_name():
+    # A file whose own 'dusk' the map doesn't pick (dusk=dark,dusk would pick dark first) gives dark, not dusk.
+    doc = pxart.Doc()
+    doc.variants = {"dusk": {}, "dark": {}}
+    assert pxart.layer_variants(doc, {"dusk": ["dusk", "dark"]}) == {"dusk": "dusk", "dark": "dark"}
+    assert pxart.layer_variants(doc, {"eve": ["eve", "dark", "dusk"]}) == {"eve": "dark", "dusk": "dusk",
+                                                                           "dark": "dark"}
+
+
+def test_layer_variants_no_variants():
+    assert pxart.layer_variants(pxart.Doc(), {"dusk": ["dusk", "night"]}) == {}
+
+
+def test_merged_away_only_when_every_file_gave_it():
+    keeper, both = pxart.Doc(), pxart.Doc()
+    keeper.variants, both.variants = {"night": {}}, {"dusk": {}, "night": {}}
+    vmap = {"dusk": ["dusk", "night"]}
+    assert pxart.merged_away([keeper], vmap) == {"night"}
+    assert pxart.merged_away([keeper, both], vmap) == set()
+    assert pxart.merged_away([both], vmap) == set()
+    assert pxart.merged_away([keeper], {}) == set()
+
+
+def test_copy_to_map_still_reads_the_same_named_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(d)
+    assert doc.variants["night"]["z"] == NIGHT_Z and doc.variants["dusk"]["z"] == NIGHT_Z
+    assert color_in(d, "walk/0", "night", (0, 1)) == NIGHT_Z
+
+
+def test_copy_to_map_new_key_not_at_base_in_night(tmp_path, capsys):
+    # The symptom: a new key stayed at its base color in DST's night.
+    s, d = night_pack(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk=night")
+    assert color_in(d, "walk/1", "night", (1, 1)) != pxart.hex2rgba("#20c020")
+
+
+def test_copy_to_map_no_base_color_note_for_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk=night")
+    assert "stay at base colors" not in capsys.readouterr().out
+
+
+def test_copy_to_map_rekey_every_variant_reads_as_its_file(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    vmap = {"dusk": ["dusk", "night"]}
+    assert reads_as(d, "walk/0", s, "walk/0", vmap) and reads_as(d, "walk/1", s, "walk/1", vmap)
+    assert color_in(d, "walk/0", "night", (0, 0)) == KEEPER_NIGHT_R
+    assert color_in(d, "awning", "night", (0, 0)) == DST_NIGHT_R
+
+
+def test_copy_to_map_rekey_moves_the_shared_red(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night")
+    assert pxart.parse(d).get("walk/0").grid[0][0] != "r"
+
+
+def test_copy_to_map_rekey_reuses_a_key_that_looks_the_same_in_dusk_and_night(tmp_path, capsys):
+    # DST's I is the scarf in base, dusk and night alike, as the keeper's night reads: --rekey picks I.
+    dst = DUSK_NIGHT.replace("k #000000\n", "k #000000\nI #c4473a\n").replace(
+        "@variant dusk\n", "@variant dusk\nI #83344e\n").replace("@variant night\n", "@variant night\nI #83344e\n")
+    s, d = night_pack(tmp_path, dst)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    assert "'r>I'" in capsys.readouterr().out
+    assert pxart.parse(d).get("walk/0").grid[0][0] == "I"
+
+
+def test_copy_to_map_rekey_skips_a_key_that_differs_only_in_night(tmp_path, capsys):
+    # I matches the scarf in dusk but not in night: before the fix night wasn't compared as the keeper's, now it is.
+    dst = DUSK_NIGHT.replace("k #000000\n", "k #000000\nI #c4473a\n").replace(
+        "@variant dusk\n", "@variant dusk\nI #83344e\n").replace("@variant night\n", "@variant night\nI #222222\n")
+    s, d = night_pack(tmp_path, dst)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night") == 0
+    assert pxart.parse(d).get("walk/0").grid[0][0] not in ("I", "r")
+
+
+def test_copy_to_map_rain_left_at_base_is_said(tmp_path, capsys):
+    s, d = night_pack(tmp_path, DUSK_NIGHT_RAIN)
+    run("frames", f"{s}:walk", "--copy-to", d, "--variant-map", "dusk=night")
+    out = capsys.readouterr().out
+    assert ("keeper.px has no @variant rain (it has night), so the keys FILE (" in out
+            and "stay at base colors in its rain; --variant-map rain=night reads its night as rain" in out)
+    assert "@variant night or rain" not in out
+
+
+def test_copy_to_map_one_source_into_two_maps(tmp_path, capsys):
+    s, d = night_pack(tmp_path, DUSK_NIGHT_RAIN)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night",
+               "--variant-map", "rain=night") == 0
+    assert "stay at base colors" not in capsys.readouterr().out
+    vmap = {"dusk": ["dusk", "night"], "rain": ["rain", "night"]}
+    assert reads_as(d, "walk/0", s, "walk/0", vmap) and reads_as(d, "walk/1", s, "walk/1", vmap)
+
+
+def test_copy_to_without_map_night_still_read(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert reads_as(d, "walk/0", s, "walk/0", {})
+    assert color_in(d, "walk/0", "dusk", (0, 1)) == pxart.hex2rgba("#20c020")  # no dusk in keeper.px: base
+
+
+def test_paste_map_still_reads_the_same_named_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--rekey",
+               "--variant-map", "dusk=night") == 0
+    assert reads_as(d, "awning", s, "walk/0", {"dusk": ["dusk", "night"]})
+    assert color_in(d, "awning", "night", (0, 1)) == NIGHT_Z
+
+
+def test_paste_map_without_rekey_new_key_in_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,1", "--variant-map", "dusk=night") == 0
+    assert pxart.parse(d).variants["night"]["z"] == NIGHT_Z
+
+
+def test_crop_existing_map_still_reads_the_same_named_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", f"{d}:cut", "--rekey", "--variant-map", "dusk=night") == 0
+    assert reads_as(d, "cut", s, "walk/0", {"dusk": ["dusk", "night"]})
+    assert color_in(d, "cut", "night", (0, 0)) == KEEPER_NIGHT_R
+
+
+def test_crop_new_map_renames_night_to_dusk(tmp_path, capsys):
+    # One file whose night the map reads as dusk: every file having night gave it away, so the new OUT has only dusk.
+    s, _ = night_pack(tmp_path)
+    out = tmp_path / "cut.px"
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", out, "--variant-map", "dusk=night") == 0
+    assert set(pxart.parse(out).variants) == {"dusk"}
+
+
+def test_compose_existing_map_still_reads_the_same_named_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/1@0,0", "--rekey", "--variant-map", "dusk=night") == 0
+    assert reads_as(d, "c", s, "walk/1", {"dusk": ["dusk", "night"]})
+    assert color_in(d, "c", "night", (1, 1)) == NIGHT_Z
+
+
+def test_compose_existing_map_without_rekey_new_key_in_night(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/1@0,0", "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(d)
+    assert doc.variants["night"]["z"] == NIGHT_Z and doc.variants["dusk"]["z"] == NIGHT_Z
+
+
+def test_compose_new_map_keeps_a_night_another_file_has(tmp_path, capsys):
+    # party.px has dusk and night: OUT keeps both, and the keeper's pixels read its night in each.
+    s, d = night_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "4x2", f"{d}:awning@0,0", f"{s}:walk/0@2,0", "--rekey",
+               "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(out)
+    assert set(doc.variants) == {"dusk", "night"}
+    vmap = {"dusk": ["dusk", "night"]}
+    assert looks_as_its_file(out, [(d, "awning", 0, 0), (s, "walk/0", 2, 0)], vmap)
+    assert doc.image(doc.frames[0], "night").getpixel((2, 0)) == KEEPER_NIGHT_R
+    assert doc.image(doc.frames[0], "night").getpixel((0, 0)) == DST_NIGHT_R
+
+
+def test_compose_new_map_night_covers_both_layers(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "4x2", f"{d}:awning@0,0", f"{s}:walk/0@2,0", "--rekey",
+        "--variant-map", "dusk=night")
+    assert "covers" not in capsys.readouterr().out
+
+
+def test_compose_new_without_map_night_covers_both_dusk_only_the_party(tmp_path, capsys):
+    s, d = night_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "4x2", f"{d}:awning@0,0", f"{s}:walk/0@2,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"@variant dusk covers layer 1 ({d}:awning) only" in got and "@variant night covers" not in got
+    assert looks_as_its_file(out, [(d, "awning", 0, 0), (s, "walk/0", 2, 0)])
+
+
+def test_compose_new_map_three_packs_still_one_dusk(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey", "--variant-map", "dusk=night,dark")
+    assert code == 0 and set(pxart.parse(out).variants) == {"dusk"}
+
+
+def test_help_says_the_map_adds(capsys):
+    text = " ".join(pxart.__doc__.split())
+    assert ("The map adds to the same-name lookup, never replaces it: it says only where OUT's dusk comes from, and "
+            "OUT's other variants, night among them, still read each file's variant of the same name") in text
+    assert "reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose" in text
+
+
+def test_readme_says_the_map_adds():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "it adds to the same-name lookup, never replaces it: OUT's night still reads each file's night" in readme

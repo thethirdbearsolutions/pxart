@@ -228,7 +228,7 @@ CHECKING
       at --after/--before a DST frame: 'frames hero.px:walk --copy-to beast.px --after idle/3'.
       Their keys join DST's palette and DST's variants as compose's layers join an existing
       OUT: in the colors FILE's variant of the same name gives them (--variant-map dusk=night
-      reads FILE's night as DST's dusk). A key DST has in another color is E_KEY_CONFLICT; one
+      reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose). A key DST has in another color is E_KEY_CONFLICT; one
       DST has in the same color but recolors otherwise in a variant (a market's awning red
       beside a keeper's scarf red) gets a note, since DST's variant would recolor FILE's
       pixels; --rekey gives both free keys in DST. A frame id DST already has is E_DUP_FRAME. To put
@@ -403,6 +403,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       which layers stay at their base colors in it. --variant-map dusk=night,dark (repeatable)
       builds OUT's dusk from each layer's first of dusk, night, dark, so every layer dims
       together; a new OUT's palette is then inlined (its variants are built, not imported).
+      The map adds to the same-name lookup, never replaces it: it says only where OUT's dusk
+      comes from, and OUT's other variants, night among them, still read each file's variant
+      of the same name (a keeper's night is then OUT's dusk and OUT's night too). One variant
+      may feed several maps (--variant-map dusk=night --variant-map rain=night). A new OUT
+      merges a variant into the map's only when every file that has it gave it to the map (the
+      keeper's night, read as dusk): then it gets no variant of its own. One that a file keeps
+      as its own (its file has a dusk too) stays one of OUT's variants.
       With an existing OUT, whose variants stay its own, the map says which of each layer's
       variants to read as OUT's dusk (dusk must be one of OUT's). A key a layer draws in OUT's
       base color but that its file's variants color otherwise (one red awning, recolored by
@@ -3640,17 +3647,16 @@ def cmd_shade(a):
 def variant_map(specs):
     """compose --variant-map NAME=V1,V2 (repeatable): {NAME: [NAME, V1, V2]}, the variants of the layers' files that
     OUT's variant NAME is built from, each layer taking the first of them its file has."""
-    vmap, seen = {}, {}
+    vmap = {}
     for spec in specs or []:
         name, eq, srcs = spec.partition("=")
         names = list(dict.fromkeys([name] + srcs.split(",")))
         if not eq or not srcs or name == "base" or not all(re.match(r"^[A-Za-z0-9_\-]+$", n) for n in names):
             fail("E_BAD_ARG", f"--variant-map {spec!r}: want NAME=V1,V2 (variant names; OUT's variant NAME takes, "
                  "for each layer, the first of NAME, V1, V2 its file has), and not NAME 'base'")
-        for n in names:
-            if seen.get(n, name) != name:
-                fail("E_BAD_ARG", f"--variant-map: {n!r} goes into both {seen[n]!r} and {name!r}")
-            seen[n] = name
+        if name in vmap:
+            fail("E_BAD_ARG", f"--variant-map: {name!r} is mapped twice ({name}={','.join(vmap[name][1:])} and "
+                 f"{spec}); give each of OUT's variants one map, its sources in order: {name}=V1,V2")
         vmap[name] = names
     return vmap
 
@@ -3661,14 +3667,23 @@ def variant_names(d):
 
 
 def layer_variants(d, vmap):
-    """{OUT's variant: the variant of d's file it takes}: each of d's variants by its own name, or by the name
-    --variant-map merges it into (then d's first of that map's variants)."""
-    back = {n: name for name, ns in vmap.items() for n in ns}
+    """{OUT's variant: the variant of d's file it takes}. A map entry NAME=V1,V2 only says where OUT's NAME comes from
+    (d's first of NAME, V1, V2); every other variant of OUT reads d's variant of the same name, one the map also reads
+    as NAME included: the map adds to that lookup, never replaces it. In the order of d's variants."""
+    have = variant_names(d)
     out = {}
-    for n in variant_names(d):
-        t = back.get(n, n)
-        out.setdefault(t, next(x for x in vmap[t] if x in d.variants or x in d.shared_variants) if t in vmap else n)
+    for n in have:  # one variant of the file may be several of OUT's: night read as dusk (and rain), and as night
+        for t in [t for t, ns in vmap.items() if n in ns] + ([n] if n not in vmap else []):
+            out.setdefault(t, next(x for x in vmap[t] if x in have) if t in vmap else n)
     return out
+
+
+def merged_away(docs, vmap):
+    """The variants a new OUT leaves out: a name the map reads as another of OUT's (the keeper's night, as dusk) that
+    every file having it gave to the map. One a file keeps as its own (a palette with both dusk and night) stays."""
+    given = {id(d): {src for t, src in layer_variants(d, vmap).items() if t in vmap and src != t} for d in docs}
+    return {n for d in docs for n in given[id(d)]
+            if not any(n in variant_names(e) and n not in given[id(e)] for e in docs)}
 
 
 def listed(items, most=3):
@@ -3902,11 +3917,12 @@ def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None
         if (id(d), src) not in looks:
             looks[(id(d), src)] = d.resolved(src)
         return looks[(id(d), src)].get(k)
+    gone_names = merged_away(docs, vmap)
     for d in docs:
         base, lv = d.resolved(), layer_variants(d, vmap)
-        for name in list(d.variants) + ([] if keep else [n for n in d.shared_variants if n not in d.variants]):
-            out = next(t for t, src in lv.items() if src == name) if name in lv.values() else None
-            if out is None:  # another of its --variant-map variants is the one this file gives
+        mine = list(d.variants) + ([] if keep else [n for n in d.shared_variants if n not in d.variants])
+        for out, name in lv.items():  # one of the file's variants may be two of OUT's: night as dusk, and as night
+            if name not in mine or out in gone_names:
                 continue
             over = {**({} if keep else d.shared_variants.get(name, {})), **d.variants.get(name, {})}
             if out not in doc.shared_variants:
