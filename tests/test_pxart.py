@@ -26935,3 +26935,53 @@ def test_palette_add_dry_run_reports_adds(tmp_path, capsys):
     assert run("palette", p, "--add", "s=#2a2440", "--comment", "s", "band", "--dry-run") == 0
     out = capsys.readouterr().out
     assert "added s #2a2440; commented s; would write" in out and untouched(p, before, m)
+
+
+# ---------------------------------------------------------------- one stream: lines come out in the order they were said
+# stdout is held until the command is done; an error goes to stderr. In one stream (2>&1) the held lines must come
+# first, and a multi-group anim's note, headers and readouts in their order.
+
+def combined(*argv, cwd=None):
+    """Run pxart.py in a subprocess with stderr into stdout: (exit code, the one stream)."""
+    import subprocess
+    script = pathlib.Path(__file__).resolve().parent.parent / "pxart.py"
+    r = subprocess.run([sys.executable, str(script)] + [str(a) for a in argv], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True, cwd=cwd)
+    return r.returncode, r.stdout
+
+
+def test_anim_dry_run_multi_group_combined_stream_is_in_order(tmp_path):
+    p = write(tmp_path, "b.px", ONCE)
+    code, out = combined("anim", p, "--dry-run")
+    lines = out.splitlines()
+    assert code == 0
+    assert lines[0].startswith(f"note: {p} is 2 groups: land, fly;")
+    assert lines[1] == f"{p}:land" and lines[2].startswith("the GIF (no -o):")
+    assert lines[3].split()[0] == "land/0" and lines[5].split()[0] == "land/2"
+    assert lines[6].startswith("the strip (no -o):") and lines[7] == "(dry run; nothing written)"
+    assert lines[8] == f"{p}:fly" and lines[-1] == "(dry run; nothing written)"
+
+
+def test_anim_dry_run_combined_stream_is_the_same_every_run(tmp_path):
+    p = write(tmp_path, "b.px", ONCE)
+    assert combined("anim", p, "--dry-run") == combined("anim", p, "--dry-run")
+
+
+def test_error_after_output_comes_last_in_the_combined_stream(tmp_path):
+    p = write(tmp_path, "b.px", ONCE)
+    (tmp_path / "od" / "fly.gif").mkdir(parents=True)  # the second group's GIF can't be written
+    code, out = combined("anim", p, "-o", tmp_path / "od")
+    lines = out.splitlines()
+    assert code == 1
+    assert lines[0] == f"{p}:land" and any(l.startswith("wrote ") for l in lines)
+    assert lines[-1].startswith("anim: ") and "E_FILE" in lines[-1]
+    assert [l for l in lines if "E_FILE" in l] == [lines[-1]]
+
+
+def test_main_flushes_what_it_said(tmp_path, capsys, monkeypatch):
+    flushed = []
+    real = sys.stdout.flush
+    monkeypatch.setattr(sys.stdout, "flush", lambda: (flushed.append(True), real())[1])
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", f"{p}:land") == 0
+    assert flushed

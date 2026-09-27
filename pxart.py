@@ -8319,17 +8319,24 @@ def main(argv=None):
         with contextlib.redirect_stdout(told):
             globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'
-        sys.stdout.write(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue()))
         sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
-        sys.stdout.write(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue()))
         sys.exit(file_error(a.cmd, e))
     except BaseException:
-        sys.stdout.write(told.getvalue())
+        said_first(told.getvalue())
         raise
     if DRY["run"] and a.cmd in EDIT_DRY and "(dry run; nothing written)" not in told.getvalue():
         print("(dry run; nothing written)", file=told)
-    sys.stdout.write(told.getvalue())
+    said_first(told.getvalue())
+
+
+def said_first(text):
+    """Write what the command printed (held until it was done) and flush it, before anything goes to stderr (the error
+    line sys.exit prints, a traceback): in one stream (2>&1, a pipe) the lines come out in the order they were said."""
+    sys.stdout.write(text)
+    sys.stdout.flush()
 
 
 def unsaid(text):
