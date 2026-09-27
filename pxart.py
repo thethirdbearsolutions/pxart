@@ -84,11 +84,22 @@ LOOKING
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
       to stdout, one line per frame; without -o, anim prints only those lines and writes
       nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
-  onion A B -o x.png [--scale 8]    B drawn over a faded A
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR]]
+      B drawn over a faded A: A at 35% opacity, then B at 80%, with render's grid and rulers.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
       from A's, then the whole-sprite shift that best explains B, as anim finds it:
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
-      shift: 20px)": the head rose 1px, the feet stayed. y grows down, so +1 is lower.
+      shift: 20px)": the head rose 1px, the feet stayed. y grows down, so +1 is lower. The
+      edges are the sides of each frame's opaque bounding box (its leftmost, rightmost, top
+      and bottom opaque pixels): 'top -1' is B's top row of pixels 1px above A's.
+      --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
+      or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
+      weapon swing above doesn't hide what the feet did: 'B vs A (rows 20-23): left +0, ...'.
+      The shift still moves all of A (pixels come into the band from above) and counts only
+      the band's pixels. The PNG darkens the rows outside the band.
+      --tint-a draws A as a flat silhouette in one color (default #ff4060a0, a translucent
+      red; --tint-a '#40a0ff' for opaque blue) instead of faded, so where A shows past B is
+      plain to see. Without these flags the PNG is as it always was.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
@@ -1691,30 +1702,81 @@ def cmd_onion(a):
     lay = pivot_layout([ia, ib])
     w, h = lay[:2] if lay else (max(A.width, B.width), max(A.height, B.height))
     spots = lay[2] if lay else [((w - A.width) // 2, h - A.height), ((w - B.width) // 2, h - B.height)]
+    band = onion_band(a, h)
     base = on_bg(Image.new("RGBA", (1, 1), CLEAR), w, h)
-    faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
+    if a.tint_a:  # A as a flat silhouette in one color, at that color's alpha: where it shows past B is plain
+        c = parse_color(a.tint_a, "--tint-a")
+        faded = Image.new("RGBA", A.size, c[:3] + (0,))
+        faded.putalpha(A.getchannel("A").point(lambda v: v * c[3] // 255))
+    else:
+        faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
     base.alpha_composite(faded, spots[0])
     top = B.copy(); top.putalpha(B.getchannel("A").point(lambda v: v * 80 // 100))
     base.alpha_composite(top, spots[1])
+    if band:  # the rows the readout leaves out, darkened
+        shade = Image.new("RGBA", (w, h), CLEAR)
+        ImageDraw.Draw(shade).rectangle([0, 0, w - 1, h - 1], fill=(0, 0, 0, 150))
+        ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
+        base.alpha_composite(shade)
     upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
-    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered"):
+    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band):
         print(line)
     print("wrote", a.o)
 
 
-def alignment(ia, ib, w, h, spots, how):
+def onion_band(a, h):
+    """onion's --rows Y0-Y1 / --feet N as (y0, y1), canvas rows, both included; None for the whole canvas."""
+    if a.feet is not None:
+        if a.feet < 1:
+            fail("E_BAD_ARG", f"--feet {a.feet}: the bottom N rows, N >= 1")
+        return max(0, h - a.feet), h - 1
+    if a.rows is None:
+        return None
+    m = re.match(r"^(\d+)(?:-(\d+))?$", a.rows)
+    if not m:
+        fail("E_BAD_ARG", f"--rows wants Y0-Y1 (canvas rows, both included, like 20-23) or one row Y, got {a.rows!r}")
+    y0, y1 = int(m.group(1)), int(m.group(2) or m.group(1))
+    if y0 > y1 or y1 >= h:
+        fail("E_BAD_ARG", f"--rows {a.rows}: the canvas has rows 0-{h - 1}" + (", and Y0 comes first" if y0 > y1 else ""))
+    return y0, y1
+
+
+def band_shift(prev, cur, y0, y1, reach=2):
+    """best_shift for a band of rows: all of prev moves (so pixels come in from above and below the band), and only the
+    band's pixels count. (dx, dy, px changed after it, px changed with no shift)."""
+    box = (0, y0, cur.width, y1 + 1)
+    c, best = cur.crop(box), None
+    for dy in range(-reach, reach + 1):
+        for dx in range(-reach, reach + 1):
+            key = (n_changed(shifted(prev, dx, dy).crop(box), c), abs(dx) + abs(dy))
+            if best is None or key < best[0]:
+                best = (key, dx, dy)
+    return best[1], best[2], best[0][0], n_changed(prev.crop(box), c)
+
+
+def alignment(ia, ib, w, h, spots, how, band=None):
     """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
-    jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's)."""
+    jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's). band (y0, y1): only
+    those canvas rows count, for the edges and the shift (band_shift)."""
     clear = [placed(it.img, w, h, at, "#00000000") for it, at in zip((ia, ib), spots)]
-    boxes = [c.getchannel("A").getbbox() for c in clear]
-    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "empty")
-             + (f" (on the {w}x{h} canvas, {how})" if n == "A" else "")
+    if band:
+        alpha = [c.getchannel("A") for c in clear]
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rectangle([0, band[0], w - 1, band[1]], fill=255)
+        boxes = [ImageChops.multiply(al, mask).getbbox() for al in alpha]
+        rows = f"row {band[0]}" if band[0] == band[1] else f"rows {band[0]}-{band[1]}"
+    else:
+        boxes = [c.getchannel("A").getbbox() for c in clear]
+    where = f"{rows} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
+    lines = [f"{n} {it.label}: " + (f"opaque x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else
+                                    "empty" if not band else "nothing opaque" if n == "A" else f"nothing opaque in {rows}")
+             + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
     if all(boxes):
         (l0, t0, r0, b0), (l1, t1, r1, b1) = boxes
-        dx, dy, n_shift, n_none, _, _ = motion(*clear)
-        lines.append(f"B vs A: left {l1 - l0:+d}, right {r1 - r0:+d}, top {t1 - t0:+d}, bottom {b1 - b0:+d}; best "
-                     f"shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
+        dx, dy, n_shift, n_none = band_shift(*clear, *band) if band else motion(*clear)[:4]
+        lines.append(f"B vs A{f' ({rows})' if band else ''}: left {l1 - l0:+d}, right {r1 - r0:+d}, top {t1 - t0:+d}, "
+                     f"bottom {b1 - b0:+d}; best shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
     return lines
 
 
@@ -3850,6 +3912,11 @@ def parser(describe=True):
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=8)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--rows", help="Y0-Y1: only these canvas rows count for the readout and the best shift")
+    g.add_argument("--feet", type=int, metavar="N", help="only the bottom N rows count (--rows for the feet)")
+    p.add_argument("--tint-a", nargs="?", const="#ff4060a0", metavar="COLOR",
+                   help="draw A as a silhouette in COLOR (default #ff4060a0) instead of faded")
     p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")

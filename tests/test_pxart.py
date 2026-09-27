@@ -11371,3 +11371,190 @@ def test_anim_set_still_star_ignores_a_still_line_of_no_frames(tmp_path, capsys)
 def test_help_documents_redundant_still_star():
     doc = " ".join(pxart.__doc__.split())
     assert "unless every frame already is in a @still group: then it says so and adds nothing" in doc
+
+
+# ---------------------------------------------------------------- onion: --rows / --feet bands, --tint-a
+
+SWING = ("k #000000\nw #ffffff\n@frame a\n......\n..kk..\n..kk..\n..kk..\n..k.k.\n"
+         "@frame b\n....ww\n..kkww\n..kk..\n..kk..\n..k.k.\n"
+         "@frame c\n....ww\n..kkww\n..kk..\n..kk..\n..kk..\n")
+
+
+def test_onion_whole_canvas_readout_lets_a_swing_hide_the_feet(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[2] == "B vs A: left +0, right +1, top -1, bottom +0; best shift +0,+0 then 4px changed (no shift: 4px)"
+
+
+def test_onion_feet_band_reads_the_feet_only(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2") == [
+        "A a: opaque x 2..4, y 3..4 (rows 3-4 of the 6x5 canvas, bottom-centered)",
+        "B b: opaque x 2..4, y 3..4",
+        "B vs A (rows 3-4): left +0, right +0, top +0, bottom +0; best shift +0,+0 then 0px changed (no shift: 0px)",
+        f"wrote {tmp_path / 'o.png'}",
+    ]
+
+
+def test_onion_feet_band_sees_a_leg_move(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    lines = onion_lines(tmp_path, capsys, f"{p}:b", f"{p}:c", "--feet", "1")
+    assert lines[0] == "A b: opaque x 2..4, y 4..4 (row 4 of the 6x5 canvas, bottom-centered)"
+    # c's feet row is b's row above it moved down: the band's shift takes pixels from above the band.
+    assert lines[2] == ("B vs A (row 4): left +0, right -1, top +0, bottom +0; best shift +0,+1 then 0px changed "
+                        "(no shift: 2px)")
+
+
+def test_onion_rows_band(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--rows", "0-1")
+    assert lines == ["A a: opaque x 2..3, y 1..1 (rows 0-1 of the 6x5 canvas, bottom-centered)",
+                     "B b: opaque x 2..5, y 0..1",
+                     "B vs A (rows 0-1): left +0, right +2, top -1, bottom +0; best shift +0,+0 then 4px changed "
+                     "(no shift: 4px)", f"wrote {tmp_path / 'o.png'}"]
+
+
+def test_onion_band_shift_brings_pixels_in_from_above(tmp_path, capsys):
+    # The whole sprite drops 1px: in the feet band the new bottom row came from the row above the band.
+    p = write(tmp_path, "d.px", "k #000000\nr #ff0000\n@frame a\n.k.\nrrr\nk.k\n...\n@frame b\n...\n.k.\nrrr\nk.k\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--feet", "2")
+    assert lines[2] == ("B vs A (rows 2-3): left +0, right +0, top +0, bottom +1; best shift +0,+1 then 0px changed "
+                        "(no shift: 5px)")
+
+
+def test_onion_band_same_as_whole_when_it_is_the_whole_canvas(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    whole = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
+    band = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0-3")
+    assert band[2] == whole[2].replace("B vs A:", "B vs A (rows 0-3):")
+    assert band[1] == whole[1] and band[0] == whole[0].replace("on the 3x4 canvas", "rows 0-3 of the 3x4 canvas")
+
+
+def test_onion_feet_more_than_the_canvas_is_every_row(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--feet", "99")
+    assert "(rows 0-3 of the 3x4 canvas" in lines[0]
+
+
+def test_onion_one_row(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "3")
+    assert "(row 3 of the 3x4 canvas" in lines[0] and lines[2].startswith("B vs A (row 3): ")
+
+
+def test_onion_band_empty_in_a_or_b(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b", "--rows", "0")[:2] == [
+        "A a: nothing opaque (row 0 of the 6x5 canvas, bottom-centered)", "B b: opaque x 4..5, y 0..0"]
+    assert onion_lines(tmp_path, capsys, f"{p}:b", f"{p}:a", "--rows", "0")[:3] == [
+        "B b: opaque x 4..5, y 0..0 (row 0 of the 6x5 canvas, bottom-centered)".replace("B b", "A b"),
+        "B a: nothing opaque in row 0", f"wrote {tmp_path / 'o.png'}"]
+
+
+def test_onion_band_by_pivot(tmp_path, capsys):
+    p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a/0", f"{p}:a/1", "--rows", "0-1")
+    assert lines[0] == "A a/0: opaque x 1..1, y 0..1 (rows 0-1 of the 4x4 canvas, lined up by pivot)"
+    assert lines[2].startswith("B vs A (rows 0-1): left +0, right +0, top +0, bottom +0; ")
+
+
+@pytest.mark.parametrize("flag, val, want", [
+    ("--rows", "3-9", "--rows 3-9: the canvas has rows 0-4"),
+    ("--rows", "5", "--rows 5: the canvas has rows 0-4"),
+    ("--rows", "3-1", "--rows 3-1: the canvas has rows 0-4, and Y0 comes first"),
+    ("--rows", "a-b", "--rows wants Y0-Y1"),
+    ("--rows", "-1-2", "--rows wants Y0-Y1"),
+    ("--feet", "0", "--feet 0: the bottom N rows, N >= 1"),
+])
+def test_onion_band_errors(tmp_path, flag, val, want):
+    p = write(tmp_path, "s.px", SWING)
+    msg = run_err("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png", f"{flag}={val}")
+    assert msg.startswith("onion: E_BAD_ARG: ") and want in msg and not (tmp_path / "o.png").exists()
+
+
+def test_onion_rows_and_feet_are_one_or_the_other(tmp_path):
+    p = write(tmp_path, "s.px", SWING)
+    assert run("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png", "--rows", "1-2", "--feet", "1") == 2
+
+
+def onion_png(tmp_path, *more):
+    p = write(tmp_path, "s.px", SWING)
+    assert run("onion", f"{p}:a", f"{p}:c", "-o", tmp_path / "o.png", "--scale", "1", *more) == 0
+    return Image.open(tmp_path / "o.png").convert("RGBA")
+
+
+def old_onion(A, B, w, h, spots):
+    """onion's PNG at --scale 1 as it was before the flags: the default must stay byte-identical."""
+    base = pxart.on_bg(Image.new("RGBA", (1, 1), pxart.CLEAR), w, h)
+    faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
+    base.alpha_composite(faded, spots[0])
+    top = B.copy(); top.putalpha(B.getchannel("A").point(lambda v: v * 80 // 100))
+    base.alpha_composite(top, spots[1])
+    return base
+
+
+def test_onion_default_png_is_as_it_was(tmp_path):
+    img = onion_png(tmp_path)
+    doc = pxart.parse(tmp_path / "s.px")
+    want = old_onion(doc.image(doc.get("a")), doc.image(doc.get("c")), 6, 5, [(0, 0), (0, 0)])
+    assert img.tobytes() == want.tobytes()
+
+
+def test_onion_default_png_is_as_it_was_at_scale_8(tmp_path):
+    p = write(tmp_path, "s.px", SWING)
+    assert run("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png") == 0
+    doc = pxart.parse(p)
+    want = pxart.upscale(old_onion(doc.image(doc.get("a")), doc.image(doc.get("b")), 6, 5, [(0, 0), (0, 0)]), 8,
+                         grid=True, rulers=True)
+    assert Image.open(tmp_path / "o.png").convert("RGBA").tobytes() == want.tobytes()
+
+
+def test_onion_band_darkens_the_rows_outside(tmp_path):
+    plain, band = onion_png(tmp_path), onion_png(tmp_path, "--feet", "2")
+    assert band.getpixel((0, 4)) == plain.getpixel((0, 4)) and band.getpixel((0, 3)) == plain.getpixel((0, 3))
+    assert sum(band.getpixel((0, 0))[:3]) < sum(plain.getpixel((0, 0))[:3])
+    assert sum(band.getpixel((0, 2))[:3]) < sum(plain.getpixel((0, 2))[:3])
+
+
+def test_onion_tint_a_default_color(tmp_path):
+    img = onion_png(tmp_path, "--tint-a")
+    # (4, 4): A's leg only, B empty there: the tint over the backdrop, redder than it.
+    bg = pxart.rgba("#3a3a44")
+    r, g, b, a = img.getpixel((4, 4))
+    assert a == 255 and r > bg[0] + 100 and g < bg[1] + 30
+    want = Image.new("RGBA", (1, 1), bg)
+    want.alpha_composite(Image.new("RGBA", (1, 1), (0xff, 0x40, 0x60, 0xa0)))
+    assert img.getpixel((4, 4)) == want.getpixel((0, 0))
+
+
+def test_onion_tint_a_custom_opaque_color(tmp_path):
+    img = onion_png(tmp_path, "--tint-a", "#40a0ff")
+    assert img.getpixel((4, 4)) == (0x40, 0xa0, 0xff, 255)
+    assert img.getpixel((0, 0)) == pxart.rgba("#3a3a44")  # empty pixels stay backdrop
+
+
+def test_onion_tint_a_leaves_b_drawn_over_it(tmp_path):
+    tinted, plain = onion_png(tmp_path, "--tint-a", "#40a0ff"), onion_png(tmp_path)
+    assert tinted.getpixel((5, 0)) == plain.getpixel((5, 0))  # B's swing over no A: unchanged by the tint
+
+
+def test_onion_tint_a_readout_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b") == onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b",
+                                                                             "--tint-a")
+
+
+def test_onion_tint_a_bad_color(tmp_path):
+    p = write(tmp_path, "s.px", SWING)
+    msg = run_err("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png", "--tint-a", "reddish")
+    assert "E_BAD_COLOR" in msg and "--tint-a" in msg
+
+
+def test_help_documents_onion_bands_fade_and_edges():
+    doc = " ".join(pxart.__doc__.split())
+    assert "onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR]]" in doc
+    assert "A at 35% opacity, then B at 80%" in doc
+    assert "The edges are the sides of each frame's opaque bounding box" in doc
+    assert "limit the edges and the best shift to that band" in doc
+    assert "--tint-a draws A as a flat silhouette in one color (default #ff4060a0" in doc
+    assert "Without these flags the PNG is as it always was." in doc
