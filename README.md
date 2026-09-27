@@ -155,7 +155,10 @@ rather than repeating them.
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
   no frames, which `--strict` fails; one line per file, the failing frames under it, and a
-  summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`),
+  summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
+  hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys, and `--at 3,4`
+  one pixel's key and color in every variant), `diff A B` (two renders pixel by pixel: how many
+  pixels differ and where, exit 1 when they do, so a copy can be proved to render as its original),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last

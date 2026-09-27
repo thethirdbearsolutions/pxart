@@ -4583,7 +4583,8 @@ def test_rotate_help_has_the_shared_turn_paragraph(capsys):
 
 def test_reference_sections_end_at_the_next_command():
     assert "flood FILE" not in pxart.reference("arc") and "rect FILE" not in pxart.reference("line")
-    assert pxart.reference("stats").splitlines()[0] == "  stats FILE|DIR... [--exclude GLOB]"
+    assert pxart.reference("stats").splitlines()[0] == "  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]"
+    assert "diff A B" not in pxart.reference("stats") and pxart.reference("diff").startswith("  diff A B")
     assert "CHECKING" not in pxart.reference("check") and "frames FILE" not in pxart.reference("stats")
     assert "ERROR CODES" not in pxart.reference("from-png")
     assert "Centering:" not in pxart.reference("tint")
@@ -16458,7 +16459,7 @@ def help_fixtures(d):
     """The files the reference's examples name, each just enough for its example."""
     (d / "crossover").mkdir()
     hero_pal = "pxart 1\nk #1a1423\nX #202040\nx #404080\nc #6060c0\nC #8080e0\nw #c0c0ff\nW #ffffff\n"
-    hero = hero_pal + "@anim walk/down ms=100\n"
+    hero = hero_pal + "@variant night\nw #303050\n@anim walk/down ms=100\n"
     for fid in ("idle/0", "idle/1", "idle/2", "idle/3", "walk/down/0", "walk/down/1", "walk/left/0", "walk/left/1",
                 "attack/2"):
         hero += f"@frame {fid}\n" + hero_frame(32, 32, "c")
@@ -16584,7 +16585,8 @@ def error_cases(t):
         ["onion", m, f, "-o", png], ["onion", f"{f}:walk/0", f"{f}:walk/1", "-o", png, "--rows", "x"],
         ["scene", "-o", png, f"{m}@0,0"], ["scene", "-o", png, f"{f}:walk/0"], ["scene", "-o", png, "--tint", "zz"],
         ["tint", t / "missing.png", "#000000"], ["tint", t / "a.png", "nope"],
-        ["stats", m], ["stats", f"{f}:nope"],
+        ["stats", m], ["stats", f"{f}:nope"], ["stats", f, "--at", "9,9"], ["stats", f, "--at", "x"],
+        ["diff", m, f], ["diff", f"{f}:walk/0", f"{f}:walk/0", "--variant", "x"], ["diff", f, f"{f}:walk/0"],
         ["frames", m], ["frames", f, "--rm", "nope"], ["frames", f, "--copy-to", m],
         ["frames", f, "--move", "walk"], ["frames", f, "--rename", "nope", "x"], ["frames", f, "--prefix", "a/"],
         ["flip", m], ["flip", f"{f}:nope"],
@@ -19904,4 +19906,355 @@ def test_help_documents_exclude():
     assert "--exclude GLOB (repeatable) leaves files out: one whose name or path under the directory matches " \
         "('_*.px', 'wip/*.px'), or every file under a directory that does ('wip')" in text
     assert "--exclude GLOB leaves files out, as for sheet" in text
-    assert "stats FILE|DIR... [--exclude GLOB]" in text
+    assert "stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]" in text
+
+
+# ---------------------------------------------------------------- loop R: reading rendered colors (stats, diff)
+# No command read a variant's rendered colors, so the session checked Wick's dark in PIL, and proved the copy matched
+# the original with a PIL pixel diff.
+
+VPX = ("pxart 1\nk #101010\ny #f0d040\nw #e0e0e0\n@variant night\nk #000010\nw #303050\n@variant dusk\nw #806060\n"
+       "@frame idle/0\nkyw\nww.\n@frame idle/1\nkyw\nwwk\n")
+
+
+def test_stats_percent_variant_reads_the_variant_colors(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0%night") == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"{p}:idle/0%night: 3x2 ") and "#303050" in out and "#e0e0e0" not in out
+
+
+def test_stats_without_variant_label_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0") == 0
+    assert capsys.readouterr().out.startswith(f"{p}:idle/0: 3x2 bbox=(0, 0, 3, 2) colors=3 ")
+
+
+def test_stats_help_mentions_percent_variant(capsys):
+    assert run("stats", "-h") == 0
+    out = capsys.readouterr().out
+    assert "FILE:SEL%VARIANT reads the colors a variant renders" in out and "'stats" in out
+    assert "hero.px:idle/0%night'" in out
+
+
+def test_stats_colors_histogram(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0", "--colors") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:] == ["  #e0e0e0 3 px (w)", "  #101010 1 px (k)", "  #f0d040 1 px (y)"]
+
+
+def test_stats_colors_in_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0%night", "--colors") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:] == ["  #303050 3 px (w)", "  #000010 1 px (k)", "  #f0d040 1 px (y)"]
+
+
+def test_stats_colors_variant_flag_of_the_file_argument(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}%dusk", "--colors") == 0
+    out = capsys.readouterr().out
+    assert out.count("  #806060 3 px (w)\n") == 2 and "#e0e0e0" not in out  # both frames, dusk's w
+
+
+def test_stats_colors_two_keys_one_color(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\na #101010\nb #101010\n@frame f\nab\nb.\n")
+    assert run("stats", p, "--colors") == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  #101010 3 px (a b)"]
+
+
+def test_stats_colors_every_frame(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", p, "--colors") == 0
+    out = capsys.readouterr().out.splitlines()
+    heads = [i for i, l in enumerate(out) if not l.startswith("  ")]
+    assert len(heads) == 2 and out[heads[1] + 1:] == ["  #e0e0e0 3 px (w)", "  #101010 2 px (k)", "  #f0d040 1 px (y)"]
+
+
+def test_stats_colors_ties_sorted_by_color(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\na #202020\nb #101010\n@frame f\nab\n")
+    assert run("stats", p, "--colors") == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  #101010 1 px (b)", "  #202020 1 px (a)"]
+
+
+def test_stats_colors_alpha_colors(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\na #10101080\n@frame f\na.\n")
+    assert run("stats", p, "--colors") == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  #10101080 1 px (a)"]
+
+
+def test_stats_colors_of_a_png(tmp_path, capsys):
+    img = Image.new("RGBA", (2, 1), (1, 2, 3, 255))
+    img.putpixel((1, 0), (0, 0, 0, 0))
+    img.save(tmp_path / "i.png")
+    assert run("stats", tmp_path / "i.png", "--colors") == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  #010203 1 px"]
+
+
+def test_stats_colors_counts_add_up_to_the_opaque_pixels(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/1", "--colors") == 0
+    counts = [int(l.split()[1]) for l in capsys.readouterr().out.splitlines()[1:]]
+    assert sum(counts) == 6
+
+
+def test_stats_at_every_variant(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0", "--at", "2,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 2,0: key w; base #e0e0e0, night #303050, dusk #806060"
+
+
+def test_stats_at_inherited_color_in_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0", "--at", "1,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 1,0: key y; base #f0d040, night #f0d040, dusk #f0d040"
+
+
+def test_stats_at_named_variant_only(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0%night", "--at", "0,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 0,0: key k; night #000010"
+
+
+def test_stats_at_percent_base(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0%base", "--at", "0,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 0,0: key k; base #101010, night #000010, dusk #101010"
+
+
+def test_stats_at_transparent(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0", "--at", "2,1") == 0
+    assert capsys.readouterr().out.splitlines()[1] == \
+        "  at 2,1: key .; base transparent, night transparent, dusk transparent"
+
+
+def test_stats_at_repeats_in_order(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/1", "--at", "2,1", "--at", "0,0") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith("  at 2,1: key k;") and lines[2].startswith("  at 0,0: key k;")
+
+
+def test_stats_at_each_frame(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", p, "--at", "2,1") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == "  at 2,1: key .; base transparent, night transparent, dusk transparent"
+    assert lines[3] == "  at 2,1: key k; base #101010, night #000010, dusk #101010"
+
+
+def test_stats_at_imported_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #101010\n@variant night\nk #000000\n")
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame f\nk\n")
+    assert run("stats", p, "--at", "0,0") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 0,0: key k; base #101010, night #000000"
+
+
+def test_stats_at_png(tmp_path, capsys):
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "i.png")
+    assert run("stats", tmp_path / "i.png", "--at", "1,1") == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  at 1,1: #010203"
+
+
+def test_stats_at_outside_is_bad_arg(tmp_path):
+    p = write(tmp_path, "v.px", VPX)
+    msg = run_err("stats", p, "--at", "3,0")
+    assert msg.startswith("stats: file 1 (") and "E_BAD_ARG" in msg and "--at 3,0 is outside idle/0's 3x2 frame" in msg
+
+
+def test_stats_at_malformed_is_bad_arg(tmp_path):
+    p = write(tmp_path, "v.px", VPX)
+    assert "E_BAD_ARG" in run_err("stats", p, "--at", "1")
+    assert "E_BAD_ARG" in run_err("stats", p, "--at", "a,b")
+
+
+def test_stats_colors_and_at_together(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("stats", f"{p}:idle/0", "--colors", "--at", "0,0") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:4] == ["  #e0e0e0 3 px (w)", "  #101010 1 px (k)", "  #f0d040 1 px (y)"]
+    assert lines[4].startswith("  at 0,0: key k;")
+
+
+def test_color_counts_unit(tmp_path):
+    doc = pxart.parse(write(tmp_path, "v.px", VPX))
+    it = pxart.Item("x", doc.image(doc.frames[0]), 100, doc, doc.frames[0])
+    assert pxart.color_counts(it) == ["#e0e0e0 3 px (w)", "#101010 1 px (k)", "#f0d040 1 px (y)"]
+
+
+def test_pixel_at_unit(tmp_path):
+    doc = pxart.parse(write(tmp_path, "v.px", VPX))
+    it = pxart.Item("x", doc.image(doc.frames[0]), 100, doc, doc.frames[0])
+    assert pxart.pixel_at(it, 0, 0) == "at 0,0: key k; base #101010, night #000010, dusk #101010"
+    assert pxart.pixel_at(it, 0, 0, "dusk") == "at 0,0: key k; dusk #101010"
+
+
+def test_diff_same_frame(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("diff", f"{p}:idle/0", f"{p}:idle/0") == 0
+    assert capsys.readouterr().out == "same: 3x2, every pixel\n"
+
+
+def test_diff_differing_frames_exit_1(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("diff", f"{p}:idle/0", f"{p}:idle/1") == 1
+    assert capsys.readouterr().out == "1 px differ in 2,1,1,1 (x,y,w,h)\n"
+
+
+def test_diff_bbox_spans_every_difference(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\nw #ffffff\n@frame f\nkkkk\nkkkk\nkkkk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\nw #ffffff\n@frame f\nkwkk\nkkkk\nkkkw\n")
+    assert run("diff", a, b) == 1
+    assert capsys.readouterr().out == "2 px differ in 1,0,3,3 (x,y,w,h)\n"
+
+
+def test_diff_different_sizes(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nkk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #000000\n@frame f\nk\nk\n")
+    assert run("diff", a, b) == 1
+    assert capsys.readouterr().out == "sizes 2x1 and 1x2\n"
+
+
+def test_diff_variant_flag_both_sides(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", VPX.replace("w #303050", "w #303051"))
+    assert run("diff", f"{p}:idle/0", f"{q}:idle/0") == 0
+    capsys.readouterr()
+    assert run("diff", f"{p}:idle/0", f"{q}:idle/0", "--variant", "night") == 1
+    assert capsys.readouterr().out == "3 px differ in 0,0,3,2 (x,y,w,h)\n"
+
+
+def test_diff_own_variant_wins_over_the_flag(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("diff", f"{p}:idle/0%night", f"{p}:idle/0", "--variant", "night") == 0
+    assert run("diff", f"{p}:idle/0%base", f"{p}:idle/0", "--variant", "night") == 1
+
+
+def test_diff_a_variant_against_the_base(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("diff", f"{p}:idle/0", f"{p}:idle/0%dusk") == 1
+    assert capsys.readouterr().out == "3 px differ in 0,0,3,2 (x,y,w,h)\n"
+
+
+def test_diff_different_keys_same_colors_are_same(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk.\n")
+    b = write(tmp_path, "b.px", "pxart 1\nQ #000000\n@frame g\nQ.\n")
+    assert run("diff", a, b) == 0
+
+
+def test_diff_transparent_pixels_are_alike_whatever_their_rgb(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk.\n")
+    img = Image.new("RGBA", (2, 1), (255, 255, 255, 0))
+    img.putpixel((0, 0), (0, 0, 0, 255))
+    img.save(tmp_path / "b.png")
+    assert run("diff", a, tmp_path / "b.png") == 0
+
+
+def test_diff_png_against_px(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk.\n")
+    Image.new("RGBA", (2, 1), (0, 0, 0, 255)).save(tmp_path / "b.png")
+    assert run("diff", a, tmp_path / "b.png") == 1
+    assert capsys.readouterr().out == "1 px differ in 1,0,1,1 (x,y,w,h)\n"
+
+
+def test_diff_alpha_difference_counts(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #00000080\n@frame f\nk\n")
+    assert run("diff", a, b) == 1
+
+
+def test_diff_groups_paired_by_id(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", VPX.replace("@frame idle/1\nkyw\nwwk\n", "@frame idle/1\nkyw\nwwy\n"))
+    assert run("diff", f"{p}:idle", f"{q}:idle") == 1
+    assert capsys.readouterr().out == "idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n2 frame(s): 1 same, 1 differ\n"
+
+
+def test_diff_groups_all_same(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", VPX)
+    assert run("diff", p, q) == 0
+    assert capsys.readouterr().out == "2 frame(s): 2 same\n"
+
+
+def test_diff_pairs_by_id_not_order(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", "pxart 1\nk #101010\ny #f0d040\nw #e0e0e0\n"
+                                "@frame idle/1\nkyw\nwwk\n@frame idle/0\nkyw\nww.\n")
+    assert run("diff", p, q) == 0
+
+
+def test_diff_pairs_in_order_when_ids_differ(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", "pxart 1\nk #101010\ny #f0d040\nw #e0e0e0\n"
+                                "@frame wick/idle/0\nkyw\nww.\n@frame wick/idle/1\nkyw\nwwy\n")
+    assert run("diff", p, q) == 1
+    assert capsys.readouterr().out == ("idle/1 vs wick/idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n"
+                                       "2 frame(s): 1 same, 1 differ\n")
+
+
+def test_diff_copy_to_prefix_renders_the_same(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    dst = write(tmp_path, "party.px", "pxart 1\nZ #ff00ff\n@variant night\nZ #ff00ff\n@variant dusk\nZ #ff00ff\n"
+                                      "@frame x\nZ\n")
+    assert run("frames", f"{p}:idle", "--copy-to", dst, "--prefix", "wick/") == 0
+    for v in ("base", "night", "dusk"):
+        assert run("diff", f"{p}:idle%{v}", f"{dst}:wick/idle%{v}") == 0, v
+
+
+def test_diff_unpairable_counts_are_e_select(tmp_path):
+    p = write(tmp_path, "v.px", VPX)
+    msg = run_err("diff", p, f"{p}:idle/0")
+    assert "E_SELECT" in msg and "A has idle/1 and B hasn't" in msg
+
+
+def test_diff_missing_input_is_e_file(tmp_path):
+    p = write(tmp_path, "v.px", VPX)
+    msg = run_err("diff", p, tmp_path / "nope.px")
+    assert msg.startswith("diff: ") and "E_FILE" in msg
+
+
+def test_diff_unknown_variant_is_e_select(tmp_path):
+    p = write(tmp_path, "v.px", VPX)
+    msg = run_err("diff", p, p, "--variant", "fog")
+    assert msg.startswith("diff: A (") and "E_SELECT" in msg
+
+
+def test_diff_images_unit():
+    a = Image.new("RGBA", (3, 3), (0, 0, 0, 255))
+    b = a.copy()
+    assert pxart.diff_images(a, b) is None
+    b.putpixel((2, 2), (1, 0, 0, 255))
+    assert pxart.diff_images(a, b) == "1 px differ in 2,2,1,1 (x,y,w,h)"
+    assert pxart.diff_images(a, Image.new("RGBA", (3, 2))) == "sizes 3x3 and 3x2"
+
+
+def test_diff_proves_a_rekeyed_compose_renders_as_its_layer(tmp_path, capsys):
+    # the session's use: a copy under other keys renders exactly as the original
+    p = write(tmp_path, "v.px", VPX)
+    q = write(tmp_path, "q.px", "pxart 1\nk #ff0000\n@frame x\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0", "--rekey") == 0
+    for v in ("base", "night", "dusk"):
+        assert run("diff", f"{p}:idle/0%{v}", f"{out}%{v}") == 0, v
+
+
+def test_help_documents_diff():
+    text = " ".join(pxart.__doc__.split())
+    assert "diff A B [--variant V]" in text
+    assert "Compare two renders pixel by pixel." in text
+    assert "It exits 1 when anything differs, as check does" in text
+
+
+def test_diff_is_under_checking(capsys):
+    assert "diff" in pxart.commands_by_topic()["CHECKING"]
+
+
+def test_help_documents_stats_colors_and_at():
+    text = " ".join(pxart.__doc__.split())
+    assert "--colors lists each frame's rendered colors, most pixels first, each with its pixel count and the keys " \
+        "that draw it ('#120e22 40 px (k)')" in text
+    assert "--at x,y (repeatable) prints that pixel's key and its color in the base palette and in every variant" \
+        in text

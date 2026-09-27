@@ -228,9 +228,23 @@ CHECKING
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
-  stats FILE|DIR... [--exclude GLOB]
+  stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]
       Size, bbox, color count, colors per frame (a directory, palette files and --exclude as
-      for sheet).
+      for sheet). FILE:SEL%VARIANT reads the colors a variant renders: 'stats
+      hero.px:idle/0%night'. --colors lists each frame's rendered colors, most pixels first,
+      each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
+      (repeatable) prints that pixel's key and its color in the base palette and in every
+      variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
+  diff A B [--variant V]
+      Compare two renders pixel by pixel. A and B are FILE[:SEL][%VARIANT] or PNGs: one frame
+      each, or frames paired by id (in order when their ids differ but their counts match:
+      diff wick.px:walk party.px:wick/walk, copies made with --prefix wick/). Prints
+      'same: 16x16, every pixel', or what differs: '12 px differ in 3,4,6,6 (x,y,w,h)' (or
+      'sizes 16x16 and 16x24'), one line per frame that differs and a count for several. It
+      exits 1 when anything differs, as check does, so a script can prove a copy or a rekey
+      renders as the original: 'diff hero.px:idle/0 hero.px:idle/1'. A transparent pixel
+      equals any other transparent pixel. --variant V renders both sides with V, and a
+      side's own %VARIANT wins (A%night against B%dusk works too).
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -2835,14 +2849,96 @@ def cmd_check(a):
 
 
 def cmd_stats(a):
+    spots = [coords(s, ("x", "y"), "--at") for s in a.at or []]
     for n, arg in enumerate(frames_only(in_dirs(a.files, exclude=a.exclude or ()), "stats"), 1):
         with reading(f"file {n} ({arg})"):
             its = items(arg)
         for it in its:
             cs = colors(it.img)
-            print(f"{arg if not (it.frame and it.frame.id) else split_sel(arg)[0] + ':' + it.label}: "
-                  f"{it.img.width}x{it.img.height} bbox={it.img.getchannel('A').getbbox()} colors={len(cs)} "
+            print(f"{arg if not (it.frame and it.frame.id) else split_sel(split_variant(arg)[0])[0] + ':' + it.label}"
+                  + (f"%{split_variant(arg)[1]}" if split_variant(arg)[1] and it.frame and it.frame.id else "")
+                  + f": {it.img.width}x{it.img.height} bbox={it.img.getchannel('A').getbbox()} colors={len(cs)} "
                   + " ".join(rgba2hex(c) for c in cs[:32]))
+            if a.colors:
+                for line in color_counts(it):
+                    print(f"  {line}")
+            for x, y in spots:
+                with reading(f"file {n} ({arg})"):
+                    print(f"  {pixel_at(it, int(x), int(y), split_variant(arg)[1])}")
+
+
+def color_counts(it):
+    """stats --colors: a frame's rendered colors, most pixels first (then by color), each with its pixel count and, for
+    a .px frame, the keys that draw it: ['#120e22 40 px (k)', ...]. Transparent pixels aren't colors."""
+    count, keys = {}, {}
+    grid = "".join(it.frame.grid) if it.frame else None
+    for i, c in enumerate(pixels(it.img)):
+        if not c[3]:
+            continue
+        count[c] = count.get(c, 0) + 1
+        if grid is not None:
+            keys.setdefault(c, {})[grid[i]] = True
+    return [f"{rgba2hex(c)} {n} px" + (f" ({' '.join(keys[c])})" if c in keys else "")
+            for c, n in sorted(count.items(), key=lambda cn: (-cn[1], cn[0]))]
+
+
+def pixel_at(it, x, y, variant=None):
+    """stats --at x,y: 'at 3,4: key k; base #3f2631, night #120e22' (every variant of the frame's file, or only
+    `variant` when the input named one); a PNG's pixel is its color alone. Outside the frame is E_BAD_ARG."""
+    w, h = it.img.size
+    if not (0 <= x < w and 0 <= y < h):
+        fail("E_BAD_ARG", f"--at {x},{y} is outside {it.label}'s {w}x{h} frame")
+    if not it.frame:
+        return f"at {x},{y}: {fmt_color(it.img.getpixel((x, y)))}"
+    k, d = it.frame.grid[y][x], it.doc
+    names = [variant] if variant and variant != "base" else ["base"] + variant_names(d)
+    return f"at {x},{y}: key {k}; " + ", ".join(f"{n} {fmt_color(d.resolved(n)[k])}" for n in names)
+
+
+def cmd_diff(a):
+    """diff A B [--variant V]: two renders compared pixel by pixel. One frame each, or frames paired by id; prints what
+    differs (how many pixels, where) and exits 1 when anything does."""
+    sides = []
+    for what, arg in (("A", a.a), ("B", a.b)):
+        with reading(f"{what} ({arg})"):
+            sides.append(items(arg, a.variant))
+    ia, ib = sides
+    la, lb = {it.label: it for it in ia}, {it.label: it for it in ib}
+    if len(ia) == 1 and len(ib) == 1:
+        pairs = [(None, ia[0], ib[0])]
+    elif set(la) == set(lb):
+        pairs = [(lab, la[lab], lb[lab]) for lab in la]
+    elif len(ia) == len(ib):  # copies under other ids (frames --copy-to --prefix wick/): in order
+        pairs = [(f"{x.label} vs {y.label}", x, y) for x, y in zip(ia, ib)]
+    else:
+        only = [f"{what} has {listed(sorted(set(x) - set(y)), 5)} and {other} hasn't"
+                for what, other, x, y in (("A", "B", la, lb), ("B", "A", lb, la)) if set(x) - set(y)]
+        fail("E_SELECT", f"A is {len(ia)} frame(s) and B {len(ib)}, paired by id: " + "; ".join(only)
+             + "; pick frames with FILE:SEL")
+    differ = 0
+    for lab, x, y in pairs:
+        said = diff_images(x.img, y.img)
+        differ += said is not None
+        if said or lab is None:
+            print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
+    if lab is not None or len(pairs) > 1:
+        print(f"{len(pairs)} frame(s): {len(pairs) - differ} same" + (f", {differ} differ" if differ else ""))
+    if differ:
+        sys.exit(1)
+
+
+def diff_images(a, b):
+    """None when two RGBA images are pixel-for-pixel the same (every transparent pixel alike, whatever its rgb), else
+    what differs: 'sizes 16x16 and 16x24', or '12 px differ in 3,4,6,6 (x,y,w,h)'."""
+    if a.size != b.size:
+        return f"sizes {a.width}x{a.height} and {b.width}x{b.height}"
+    w = a.width
+    bad = [i for i, (p, q) in enumerate(zip(pixels(a), pixels(b))) if p != q and (p[3] or q[3])]
+    if not bad:
+        return None
+    xs, ys = [i % w for i in bad], [i // w for i in bad]
+    return (f"{len(bad)} px differ in {min(xs)},{min(ys)},{max(xs) - min(xs) + 1},{max(ys) - min(ys) + 1} "
+            "(x,y,w,h)")
 
 
 def cmd_frames(a):
@@ -6179,7 +6275,8 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
     "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants"], "tint": ["scene"],
-    "check": ["FORMAT: still groups"], "stats": ["FORMAT: selecting frames"],
+    "check": ["FORMAT: still groups"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
+    "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: selecting frames"],
     "flip": ["FORMAT: pivots and timing"] + EDITS, "shift": EDITS, "set": EDITS, "fill": EDITS,
@@ -6360,9 +6457,14 @@ def parser(describe=True):
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
+    p.add_argument("--colors", action="store_true", help="each frame's rendered colors, pixel counts and keys")
+    p.add_argument("--at", action="append", metavar="x,y",
+                   help="the pixel's key and its color in the base palette and every variant (repeatable)")
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
+    p = sub.add_parser("diff"); p.add_argument("a"); p.add_argument("b")
+    p.add_argument("--variant", help="render both with this variant (a side's own %%variant wins)")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
