@@ -71,6 +71,14 @@ def run_err(*argv):
     return str(e.value.code)
 
 
+def unstamped(path):
+    """A compose OUT's text without the '# composed by: pxart compose ...' line compose heads a new OUT with (which it
+    must have)."""
+    first, rest = path.read_text().split("\n", 1)
+    assert first.startswith("# composed by: pxart compose "), first
+    return rest
+
+
 # ---------------------------------------------------------------- parsing
 
 def test_legacy_file_parses_as_one_unnamed_frame(tmp_path):
@@ -9365,7 +9373,7 @@ def test_compose_new_out_keeps_shared_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "hero.px"
     assert run("compose", "-o", out, f"{p}:body@0,0", f"{p}:hat@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\nkmm\nkkm\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\nkmm\nkkm\n"
 
 
 def test_compose_new_out_then_shade_with_unused_ramp_keys(tmp_path):
@@ -9396,7 +9404,7 @@ def test_compose_new_out_named_frame_keeps_shared_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "hero.px"
     assert run("compose", "-o", f"{out}:idle/0", f"{p}:body@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\n@frame idle/0\nmmm\nmmm\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\n@frame idle/0\nmmm\nmmm\n"
 
 
 def test_compose_new_out_variant_comes_from_the_import(tmp_path):
@@ -9457,7 +9465,7 @@ def test_compose_new_out_different_imports_inline_everything(tmp_path):
     assert run("compose", "-o", out, f"{a}:body@0,0", f"{b}:hat@0,0") == 0
     doc = pxart.parse(out)
     assert doc.palette_refs == [] and list(doc.palette) == ["m", "q", "k", "d", "l", "w", "r"]
-    assert out.read_text().startswith("pxart 1\nm #804040\nq #123456\nk #101010\n")
+    assert unstamped(out).startswith("pxart 1\nm #804040\nq #123456\nk #101010\n")
 
 
 def test_compose_new_out_inlined_variants_come_along(tmp_path):
@@ -9487,7 +9495,7 @@ def test_compose_new_out_no_imports_inlines_all_keys(tmp_path):
     a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{a}:x@0,0") == 0
-    assert out.read_text() == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
+    assert unstamped(out) == "pxart 1\nk #000000\nz #ffffff\n\nk\n"
 
 
 def test_compose_new_out_local_variant_copied(tmp_path):
@@ -9634,7 +9642,7 @@ def test_compose_new_out_flipped_layer_keeps_palette(tmp_path):
     p = cpal_setup(tmp_path)
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{p}:hat+h@0,0") == 0
-    assert out.read_text() == "pxart 1\n@palette pal.px\n\n.k\nkk\n"
+    assert unstamped(out) == "pxart 1\n@palette pal.px\n\n.k\nkk\n"
 
 
 def test_compose_same_palette_spelled_differently_is_kept(tmp_path):
@@ -10933,7 +10941,7 @@ def test_compose_rekey_without_conflicts_is_a_plain_compose(tmp_path, capsys):
     assert run("compose", "-o", o1, f"{a}@0,0") == 0
     plain = capsys.readouterr().out.replace("o1", "o2")
     assert run("compose", "-o", o2, f"{a}@0,0", "--rekey") == 0
-    assert capsys.readouterr().out == plain and o1.read_text() == o2.read_text()
+    assert capsys.readouterr().out == plain and unstamped(o1) == unstamped(o2)
 
 
 def test_compose_rekey_mirrored_layer(tmp_path):
@@ -13360,7 +13368,7 @@ def test_compose_carries_key_and_variant_comments(tmp_path, capsys):
                                 "# the dark outline\nk #000011\n@frame x\nkf\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, f"{a}:x@0,0") == 0
-    assert out.read_text() == ("pxart 1\nk #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
+    assert unstamped(out) == ("pxart 1\nk #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
                                "# the dark outline\nk #000011\n\nkf\n")
 
 
@@ -13372,7 +13380,7 @@ def test_compose_carries_comments_from_the_layers_imports(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
     # the palette files' headers come too, at the top, each saying whose it is
-    assert out.read_text() == ("pxart 1\n\n# header (from a.px)\n\n# ink (from a.px)\nk #000000\n# the sun (from b.px)\n"
+    assert unstamped(out) == ("pxart 1\n\n# header (from a.px)\n\n# ink (from a.px)\nk #000000\n# the sun (from b.px)\n"
                                "y #ffff00\n\nky\n")
 
 
@@ -13403,7 +13411,7 @@ def test_compose_used_keys_only_drops_the_comments_of_dropped_keys(tmp_path, cap
     a = write(tmp_path, "a.px", "pxart 1\n# ink\nk #000000\n# unused\nz #ffffff\n@frame x\nk\n")
     out = tmp_path / "o.px"
     run("compose", "-o", out, f"{a}:x@0,0", "--used-keys-only")
-    assert out.read_text() == "pxart 1\n# ink\nk #000000\n\nk\n"
+    assert unstamped(out) == "pxart 1\n# ink\nk #000000\n\nk\n"
 
 
 def test_compose_rekey_renamed_key_comment_says_so(tmp_path, capsys):
@@ -14399,7 +14407,7 @@ def test_labeled_helper():
 
 def test_carried_header_at_the_top_labeled(tmp_path, capsys):
     code, out = glow_compose(tmp_path, "--variant-map", "dusk=night,dark")
-    lines = out.read_text().splitlines()
+    lines = unstamped(out).splitlines()
     assert lines[:6] == ["pxart 1", "", "# Harbor market palette: warm stone, one hot accent (awning red) (from stall.px)",
                          "# Cozy seaside (from keeper.px)", "# WICK shared palette: cellar and flame (from player.px)",
                          ""]
@@ -14473,7 +14481,7 @@ def test_carried_comments_two_layers_of_one_file_unlabeled(tmp_path, capsys):
                                 "@frame x\nkw\n@frame y\nwk\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:x@0,0", f"{a}:y@0,1") == 0
-    assert out.read_text() == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
+    assert unstamped(out) == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
 
 
 # ---------------------------------------------------------------- palette --add of a color a key already has
@@ -17901,7 +17909,7 @@ def test_compose_replace_is_the_same_as_a_new_out(tmp_path, capsys):
     assert run("compose", "-o", out, f"{a}@0,0") == 0
     assert run("compose", "-o", out, f"{b}@0,0", f"{a}@0,1", "--size", "2x2", "--replace") == 0
     assert run("compose", "-o", new, f"{b}@0,0", f"{a}@0,1", "--size", "2x2") == 0
-    assert out.read_text() == new.read_text()
+    assert unstamped(out) == unstamped(new)
 
 
 def test_compose_replace_of_a_missing_out_is_a_plain_compose(tmp_path, capsys):
@@ -21041,6 +21049,7 @@ def test_compose_variant_comment_credits_only_the_files_that_gave_keys(tmp_path,
     night = lines.index("@variant night")
     assert lines[night - 1] == "# night: moonlit; glass y kept lit (from visitors.px's @variant night; the rest from " \
                                "pal.px's night)"
+    text = unstamped(out)
     assert "ground.px" not in text and "trees.px" not in text and "walls.px" not in text
 
 
@@ -21066,6 +21075,7 @@ def test_compose_variant_comment_the_files_own_comment_and_the_imports(tmp_path,
     block = lines[night - 3:night]
     assert "# visitors: fire stays lit (from visitors.px's @variant night; the rest from pal.px's night)" in block
     assert "# night: moonlit; glass y kept lit (from pal.px's night)" in block
+    text = unstamped(out)
     assert "ground.px" not in text and "trees.px" not in text
 
 
@@ -23795,3 +23805,244 @@ def test_strip_font_is_a_pixel_font():
     font = pxart.strip_font()
     d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     assert d.textlength(" ", font=font) >= 4 and d.textlength(":", font=font) >= 4
+
+
+# ---------------------------------------------------------------- compose heads a new OUT with how it was made
+
+def test_compose_new_out_says_how_it_was_composed(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0", "a.px:x+h@1,0") == 0
+    text = (tmp_path / "o.px").read_text()
+    assert text.splitlines()[0] == "# composed by: pxart compose -o o.px a.px:x@0,0 a.px:x+h@1,0"
+    assert text.splitlines()[1] == "pxart 1"
+    assert pxart.parse(tmp_path / "o.px").comments == ["# composed by: pxart compose -o o.px a.px:x@0,0 a.px:x+h@1,0"]
+
+
+def test_compose_provenance_paths_are_from_outs_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    (tmp_path / "packs").mkdir()
+    write(tmp_path / "packs", "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "town/o.px", "--size", "2x1", "packs/a.px:x%base@0,0") == 0
+    assert (tmp_path / "town/o.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose -o o.px --size 2x1 ../packs/a.px:x%base@0,0"
+
+
+def test_compose_provenance_absolute_paths_are_made_relative(tmp_path, monkeypatch):
+    a = write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    assert run("compose", "-o", tmp_path / "o.px", f"{a}:x@0,0") == 0
+    assert (tmp_path / "o.px").read_text().splitlines()[0] == "# composed by: pxart compose -o o.px a.px:x@0,0"
+
+
+def test_compose_provenance_runs_again_from_outs_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    write(tmp_path, "pal.px", "k #000000\ng #40a040\n@variant night\ng #102010\n")
+    write(tmp_path / "town", "a.px", "@palette ../pal.px\n@frame x\nkg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "town/o.px", "town/a.px:x@0,0", "town/a.px:x+h@2,0") == 0
+    first = (tmp_path / "town/o.px").read_text()
+    cmd = first.splitlines()[0][len("# composed by: pxart "):]
+    monkeypatch.chdir(tmp_path / "town")
+    assert run(*shlex.split(cmd.replace("-o o.px", "-o o2.px"))) == 0
+    assert (tmp_path / "town/o2.px").read_text() == first.replace("-o o.px", "-o o2.px")
+
+
+def test_compose_map_provenance(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    write(tmp_path / "town", "a.px", "k #000000\n@frame x\nkk\nkk\n")
+    write(tmp_path / "town", "room.map", "a a.px:x\n\naa\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "town/room.map", "--tile", "2", "-o", "town/room.px") == 0
+    assert (tmp_path / "town/room.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose --map room.map --tile 2 -o room.px"
+
+
+def test_compose_provenance_quotes_what_the_shell_would_mangle(tmp_path, monkeypatch):
+    write(tmp_path, "my parts.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "my parts.px:x@0,0") == 0
+    line = (tmp_path / "o.px").read_text().splitlines()[0]
+    assert line == "# composed by: pxart compose -o o.px 'my parts.px:x@0,0'"
+    assert shlex.split(line[len("# composed by: pxart "):]) == ["compose", "-o", "o.px", "my parts.px:x@0,0"]
+
+
+def test_compose_replace_is_stamped_with_its_own_command(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "o.px", "# my header\nz #ffffff\n\nz\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0", "--replace") == 0
+    assert (tmp_path / "o.px").read_text().splitlines()[0] == \
+        "# composed by: pxart compose -o o.px a.px:x@0,0 --replace"
+    assert "# my header" not in (tmp_path / "o.px").read_text()  # started fresh, as if new
+
+
+def test_compose_again_updates_the_line(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    assert run("compose", "-o", "o.px", "a.px:x@1,0", "--size", "2x1") == 0
+    lines = (tmp_path / "o.px").read_text().splitlines()
+    assert lines[0] == "# composed by: pxart compose -o o.px a.px:x@1,0 --size 2x1"
+    assert sum(l.startswith("# composed by:") for l in lines) == 1
+
+
+def test_compose_onto_an_existing_file_without_the_line_leaves_its_header(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "o.px", "# hand-made\nk #000000\n\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    text = (tmp_path / "o.px").read_text()
+    assert text.startswith("# hand-made\n") and "composed by" not in text
+
+
+def test_compose_into_a_frame_of_an_existing_file_leaves_its_header(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    before = (tmp_path / "o.px").read_text().splitlines()[0]
+    write(tmp_path, "h.px", "# hero\nk #000000\n@frame idle/0\nk\n")
+    assert run("compose", "-o", "h.px:idle/1", "a.px:x@0,0") == 0
+    assert (tmp_path / "h.px").read_text().startswith("# hero\n")
+    assert "composed by" not in (tmp_path / "h.px").read_text()
+    assert before == "# composed by: pxart compose -o o.px a.px:x@0,0"
+
+
+def test_crop_is_not_stamped(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nkk\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("crop", "a.px:x", "0,0,1,1", "-o", "c.px") == 0
+    assert "composed by" not in (tmp_path / "c.px").read_text()
+
+
+def test_failed_compose_writes_no_line(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\n@frame x\nk\n")
+    write(tmp_path, "b.px", "k #ffffff\n@frame x\nk\n")
+    monkeypatch.chdir(tmp_path)
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", "o.px", "a.px:x@0,0", "b.px:x@0,0")
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_compose_stamp_renders_the_same(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", "k #000000\ng #40a040\n@variant night\ng #102010\n@frame x\nkg\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "-o", "o.px", "a.px:x@0,0") == 0
+    assert run("diff", "o.px", "a.px:x") == 0 and run("diff", "o.px%night", "a.px:x%night") == 0
+
+
+def test_composed_from_reads_the_line_back_from_the_current_folder(tmp_path, monkeypatch):
+    (tmp_path / "town").mkdir()
+    p = write(tmp_path / "town", "o.px", "# composed by: pxart compose --map room.map -o o.px\npxart 1\nk #000000\n\nk\n")
+    monkeypatch.chdir(tmp_path)
+    doc = pxart.parse("town/o.px")
+    assert pxart.composed_from(doc) == ("pxart compose --map town/room.map -o town/o.px --replace",
+                                        "# composed by: pxart compose --map room.map -o o.px")
+    assert pxart.composed_from(pxart.parse(p)) is not None
+
+
+def test_composed_from_a_loose_comment(tmp_path):
+    p = write(tmp_path, "o.px", "# street, composed from street.map by hand-run script\n\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) == (None, "# street, composed from street.map by hand-run script")
+
+
+def test_composed_from_keeps_a_replace_it_has(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "o.px", "# composed by: pxart compose -o o.px a.px@0,0 --replace\npxart 1\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p))[0] == "pxart compose -o o.px a.px@0,0 --replace"
+
+
+def test_composed_from_a_frame_of_a_file_is_not_replaced_whole(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # -o o.px:street: compose replaces that frame; --replace would drop the file's other frames (and is an error)
+    p = write(tmp_path, "o.px", "# composed by: pxart compose -o o.px:street a.px@0,0\npxart 1\nk #000000\n"
+                                "@frame street\nk\n")
+    assert pxart.composed_from(pxart.parse(p))[0] == "pxart compose -o o.px:street a.px@0,0"
+
+
+def test_composed_from_none_without_a_line(tmp_path):
+    p = write(tmp_path, "o.px", "# a street\nk #000000\n\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) is None
+
+
+def test_composed_from_only_the_header(tmp_path):
+    p = write(tmp_path, "o.px", "k #000000\n\n# composed by: pxart compose -o o.px a.px@0,0\n@frame x\nk\n")
+    assert pxart.composed_from(pxart.parse(p)) is None  # that comment is the frame's, not the file's
+
+
+def composed_half(tmp_path, head):
+    half(tmp_path)
+    return write(tmp_path, "street.px", head + HALF_SPRITE)
+
+
+def test_half_warning_on_a_composed_file_offers_composing_again(tmp_path, monkeypatch, capsys):
+    composed_half(tmp_path, "# composed by: pxart compose --map street.map -o street.px\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="street.px", pal="pal.px") + "; or, since its header says it was composed ('# composed " \
+        "by: pxart compose --map street.map -o street.px'), give its sources a dusk of their own and compose it " \
+        "again: 'pxart compose --map street.map -o street.px --replace'" in out
+
+
+def test_half_warning_on_a_composed_file_elsewhere_runs_from_here(tmp_path, monkeypatch, capsys):
+    (tmp_path / "town").mkdir()
+    composed_half(tmp_path / "town", "# composed by: pxart compose --map street.map -o street.px\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "town/street.px") == 0
+    assert "compose it again: 'pxart compose --map town/street.map -o town/street.px --replace'" in \
+        capsys.readouterr().out
+
+
+def test_half_warning_on_a_loosely_composed_file(tmp_path, monkeypatch, capsys):
+    composed_half(tmp_path, "# composed from the street layers\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "street.px") == 0
+    assert "; or, since its header says it was composed ('# composed from the street layers'), give its sources a " \
+        "dusk of their own and compose it again from its map or layers" in capsys.readouterr().out
+
+
+def test_half_warning_on_a_plain_file_says_nothing_of_compose(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    assert "compose" not in capsys.readouterr().out
+
+
+def test_half_warning_a_real_composed_street_then_the_fix(tmp_path, monkeypatch, capsys):
+    # the gate's street: composed from a map whose visitor has no dusk; giving the visitor one (as its own warning
+    # says) and composing again leaves no warning
+    half(tmp_path)
+    write(tmp_path, "street.map", "w wick.px:wick/idle/0\n\nw\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("compose", "--map", "street.map", "--tile", "4x2", "-o", "street.px") == 0
+    capsys.readouterr()
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    fix = re.search(r"'pxart (palette wick\.px [^']*)'", out)
+    again = re.search(r"compose it again: 'pxart ([^']*)'", out)
+    assert again and again.group(1) == "compose --map street.map --tile 4x2 -o street.px --replace"
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    fix = re.search(r"'pxart (palette wick\.px [^']*)'", capsys.readouterr().out)
+    assert run(*shlex.split(fix.group(1))) == 0
+    assert run(*shlex.split(again.group(1))) == 0
+    capsys.readouterr()
+    assert run("render", "street.px%dusk", "-o", "r.png") == 0
+    assert "WARNING" not in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "street.px")
+    assert doc.resolved("dusk")["M"] == doc.resolved()["M"]  # the flame, kept lit through both steps
+
+
+def test_examples_dock_says_how_it_was_composed():
+    dock = pathlib.Path(pxart.__file__).parent / "examples/05-compose/dock.px"
+    first = dock.read_text().splitlines()[0]
+    assert first.startswith("# composed by: pxart compose -o dock.px --size 80x48 --rekey --variant-map "
+                            "dusk=night,dark harbor-market/harbor.px:water/0@0,0 ")
+
+
+def test_help_and_readme_document_the_composed_by_header():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A new OUT's header says how it was made: '# composed by: pxart compose --map room.map -o room.px', its " \
+        "paths from OUT's folder (composing OUT whole again updates it)." in doc
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "A new OUT's header says how it was made (`# composed by: pxart compose --map room.map -o room.px`, paths " \
+        "from its folder)" in readme

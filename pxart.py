@@ -100,33 +100,28 @@ LOOKING
       row with --cols frames.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
-      picture), plus walk.strip.png: row 1 = frames,
-      row 2 = what changed from the previous frame after removing the whole-sprite
-      shift ("shift dx,dy then N px (P%) (no shift: M px)"; P is N as a percent of the
-      frame's opaque pixels; a walk that's only a bob shows "then 0px (0%)"). When the
-      bottom of the sprite stays exactly put (rows Y down identical, 0 px changed) and only
-      the part above it moves (an idle breathing: chest up 1px, legs still), moving the
-      whole sprite would light up the legs, so the strip shows the unshifted diff instead:
-      "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)"; Y is the first identical
-      row. A walk whose leg moved even 1px keeps the shift. Both counts are always shown.
-      That reading is for an idle, whose legs keep their shape in every frame of the
-      animation. In a walk the legs move in other frames, so a frame whose legs happen to
-      stay put is the body's bob and keeps the smaller, truthful number: "shift +0,+1 then
-      23px (6%) (no shift: 201px)". A frame recolored whole (a glow) doesn't count as the
-      legs moving; a shadow that changes shape does.
-      So the rise and the fall of a breath read alike (the fall may carry an arm move that
-      a frame alone would call a shift): once one frame shows rows still, and rows Y down are
-      identical in every frame of the animation (legs that never move), every frame whose
-      shift would light those rows up shows the unshifted diff too. A walk over a static
-      shadow, where no frame shows its legs still on its own, keeps every shift.
-      Tiles and overlays scroll with wrap-around (shift --wrap): for frames that fill the
-      canvas and are a ground tile (every pixel opaque) or a sparse overlay (at most 1/4
-      of the pixels opaque: snow, rain), every scroll is tried too, and one that leaves
-      strictly fewer pixels changed than the best plain shift is shown as
-      "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
-      Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
-      to stdout, one line per frame; without -o, anim prints only those lines and writes
-      nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
+      picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
+      frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
+      P is N as a percent of the frame's opaque pixels; a walk that's only a bob shows "then
+      0px (0%)"). The same numbers print to stdout, one line per frame;
+      without -o, anim prints only those lines and writes nothing. Read the strip: the Read
+      tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
+      unless --fps is given.
+      An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
+      only the part above moves (a breath), shifting would light up the legs, so the strip
+      shows the unshifted diff: "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)".
+      Both counts are always shown. That is for an idle, whose legs keep their shape in every
+      frame of the animation: a walk whose leg moved even 1px keeps the shift, and in a walk
+      a frame whose legs happen to stay put is the body's bob: "shift +0,+1 then 23px (6%) (no
+      shift: 201px)". A frame recolored whole (a glow) doesn't count as the legs moving; a
+      shadow that changes shape does. So that the rise and the fall of a breath read alike,
+      once one frame shows rows still and rows Y down are identical in every frame of the
+      animation, every frame whose shift would light them up shows the unshifted diff too; a
+      walk over a static shadow keeps every shift.
+      Tiles and overlays: frames that fill the canvas and are a ground tile (every pixel
+      opaque) or a sparse overlay (at most 1/4 opaque: snow) also try every wrap-around scroll
+      (shift --wrap), shown when it leaves strictly fewer pixels changed than the best plain
+      shift: "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
   onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
       with render's grid and rulers, so where A shows past B is plain to see.
@@ -531,6 +526,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       ('from visitors.px's @variant night; the rest from pal.px's night'). An OUT whose
       palette is inlined also gets the palette files' header comments at the top of its
       palette, each with the files it came from.
+      A new OUT's header says how it was made: '# composed by: pxart compose --map room.map -o
+      room.px', its paths from OUT's folder (composing OUT whole again updates it). A variant
+      WARNING about OUT then also offers composing it again, with --replace, once the sources
+      have that variant.
 
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
       parts.px:body@0,8. OUT:frame keeps OUT's other frames (OUT may be a palette-only file),
@@ -4827,7 +4826,18 @@ def said_half(d, name, ks):
             f"key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
             f"color{'s' * many}. Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
             f"--derive-from base --match {pal}" + (f" --keep-lit {','.join(k for k, _ in lit)}" if lit else "")
-            + f"' ({told}), or --add 'K=#rrggbb'")
+            + f"' ({told}), or --add 'K=#rrggbb'" + said_recompose(d, name))
+
+
+def said_recompose(d, name):
+    """For a half variant of a file its header says compose made: composing it again, once its sources have a `name`
+    of their own, is the other fix (its layers' own variants color their pixels)."""
+    how = composed_from(d)
+    if how is None:
+        return ""
+    cmd, line = how
+    return (f"; or, since its header says it was composed ({line!r}), give its sources a {name} of their own and "
+            + (f"compose it again: '{cmd}'" if cmd else "compose it again from its map or layers"))
 
 
 WARNED = set()  # (path, variant) whose half_variants WARNING this run printed: once per file and variant
@@ -5482,9 +5492,64 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
         carry_header(doc, {d.path.name: (notes or {}).get(d.path.resolve(), ({}, {}, []))[2] for d in docs})
+    if getattr(a, "cmd", None) == "compose" and getattr(a, "argv", None) and (fresh or not osel):
+        stamp_composed(doc, a.argv, opath, fresh)
     did = write_doc(doc, opath)
     print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and did.startswith("wrote") else "")
                  if osel else ""))
+
+
+COMPOSED_RE = re.compile(r"^#\s*composed by:\s*(.*?)\s*$")  # compose's provenance line, in a file's header
+PATH_ARG_RE = re.compile(r"^(.*?\.(?:px|png|map))(?=$|[:%@+=])(.*)$", re.S)
+
+
+def repointed(args, src, dst):
+    """Command-line args with the path each starts with (a layer FILE.px:frame+h@x,y, -o OUT, --map room.map) read
+    from directory src re-pointed to be read from dst, relative as @palette lines are (an absolute one too), since a
+    path inside a file is read from its directory. Other args as they are."""
+    out = []
+    for x in args:
+        m = PATH_ARG_RE.match(x)
+        if m and not x.startswith("-"):
+            x = pathlib.Path(os.path.relpath(pathlib.Path(src, m.group(1)).resolve(), pathlib.Path(dst).resolve())
+                             ).as_posix() + m.group(2)
+        out.append(x)
+    return out
+
+
+def stamp_composed(doc, argv, opath, fresh):
+    """A compose OUT's header says how it was made: '# composed by: pxart compose ...', its paths re-pointed from
+    OUT's directory (as a path inside a file is), so the line runs from there. A new OUT gets it; an existing one
+    composed whole again has its line updated (and one without keeps its header as it is)."""
+    line = "# composed by: pxart " + shlex.join(["compose"] + repointed(argv[1:], ".", pathlib.Path(opath).parent))
+    at = next((i for i, l in enumerate(doc.comments) if COMPOSED_RE.match(l)), None)
+    if at is not None:
+        doc.comments[at] = line
+    elif fresh:
+        doc.comments = [line]
+
+
+def composed_from(d):
+    """How d's header says it was made: ('pxart compose ...' re-pointed to run from the current directory, with
+    --replace for a whole OUT (one that exists keeps its palette and variants otherwise), or None when the line has no
+    command; the line as written), or None when no header line says it was composed."""
+    for l in d.comments if d.path else ():
+        m = COMPOSED_RE.match(l)
+        if m or re.match(r"^#.*\bcomposed\b", l, re.I):
+            cmd = m.group(1) if m else ""
+            if cmd.startswith("pxart compose "):
+                try:
+                    args = shlex.split(cmd)[2:]
+                except ValueError:  # unbalanced quotes: say the line as it is
+                    args = None
+                out = next((v for o, v in zip(args or [], (args or [])[1:]) if o == "-o"), "")
+                if args is not None and "--replace" not in args and ":" not in out:  # an OUT that exists keeps its
+                    args.append("--replace")  # palette, variants too, unless started fresh
+                cmd = args and "pxart " + shlex.join(["compose"] + repointed(args, d.path.parent, "."))
+            else:
+                cmd = None
+            return cmd, l.strip()
+    return None
 
 
 def said_undrawn(opath, doc, target, owners):
@@ -7423,6 +7488,7 @@ def main(argv=None):
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
     ap, _ = parser(describe="-h" in args or "--help" in args)
     a, extra = ap.parse_known_args(args)
+    a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
     elif extra:

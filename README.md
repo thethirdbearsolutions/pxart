@@ -176,7 +176,9 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart help LOOKING` has a worked map.
   `compose --map room.map -o room.px` builds the map's room as a `.px` frame instead of a PNG,
   with compose's palette, `--rekey` and `--variant-map` rules; it renders as `scene --map` does,
-  pixel for pixel, in every variant.
+  pixel for pixel, in every variant. A new OUT's header says how it was made (`# composed by:
+  pxart compose --map room.map -o room.px`, paths from its folder), so a variant `WARNING` about
+  it can offer composing it again once the map's sprites have that variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
