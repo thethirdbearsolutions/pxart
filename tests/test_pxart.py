@@ -5737,11 +5737,14 @@ def test_export_plain_file_among_selectors_means_everything(tmp_path):
     assert len(tsj(tmp_path / "x.json")["frames"]) == 7
 
 
-def test_export_two_files_is_bad_arg(tmp_path):
+def test_export_two_files_share_one_frames_dir(tmp_path):
+    # export once took one file ('export reads one file'); now its FILE... is every file named, their ids apart
     p = write(tmp_path, "h.px", HARBOR)
     q = write(tmp_path, "m.px", MULTI)
-    msg = run_err("export", p, q, "--frames", tmp_path / "f")
-    assert "E_BAD_ARG" in msg and "export reads one file" in msg
+    assert run("export", p, q, "--frames", tmp_path / "f") == 0
+    got = sorted(str(x.relative_to(tmp_path / "f")) for x in (tmp_path / "f").rglob("*.png"))
+    assert got == sorted(["cobble/a.png", "cobble/b.png", "planks.png", "water/0.png", "water/1.png", "crate.png",
+                          "stall.png", "walk/down/0.png", "walk/down/1.png", "idle.png"])
 
 
 def test_export_unknown_selection_is_select_error(tmp_path):
@@ -5790,7 +5793,7 @@ def test_export_id_order(tmp_path, order, want):
 
 def test_help_documents_export_selection_and_id_order():
     doc = pxart.__doc__
-    assert "export FILE[:SEL]... [--frames DIR]" in doc and "several selectors of one file add up" in doc
+    assert "export FILE|DIR[:SEL]... [--frames DIR]" in doc and "several selectors of one file add up" in doc
     assert "each animation group contiguous" in doc and "a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2" in doc
     assert "gets ids in file order" in doc
 
@@ -16507,6 +16510,10 @@ def help_fixtures(d):
     (d / "game" / "room.px").write_text("pxart 1\nk #1a1423\n@frame room\nkk\n")
     (d / "game" / "tiles.px").write_text("pxart 1\nk #1a1423\n@frame floor\nk\n")
     (d / "game" / "wip" / "broken.px").write_text("pxart 1\nk #1a1423\n@frame x\nkq\n")
+    (d / "town").mkdir()
+    (d / "town" / "pal.px").write_text("k #1a1423\nr #c04040\n@variant night\nr #401010\n")
+    (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nkk\n")
+    (d / "town" / "walls.px").write_text("pxart 1\n@palette pal.px\n@frame wall\nkr\nrk\n")
 
 
 def test_help_examples_are_found():
@@ -21096,3 +21103,336 @@ def test_readme_documents_variant_comment_credit():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "a `@variant`'s names only the files whose variant lines gave it keys, `the rest from pal.px's night`" \
         in readme
+
+
+# ---------------------------------------------------------------- export FILE|DIR... (several files, directories)
+# The port proved 132 tiles one export per file. export now takes several files and directories (with --exclude, as
+# check/sheet/stats do), and never lets two frames get one output name: an id two files share, or two ids that differ
+# only in case (one file on macOS), is E_DUP_FRAME before anything is written, with --prefix-file as the way out.
+
+def town(tmp_path):
+    d = tmp_path / "town"
+    d.mkdir()
+    write(d, "pal.px", "k #000000\nr #c04040\ng #40c040\n@variant night\nr #401010\ng #103010\n")
+    write(d, "roofs.px", "pxart 1\n@palette pal.px\n@frame roof-red\nrr\nkk\n@frame roof-green\ngg\nkk\n")
+    write(d, "walls.px", "pxart 1\n@palette pal.px\n@anim torch ms=150\n@frame wall\nkr\nrk\n"
+                         "@frame torch/0\nr.\n.k\n@frame torch/1\n.r\nk.\n")
+    (d / "props").mkdir()
+    write(d / "props", "well.px", "pxart 1\n@palette ../pal.px\n@frame well pivot=1,1\ngk\nkg\n")
+    write(d / "props", "sign.px", "pxart 1\n@palette ../pal.px\nrg\ngr\n")  # one unnamed grid
+    return d
+
+
+def exported(root):
+    root = pathlib.Path(root)
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*.png"))
+
+
+def png_pixels(p):
+    return list(pxart.pixels(Image.open(p).convert("RGBA")))
+
+
+def test_export_directory_writes_every_frame_of_every_file(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["roof-green.png", "roof-red.png", "sign.png", "torch/0.png", "torch/1.png",
+                                          "wall.png", "well.png"]
+    out = capsys.readouterr().out
+    assert "note: export skips" in out and "pal.px: a palette file, no frames" in out
+
+
+def test_export_directory_pngs_render_their_frames(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--frames", tmp_path / "out") == 0
+    for f, fid, png in ((d / "roofs.px", "roof-red", "roof-red.png"), (d / "walls.px", "torch/1", "torch/1.png"),
+                        (d / "props" / "well.px", "well", "well.png"), (d / "props" / "sign.px", None, "sign.png")):
+        doc = pxart.parse(f)
+        frame = doc.get(fid) if fid else doc.frames[0]
+        assert png_pixels(tmp_path / "out" / png) == list(pxart.pixels(doc.image(frame))), png
+
+
+def test_export_directory_with_variant(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--frames", tmp_path / "out", "--variant", "night") == 0
+    doc = pxart.parse(d / "roofs.px")
+    assert png_pixels(tmp_path / "out" / "roof-red.png") == list(pxart.pixels(doc.image(doc.get("roof-red"), "night")))
+
+
+def test_export_directory_variant_a_file_lacks_names_it(tmp_path, capsys):
+    d = town(tmp_path)
+    write(d, "lone.px", "q #00ff00\n@frame lone\nq\n")
+    msg = run_err("export", d, "--frames", tmp_path / "out", "--variant", "night")
+    assert "E_SELECT" in msg and "lone.px" in msg and "no @variant 'night'" in msg
+    assert not (tmp_path / "out").exists()
+
+
+def test_export_several_files_in_the_order_named(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "walls.px", d / "roofs.px", "--aseprite", tmp_path / "x.json") == 0
+    assert [f["filename"] for f in tsj(tmp_path / "x.json")["frames"]] == ["wall", "torch/0", "torch/1", "roof-red",
+                                                                           "roof-green"]
+
+
+def test_export_selectors_of_several_files_add_up_per_file(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", f"{d / 'walls.px'}:torch", f"{d / 'roofs.px'}:roof-red", f"{d / 'walls.px'}:wall",
+               "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["roof-red.png", "torch/0.png", "torch/1.png", "wall.png"]
+
+
+def test_export_mixes_a_directory_and_a_file(tmp_path, capsys):
+    d = town(tmp_path)
+    other = write(tmp_path, "extra.px", "k #000000\n@frame extra\nk\n")
+    assert run("export", d / "props", other, "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["extra.png", "sign.png", "well.png"]
+
+
+def test_export_directory_exclude(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--exclude", "props", "--exclude", "walls.px", "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["roof-green.png", "roof-red.png"]
+
+
+def test_export_exclude_matching_nothing_notes_it(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--exclude", "nope*", "--frames", tmp_path / "out") == 0
+    assert "note: --exclude nope* matches no file" in capsys.readouterr().out
+
+
+def test_export_exclude_everything_is_e_file(tmp_path, capsys):
+    d = town(tmp_path)
+    msg = run_err("export", d, "--exclude", "*.px", "--frames", tmp_path / "out")
+    assert "E_FILE" in msg and "leaves out every file" in msg and not (tmp_path / "out").exists()
+
+
+def test_export_empty_directory_is_e_file(tmp_path, capsys):
+    (tmp_path / "empty").mkdir()
+    assert "E_FILE" in run_err("export", tmp_path / "empty", "--frames", tmp_path / "out")
+
+
+def test_export_palette_file_alone_is_no_frames(tmp_path, capsys):
+    d = town(tmp_path)
+    msg = run_err("export", d / "pal.px", "--frames", tmp_path / "out")
+    assert "E_NO_FRAMES" in msg
+
+
+def test_export_id_two_files_share_is_dup_frame_nothing_written(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@frame idle/0\nk\n@frame only-a\nk\n")
+    b = write(tmp_path, "b.px", "r #ff0000\n@frame idle/0\nr\n")
+    msg = run_err("export", a, b, "--frames", tmp_path / "out")
+    assert "E_DUP_FRAME" in msg
+    assert f"frames that would get one name in the export (the later would replace the earlier): idle/0 ({a}, {b})" \
+        in msg
+    assert "--prefix-file ids each file's frames FILE/ID (roofs/red, walls/red), or export the files one at a time" \
+        in msg
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("flag", ["--aseprite", "--tiled"])
+def test_export_id_two_files_share_is_dup_frame_for_sheets_too(tmp_path, capsys, flag):
+    a = write(tmp_path, "a.px", "k #000000\n@frame tile\nk\n")
+    b = write(tmp_path, "b.px", "r #ff0000\n@frame tile\nr\n")
+    out = tmp_path / ("x.json" if flag == "--aseprite" else "x.tsj")
+    msg = run_err("export", a, b, flag, out)
+    assert "E_DUP_FRAME" in msg and "tile (" in msg and not out.exists() and not out.with_suffix(".png").exists()
+
+
+def test_export_ids_differing_in_case_across_files_is_dup_frame(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@frame Door\nk\n")
+    b = write(tmp_path, "b.px", "r #ff0000\n@frame door\nr\n")
+    msg = run_err("export", a, b, "--frames", tmp_path / "out")
+    assert "E_DUP_FRAME" in msg
+    assert f"Door ({a}) and door ({b}) differ only in case, one file on a case-insensitive file system (macOS, " \
+        "Windows)" in msg and "--prefix-file" in msg
+    assert not (tmp_path / "out").exists()
+
+
+def test_export_ids_differing_in_case_in_one_file_suggests_a_rename(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame A\nk\n@frame a\nk\n")
+    msg = run_err("export", p, "--frames", tmp_path / "out")
+    assert "E_DUP_FRAME" in msg and f"A ({p}) and a ({p}) differ only in case" in msg
+    assert "rename one ('frames FILE --rename OLD NEW') or export them one at a time" in msg and "--prefix-file" not in msg
+    assert not (tmp_path / "out").exists()
+
+
+def test_export_ids_differing_in_case_in_a_group_path(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame Walk/0\nk\n@frame walk/0\nk\n")
+    assert "differ only in case" in run_err("export", p, "--frames", tmp_path / "out")
+
+
+def test_export_ids_differing_in_case_are_fine_in_a_sheet(tmp_path, capsys):
+    # an Aseprite JSON or a Tiled tileset tells A from a: only --frames writes a file per id
+    p = write(tmp_path, "a.px", "k #000000\n@frame A\nk\n@frame a\nk\n")
+    assert run("export", p, "--aseprite", tmp_path / "x.json", "--tiled", tmp_path / "x.tsj") == 0
+    assert [f["filename"] for f in tsj(tmp_path / "x.json")["frames"]] == ["A", "a"]
+
+
+def test_export_case_fix_by_rename_works(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n@frame A\nk\n@frame a\nk\n")
+    run_err("export", p, "--frames", tmp_path / "out")
+    assert run("frames", p, "--rename", "A", "A-2") == 0
+    assert run("export", p, "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["A-2.png", "a.png"]
+
+
+def test_export_prefix_file_names_frames_by_their_file(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--prefix-file", "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["props/sign.png", "props/well/well.png", "roofs/roof-green.png",
+                                          "roofs/roof-red.png", "walls/torch/0.png", "walls/torch/1.png",
+                                          "walls/wall.png"]
+
+
+def test_export_prefix_file_named_file_goes_by_its_stem(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "props" / "well.px", d / "roofs.px", "--prefix-file", "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["roofs/roof-green.png", "roofs/roof-red.png", "well/well.png"]
+
+
+def test_export_prefix_file_tells_shared_ids_apart(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@frame idle/0\nk\n")
+    b = write(tmp_path, "b.px", "r #ff0000\n@frame idle/0\nr\n")
+    assert run("export", a, b, "--prefix-file", "--frames", tmp_path / "out") == 0
+    assert exported(tmp_path / "out") == ["a/idle/0.png", "b/idle/0.png"]
+    assert png_pixels(tmp_path / "out" / "b" / "idle" / "0.png") == [(255, 0, 0, 255)]
+
+
+def test_export_prefix_file_same_stems_still_collide(tmp_path, capsys):
+    (tmp_path / "x").mkdir()
+    (tmp_path / "y").mkdir()
+    a = write(tmp_path / "x", "t.px", "k #000000\n@frame f\nk\n")
+    b = write(tmp_path / "y", "t.px", "k #000000\n@frame f\nk\n")
+    msg = run_err("export", a, b, "--prefix-file", "--frames", tmp_path / "out")
+    assert "E_DUP_FRAME" in msg and "t/f (" in msg and "export them one at a time" in msg
+
+
+def test_export_prefix_file_directory_names_keep_subfolders_apart(tmp_path, capsys):
+    d = tmp_path / "pack"
+    (d / "x").mkdir(parents=True)
+    (d / "y").mkdir()
+    write(d / "x", "t.px", "k #000000\n@frame f\nk\n")
+    write(d / "y", "t.px", "r #ff0000\n@frame f\nr\n")
+    assert "E_DUP_FRAME" in run_err("export", d, "--frames", tmp_path / "o1")
+    assert run("export", d, "--prefix-file", "--frames", tmp_path / "o2") == 0
+    assert exported(tmp_path / "o2") == ["x/t/f.png", "y/t/f.png"]
+
+
+def test_export_animation_name_two_files_share_is_dup_frame(tmp_path, capsys):
+    # ids apart, but one tag 'walk' for two animations
+    a = write(tmp_path, "a.px", "k #000000\n@frame walk/0\nk\n@frame walk/1\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\n@frame walk/2\nk\n@frame walk/3\nk\n")
+    msg = run_err("export", a, b, "--aseprite", tmp_path / "x.json")
+    assert "E_DUP_FRAME" in msg and f"animation walk ({a}, {b})" in msg and "--prefix-file" in msg
+
+
+def test_export_prefix_file_aseprite_tags_and_filenames(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@anim walk direction=pingpong\n@frame walk/0\nk\n@frame walk/1\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\n@frame icon\nk\n@frame walk/0\nk\n@frame walk/1\nk\n@frame walk/2\nk\n")
+    assert run("export", a, b, "--prefix-file", "--aseprite", tmp_path / "x.json") == 0
+    ase = tsj(tmp_path / "x.json")
+    assert [f["filename"] for f in ase["frames"]] == ["a/walk/0", "a/walk/1", "b/icon", "b/walk/0", "b/walk/1",
+                                                      "b/walk/2"]
+    assert ase["meta"]["frameTags"] == [
+        {"name": "a/walk", "from": 0, "to": 1, "direction": "pingpong", "color": "#000000ff"},
+        {"name": "b/walk", "from": 3, "to": 5, "direction": "forward", "color": "#000000ff"}]
+
+
+def test_export_several_files_aseprite_without_prefix(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "roofs.px", d / "walls.px", "--aseprite", tmp_path / "x.json") == 0
+    ase = tsj(tmp_path / "x.json")
+    assert [f["filename"] for f in ase["frames"]] == ["roof-red", "roof-green", "wall", "torch/0", "torch/1"]
+    assert ase["meta"]["frameTags"] == [{"name": "torch", "from": 3, "to": 4, "direction": "forward",
+                                         "color": "#000000ff"}]
+    assert [f["duration"] for f in ase["frames"]] == [100, 100, 100, 150, 150]
+
+
+def test_export_several_files_groups_stay_per_file(tmp_path, capsys):
+    # a/walk then b's top level then a's top level: each file's groups are contiguous, file by file
+    a = write(tmp_path, "a.px", "k #000000\n@frame x/0\nk\n@frame top\nk\n@frame x/1\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\n@frame y/0\nk\n@frame z\nk\n@frame y/1\nk\n")
+    assert run("export", a, b, "--aseprite", tmp_path / "x.json") == 0
+    assert [f["filename"] for f in tsj(tmp_path / "x.json")["frames"]] == ["x/0", "x/1", "top", "y/0", "y/1", "z"]
+
+
+def test_export_several_files_tiled(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "walls.px", d / "roofs.px", "--tiled", tmp_path / "town.tsj") == 0
+    t = tsj(tmp_path / "town.tsj")
+    assert t["tilecount"] == 5 and t["name"] == "town"
+    assert t["tiles"] == [{"id": 1, "animation": [{"tileid": 1, "duration": 150}, {"tileid": 2, "duration": 150}],
+                           "properties": [{"name": "pxart_anim", "type": "string", "value": "torch"}]}]
+
+
+def test_export_several_files_tiled_prefix_names_the_animation(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "walls.px", d / "roofs.px", "--prefix-file", "--tiled", tmp_path / "town.tsj") == 0
+    assert tsj(tmp_path / "town.tsj")["tiles"][0]["properties"][0]["value"] == "walls/torch"
+
+
+def test_export_one_file_tiled_keeps_its_stem_as_name(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "walls.px", "--tiled", tmp_path / "t.tsj") == 0
+    assert tsj(tmp_path / "t.tsj")["name"] == "walls"
+
+
+def test_export_several_files_tiled_sizes_differ_names_file(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@frame s\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\n@frame t\nkk\nkk\n")
+    msg = run_err("export", a, b, "--tiled", tmp_path / "t.tsj")
+    assert "E_TILE_SIZE" in msg and "s 1x1, t 2x2" in msg and "(export FILE:GROUP ... --tiled X.tsj)" in msg
+
+
+def test_export_several_files_pivots(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d, "--prefix-file", "--frames", tmp_path / "out", "--aseprite", tmp_path / "x.json") == 0
+    assert json.loads((tmp_path / "out" / "pivots.json").read_text()) == {"props/well/well": {"x": 1, "y": 1}}
+    keys = tsj(tmp_path / "x.json")["meta"]["slices"][0]["keys"]
+    names = [f["filename"] for f in tsj(tmp_path / "x.json")["frames"]]
+    assert [k.get("pivot") for k in keys] == [{"x": 1, "y": 1} if n == "props/well/well" else None for n in names]
+
+
+def test_export_many_pngs_summarized_on_the_wrote_line(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n" + "".join(f"@frame t{i:02}\nk\n" for i in range(12)))
+    assert run("export", p, "--frames", tmp_path / "out") == 0
+    out = capsys.readouterr().out
+    assert f"wrote 12 PNGs under {tmp_path / 'out'} ({tmp_path / 'out' / 't00.png'} ... " \
+        f"{tmp_path / 'out' / 't11.png'})" in out
+    assert len(exported(tmp_path / "out")) == 12
+
+
+def test_export_few_pngs_listed_on_the_wrote_line(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nk\n@frame b\nk\n")
+    assert run("export", p, "--frames", tmp_path / "out") == 0
+    assert capsys.readouterr().out.strip() == f"wrote {tmp_path / 'out' / 'a.png'} {tmp_path / 'out' / 'b.png'}"
+
+
+def test_export_no_output_flag_is_bad_arg_before_reading(tmp_path, capsys):
+    d = town(tmp_path)
+    assert "give --frames DIR, --aseprite X.json and/or --tiled X.tsj" in run_err("export", d)
+
+
+def test_export_directory_select_is_per_file(tmp_path, capsys):
+    # a selector goes with a file: a directory has none
+    d = town(tmp_path)
+    assert "E_FILE" in run_err("export", f"{d}:roof-red", "--frames", tmp_path / "out")
+
+
+def test_export_same_file_named_twice_counts_once(tmp_path, capsys):
+    d = town(tmp_path)
+    assert run("export", d / "roofs.px", d, "--frames", tmp_path / "out") == 0
+    assert "roof-red.png" in exported(tmp_path / "out")
+
+
+def test_help_documents_export_several_files():
+    doc = " ".join(pxart.__doc__.split())
+    assert "export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V] " \
+        "[--prefix-file] [--exclude GLOB]" in doc
+    assert "--prefix-file ids them FILE/ID, FILE being the file's path under its directory without .px" in doc
+    assert "two ids that differ only in case (Door, door: one file on macOS), is E_DUP_FRAME, and nothing is " \
+        "written" in doc
+
+
+def test_readme_documents_export_several_files():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`export town/ --frames out/` exports every `.px` under `town/`" in readme and "`--prefix-file`" in readme

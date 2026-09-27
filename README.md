@@ -263,7 +263,10 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   - `rotate FILE 90|180|270` and `transpose` turn path tiles into their edges and corners
     (then re-light with `shade` and `outline --lit`, since the light turned too).
 - **Converting:**
-  - `export --frames DIR` writes one PNG per frame.
+  - `export --frames DIR` writes one PNG per frame. `export town/ --frames out/` exports every `.px` under
+    `town/` (several files and directories, `--exclude GLOB` as for `check`); an id two files share, or two
+    that differ only in case (one file on macOS), is an error rather than one PNG replacing another, and
+    `--prefix-file` ids them `roofs/roof-red`.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags (and pivots as
     `meta.slices`, the shape Aseprite's own export uses).
   - `export --tiled x.tsj` writes a tileset with tile animations.

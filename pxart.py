@@ -777,7 +777,8 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       "changed 12 px: 6->o, 6->l" (outline pixels that already had their key don't count).
 
 CONVERTING
-  export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
+  export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
+         [--prefix-file] [--exclude GLOB]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
         pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
@@ -789,8 +790,16 @@ CONVERTING
       FILE:SEL exports only those frames; several selectors of one file add up, in file
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' leaves the 32x32
       props out of a 16x16 tileset.
+      Several files and directories export together, file by file in the order named; a
+      directory stands for every .px under it (palette files skipped, --exclude as for sheet):
+      'export town/ --frames out/'. No two frames may get one name: an id two files share (each
+      file's idle/0; two animations of one name too), or, with --frames, two ids that differ
+      only in case (Door, door: one file on macOS), is E_DUP_FRAME, and nothing is written.
+      --prefix-file ids them FILE/ID, FILE being the file's path under its directory without
+      .px, or a named file's stem (roofs/roof-red, props/well/well; an unnamed grid is FILE
+      alone), in the PNG paths, the Aseprite filenames and tags and the Tiled animations.
       Id order (the Aseprite frame index, the Tiled tile id, the sheet position): 0, 1, 2...
-      over the exported frames with each animation group contiguous, groups in order of
+      over the exported frames, file by file, with each animation group contiguous, groups in order of
       first appearance, and all top-level frames (no '/' in the id) together as one group
       where the first of them appears. A file that keeps each group together, and its
       top-level frames together, gets ids in file order; otherwise a frame moves up to its
@@ -1890,11 +1899,11 @@ def pack(its):
 
 
 def grouped(its):
-    """Frames ordered so each animation group is contiguous (first-appearance order)."""
+    """Frames ordered so each animation group (of each file) is contiguous (first-appearance order)."""
     order = {}
     for it in its:
-        order.setdefault(it.frame.group if it.frame else "", len(order))
-    return sorted(its, key=lambda it: order[it.frame.group if it.frame else ""])
+        order.setdefault((id(it.doc), it.frame.group if it.frame else ""), len(order))
+    return sorted(its, key=lambda it: order[(id(it.doc), it.frame.group if it.frame else "")])
 
 
 def load_palette(path):
@@ -6041,58 +6050,127 @@ def palette_notes(doc, seen=None):
     return notes, head
 
 
-def export_frames(args):
-    """export's FILE[:SEL]... : one file, the union of the selections in file order (no SEL: every frame)."""
-    paths = list(dict.fromkeys(split_sel(f)[0] for f in args))
-    if len(paths) > 1:
-        fail("E_BAD_ARG", f"export reads one file, got {', '.join(paths)}; pick parts of one file with "
-             f"FILE:SEL FILE:SEL ...")
-    with reading(f"FILE ({paths[0]})"):
-        doc = parse(paths[0])
-    sels = [split_sel(f)[1] for f in args]
-    if None in sels:
-        return doc, list(doc.frames)
-    chosen = set()
-    for arg, sel in zip(args, sels):
-        with reading(f"FILE ({arg})"):
-            chosen |= {id(f) for f in doc.select(sel)}
-    return doc, [f for f in doc.frames if id(f) in chosen]
+def export_frames(args, exclude=()):
+    """export's FILE|DIR[:SEL]... : [(doc, its frames, its name)] per file, in the order first named. A file's
+    selections add up, in file order (a plain FILE: every frame). A directory stands for every .px under it (palette
+    files skipped, --exclude as for sheet); its files' names are their paths under it without .px (town/roofs.px under
+    town/ is 'roofs'), a file named directly goes by its stem."""
+    files = frames_only(in_dirs(args, exclude=exclude), "export")
+    names = {}
+    for arg in args:
+        if os.path.isdir(arg):
+            for p in pathlib.Path(arg).rglob("*.px"):
+                names.setdefault(str(p), p.relative_to(arg).with_suffix("").as_posix())
+    order = list(dict.fromkeys(split_sel(f)[0] for f in files))
+    out = []
+    for path in order:
+        mine = [f for f in files if split_sel(f)[0] == path]
+        with reading(f"FILE ({path})"):
+            doc = parse(path)
+        sels = [split_sel(f)[1] for f in mine]
+        if None in sels:
+            picked = list(doc.frames)
+        else:
+            chosen = set()
+            for arg, sel in zip(mine, sels):
+                with reading(f"FILE ({arg})"):
+                    chosen |= {id(f) for f in doc.select(sel)}
+            picked = [f for f in doc.frames if id(f) in chosen]
+        out.append((doc, picked, names.get(path, doc.stem)))
+    return out
 
 
-def pivot_slices(doc, its):
+def export_id(doc, f, name, prefix):
+    """A frame's id in export's output (the PNG's path under --frames, the Aseprite filename, the sheet's order):
+    its label, or with --prefix-file NAME/ID (an unnamed grid: NAME alone)."""
+    if not prefix:
+        return doc.label(f)
+    return name if doc.implicit else f"{name}/{f.id}"
+
+
+def export_clashes(entries, prefix, frames_dir):
+    """export's output names must not collide: two frames of one id (from two files) would be one PNG, one Aseprite
+    filename, and two animations of one name one tag; with --frames, two ids that differ only in case are one file on
+    a case-insensitive file system (macOS, Windows). E_DUP_FRAME naming each, and how to tell them apart."""
+    ids, tags = {}, {}  # id (casefolded with --frames) -> [(id, file)]
+    for doc, frames, name in entries:
+        for f in frames:
+            fid = export_id(doc, f, name, prefix)
+            ids.setdefault(fid.casefold() if frames_dir else fid, []).append((fid, str(doc.path)))
+        for g in doc.groups(frames):
+            if doc.animated(g):
+                tag = f"{name}/{g}" if prefix else g
+                tags.setdefault(tag, []).append(str(doc.path))
+    bad = [(k, v) for k, v in ids.items() if len(v) > 1]
+    twice = [(t, fs) for t, fs in tags.items() if len(fs) > 1]
+    if not bad and not twice:
+        return
+    said, files = [], set()
+    for _, got in bad:
+        files.update(p for _, p in got)
+        if len({fid for fid, _ in got}) == 1:
+            said.append(f"{got[0][0]} ({', '.join(p for _, p in got)})")
+        else:
+            said.append(" and ".join(f"{fid} ({p})" for fid, p in got) + " differ only in case, one file on a "
+                        "case-insensitive file system (macOS, Windows)")
+    for t, fs in twice:
+        files.update(fs)
+        said.append(f"animation {t} ({', '.join(fs)})")
+    across = len(files) > 1 and not prefix
+    fix = ("; --prefix-file ids each file's frames FILE/ID (roofs/red, walls/red), or export the files one at a "
+           "time" if across else "; rename one ('frames FILE --rename OLD NEW') or export them one at a time")
+    fail("E_DUP_FRAME", "frames that would get one name in the export (the later would replace the earlier): "
+         + "; ".join(said) + fix)
+
+
+def pivot_slices(its):
     """Pivots as Aseprite's JSON has them (meta.slices, the same shape Aseprite's own sheet export writes): one slice
     named 'pivot' with a key for every frame, in sheet order. A key holds from its frame on, so every frame gets one:
     bounds = the whole frame (its sourceSize, since spriteSourceSize is 0,0), and 'pivot' relative to those bounds, left
-    out for a frame without a pivot. No pivots in the file: no slices, as before."""
-    if not any(doc.pivot(it.frame) for it in its):
+    out for a frame without a pivot. No pivots in the files: no slices, as before."""
+    if not any(it.doc.pivot(it.frame) for it in its):
         return []
     keys = []
     for n, it in enumerate(its):
         key = {"frame": n, "bounds": {"x": 0, "y": 0, "w": it.img.width, "h": it.img.height}}
-        if doc.pivot(it.frame):
-            key["pivot"] = dict(zip("xy", doc.pivot(it.frame)))
+        if it.doc.pivot(it.frame):
+            key["pivot"] = dict(zip("xy", it.doc.pivot(it.frame)))
         keys.append(key)
     return [{"name": "pivot", "color": "#0000ffff", "keys": keys}]
 
 
 def cmd_export(a):
-    doc, picked = export_frames(a.files)
+    if not (a.frames or a.aseprite or a.tiled):
+        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json and/or --tiled X.tsj")
     variants = {split_variant(f)[1] for f in a.files} - {None}
     if len(variants) > 1:
         fail("E_BAD_ARG", f"export: one variant per export, got %{' %'.join(sorted(variants))}")
     variant = variants.pop() if variants else a.variant
-    its = [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in picked]
+    entries = export_frames(a.files, a.exclude or ())
+    export_clashes(entries, a.prefix_file, bool(a.frames))
+    its, docs = [], {}
+    for doc, picked, name in entries:
+        with reading(f"FILE ({doc.path})"):
+            its += [Item(export_id(doc, f, name, a.prefix_file), doc.image(f, variant), doc.ms(f), doc, f)
+                    for f in picked]
+        docs[id(doc)] = name
     wrote = []
     if a.frames:
+        pngs = []
         for it in its:
             p = outpath(pathlib.Path(a.frames) / (it.label + ".png"))
             it.img.save(p)
-            wrote.append(str(p))
-        pivots = {it.label: dict(zip("xy", doc.pivot(it.frame))) for it in its if doc.pivot(it.frame)}
-        if pivots:  # only when the file has pivots: {"walk/0": {"x": 8, "y": 23}, ...}, in export order
+            pngs.append(str(p))
+        wrote += pngs if len(pngs) <= 8 else [f"{len(pngs)} PNGs under {a.frames} ({pngs[0]} ... {pngs[-1]})"]
+        pivots = {it.label: dict(zip("xy", it.doc.pivot(it.frame))) for it in its if it.doc.pivot(it.frame)}
+        if pivots:  # only when the files have pivots: {"walk/0": {"x": 8, "y": 23}, ...}, in export order
             p = outpath(pathlib.Path(a.frames) / "pivots.json")
             p.write_text(json.dumps(pivots, indent=1) + "\n")
             wrote.append(str(p))
+
+    def groups():  # [(doc, group, its frames, the tag's name)], each file's groups in turn, as grouped() orders them
+        return [(doc, g, fs, f"{docs[id(doc)]}/{g}" if a.prefix_file else g)
+                for doc, picked, _ in entries for g, fs in doc.groups(picked).items()]
     if a.aseprite:
         its2 = grouped(its)
         sheet_img, spots, _, _, _ = pack(its2)
@@ -6105,12 +6183,12 @@ def cmd_export(a):
             frames.append({"filename": it.label, "frame": {"x": x, "y": y, "w": w, "h": h}, "rotated": False,
                            "trimmed": False, "spriteSourceSize": {"x": 0, "y": 0, "w": w, "h": h},
                            "sourceSize": {"w": w, "h": h}, "duration": it.ms})
-        for g, fs in doc.groups(picked).items():
+        for doc, g, fs, tag_name in groups():
             if not doc.animated(g):
                 i += len(fs)
                 continue
             meta = doc.anims.get(g, {})
-            tag = {"name": g, "from": i, "to": i + len(fs) - 1,
+            tag = {"name": tag_name, "from": i, "to": i + len(fs) - 1,
                    "direction": meta.get("direction") or "forward", "color": "#000000ff"}
             if meta.get("repeat"):
                 tag["repeat"] = str(meta["repeat"])
@@ -6119,37 +6197,34 @@ def cmd_export(a):
         data = {"frames": frames, "meta": {
             "app": "https://github.com/thethirdbearsolutions/pxart", "version": str(FORMAT_VERSION),
             "image": ip.name, "format": "RGBA8888", "size": {"w": sheet_img.width, "h": sheet_img.height},
-            "scale": "1", "frameTags": tags, "layers": [], "slices": pivot_slices(doc, its2)}}
+            "scale": "1", "frameTags": tags, "layers": [], "slices": pivot_slices(its2)}}
         jp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(jp)]
     if a.tiled:
         if len({it.img.size for it in its}) > 1:
+            odd = entries[0][0].path if len(entries) == 1 else "FILE"
             fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
                  + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its)
-                 + f"; export only same-size frames with FILE:SEL (export {doc.path}:GROUP ... --tiled X.tsj)")
+                 + f"; export only same-size frames with FILE:SEL (export {odd}:GROUP ... --tiled X.tsj)")
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = outpath(a.tiled)
         ip = tp.with_suffix(".png")
         sheet_img.save(ip)
-        index = {id(it): n for n, it in enumerate(its)}
+        index = {id(it.frame): n for n, it in enumerate(its)}
         tiles = []
-        for g, fs in doc.groups(picked).items():
+        for doc, g, fs, tag_name in groups():
             if not doc.animated(g) or len(fs) < 2:
                 continue
-            first = next(it for it in its if it.frame is fs[0])
-            tiles.append({"id": index[id(first)],
-                          "animation": [{"tileid": index[id(next(it for it in its if it.frame is f))],
-                                         "duration": doc.ms(f)} for f in fs],
-                          "properties": [{"name": "pxart_anim", "type": "string", "value": g}]})
-        data = {"type": "tileset", "version": "1.10", "name": doc.stem, "image": ip.name,
-                "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
+            tiles.append({"id": index[id(fs[0])],
+                          "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in fs],
+                          "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
+        data = {"type": "tileset", "version": "1.10", "name": entries[0][0].stem if len(entries) == 1 else tp.stem,
+                "image": ip.name, "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
                 "tilewidth": cw, "tileheight": ch, "columns": cols, "tilecount": len(its),
                 "margin": 0, "spacing": 0, "tiles": tiles}
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
-    if not wrote:
-        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json and/or --tiled X.tsj")
     print("wrote", " ".join(wrote))
 
 
@@ -6748,6 +6823,11 @@ def parser(describe=True):
                    help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
+    p.add_argument("--prefix-file", action="store_true",
+                   help="id each file's frames FILE/ID (FILE: its path under DIR, or its stem), so ids can't collide")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
+                        "(repeatable)")
     p = sub.add_parser("help")
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
