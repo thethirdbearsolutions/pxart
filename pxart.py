@@ -202,9 +202,14 @@ LOOKING
   --tint, tint, palette --add k=transparent; the '#' may be left off).
 
 CHECKING
-  check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict]
+  check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v]
       Every format error with a code and location, then size / off-palette colors /
-      color budget / unused keys per frame. A directory checks every .px and .map under it,
+      color budget / unused keys. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
+      3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames
+      (a file of one frame gets that frame's line); -v prints a line for every frame, as
+      'ok   party.px:walk/down/0: 32x32 9c'. Notes follow their file's line, and checking
+      more than one file ends with a summary: '6 files, 150 frames, 3 warnings' (', 1
+      failed' when one did; a warning is a note line). A directory checks every .px and .map under it,
       recursively, sorted by path ('check crossover/'); a palette file (no frames) is checked
       as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a .px, .gpl,
       .hex, or text of #rrggbb. --strict also rejects unknown @sections and @anim/@still
@@ -2470,7 +2475,8 @@ def cmd_scene(a):
 
 
 def check_map(path):
-    """check for a scene tilemap: every legend entry loads as one frame and every row char has one."""
+    """check for a scene tilemap: every legend entry loads as one frame and every row char has one. (ok, how many notes
+    it printed)."""
     issues, legend, layers, notes = [], {}, [[]], []
     try:
         legend, layers, notes, _ = parse_map(path)
@@ -2491,7 +2497,7 @@ def check_map(path):
               + (f", {len(layers)} layers" if len(layers) > 1 else ""))
     for n in notes:
         print(f"     note: {n}")
-    return not issues
+    return not issues, len(notes)
 
 
 # Non-ASCII letters that read as ASCII ones (Cyrillic, Greek); fullwidth and other compatibility forms come
@@ -2550,11 +2556,17 @@ def cmd_check(a):
         allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
+    tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
     for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map"))):
         path, sel = split_sel(arg)
+        tally["files"] += 1
+        bad_before = failed
+        failed = False
         try:
             if path.endswith(".map"):
-                failed |= not check_map(path)
+                ok, said = check_map(path)
+                failed |= not ok
+                tally["warnings"] += said
                 continue
             if path.endswith(".px") and not sel and not _has_grid(path):
                 try:
@@ -2607,6 +2619,7 @@ def cmd_check(a):
                 unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
                 if unused:
                     notes.append("unused keys " + "".join(unused))
+            lines, sizes, ncs, nbad = [], [], [], 0
             for it in its:
                 probs = []
                 if want and it.img.size != want:
@@ -2619,14 +2632,35 @@ def cmd_check(a):
                 if a.max_colors and len(cs) > a.max_colors:
                     probs.append(f"{len(cs)} colors > {a.max_colors}")
                 failed |= bool(probs)
+                nbad += bool(probs)
+                sizes.append(f"{it.img.width}x{it.img.height}")
+                ncs.append(len(cs))
                 name = path if len(its) == 1 and not (it.frame and it.frame.id) else f"{path}:{it.label}"
-                print(f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} {len(cs)}c"
-                      + "".join(f"; {x}" for x in probs))
+                lines.append((bool(probs), f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} "
+                                           f"{len(cs)}c" + "".join(f"; {x}" for x in probs)))
+            tally["frames"] += len(its)
+            if a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
+                print("\n".join(l for _, l in lines))
+            else:  # a line for the file, then the frames that fail
+                cs = f"{min(ncs)}c" if min(ncs) == max(ncs) else f"{min(ncs)}-{max(ncs)}c"
+                print(f"FAIL {path}: {nbad} of {len(its)} frames fail" if nbad else
+                      f"ok   {path}: {len(its)} frames, {listed(dict.fromkeys(sizes), 4)}, {cs}")
+                for bad, l in lines:
+                    if bad:
+                        print(f"     {l}")
             for note in notes:
                 print(f"     {path}: {note}")
+                tally["warnings"] += 1
         finally:  # after the file's own lines, like its other notes
             for note in lookalike_notes(path) if path.endswith((".px", ".map")) else []:
                 print(f"     note: {note}")
+                tally["warnings"] += 1
+            tally["failed"] += failed
+            failed |= bad_before
+    if tally["files"] > 1:
+        t = tally
+        print(f"{t['files']} files, {t['frames']} frame{'s' * (t['frames'] != 1)}, {t['warnings']} "
+              f"warning{'s' * (t['warnings'] != 1)}" + (f", {t['failed']} failed" if t["failed"] else ""))
     sys.exit(1 if failed else 0)
 
 
@@ -5561,6 +5595,7 @@ def parser(describe=True):
     p = sub.add_parser("tint"); p.add_argument("file"); p.add_argument("color"); p.add_argument("-o")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
+    p.add_argument("-v", "--verbose", action="store_true", help="a line per frame, not per file")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")

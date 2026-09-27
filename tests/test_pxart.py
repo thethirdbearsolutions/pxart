@@ -1950,9 +1950,12 @@ def test_check_map_missing_file_fails(tmp_path, capsys):
 
 def test_check_map_alongside_px(tmp_path, capsys):
     m = hash_map(tmp_path, "", "ff\n")
-    assert run("check", m, tmp_path / "tiles.px") == 0
+    assert run("check", m, tmp_path / "tiles.px", "-v") == 0
     out = capsys.readouterr().out
     assert "map 2x1 tiles" in out and "tiles.px:floor" in out
+    assert run("check", m, tmp_path / "tiles.px") == 0
+    out = capsys.readouterr().out
+    assert "map 2x1 tiles" in out and f"ok   {tmp_path / 'tiles.px'}: " in out and "tiles.px:floor" not in out
 
 
 def test_map_hash_rule_existing_behaviour_kept(tmp_path):
@@ -12267,7 +12270,8 @@ def test_check_dir_checks_every_px_and_map(tmp_path, capsys):
     assert out[0] == f"ok   {d / 'hero.px'}:idle: 2x1 2c"
     assert out[1] == f"ok   {d / 'palette.px'}: palette file, 2 key(s), variants night"
     assert out[2].startswith(f"ok   {d / 'room.map'}")
-    assert out[3] == f"ok   {d / 'rooms' / 'hall.px'}:floor: 2x2 2c" and len(out) == 4
+    assert out[3] == f"ok   {d / 'rooms' / 'hall.px'}:floor: 2x2 2c"
+    assert out[4] == "4 files, 2 frames, 0 warnings" and len(out) == 5
 
 
 def test_check_dir_is_no_longer_a_directory_error(tmp_path, capsys):
@@ -16869,3 +16873,137 @@ def test_help_documents_sheet_rows_group():
 def test_readme_documents_sheet_rows_group():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--rows group` puts each animation group on a row of its own" in readme
+
+
+# ---------------------------------------------------------------- check: a line per file, -v for a line per frame
+
+CHK = ("pxart 1\nk #000000\nw #ffffff\nz #ff0000\n@anim walk ms=100\n"
+       + "".join(f"@frame walk/{i}\nkw\nwk\n" for i in range(4)) + "@frame big\nkwk\nwkw\nkkk\n")
+
+
+def chk(tmp_path, capsys, *more, text=CHK, name="c.px"):
+    p = write(tmp_path, name, text)
+    code = run("check", p, *more)
+    return code, p, capsys.readouterr().out.splitlines()
+
+
+def test_check_one_line_per_file(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys)
+    assert code == 0
+    assert out == [f"ok   {p}: 5 frames, 2x2, 3x3, 2c", f"     {p}: unused keys z"]
+
+
+def test_check_verbose_a_line_per_frame(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, "-v")
+    assert out == [f"ok   {p}:walk/{i}: 2x2 2c" for i in range(4)] + [f"ok   {p}:big: 3x3 2c", f"     {p}: unused keys z"]
+
+
+def test_check_verbose_long_flag(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, "--verbose")
+    assert len(out) == 6
+
+
+def test_check_color_range(tmp_path, capsys):
+    text = CHK.replace("@frame big\nkwk\nwkw\nkkk\n", "@frame big\nkwz\nwkw\nkkk\n")
+    code, p, out = chk(tmp_path, capsys, text=text)
+    assert out[0] == f"ok   {p}: 5 frames, 2x2, 3x3, 2-3c"
+
+
+def test_check_failing_frames_listed_without_v(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, "--size", "2x2")
+    assert code == 1
+    assert out[:2] == [f"FAIL {p}: 1 of 5 frames fail", f"     FAIL {p}:big: 3x3 2c; size 3x3 != 2x2"]
+
+
+def test_check_failing_frames_verbose(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, "--size", "2x2", "-v")
+    assert code == 1 and f"FAIL {p}:big: 3x3 2c; size 3x3 != 2x2" in out and f"ok   {p}:walk/0: 2x2 2c" in out
+
+
+def test_check_single_frame_file_line_is_the_frames(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, text="k #000000\nkk\n", name="one.px")
+    assert out == [f"ok   {p}: 2x1 1c"]
+
+
+def test_check_single_named_frame(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys, text="k #000000\n@frame idle\nkk\n", name="one.px")
+    assert out == [f"ok   {p}:idle: 2x1 1c"]
+
+
+def test_check_many_sizes_listed_short(tmp_path, capsys):
+    text = "k #000000\n" + "".join(f"@frame f{i}\n" + ("k" * (i + 1) + "\n") for i in range(7))
+    code, p, out = chk(tmp_path, capsys, text=text)
+    assert out[0] == f"ok   {p}: 7 frames, 1x1, 2x1, 3x1, 4x1 and 3 more, 1c"
+
+
+def test_check_summary_for_several_files(tmp_path, capsys):
+    a = write(tmp_path, "a.px", CHK)
+    b = write(tmp_path, "b.px", "k #000000\nkk\n")
+    assert run("check", a, b) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == "2 files, 6 frames, 1 warning"
+
+
+def test_check_summary_counts_failures(tmp_path, capsys):
+    a = write(tmp_path, "a.px", CHK)
+    b = write(tmp_path, "b.px", "k #000000\nkk\nk\n")
+    c = write(tmp_path, "c.px", "k #000000\nkkk\n")
+    assert run("check", a, b, c, "--size", "2x1") == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "3 files, 6 frames, 1 warning, 3 failed"
+
+
+def test_check_summary_counts_palette_files_and_maps(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    run("check", d)
+    assert capsys.readouterr().out.splitlines()[-1] == "4 files, 2 frames, 0 warnings"
+
+
+def test_check_summary_counts_lookalike_notes(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nkk\n")
+    b = write(tmp_path, "b.px", "к #000000\nкк\n")  # Cyrillic ka
+    run("check", a, b)
+    assert capsys.readouterr().out.splitlines()[-1].startswith("2 files, ")
+
+
+def test_check_no_summary_for_one_file(tmp_path, capsys):
+    code, p, out = chk(tmp_path, capsys)
+    assert not any("files," in l for l in out)
+
+
+def test_check_strict_quiet_by_default(tmp_path, capsys):
+    # The session's crossover: ~150 frames printed one per line; now one line per file.
+    text = "pxart 1\nk #000000\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\nk\n" for i in range(150))
+    code, p, out = chk(tmp_path, capsys, "--strict", text=text)
+    assert code == 0 and out == [f"ok   {p}: 150 frames, 1x1, 1c"]
+
+
+def test_check_strict_verbose_still_per_frame(tmp_path, capsys):
+    text = "pxart 1\nk #000000\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\nk\n" for i in range(150))
+    code, p, out = chk(tmp_path, capsys, "--strict", "-v", text=text)
+    assert len(out) == 150
+
+
+def test_check_file_error_still_fails_in_the_summary(tmp_path, capsys):
+    a = write(tmp_path, "a.px", CHK)
+    b = write(tmp_path, "b.px", "k #000000\nkq\n")
+    assert run("check", a, b) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert f"FAIL {b}: 1 error(s)" in out and out[-1] == "2 files, 5 frames, 1 warning, 1 failed"
+
+
+def test_check_exit_code_after_a_failing_then_passing_file(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nkq\n")
+    b = write(tmp_path, "b.px", CHK)
+    assert run("check", a, b) == 1
+
+
+def test_help_documents_check_per_file():
+    text = " ".join(pxart.__doc__.split())
+    assert "check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v]" in text
+    assert "'FAIL party.px: 2 of 40 frames fail'" in text and "'6 files, 150 frames, 3 warnings'" in text
+
+
+def test_readme_documents_check_per_file():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "one line per file, the failing frames under it, and a summary like `6 files, 150 frames, 3 warnings`" \
+        in readme and "`-v` for a line per frame" in readme

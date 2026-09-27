@@ -152,7 +152,8 @@ rather than repeating them.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
-  no frames, which `--strict` fails; exits 1), `stats` (a directory too, as for `sheet`),
+  no frames, which `--strict` fails; one line per file, the failing frames under it, and a
+  summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
