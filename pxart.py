@@ -323,7 +323,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       @anim line stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
           [--extract-to P.px [--repoint]]
-      No flags: lists the keys, their colors, where they come from and how often they're used.
+      No flags: lists the keys, their colors, where they come from and how often they're used,
+      then each variant's keys: 'dusk: overrides o x X c C; keeps e E q' (the keys it recolors,
+      then the base keys it leaves alone, both in palette order).
       --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
       FILE renders with (imported ones too, local ones winning) and every variant, with the
       comments that document them: those above key and @variant lines (a section comment,
@@ -3529,6 +3531,11 @@ def cmd_palette(a):
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
+    for name in names:  # what each recolors, and the base keys it leaves alone (a glow kept out of dusk)
+        over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
+        sets = [k for k in pal if k in over and k != "."]
+        keeps = [k for k in pal if k not in over and k != "."]
+        print(f"  {name}: overrides {' '.join(sets) or 'nothing'}; keeps {' '.join(keeps) or 'nothing'}")
 
 
 def extract_palette(doc, out, repoint=False):

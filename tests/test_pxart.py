@@ -11252,3 +11252,71 @@ def test_help_documents_extract_to_comments():
     doc = " ".join(pxart.__doc__.split())
     assert "with the comments that document them: those above key and @variant lines" in doc
     assert "a sprite's header is about the sprite and stays" in doc
+
+
+# ---------------------------------------------------------------- palette FILE: what each variant overrides
+
+def test_palette_lists_each_variants_overrides_and_keeps(tmp_path, capsys):
+    p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
+    assert run("palette", p) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[-2:] == ["variants: dusk", "  dusk: overrides o x X; keeps e E"]
+
+
+def test_palette_variant_lines_in_palette_order_not_variant_order(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nb #111111\nc #222222\n@variant v\nc #ffffff\na #eeeeee\n@frame f\nabc\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: overrides a c; keeps b"
+
+
+def test_palette_variants_several_sorted(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nb #111111\n@variant night\na #010101\n@variant dawn\nb #020202\n"
+                                "@frame f\nab\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-3:] == ["variants: dawn, night", "  dawn: overrides b; keeps a",
+                                                         "  night: overrides a; keeps b"]
+
+
+def test_palette_variant_that_overrides_everything_or_nothing(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\n@variant all\na #ffffff\n@variant none\n@frame f\na\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-2:] == ["  all: overrides a; keeps nothing",
+                                                         "  none: overrides nothing; keeps a"]
+
+
+def test_palette_variant_imported_and_extended_locally(tmp_path, capsys):
+    write(tmp_path, "base.px", "a #000000\nb #111111\nc #222222\n@variant dusk\na #010101\n")
+    p = write(tmp_path, "s.px", "@palette base.px\nd #333333\n@variant dusk\nd #030303\n@frame f\nabcd\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: overrides a d; keeps b c"
+
+
+def test_palette_variant_keeps_transparent_keys_and_never_dot(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nt transparent\n@variant v\na #ffffff\n@frame f\nat.\n")
+    assert run("palette", p) == 0
+    line = capsys.readouterr().out.splitlines()[-1]
+    assert line == "  v: overrides a; keeps t" and "." not in line.split(";")[1]
+
+
+def test_palette_variant_lines_on_a_palette_file(tmp_path, capsys):
+    p = write(tmp_path, "beast.px", BEAST)
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: overrides o x X; keeps e E"
+
+
+def test_palette_without_variants_prints_no_variant_lines(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\n\na\n")
+    assert run("palette", p) == 0
+    assert "variants" not in capsys.readouterr().out and "overrides" not in capsys.readouterr().out
+
+
+def test_frames_variants_line_is_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == "variants: dusk" and "overrides" not in out
+
+
+def test_help_documents_variant_overrides():
+    doc = " ".join(pxart.__doc__.split())
+    assert "then each variant's keys: 'dusk: overrides o x X c C; keeps e E q'" in doc
