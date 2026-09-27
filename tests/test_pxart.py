@@ -15125,7 +15125,8 @@ def test_derived_helper():
 
 def test_help_documents_derive(capsys):
     out = " ".join(cmd_help(capsys, "palette").split())
-    assert "[--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]" in out
+    assert "[--variant NAME --derive-from base|VARIANT [--match FILE%V] [--darken F] [--tint COLOR] [--keep-lit KEYS] " \
+        "[--lift-darks]]" in out
     assert "Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W" \
         in out
     assert "the math of scene --tint" in out
@@ -16480,6 +16481,7 @@ def help_fixtures(d):
                                 + "@frame crate\n" + ("o" * 15 + ".\n") * 16)
     (d / "stall.px").write_text("r #c4473a\n" + ("r" * 32 + "\n") * 32)
     (d / "boy.px").write_text("pxart 1\nk #965340\no #141b1b\n\nko\n")
+    (d / "mossback.px").write_text("o #2b1d32\nT #74c8d4\nH #f4a04c\n@variant dusk\no #1a1428\nT #4a86a0\nH #d08040\n")
     (d / "lamp.px").write_text("y #f3cf6b\n" + ("." * 7 + "yy" + "." * 7 + "\n") * 32)
     (d / "market.map").write_text("# ground layer, then props\nc tiles.px:cobble\nw tiles.px:water/0\n"
                                   "x tiles.px:crate+h\nS stall.px+b\nL lamp.px+b\nl lamp.px+hb\n\n"
@@ -18493,3 +18495,223 @@ def test_readme_documents_from_png_grid():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right -o boy.px` " \
         "slices a sheet into frames, a group per column (or row), skipping empty cells" in readme
+
+
+# ---------------------------------------------------------------- palette --derive-from --match FILE%V (a per-channel
+# gain and offset fitted to another palette's base -> variant), and dark keys are never brightened
+
+MOSS = ("pxart 1\no #2b1d32\nT #74c8d4\nH #f4a04c\nB #a26c46\nL #f8d6ac\ny #ffe080\n\n@variant dusk\n"
+        "o #1a1428\nT #4a86a0\nH #d08040\nB #70503e\nL #d0a088\ny #ffe080\n")
+
+
+def fit_by_hand(pairs):
+    out = []
+    for ch in range(3):
+        xs, ys = [a[ch] for a, _ in pairs], [b[ch] for _, b in pairs]
+        mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+        g = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sum((x - mx) ** 2 for x in xs)
+        out.append((g, my - g * mx))
+    return out
+
+
+def moss_pairs():
+    h = pxart.hex2rgba
+    return [(h(a), h(b)) for a, b in (("#2b1d32", "#1a1428"), ("#74c8d4", "#4a86a0"), ("#f4a04c", "#d08040"),
+                                      ("#a26c46", "#70503e"), ("#f8d6ac", "#d0a088"))]
+
+
+def test_match_fit_is_least_squares_over_recolored_keys(tmp_path):
+    m = write(tmp_path, "moss.px", MOSS)
+    label, fit, n = pxart.match_fit(f"{m}%dusk", "night")
+    assert n == 5 and label == f"{m}'s dusk"  # y is listed unchanged (a lamp): left out of the fit
+    for (g, o), (g2, o2) in zip(fit, fit_by_hand(moss_pairs())):
+        assert abs(g - g2) < 1e-9 and abs(o - o2) < 1e-9
+
+
+def test_match_fit_reproduces_its_own_variant_closely(tmp_path):
+    m = write(tmp_path, "moss.px", MOSS)
+    _, fit, _ = pxart.match_fit(f"{m}%dusk", "dusk")
+    for a, b in moss_pairs():
+        got = pxart.matched(a, fit)
+        assert all(abs(x - y) <= 40 for x, y in zip(got[:3], b[:3]))
+
+
+@pytest.mark.parametrize("spec", ["{m}%dusk", "{m}:dusk", "{m}"])
+def test_match_spellings(tmp_path, spec, capsys):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\nh #804020\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", spec.format(m=m)) == 0
+    out = capsys.readouterr().out
+    assert f"derived from base (matched {m}'s dusk, fitted on 5 keys: r x" in out
+
+
+def test_match_applies_the_fit(tmp_path, capsys):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\nh #804020\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk") == 0
+    fit = fit_by_hand(moss_pairs())
+    assert dv(p, "dusk", "w") == pxart.matched(pxart.hex2rgba("#c8c8c8"), fit)
+    assert dv(p, "dusk", "h") == pxart.matched(pxart.hex2rgba("#804020"), fit)
+
+
+def test_match_then_darken_and_tint(tmp_path, capsys):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk", "--darken", "0.2",
+               "--tint", "#10183040") == 0
+    fit = fit_by_hand(moss_pairs())
+    want = pxart.derived(pxart.matched(pxart.hex2rgba("#c8c8c8"), fit), 0.2, pxart.hex2rgba("#10183040"))
+    assert dv(p, "dusk", "w") == want
+    assert "(matched" in capsys.readouterr().out
+
+
+def test_match_output_prints_the_fit(tmp_path, capsys):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk", "--darken",
+               "0.1") == 0
+    out = capsys.readouterr().out
+    fit = fit_by_hand(moss_pairs())
+    assert pxart.said_fit(fit) in out and "; darkened 10%)" in out
+    assert re.search(r"r x\d\.\d\d [+-]\d+, g x\d\.\d\d [+-]\d+, b x\d\.\d\d [+-]\d+", out)
+
+
+def test_match_keep_lit_still_lit(tmp_path, capsys):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\ny #ffd040\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk", "--keep-lit",
+               "y") == 0
+    assert dv(p, "dusk", "y") == pxart.hex2rgba("#ffd040")
+
+
+def test_match_needs_two_recolored_keys(tmp_path):
+    m = write(tmp_path, "moss.px", "pxart 1\na #101010\nb #202020\n@variant dusk\na #000000\nb #202020\n")
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    msg = run_err("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk")
+    assert "E_BAD_ARG" in msg and "recolors 1 key(s); a fit needs 2 or more" in msg
+
+
+def test_match_unknown_variant(tmp_path):
+    m = write(tmp_path, "moss.px", MOSS)
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--match", str(m))
+    assert "E_SELECT" in msg and "no @variant 'night'" in msg
+
+
+def test_match_missing_file(tmp_path):
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    msg = run_err("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", tmp_path / "nope.px")
+    assert "E_FILE" in msg or "No such file" in msg
+
+
+def test_match_a_sprite_with_frames(tmp_path, capsys):
+    m = write(tmp_path, "moss.px", MOSS + "\n@frame a\noT\n")
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--match", f"{m}%dusk") == 0
+
+
+def test_match_flat_channel_keeps_gain_one(tmp_path, capsys):
+    # every recolored key has one blue: no slope to fit there, so blue gets gain 1 and the mean shift.
+    m = write(tmp_path, "m.px", "pxart 1\na #100040\nb #800040\n@variant d\na #080030\nb #600030\n")
+    _, fit, _ = pxart.match_fit(f"{m}%d", "d")
+    assert fit[2] == (1.0, -16.0)
+
+
+def test_match_needs_derive(tmp_path):
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    msg = run_err("palette", p, "--variant", "dusk", "--match", "x.px")
+    assert "E_BAD_ARG" in msg and "--match" in msg and "--derive-from" in msg
+
+
+def test_matched_clamps():
+    assert pxart.matched((250, 5, 128, 200), [(2.0, 0.0), (1.0, -50.0), (1.0, 0.4)]) == (255, 0, 128, 200)
+
+
+def test_derive_never_brightens_a_near_black(tmp_path, capsys):
+    # A blue tint over the outline would lift it; it's held at its brightness, hue kept, and said so.
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
+    out = capsys.readouterr().out
+    assert "o held no brighter than its base color (darker than a quarter: an outline stays dark; --lift-darks lets " \
+        "the derive brighten them)" in out
+    got = dv(p, "dusk", "o")
+    assert pxart.brightness(got) <= pxart.brightness(pxart.hex2rgba("#141b1b"))
+    assert got[2] > got[0]  # still bluish: the hue kept
+    assert dv(p, "dusk", "w") != pxart.hex2rgba("#c8c8c8")
+
+
+def test_derive_lift_darks_lets_them_brighten(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#c0c0c0a0", "--lift-darks") == 0
+    assert "held" not in capsys.readouterr().out
+    want = pxart.derived(pxart.hex2rgba("#141b1b"), 0, pxart.hex2rgba("#c0c0c0a0"))
+    assert dv(p, "fog", "o") == want and pxart.brightness(want) > pxart.brightness(pxart.hex2rgba("#141b1b"))
+
+
+def test_derive_hold_with_match_offset(tmp_path, capsys):
+    # far's dusk-like fit: a big blue offset would lift a near-black; held.
+    m = write(tmp_path, "m.px", "pxart 1\na #202020\nb #e0e0e0\nc #808080\n@variant d\na #000070\nb #c0c0f0\n"
+                                "c #6060b0\n")
+    p = write(tmp_path, "p.px", "pxart 1\no #050505\n")
+    assert run("palette", p, "--variant", "d", "--derive-from", "base", "--match", f"{m}%d") == 0
+    assert "o held no brighter" in capsys.readouterr().out
+    assert pxart.brightness(dv(p, "d", "o")) <= pxart.brightness(pxart.hex2rgba("#050505"))
+
+
+def test_derive_darker_result_is_not_held(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--darken", "0.5") == 0
+    assert "held" not in capsys.readouterr().out and dv(p, "dusk", "o") == (10, 14, 14, 255)
+
+
+def test_derive_bright_key_may_brighten(tmp_path, capsys):
+    # Only dark keys are held: a mid grey under a light tint gets lighter, as asked.
+    p = write(tmp_path, "p.px", "pxart 1\nm #707070\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#ffffff80") == 0
+    assert "held" not in capsys.readouterr().out
+    assert pxart.brightness(dv(p, "fog", "m")) > pxart.brightness(pxart.hex2rgba("#707070"))
+
+
+def test_derive_black_under_a_tint_stays_black(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\nk #000000\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--tint", "#10183080") == 0
+    assert "k" not in pxart.parse(p, palette_only=True).variants["night"]  # held at black: its base, no line
+    assert "k held" in capsys.readouterr().out
+
+
+def test_derive_hold_threshold(tmp_path, capsys):
+    # luma just under 64 is held; just over isn't.
+    p = write(tmp_path, "p.px", "pxart 1\na #3f3f3f\nb #414141\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#ffffff40") == 0
+    out = capsys.readouterr().out
+    assert "a held" in out and "b held" not in out and " b " not in out.split("held")[0][-4:]
+
+
+def test_derive_add_overrides_a_held_key(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0", "--add",
+               "o=#203060") == 0
+    assert dv(p, "dusk", "o") == pxart.hex2rgba("#203060")
+
+
+def test_no_brighter_helper():
+    got = pxart.no_brighter((40, 60, 200, 255), (20, 27, 27, 255))
+    assert pxart.brightness(got) <= pxart.brightness((20, 27, 27, 255)) and got[2] > got[1] > got[0]
+    assert pxart.no_brighter((0, 0, 0, 255), (0, 0, 0, 255)) == (0, 0, 0, 255)
+
+
+def test_help_documents_match_and_hold():
+    text = " ".join(pxart.__doc__.split())
+    assert "--match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps each channel the " \
+        "way FILE's own base -> dusk does, a gain and an offset per channel fitted by least squares over the keys " \
+        "that variant recolors" in text
+    assert "A key darker than a quarter (Rec. 709 luma under 64) never comes out brighter than its --derive-from " \
+        "color" in text
+    assert "--lift-darks lets the derive brighten them (a fog); --add sets one anyway." in text
+
+
+def test_readme_documents_match_and_hold():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--match mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted gain " \
+        "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened unless " \
+        "`--lift-darks`" in readme

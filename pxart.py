@@ -503,7 +503,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
       stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
-          [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
+          [--variant NAME --derive-from base|VARIANT [--match FILE%V] [--darken F] [--tint COLOR]
+           [--keep-lit KEYS] [--lift-darks]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
           [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS]
@@ -537,6 +538,17 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
       gets no line. --add in the same call then sets single keys over the derived ones: a
       whole night in one call, with the lamps still lit.
+      --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
+      each channel the way FILE's own base -> dusk does, a gain and an offset per channel
+      fitted by least squares over the keys that variant recolors (not the ones it relists,
+      the lamps), then --darken and --tint as above: 'palette pal.px --variant dusk
+      --derive-from base --match mossback.px%dusk' gives the cast the mood of another pack's
+      dusk, warm lights and blue shadows included (a red gain, a blue offset), where one darken and
+      one tint move every channel alike. The output prints the fit: 'r x0.92 -17, g x0.81
+      -11, b x0.78 +10'. A key darker than a quarter (Rec. 709 luma under 64) never comes out
+      brighter than its --derive-from color: it is scaled back to that brightness, its hue
+      kept, and listed as held, so a near-black outline stays dark under a blue tint or
+      offset. --lift-darks lets the derive brighten them (a fog); --add sets one anyway.
       --comment KEY 'text' sets the comment right above FILE's line for KEY (replacing the
       comment lines there; blank lines stay); --comment @variant night 'text' the one above
       '@variant night', which --extract-to and compose carry as the variant's section note;
@@ -4909,9 +4921,9 @@ def cmd_palette(a):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
     notes = comment_args(a.comment)
     derive = a.derive_from is not None
-    if (a.darken is not None or a.tint or a.keep_lit) and not derive:
-        fail("E_BAD_ARG", "--darken, --tint and --keep-lit shape a derived variant: give them with --variant NAME "
-             "--derive-from base|VARIANT")
+    if (a.darken is not None or a.tint or a.keep_lit or a.match or a.lift_darks) and not derive:
+        fail("E_BAD_ARG", "--darken, --tint, --match, --lift-darks and --keep-lit shape a derived variant: give them "
+             "with --variant NAME --derive-from base|VARIANT")
     if derive and not a.variant:
         fail("E_BAD_ARG", f"--derive-from {a.derive_from} builds a variant: give --variant NAME (the one it writes)")
     if (a.keep or a.variant) and not (a.variant and (a.add or a.keep or notes or derive)):
@@ -4955,7 +4967,8 @@ def cmd_palette(a):
     said = []
     if derive:
         said += derive_variant(doc, a.variant, a.derive_from, a.darken or 0.0, a.tint,
-                               key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [])
+                               key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
+                               match_fit(a.match, a.variant) if a.match else None, a.lift_darks)
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -5142,12 +5155,18 @@ def variant_edit(doc, name, adds, keeps):
     return said
 
 
-def derive_variant(doc, name, src, darken, tint, lit):
-    """palette FILE --variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]: NAME's
-    line for every key of FILE's palette (imported keys too), in its color in `src` (the base palette, or a variant)
-    made darker (each channel times 1 - F) and then tinted (COLOR laid over at its alpha, as scene --tint does); the
-    --keep-lit keys keep their `src` color (a lamp). A key that comes out in its base color gets no line (it inherits),
-    unless it is kept lit (then it is listed: a relist). NAME is made when FILE has none. What it did."""
+DARK = 64  # derive never brightens a key darker than this (Rec. 709 luma of 255): an outline stays an outline
+
+
+def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
+    """palette FILE --variant NAME --derive-from base|VARIANT [--match FILE%V] [--darken F] [--tint COLOR]
+    [--keep-lit KEYS] [--lift-darks]: NAME's line for every key of FILE's palette (imported keys too), in its color in
+    `src` (the base palette, or a variant) mapped channel by channel as --match's file maps its base to its variant
+    (match: (label, [(gain, offset)] * 3, how many keys it was fitted on)), made darker (each channel times 1 - F) and
+    then tinted (COLOR laid over at its alpha, as scene --tint does); the --keep-lit keys keep their `src` color (a
+    lamp). A key darker than DARK never comes out brighter (scaled back to its own brightness, the hue kept) unless
+    lift. A key that comes out in its base color gets no line (it inherits), unless it is kept lit (then it is listed:
+    a relist). NAME is made when FILE has none. What it did."""
     if name == "base" or not re.match(r"^[A-Za-z0-9_\-]+$", name):
         fail("E_BAD_ARG", f"--variant {name!r}: a variant name is letters, digits, _ and -, and not 'base'")
     if not 0 <= darken <= 1:
@@ -5164,11 +5183,16 @@ def derive_variant(doc, name, src, darken, tint, lit):
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
     over = doc.variants.setdefault(name, {})
-    recolored = []
+    recolored, held = [], []
     for k, c in base.items():
         if k == "." or not c[3]:
             continue
-        got = from_[k] if k in lit else derived(from_[k], darken, color)
+        if k in lit:
+            got = from_[k]
+        else:
+            got = derived(matched(from_[k], match[1]) if match else from_[k], darken, color)
+            if not lift and brightness(from_[k]) < DARK * from_[k][3] / 255 and brightness(got) > brightness(from_[k]):
+                got, _ = no_brighter(got, from_[k]), held.append(k)
         if got == c and k not in lit:
             if k in over:
                 del over[k]
@@ -5177,13 +5201,60 @@ def derive_variant(doc, name, src, darken, tint, lit):
         over[k] = got
         if got != c:
             recolored.append(k)
-    how = ([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else [])
+    how = ", ".join(([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else []))
+    how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
+                    + ([how] if how else []))
     said = [f"new @variant {name}" if made else f"@variant {name}",
-            f"derived from {src}" + (f" ({', '.join(how)})" if how else "") + f": recolors {len(recolored)} key(s)"]
+            f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"]
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
+    if held:
+        said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
+                    f"color{'s' * (len(held) > 1)} (darker than a quarter: an outline stays dark; --lift-darks lets "
+                    "the derive brighten them)")
     return said
+
+
+def no_brighter(c, ref):
+    """c scaled down (each channel, floored) to ref's brightness at most: its hue kept, never lighter than ref."""
+    b = brightness(c)
+    f = brightness(ref) / b if b else 0
+    return tuple(int(v * f) for v in c[:3]) + (c[3],)
+
+
+def matched(c, fit):
+    """One color through --match's per-channel map: each channel times its gain plus its offset, clamped."""
+    return tuple(max(0, min(255, int(round(g * v + o)))) for v, (g, o) in zip(c[:3], fit)) + (c[3],)
+
+
+def said_fit(fit):
+    """'r x0.92 -17, g x0.81 -11, b x0.78 +10'."""
+    return ", ".join(f"{ch} x{g:.2f} {o:+.0f}" for ch, (g, o) in zip("rgb", fit))
+
+
+def match_fit(spec, name):
+    """--match FILE[%VARIANT] (or FILE:VARIANT): the per-channel map, gain and offset by least squares, that takes
+    FILE's base colors to their VARIANT colors (default: the variant being derived) over the keys VARIANT recolors
+    (a key it lists unchanged, a lamp, isn't the mood). (label, [(gain, offset)] * 3, how many keys)."""
+    path, sep, var = spec.rpartition("%") if "%" in spec else spec.rpartition(":") if re.search(
+        r"\.px:[A-Za-z0-9_\-]+$", spec) else (spec, "", "")
+    var = var or name
+    with reading(f"--match ({spec})"):
+        d = parse(path, palette_only=not _has_grid(path))
+        base, look = d.resolved(), d.resolved(var)
+    pairs = [(base[k], look[k]) for k in base if k != "." and base[k][3] and look[k] != base[k]]
+    if len(pairs) < 2:
+        fail("E_BAD_ARG", f"--match {spec}: {path}'s @variant {var} recolors {len(pairs)} key(s); a fit needs 2 or "
+             "more")
+    fit = []
+    for ch in range(3):
+        xs, ys = [p[0][ch] for p in pairs], [p[1][ch] for p in pairs]
+        mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+        sxx = sum((x - mx) ** 2 for x in xs)
+        g = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 1.0
+        fit.append((g, my - g * mx))
+    return f"{path}'s {var}", fit, len(pairs)
 
 
 def derived(c, darken, tint):
@@ -6178,6 +6249,10 @@ def parser(describe=True):
     p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
     p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
     p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
+    p.add_argument("--match", metavar="FILE[%VARIANT]",
+                   help="with --derive-from: first map each channel as FILE's base->VARIANT does (a fitted gain+offset)")
+    p.add_argument("--lift-darks", action="store_true",
+                   help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
     p.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
                    help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
                         "comment line above that line ('' removes it)")

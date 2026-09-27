@@ -206,7 +206,10 @@ rather than repeating them.
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
-  from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g`
+  from the base colors, as `scene --tint` would, with the lamps still lit; `--match
+  mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted
+  gain and offset: warm lights, blue shadows), and a key darker than a quarter is never
+  brightened unless `--lift-darks`; `--hoist l,g`
   moves a sprite's own keys into the palette file it imports; `--import pal.px` adds a
   `@palette pal.px` line to a sprite and drops its key lines pal.px has in the same colors, so it
   renders as before; `--order o,t,k` puts those key lines first, comments and all; `--remove k,n` takes out keys
