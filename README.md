@@ -173,7 +173,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   bottom +0`, for a 1px jump too faint to see, and the best shift, or for two different
   characters `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only
   that band, so a weapon swing doesn't hide the feet; `--tint-a COLOR` picks the
-  silhouette's color and `--fade-a` draws A faded instead),
+  silhouette's color and `--fade-a` draws A faded instead; `--variant night` draws both at night, so a halo lit only
+  then counts),
   `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`
   says otherwise, pixels past its edge cropped with a note, mirrored with a `+h`/`+v` suffix as in
   `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays

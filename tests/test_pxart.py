@@ -27714,3 +27714,43 @@ def test_stats_variant_on_a_png_keeps_its_name(tmp_path, capsys):
 def test_help_documents_stats_variant(capsys):
     assert "stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]" in pxart.__doc__
     assert "FILE:SEL%VARIANT reads the colors a variant renders (--variant V: every FILE's)" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- onion --variant: a halo lit only at night counts
+
+def test_onion_variant_draws_both_in_it(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT.replace("@frame body\n.k..\n.L..\n", "@frame halo2\n....\n.LL.\nL..L\n"))
+    assert run("onion", f"{p}:halo", f"{p}:halo2", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "A (frame halo) is empty: 6 px drawn, all transparent in the base; visible in night (on the 4x3" in out
+    assert run("onion", f"{p}:halo", f"{p}:halo2", "--variant", "night", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "A (frame halo%night) covers x 0..3, y 0..2 (on the 4x3 canvas, bottom-centered)" in out
+    assert "B (frame halo2%night) covers x 0..3, y 1..2" in out and "B vs A: left +0, right +0, top +1, bottom +0" in out
+
+
+def test_onion_own_variant_wins(tmp_path, capsys):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert run("onion", f"{p}:halo%dusk", f"{p}:halo", "--variant", "night", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "A (frame halo%dusk) is empty: 6 px drawn, all transparent in dusk; visible in night" in out
+    assert "B (frame halo%night) covers x 0..3, y 0..2" in out
+
+
+def test_onion_variant_renders_the_png_in_it(tmp_path):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    day, night = tmp_path / "d.png", tmp_path / "n.png"
+    assert run("onion", f"{p}:halo", f"{p}:halo", "-o", day, "--scale", "1") == 0
+    assert run("onion", f"{p}:halo", f"{p}:halo", "-o", night, "--scale", "1", "--variant", "night") == 0
+    assert Image.open(day).tobytes() != Image.open(night).tobytes()
+
+
+def test_onion_unknown_variant_is_e_select(tmp_path):
+    p = write(tmp_path, "h.px", STATS_NIGHT)
+    assert "unknown variant 'nite'" in run_err("onion", f"{p}:halo", f"{p}:body", "--variant", "nite", "--dry-run")
+
+
+def test_help_documents_onion_variant(capsys):
+    assert "[--tint-a [COLOR] | --fade-a] [--variant V]" in pxart.__doc__
+    assert run("onion", "-h") == 0
+    assert "draw A and B in V (a halo lit only at night counts)" in " ".join(capsys.readouterr().out.split())

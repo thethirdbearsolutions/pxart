@@ -124,7 +124,8 @@ LOOKING
       opaque) or a sparse overlay (at most 1/4 opaque: snow) also try every wrap-around scroll
       (shift --wrap), shown when it leaves strictly fewer pixels changed than the best plain
       shift: "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
-  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a] [--dry-run]
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a] [--variant V]
+        [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
       with render's grid and rulers, so where A shows past B is plain to see.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
@@ -345,11 +346,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       shared palette: 'new party.px --empty --palette palette.px', then 'frames
       keeper.px:walk --copy-to party.px --rekey'.
   put FILE[:frame] [-o OUT] < grid.txt
-      Replace one frame's grid with the rows on stdin: 'pxart put hero.px:walk/1 < w1.txt'.
-      Stdin is rows, or palette lines then rows; the keys the rows use join FILE's palette
-      the way compose's layers do (a key FILE has in another color is E_KEY_CONFLICT), and
-      other keys must be FILE's. Rows are checked like a file's (widths, keys), errors point
-      at stdin's lines, and nothing is written on an error. Only that frame's lines change.
+      Replace one frame's grid with the rows on stdin. Stdin is rows, or palette lines then
+      rows; the keys the rows use join FILE's palette the way compose's layers do (a key
+      FILE has in another color is E_KEY_CONFLICT), and other keys must be FILE's. Rows are
+      checked like a file's (widths, keys), errors point at stdin's lines, and
+      nothing is written on an error. Only that frame's lines change.
       A frame that doesn't exist yet is added, placed like new; a new FILE is started.
       Stdin has no variants: a key in FILE's color is FILE's key, variant colors and all, and
       a new key stays at its base color in FILE's variants.
@@ -1623,8 +1624,9 @@ def split_at(arg):
 
 class Item:
     """One frame to look at: label, image, duration, and (for .px) its doc/frame."""
-    def __init__(self, label, img, ms, doc=None, frame=None):
+    def __init__(self, label, img, ms, doc=None, frame=None, variant=None):
         self.label, self.img, self.ms, self.doc, self.frame = label, img, ms, doc, frame
+        self.variant = variant      # onion: the variant it's drawn in, when one was named
 
 
 def items(arg, variant=None, strict=False):
@@ -2944,10 +2946,15 @@ def animate(a, its, out):
 
 def cmd_onion(a):
     need_o(a, "x.png")
-    with reading(f"A ({a.a})"):
-        ia = one_frame(a.a)
-    with reading(f"B ({a.b})"):
-        ib = one_frame(a.b)
+    its = []
+    for n, arg in (("A", a.a), ("B", a.b)):
+        with reading(f"{n} ({arg})"):
+            its.append(one_frame(arg, variant=a.variant))
+        v = split_variant(arg)[1] or a.variant
+        if v and its[-1].doc:  # the readout names the variant each frame is drawn in
+            its[-1].label += f"%{v}"
+            its[-1].variant = v
+    ia, ib = its
     A, B = ia.img, ib.img
     lay = pivot_layout([ia, ib])
     w, h = lay[:2] if lay else (max(A.width, B.width), max(A.height, B.height))
@@ -3048,7 +3055,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
     where = f"{spans_of(*band)} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
-    lines = [f"{n} (frame {it.label}) " + (f"covers {box_text(b)}" if b else "is empty"
+    lines = [f"{n} (frame {it.label}) " + (f"covers {box_text(b)}" if b else "is empty" + unseen(it, it.variant).replace(" (", ": ", 1)[:-1]
                                            if not band else "covers nothing" if n == "A" else
                                            f"covers nothing in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
@@ -8296,6 +8303,8 @@ def parser(describe=True):
     g.add_argument("--tint-a", nargs="?", const=TINT_A, metavar="COLOR",
                    help=f"draw A as a silhouette in COLOR (the default, in {TINT_A})")
     g.add_argument("--fade-a", action="store_true", help="draw A faded to 35%% instead, as onion once did")
+    p.add_argument("--variant", metavar="V", help="draw A and B in V (a halo lit only at night counts); an input's "
+                   "own %%V wins")
     p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
