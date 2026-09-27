@@ -11142,7 +11142,7 @@ def test_paste_rekey(tmp_path, capsys):
     before = f.read_text()
     assert run("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "1,0", "--rekey") == 0
     got = capsys.readouterr().out
-    assert got == f"note: --rekey gives {f}'s keys free ones in {out}: 's>a' 't>b' ({f} is unchanged)\nwrote {out}\n"
+    assert got == f"note: --rekey gives {f}'s keys free ones in {out}: 's>a' 't>b' ({f} is unchanged)\npasted 2 px; wrote {out}\n"
     assert f.read_text() == before
     doc = pxart.parse(out)
     assert doc.get("x").grid == ["sabv"] and list(doc.palette)[-2:] == ["a", "b"]
@@ -25078,7 +25078,7 @@ def test_set_every_frame_reports_them(tmp_path, capsys):
 def test_fill_without_region_is_a_whole_frame_edit(tmp_path, capsys):
     p = write(tmp_path, "m.px", SEVERAL)
     assert run("fill", p, "k") == 0
-    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {p}\n"
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\npainted 24 px (w/0 4, w/1 4, w/2 16); wrote {p}\n"
     assert all(g == ["kkkk"] * 4 for g in grids(p).values())
 
 
@@ -25997,7 +25997,7 @@ def test_fill_dot_clears_one_frame(tmp_path, capsys):
     p = write(tmp_path, "c.px", "k #000000\n@frame a\nkk\nk.\n@frame b\nkk\nkk\n")
     assert run("fill", f"{p}:a", ".") == 0
     assert grids(p) == {"a": ["..", ".."], "b": ["kk", "kk"]}
-    assert capsys.readouterr().out == f"wrote {p}\n"
+    assert capsys.readouterr().out == f"painted 3 px; wrote {p}\n"
 
 
 def test_fill_dot_clears_with_a_palette_that_lists_no_dot(tmp_path, capsys):
@@ -26805,3 +26805,88 @@ def test_render_label_of_a_variant_cell(tmp_path, capsys):
     a = write(tmp_path, "hero.px", "k #000000\n@variant night\nk #000011\n" + SAME_IDS.split("\n", 1)[1])
     assert run("render", f"{a}:idle/0", f"{a}:idle/0%night", "-o", tmp_path / "r.png") == 0
     assert (tmp_path / "r.png").exists()
+
+
+# ---------------------------------------------------------------- fill and paste say how many pixels changed
+# They printed only 'wrote'; set's neighbours (line, rect, mask, outline) all count.
+
+def test_fill_counts_the_pixels_it_changed(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\nj #ffffff\n\nkk.\nk..\n")
+    assert run("fill", p, "k") == 0
+    assert capsys.readouterr().out == f"painted 3 px; wrote {p}\n"
+
+
+def test_fill_region_counts_only_changed_pixels(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n\nkk..\nkk..\n")
+    assert run("fill", p, "k", "--region", "1,0,2,2") == 0
+    assert capsys.readouterr().out == f"painted 2 px; wrote {p}\n"
+
+
+def test_fill_same_key_counts_zero_and_no_change(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n\nkk\n")
+    before, m = snap(p)
+    assert run("fill", p, "k") == 0
+    assert capsys.readouterr().out == f"painted 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_fill_several_frames_counts_per_frame(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n@frame w/0\nk.\n@frame w/1\n..\n@frame w/2\nkk\n")
+    assert run("fill", f"{p}:w", "k") == 0
+    out = capsys.readouterr().out
+    assert out == f"edited 2 frames: w/0, w/1\npainted 3 px (w/0 1, w/1 2); wrote {p}\n"
+
+
+def test_fill_many_frames_lists_a_few(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n" + "".join(f"@frame w/{i}\n.\n" for i in range(8)))
+    assert run("fill", f"{p}:w", "k") == 0
+    assert "painted 8 px (w/0 1, w/1 1, w/2 1, w/3 1, w/4 1 and 3 more); wrote" in capsys.readouterr().out
+
+
+def test_fill_dry_run_counts(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n\n..\n")
+    assert run("fill", p, "k", "--dry-run") == 0
+    assert f"painted 2 px; would write {p}" in capsys.readouterr().out
+
+
+def test_paste_counts_the_pixels_it_changed(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "k #000000\n\nk.\nkk\n")
+    p = write(tmp_path, "d.px", "k #000000\n\n...\nk..\n")
+    assert run("paste", src, "--into", p, "--at", "0,0") == 0
+    assert capsys.readouterr().out == f"pasted 2 px; wrote {p}\n"
+
+
+def test_paste_under_counts_only_the_empty_pixels_filled(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "j #ffffff\n\njj\njj\n")
+    p = write(tmp_path, "d.px", "k #000000\n\nk.\n..\n")
+    assert run("paste", src, "--into", p, "--at", "0,0", "--under") == 0
+    assert capsys.readouterr().out == f"pasted 3 px; wrote {p}\n"
+
+
+def test_paste_into_several_frames_counts_per_frame(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "k #000000\n\nk\n")
+    p = write(tmp_path, "d.px", "k #000000\n@frame a/0\n..\n@frame a/1\nk.\n@frame a/2\n..\n")
+    assert run("paste", src, "--into", f"{p}:a", "--at", "0,0") == 0
+    out = capsys.readouterr().out
+    assert out.endswith(f"pasted 2 px (a/0 1, a/2 1); wrote {p}\n")
+
+
+def test_paste_same_pixels_counts_zero(tmp_path, capsys):
+    src = write(tmp_path, "s.px", "k #000000\nk\n")
+    p = write(tmp_path, "d.px", "k #000000\nkk\n")
+    assert run("paste", src, "--into", p, "--at", "1,0") == 0
+    assert capsys.readouterr().out == f"pasted 0 px; no change: {p}\n"
+
+
+def test_paste_halo_counts_its_pixels(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0") == 0
+    assert capsys.readouterr().out == f"pasted 4 px; wrote {p}\n"
+
+
+def test_px_changed_helper(tmp_path):
+    p = write(tmp_path, "c.px", "k #000000\n@frame a\n..\n@frame b\n..\n")
+    doc, frames, _ = pxart.edit_target(f"{p}:*", None)
+    frames[0].grid = ["k."]
+    assert pxart.px_changed(doc, frames, "painted") == "painted 1 px;"
+    frames[1].grid = ["kk"]
+    assert pxart.px_changed(doc, frames, "painted") == "painted 3 px (a 1, b 2);"

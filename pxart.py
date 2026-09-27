@@ -4611,7 +4611,7 @@ def cmd_paste(a):
     uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
-    print(write_doc(ddoc, out))
+    print(px_changed(ddoc, dframes, "pasted"), write_doc(ddoc, out))
 
 
 def cmd_extract(a):
@@ -4832,7 +4832,16 @@ def cmd_fill(a):
         x0, y0, w, h = parse_rect(a.region, f.size)
         f.grid = ["".join(a.key if x0 <= x < x0 + w and y0 <= y < y0 + h else c for x, c in enumerate(row))
                   for y, row in enumerate(f.grid)]
-    print(write_doc(doc, out))
+    print(px_changed(doc, frames, "painted"), write_doc(doc, out))
+
+
+def px_changed(doc, frames, verb):
+    """'painted 12 px;' for an edit of one frame; of several, per frame that changed: 'painted 40 px (walk/0 12, walk/1
+    16, walk/2 12);'. From doc.before (edit_target)."""
+    counts = [(doc.label(f), sum(p != q for was, now in zip(doc.before[id(f)], f.grid) for p, q in zip(was, now)))
+              for f in frames]
+    hit = [f"{label} {n}" for label, n in counts if n]
+    return f"{verb} {sum(n for _, n in counts)} px" + (f" ({listed(hit, 5)})" if len(hit) > 1 else "") + ";"
 
 
 # ---------------------------------------------------------------------------- drawing primitives
