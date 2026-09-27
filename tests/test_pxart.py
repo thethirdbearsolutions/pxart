@@ -5082,7 +5082,7 @@ def test_help_documents_mask_keys():
 @pytest.mark.parametrize("target, maps, want", [
     ("{p}", ["k=j"], "edited 2 frames: a, b\nrepainted 2 px (a 1, b 1); wrote {p}"),  # every frame; c has no k
     ("{p}:a", ["k=j"], "repainted 1 px; wrote {p}"),                     # one frame: no per-frame list
-    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nrepainted 5 px (a 2, b 1, c 2); wrote {p}"),
+    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nrepainted 5 px: 2 k->j, 3 j->k (a 2, b 1, c 2); wrote {p}"),
     ("{p}", ["k=#123456"], "recolored k #123456: 2 px (a 1, b 1); wrote {p}"),  # moves no pixels; counts k's
     ("{p}", ["k=#123456", "j=r"], "edited 2 frames: a, c\nrepainted 3 px (a 1, c 2); recolored k #123456: 2 px "
      "(a 1, b 1); wrote {p}"),
@@ -17340,7 +17340,7 @@ def test_recolor_rename_into_a_key_renamed_away(tmp_path, capsys):
     assert doc.palette == {"G": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
     assert doc.variants["dusk"] == {"G": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
     assert renders(p) == before
-    assert capsys.readouterr().out == f"edited 2 frames: a, b\nrepainted 5 px (a 2, b 3); wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nrepainted 5 px: 2 g->G, 3 d->g (a 2, b 3); wrote {p}\n"
 
 
 def test_recolor_rename_into_a_freed_key_any_order(tmp_path):
@@ -25329,7 +25329,8 @@ def test_edited_note_with_output_elsewhere(tmp_path, capsys):
     p = write(tmp_path, "m.px", SEVERAL)
     out = tmp_path / "o.px"
     assert run("recolor", p, "k<>j", "-o", out) == 0
-    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nrepainted 43 px (w/0 15, w/1 12, w/2 16); wrote {out}\n"
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nrepainted 43 px: 24 k->j, 19 j->k (w/0 15, w/1 12, w/2 16); " \
+        f"wrote {out}\n"
     assert p.read_text() == SEVERAL
 
 
@@ -27789,3 +27790,38 @@ def test_drawing_help_says_dot_erases(capsys, cmd):
 def test_drawing_intro_says_dot_erases():
     assert "KEY is a palette key, or '.' to erase" in " ".join(pxart.__doc__.split())
     assert 'flood print "painted N px" ("erased" for \'.\')' in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- recolor's readout: per-key counts, and every frame of up to 8
+
+EIGHT = "k #000000\nj #ffffff\n" + "".join(f"@frame f/{n}\nkj\n" for n in range(9))
+
+
+def test_recolor_counts_each_key_move(tmp_path, capsys):
+    p = write(tmp_path, "e.px", EIGHT)
+    assert run("recolor", f"{p}:f/0", "k=j", "j=k") == 0
+    assert capsys.readouterr().out == f"repainted 2 px: 1 k->j, 1 j->k; wrote {p}\n"
+
+
+def test_recolor_one_move_needs_no_per_key_count(tmp_path, capsys):
+    p = write(tmp_path, "e.px", EIGHT)
+    assert run("recolor", f"{p}:f/0", "k=j") == 0
+    assert capsys.readouterr().out == f"repainted 1 px; wrote {p}\n"
+
+
+def test_recolor_lists_every_frame_of_up_to_eight(tmp_path, capsys):
+    p = write(tmp_path, "e.px", EIGHT)
+    assert run("recolor", f"{p}:f/0,f/1,f/2,f/3,f/4,f/5,f/6,f/7", "k=j", "--dry-run") == 0
+    out = capsys.readouterr().out
+    eight = ", ".join(f"f/{n}" for n in range(8))
+    assert f"edited 8 frames: {eight}\n" in out
+    assert "repainted 8 px (" + ", ".join(f"f/{n} 1" for n in range(8)) + "); would write" in out
+    assert run("recolor", p, "k=#111111") == 0
+    assert "recolored k #111111: 9 px (f/0 1, f/1 1, f/2 1, f/3 1, f/4 1, f/5 1, f/6 1 and 2 more);" in \
+        capsys.readouterr().out
+
+
+def test_edit_of_nine_frames_still_shortens_the_list(tmp_path, capsys):
+    p = write(tmp_path, "e.px", EIGHT)
+    assert run("recolor", p, "k=j") == 0
+    assert capsys.readouterr().out.startswith("edited 9 frames: f/0, f/1, f/2 and 6 more\n")

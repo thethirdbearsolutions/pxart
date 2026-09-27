@@ -2276,7 +2276,7 @@ def write_doc(doc, path=None):
     if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
         touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
         if len(touched) > 1:
-            print(f"edited {len(touched)} frames: {listed(touched)}")
+            print(f"edited {len(touched)} frames: {listed(touched, 7 if len(touched) <= 8 else 3)}")
     text, had = doc.text(), None
     try:
         with open(path, newline="") as fh:
@@ -4607,16 +4607,18 @@ def cmd_recolor(a):
 
 
 def recolor_counts(doc, frames, moves, recolored, variant=None):
-    """What recolor did, as fill and paste say it: 'repainted 12 px;' for the key moves (per frame when several), and
+    """What recolor did, as fill and paste say it: 'repainted 12 px;' for the key moves (per key when several, 'repainted
+    5 px: 3 k->j, 2 j->k;', and per frame, all of up to 8), and
     'recolored o #112233: 40 px;' for each color change, counting the pixels drawn with that key in every frame (a
     color is the whole file's)."""
-    out = [px_changed(doc, frames, "repainted")] if moves else []
+    out = [px_changed(doc, frames, "repainted", 7, [(k, v) for k, v in moves.items() if k != v]
+                      if len(moves) > 1 else None)] if moves else []
     for _, k in recolored:
         counts = [(doc.label(f), sum(row.count(k) for row in f.grid)) for f in doc.frames]
         hit = [f"{label} {n}" for label, n in counts if n]
         out.append(f"recolored {k}" + (f" in {variant}" if variant else "")
                    + f" {fmt_color(doc.resolved(variant)[k])}: {sum(n for _, n in counts)} px"
-                   + (f" ({listed(hit, 5)})" if len(hit) > 1 else "") + ";")
+                   + (f" ({listed(hit, 7)})" if len(hit) > 1 else "") + ";")
     return out
 
 
@@ -5003,13 +5005,23 @@ def cmd_fill(a):
     print(px_changed(doc, frames, "erased" if a.key == "." else "painted"), write_doc(doc, out))
 
 
-def px_changed(doc, frames, verb):
+def px_changed(doc, frames, verb, most=5, keys=None):
     """'painted 12 px;' for an edit of one frame; of several, per frame that changed: 'painted 40 px (walk/0 12, walk/1
-    16, walk/2 12);'. From doc.before (edit_target)."""
-    counts = [(doc.label(f), sum(p != q for was, now in zip(doc.before[id(f)], f.grid) for p, q in zip(was, now)))
-              for f in frames]
+    16, walk/2 12);', the first `most` of them. keys: the key moves [(a, b)] to count one by one, in that order,
+    'repainted 5 px: 3 k->j, 2 j->k (a 2, b 3);'. From doc.before (edit_target)."""
+    counts, pairs = [], {}
+    for f in frames:
+        n = 0
+        for was, now in zip(doc.before[id(f)], f.grid):
+            for p, q in zip(was, now):
+                if p != q:
+                    n += 1
+                    pairs[(p, q)] = pairs.get((p, q), 0) + 1
+        counts.append((doc.label(f), n))
     hit = [f"{label} {n}" for label, n in counts if n]
-    return f"{verb} {sum(n for _, n in counts)} px" + (f" ({listed(hit, 5)})" if len(hit) > 1 else "") + ";"
+    return f"{verb} {sum(n for _, n in counts)} px" \
+        + (": " + ", ".join(f"{pairs.get(k, 0)} {k[0]}->{k[1]}" for k in keys) if keys else "") \
+        + (f" ({listed(hit, most)})" if len(hit) > 1 else "") + ";"
 
 
 # ---------------------------------------------------------------------------- drawing primitives
