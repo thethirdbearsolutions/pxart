@@ -104,3 +104,50 @@ def test_readme_links_exist():
             if "://" in target:
                 continue
             assert (readme.parent / target).exists(), f"{readme}: {target} is missing"
+
+
+def fenced_blocks(text):
+    """(info string, lines) for each ``` block of a Markdown file."""
+    return [
+        (m.group(1).strip(), m.group(2).splitlines())
+        for m in re.finditer(r"^```([^\n]*)\n(.*?)^```", text, flags=re.S | re.M)
+    ]
+
+
+EXAMPLE_READMES = sorted(EXAMPLES.glob("*/README.md")) + [EXAMPLES / "README.md"]
+
+
+@pytest.mark.parametrize("path", EXAMPLE_READMES + [BUILD], ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_no_unbraced_variable_before_a_colon(path):
+    """zsh reads "$H:cobble" as $H with a :c modifier; the commands must say "${H}:cobble"."""
+    text = path.read_text()
+    chunks = [text] if path == BUILD else ["\n".join(lines) for _, lines in fenced_blocks(text)]
+    for chunk in chunks:
+        bad = re.findall(r"\$[A-Za-z_][A-Za-z0-9_]*:", chunk)
+        assert not bad, f"{path.relative_to(ROOT)}: write ${{NAME}}: in zsh-safe form, not {bad}"
+
+
+@pytest.mark.parametrize("path", sorted(EXAMPLES.glob("*/README.md")), ids=lambda p: p.parent.name)
+def test_quoted_output_appears_verbatim(path):
+    """Every line of a ```text block is a line of one of the example's committed .txt files.
+
+    A line ending in '...' only has to start one; a line that is just '...' marks a cut.
+    """
+    lines = set()
+    for txt in path.parent.rglob("*.txt"):
+        lines.update(line.rstrip() for line in txt.read_text().splitlines())
+    blocks = [block for info, block in fenced_blocks(path.read_text()) if info == "text"]
+    for block in blocks:
+        for line in block:
+            line = line.rstrip()
+            if not line or line.strip() == "...":
+                continue
+            if line.endswith("..."):
+                prefix = line[:-3].rstrip()
+                assert any(have.startswith(prefix) for have in lines), (
+                    f"{path.parent.name}/README.md quotes output no .txt starts with: {prefix!r}"
+                )
+            else:
+                assert line in lines, (
+                    f"{path.parent.name}/README.md quotes output no .txt has: {line!r}"
+                )
