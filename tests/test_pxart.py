@@ -24046,3 +24046,76 @@ def test_help_and_readme_document_the_composed_by_header():
     readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
     assert "A new OUT's header says how it was made (`# composed by: pxart compose --map room.map -o room.px`, paths " \
         "from its folder)" in readme
+
+
+# ---------------------------------------------------------------- frames --rm GROUP says the group goes in the selector
+
+RM_FILE = "k #000000\n@anim walk ms=100\n@frame walk/0\nk\n@frame walk/1\nk\n@frame idle\nk\n@frame walk2\nk\n"
+
+
+def test_frames_rm_a_group_says_it_is_one(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    err = run_err("frames", p, "--rm", "walk")
+    assert err == f"frames: E_BAD_ARG: --rm 'walk' is a group (walk/0, walk/1); --rm takes frame ids. A group goes " \
+                  f"in the selector: frames {p}:walk --rm"
+    assert p.read_text() == RM_FILE
+
+
+def test_frames_rm_group_suggestion_works(tmp_path, capsys):
+    p = write(tmp_path, "h.px", RM_FILE)
+    cmd = run_err("frames", p, "--rm", "walk").rsplit("selector: ", 1)[1]
+    assert run(*shlex.split(cmd)) == 0
+    assert "removed walk/0, walk/1" in capsys.readouterr().out
+    assert [f.id for f in pxart.parse(p).frames] == ["idle", "walk2"]
+    assert "@anim walk" not in p.read_text()
+
+
+def test_frames_rm_group_is_not_a_prefix_match(tmp_path):
+    # 'walk' names walk/0 and walk/1, never walk2
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "(walk/0, walk/1)" in run_err("frames", p, "--rm", "walk")
+
+
+def test_frames_rm_a_group_among_frames_writes_nothing(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "is a group" in run_err("frames", p, "--rm", "idle", "walk")
+    assert p.read_text() == RM_FILE
+
+
+def test_frames_rm_nested_group(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk/down/0\nk\n@frame walk/down/1\nk\n@frame walk/up/0\nk\n")
+    err = run_err("frames", p, "--rm", "walk/down")
+    assert "--rm 'walk/down' is a group (walk/down/0, walk/down/1)" in err and f"frames {p}:walk/down --rm" in err
+    assert "(walk/down/0, walk/down/1, walk/up/0)" in run_err("frames", p, "--rm", "walk")
+
+
+def test_frames_rm_unknown_id_lists_the_frames(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert run_err("frames", p, "--rm", "run") == "frames: E_SELECT: --rm 'run': no such frame; frames: walk/0, " \
+                                                 "walk/1, idle, walk2"
+
+
+def test_frames_sel_rm_a_group_inside_the_selection(tmp_path):
+    p = write(tmp_path, "h.px", "k #000000\n@frame walk/down/0\nk\n@frame walk/down/1\nk\n@frame walk/up/0\nk\n")
+    err = run_err("frames", f"{p}:walk", "--rm", "walk/down")
+    assert err == f"frames: E_BAD_ARG: --rm walk/down: a group in 'walk'; --rm takes frame ids. A group goes in the " \
+                  f"selector: frames {p}:walk/down --rm"
+    assert len(pxart.parse(p).frames) == 3
+
+
+def test_frames_sel_rm_an_id_outside_still_says_so(tmp_path):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert "not in 'walk' (walk/0, walk/1)" in run_err("frames", f"{p}:walk", "--rm", "idle")
+
+
+def test_frames_rm_frame_ids_still_work(tmp_path, capsys):
+    p = write(tmp_path, "h.px", RM_FILE)
+    assert run("frames", p, "--rm", "walk/0", "idle") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["walk/1", "walk2"]
+
+
+def test_frames_rm_help_says_frame_ids_and_the_selector(capsys):
+    out = cmd_help(capsys, "frames")
+    line = " ".join(out.rsplit("  --rm [ID ...]", 1)[1].split("\n  -", 1)[0].split())
+    assert "frame ids" in line and "frames FILE:GROUP --rm" in line
+    assert "(ids after --rm are frame ids, in SEL)" in pxart.__doc__

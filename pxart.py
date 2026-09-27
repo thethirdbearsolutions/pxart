@@ -274,7 +274,7 @@ CHECKING
       and every frame under '@still *') and animations; or delete / reorder frames (prints
       what it removed or moved, not the listing; a move to where the frames already are
       prints "already in place" and writes nothing). FILE:SEL lists only those frames; 'frames
-      hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
+      hero.px:walk/left --rm' removes them (ids after --rm are frame ids, in SEL), and 'frames
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
       takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
       Removing a group's last frame removes its @anim and @still lines too. A move puts the
@@ -3634,8 +3634,12 @@ def frames_edit(a, doc, sel, picked):
     did = []
     for fid in a.rm or []:
         f = doc.get(fid)
+        inside = [g.id for g in doc.frames if (g.id or "").startswith(fid + "/")]
+        if not f and inside:
+            fail("E_BAD_ARG", f"--rm {fid!r} is a group ({', '.join(inside)}); --rm takes frame ids. A group goes in "
+                 f"the selector: frames {doc.path}:{fid} --rm")
         if not f:
-            fail("E_SELECT", f"--rm {fid!r}: no such frame")
+            fail("E_SELECT", f"--rm {fid!r}: no such frame; frames: {', '.join(doc.label(g) for g in doc.frames)}")
         doc.frames.remove(f)
     if a.rm:
         did.append("removed " + ", ".join(a.rm))
@@ -3678,6 +3682,11 @@ def frames_sel_edit(a, doc, sel, picked):
         if a.rm:
             ids = {f.id for f in picked}
             out = [fid for fid in a.rm if fid not in ids]
+            groups = [fid for fid in out if any(i.startswith(fid + "/") for i in ids)]
+            if groups:
+                fail("E_BAD_ARG", f"--rm {', '.join(groups)}: {'a group' if len(groups) == 1 else 'groups'} in "
+                     f"{sel!r}; --rm takes frame ids. A group goes in the selector: frames {doc.path}:{groups[0]} "
+                     "--rm")
             if out:
                 fail("E_SELECT", f"--rm {', '.join(out)}: not in {sel!r} ({', '.join(sorted(ids))}); drop the :SEL "
                      "to remove frames by id anywhere")
@@ -7323,7 +7332,10 @@ def parser(describe=True):
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="a directory of .px: leave out files whose name or path under it matches GLOB, or under a "
                         "matching directory (repeatable)")
-    p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
+    p = sub.add_parser("frames"); p.add_argument("file")
+    p.add_argument("--rm", nargs="*", metavar="ID",
+                   help="remove these frame ids, or FILE:SEL's frames with none (a group goes in the selector: "
+                        "frames FILE:GROUP --rm)")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
