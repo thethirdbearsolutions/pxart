@@ -8017,7 +8017,93 @@ def test_compose_new_out_unused_conflicting_key_left_out_with_note(tmp_path, cap
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
     assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "j": (0, 255, 0, 255), "z": (255, 255, 255, 255)}
-    assert "note: keys 'z' of a later layer aren't in" in capsys.readouterr().out
+    assert capsys.readouterr().out.splitlines()[0] == (f"note: {out} leaves out layer 2 ({b}:y)'s color for 'z' "
+                                                       f"(unused there): it has layer 1 ({a}:x)'s, the earlier layer's")
+
+
+def keynote_layers(tmp_path):
+    # GAMES-295 repro: b shares keys with a in other colors; b uses h and n, a uses w; c uses q.
+    a = write(tmp_path, "a.px", "h #111111\nn #222222\nr #333333\nw #eee0b8\nk #000000\n\nkw\n")
+    b = write(tmp_path, "b.px", "h #aaaaaa\nn #bbbbbb\nr #cccccc\nw #f6ecd2\nq #123456\n\nhn\n")
+    c = write(tmp_path, "c.px", "q #654321\n\nq\n")
+    return a, b, c
+
+
+def notes_of(out):
+    return [l for l in out.splitlines() if l.startswith("note:") and "leaves out" in l]
+
+
+def test_compose_key_note_names_only_colors_left_out_and_why(tmp_path, capsys):
+    a, b, c = keynote_layers(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1") == 0
+    assert notes_of(capsys.readouterr().out) == [
+        f"note: {out} leaves out layer 1 ({a})'s colors for 'hn' (unused there): it has layer 2 ({b})'s, which that "
+        "layer uses",
+        f"note: {out} leaves out layer 2 ({b})'s color for 'r' (unused there): it has layer 1 ({a})'s, the earlier "
+        "layer's",
+        f"note: {out} leaves out layer 2 ({b})'s color for 'w' (unused there): it has layer 1 ({a})'s, which that "
+        "layer uses",
+        f"note: {out} leaves out layer 2 ({b})'s color for 'q' (unused there): it has layer 3 ({c})'s, which that "
+        "layer uses",
+    ]
+
+
+def test_compose_key_note_matches_the_palette_written(tmp_path, capsys):
+    # Every key a note names is in OUT, in the color of the layer the note says it has.
+    a, b, c = keynote_layers(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1") == 0
+    pal = pxart.parse(out).palette
+    assert pal == {"w": pxart.hex2rgba("#eee0b8"), "k": (0, 0, 0, 255), "h": pxart.hex2rgba("#aaaaaa"),
+                   "n": pxart.hex2rgba("#bbbbbb"), "q": pxart.hex2rgba("#654321"), "r": pxart.hex2rgba("#333333")}
+    docs = {str(a): pxart.parse(a), str(b): pxart.parse(b), str(c): pxart.parse(c)}
+    import re
+    for line in notes_of(capsys.readouterr().out):
+        m = re.match(r"note: .* leaves out layer \d \((.*)\)'s colors? for '(\w+)' \(unused there\): it has layer \d "
+                     r"\((.*)\)'s", line)
+        lost, keys, kept = m.groups()
+        for k in keys:
+            assert k in pal and pal[k] == docs[kept].palette[k] != docs[lost].palette[k]
+            assert k not in "".join(docs[lost].frames[0].grid)
+
+
+def test_compose_key_note_absent_when_nothing_is_left_out(tmp_path, capsys):
+    a, b, c = keynote_layers(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}@0,0", f"{c}@0,1") == 0
+    assert notes_of(capsys.readouterr().out) == []
+
+
+def test_compose_key_note_same_color_is_not_left_out(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n\nk\n")
+    b = write(tmp_path, "b.px", "j #00ff00\nz #ffffff\n\nj\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}@0,0", f"{b}@1,0") == 0
+    assert notes_of(capsys.readouterr().out) == []
+
+
+def test_compose_key_note_only_for_a_new_out(tmp_path, capsys):
+    a, b, c = keynote_layers(tmp_path)
+    out = write(tmp_path, "o.px", "k #000000\n@frame x\nk\n")
+    assert run("compose", "-o", f"{out}:y", f"{c}@0,0") == 0
+    assert notes_of(capsys.readouterr().out) == []
+
+
+def test_compose_key_note_later_used_key_beats_both_unused(tmp_path, capsys):
+    # z unused in layers 1 and 2 (two colors), used in layer 3: OUT has layer 3's, and both others are named.
+    a = write(tmp_path, "a.px", "k #000000\nz #111111\n\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\nz #222222\n\nk\n")
+    c = write(tmp_path, "c.px", "z #333333\n\nz\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x1", f"{a}@0,0", f"{b}@1,0", f"{c}@2,0") == 0
+    assert pxart.parse(out).palette["z"] == pxart.hex2rgba("#333333")
+    assert notes_of(capsys.readouterr().out) == [
+        f"note: {out} leaves out layer 1 ({a})'s color for 'z' (unused there): it has layer 3 ({c})'s, which that "
+        "layer uses",
+        f"note: {out} leaves out layer 2 ({b})'s color for 'z' (unused there): it has layer 3 ({c})'s, which that "
+        "layer uses",
+    ]
 
 
 def test_compose_new_out_used_key_beats_an_unused_one(tmp_path):
@@ -8104,7 +8190,7 @@ def test_seed_palette_returns_left_out_keys(tmp_path):
     layers = [(pxart.place_item(f"{a}:x", "layer"), 0, 0, "l1"), (pxart.place_item(f"{b}:y", "layer"), 0, 0, "l2")]
     doc = pxart.Doc(tmp_path / "o.px")
     left = pxart.seed_palette(doc, layers)
-    assert left == ["z"] and list(doc.palette) == ["k", "j", "z"]
+    assert left == [("z", "l2", "l1", False)] and list(doc.palette) == ["k", "j", "z"]
 
 
 def test_help_documents_compose_new_palette():

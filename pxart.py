@@ -254,8 +254,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       E_KEY_CONFLICT). A new OUT starts with the layers' whole palettes, used or not, so a
       later 'shade --ramp' or recolor finds its keys: when every layer imports the same
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
-      colors become OUT's key lines. Local keys follow, the keys the layers use first; an
-      unused key another layer has in another color is left out, with a note. Variants come
+      colors become OUT's key lines. Local keys follow, the keys the layers use first: a key
+      layers have in different colors gets the color of the layer that uses it, else the
+      earlier layer's, and a note names each layer's color left out and why. Variants come
       along for the keys OUT has (the first layer's win). crop writes a new OUT the same way.
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
       (OUT may be a palette-only file). A new frame goes after the last frame of its
@@ -2817,8 +2818,12 @@ def seed_palette(doc, layers):
     layers use first: a key OUT already has in the same color is skipped, one that overrides an import (as in the
     layer) stays an override, and an unused key whose char another layer has in another color is left out (a used
     one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
-    first layer's winning. Returns the unused keys left out."""
+    first layer's winning. Returns what was left out: [(key, the layer it's left out of, the layer whose color OUT
+    has, whether that layer uses it)]."""
     docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
+    names = {}
+    for lay, _, _, label in layers:
+        names.setdefault(id(lay.doc), label)
     imports = {tuple((d.path.parent / r).resolve() for r in d.palette_refs) for d in docs}
     keep = imports.pop() if len(imports) == 1 else ()
     if keep:  # the layers' imports, so their colors: no need to read the palette files again
@@ -2826,7 +2831,7 @@ def seed_palette(doc, layers):
         doc.shared = dict(docs[0].shared)
         doc.shared_variants = {n: dict(v) for n, v in docs[0].shared_variants.items()}
     used = {id(d): {k for lay, *_ in layers if lay.doc is d for k in "".join(lay.frame.grid)} for d in docs}
-    left = []
+    left, whose = [], {}  # whose: key -> (the layer whose color OUT has, whether that layer uses it)
     for want_used in (True, False):
         for d in docs:
             for k, c in d.resolved().items():
@@ -2834,9 +2839,9 @@ def seed_palette(doc, layers):
                     continue
                 have = doc.resolved()
                 if k not in have or (have[k] != c and k not in doc.palette):
-                    doc.palette[k] = c
-                elif have[k] != c and not want_used and k not in left:
-                    left.append(k)
+                    doc.palette[k], whose[k] = c, (names[id(d)], want_used)
+                elif have[k] != c and not want_used:
+                    left.append((k, names[id(d)]) + whose[k])
     for d in docs:
         base = d.resolved()
         for name in list(d.variants) + ([] if keep else [n for n in d.shared_variants if n not in d.variants]):
@@ -2876,10 +2881,12 @@ def cmd_compose(a):
                  f"{a.size}")
         target.grid = under
     if fresh:
-        left = seed_palette(doc, layers)
-        if left:
-            print(f"note: keys {''.join(left)!r} of a later layer aren't in {opath}: an earlier layer has them in "
-                  "another color, and no layer uses them")
+        left = {}
+        for k, lost, kept, uses in seed_palette(doc, layers):
+            left.setdefault((lost, kept, uses), []).append(k)
+        for (lost, kept, uses), ks in left.items():
+            print(f"note: {opath} leaves out {lost}'s color{'s' * (len(ks) > 1)} for {''.join(ks)!r} (unused "
+                  f"there): it has {kept}'s, " + ("which that layer uses" if uses else "the earlier layer's"))
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), "--size"
     elif target.grid:
