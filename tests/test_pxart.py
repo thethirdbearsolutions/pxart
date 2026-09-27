@@ -4084,6 +4084,160 @@ def test_help_documents_recolor_swap_and_order():
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: recolor 'a>b' (a new key)
+
+RENAME = ("pxart 1\n# keys\nk #000000\n# the white\nw #ffffff\n\n@variant night\nw #888888\nk #000011\n\n"
+          "@frame a\nkw\n@frame b\nww\n")
+
+
+def renders(path):
+    doc = pxart.parse(path)
+    names = [None] + sorted(set(doc.variants) | set(doc.shared_variants))
+    return {(f.id, n): list(pxart.pixels(doc.image(f, n))) for f in doc.frames for n in names}
+
+
+def test_recolor_rename_whole_file_renames_the_lines_in_place(tmp_path, capsys):
+    p = write(tmp_path, "r.px", RENAME)
+    before = renders(p)
+    assert run("recolor", p, "w>Z") == 0
+    assert p.read_text() == RENAME.replace("w #", "Z #").replace("kw\n", "kZ\n").replace("ww\n", "ZZ\n")
+    assert renders(p) == before
+    assert capsys.readouterr().out == f"wrote {p}\n"
+
+
+def test_recolor_rename_part_keeps_the_old_key(tmp_path, capsys):
+    p = write(tmp_path, "r.px", RENAME)
+    before = renders(p)
+    assert run("recolor", f"{p}:a", "w>Z") == 0
+    doc = pxart.parse(p)
+    assert grids(p) == {"a": ["kZ"], "b": ["ww"]}
+    assert doc.palette == {"k": (0, 0, 0, 255), "w": (255, 255, 255, 255), "Z": (255, 255, 255, 255)}
+    assert doc.variants["night"]["Z"] == doc.variants["night"]["w"] == pxart.hex2rgba("#888888")
+    assert renders(p) == before
+    out = capsys.readouterr().out
+    assert "note: 'w' stays in the palette: pixels outside the recolor still use it" in out
+
+
+def test_recolor_rename_in_a_region(tmp_path):
+    p = write(tmp_path, "r.px", "k #000000\nw #ffffff\n\nwwww\nwwww\n")
+    before = renders(p)
+    assert run("recolor", p, "w>Z", "--region", "1,0,2,2") == 0
+    assert pxart.parse(p).frames[0].grid == ["wZZw", "wZZw"]
+    assert set(pxart.parse(p).palette) == {"k", "w", "Z"}
+    assert renders(p) == before
+
+
+def test_recolor_rename_imported_key_adds_a_local_one(tmp_path):
+    write(tmp_path, "pal.px", "w #ffffff\nk #000000\n\n@variant night\nw #101010\n")
+    p = write(tmp_path, "r.px", "@palette pal.px\n\nkw\nww\n")
+    before = renders(p)
+    assert run("recolor", p, "w>Z") == 0
+    doc = pxart.parse(p)
+    assert doc.palette == {"Z": (255, 255, 255, 255)} and doc.variants == {"night": {"Z": (16, 16, 16, 255)}}
+    assert doc.frames[0].grid == ["kZ", "ZZ"]
+    assert renders(p) == before
+
+
+def test_recolor_rename_local_key_with_shared_variant(tmp_path):
+    # A local key that an imported variant recolors: the new key gets that variant color as a local variant line.
+    write(tmp_path, "pal.px", "q #000000\n\n@variant night\nw #101010\n")
+    p = write(tmp_path, "r.px", "@palette pal.px\nw #ffffff\n\nqw\n")
+    before = renders(p)
+    assert run("recolor", p, "w>Z") == 0
+    doc = pxart.parse(p)
+    assert doc.palette == {"Z": (255, 255, 255, 255)} and doc.variants == {"night": {"Z": (16, 16, 16, 255)}}
+    assert renders(p) == before
+
+
+def test_recolor_rename_keeps_order_and_comments(tmp_path):
+    p = write(tmp_path, "r.px", "# top\na #010101\n# b's line\nb #020202\nc #030303\n\nabc\n")
+    assert run("recolor", p, "b>Q") == 0
+    assert p.read_text() == "# top\na #010101\n# b's line\nQ #020202\nc #030303\n\naQc\n"
+
+
+def test_recolor_rename_several_at_once(tmp_path):
+    p = write(tmp_path, "r.px", RENAME)
+    before = renders(p)
+    assert run("recolor", p, "w>Z", "k>Y") == 0
+    doc = pxart.parse(p)
+    assert list(doc.palette) == ["Y", "Z"] and grids(p) == {"a": ["YZ"], "b": ["ZZ"]}
+    assert list(doc.variants["night"]) == ["Z", "Y"]
+    assert renders(p) == before
+
+
+def test_recolor_rename_with_a_move_applies_together(tmp_path):
+    # 'w>Z' and k=w: w's pixels become Z, k's become w (not Z): moves apply together. w is still used: it stays.
+    p = write(tmp_path, "r.px", "k #000000\nw #ffffff\n\nkw\n")
+    assert run("recolor", p, "w>Z", "k=w") == 0
+    doc = pxart.parse(p)
+    assert doc.frames[0].grid == ["wZ"] and doc.palette["Z"] == (255, 255, 255, 255) and "w" in doc.palette
+
+
+def test_recolor_rename_with_output_leaves_source(tmp_path):
+    p = write(tmp_path, "r.px", RENAME)
+    assert run("recolor", p, "w>Z", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == RENAME and grids(tmp_path / "o.px") == {"a": ["kZ"], "b": ["ZZ"]}
+
+
+@pytest.mark.parametrize("arg, code, bit", [
+    ("w>k", "E_BAD_ARG", "to repaint w's pixels as k write w=k"),
+    ("w>w", "E_BAD_ARG", "'w' is already one"),
+    ("q>Z", "E_SELECT", "key 'q' not in palette"),
+    (".>Z", "E_SELECT", "'.' is transparent"),
+    ("w>.", "E_BAD_ARG", "'.' is already one"),
+    ("w>#", "E_BAD_KEY", "can't be a palette key"),
+    ("w>@", "E_BAD_KEY", "can't be a palette key"),
+])
+def test_recolor_rename_errors(tmp_path, arg, code, bit):
+    p = write(tmp_path, "r.px", RENAME)
+    msg = run_err("recolor", p, arg)
+    assert code in msg and bit in msg and p.read_text() == RENAME
+
+
+def test_recolor_rename_to_the_same_new_key_twice(tmp_path):
+    p = write(tmp_path, "r.px", RENAME)
+    msg = run_err("recolor", p, "w>Z", "k>Z")
+    assert "E_BAD_ARG" in msg and "'Z' is already one" in msg and p.read_text() == RENAME
+
+
+def test_recolor_rename_and_move_of_one_key(tmp_path):
+    p = write(tmp_path, "r.px", RENAME)
+    msg = run_err("recolor", p, "w=k", "w>Z")
+    assert "E_BAD_ARG" in msg and "moved twice" in msg and p.read_text() == RENAME
+
+
+def test_recolor_rename_punctuation_keys(tmp_path):
+    # '>' and '=' are keys too: '=>Q' renames '=', and 'a=>' still moves a to '>'.
+    p = write(tmp_path, "r.px", "= #111111\n> #222222\na #333333\n\n=>a\n")
+    assert run("recolor", p, "=>Q") == 0
+    assert pxart.parse(p).frames[0].grid == ["Q>a"]
+    assert run("recolor", p, "a=>") == 0
+    assert pxart.parse(p).frames[0].grid == ["Q>>"]
+
+
+def test_recolor_rename_through_a_real_shell(tmp_path):
+    import shutil, subprocess
+    script = pathlib.Path(pxart.__file__)
+    ran = 0
+    for shell in (["zsh", "-f", "-c"], ["bash", "-c"]):
+        if not shutil.which(shell[0]):
+            continue
+        p = write(tmp_path, "r.px", RENAME)
+        r = subprocess.run(shell + [f'"{sys.executable}" "{script}" recolor "{p}" \'w>Z\''], capture_output=True,
+                           text=True, cwd=tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert grids(p) == {"a": ["kZ"], "b": ["ZZ"]} and not (tmp_path / "Z").exists()
+        ran += 1
+    if not ran:
+        pytest.skip("no zsh or bash")
+
+
+def test_help_documents_recolor_rename():
+    doc = pxart.__doc__
+    assert "recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb]" in doc
+    assert "'a>b' gives a's pixels a new key b, in a's color" in doc
+
+
 # ---------------------------------------------------------------- loop G: anim-set (timing)
 
 TIMED = ("pxart 1\nk #000000\n\n@anim walk ms=120\n@anim idle   direction=pingpong  ms=300\n\n@frame walk/0\nk\n"
