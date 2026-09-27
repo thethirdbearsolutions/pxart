@@ -2349,7 +2349,7 @@ def test_edit_with_selector_and_output_writes_whole_file(tmp_path, capsys, argv)
 
 @pytest.mark.parametrize("argv", [
     ["flip", "{p}"], ["shift", "{p}", "--dx", "1"], ["set", "{p}:walk/0", "j", "2,1"],
-    ["recolor", "{p}", "k=j"], ["mask", "{p}", "--keep", "0,0,1,1"]])
+    ["recolor", "{p}", "k=j"], ["mask", "{p}:*", "--keep", "0,0,1,1"]])
 def test_no_selector_note_without_output_or_selector(tmp_path, capsys, argv):
     p = write(tmp_path, "h.px", EDITS)
     assert run(*[a.format(p=p) for a in argv]) == 0
@@ -2382,7 +2382,8 @@ def test_paste_goes_through_the_edit_path(tmp_path, capsys):
     s = write(tmp_path, "s.px", "k #000000\nk\n")
     assert run("paste", s, "--into", f"{p}:idle", "--at", "0,0") == 0
     assert "no change" in capsys.readouterr().out
-    assert run("paste", s, "--into", p, "--at", "2,1") == 0
+    assert "E_SELECT" in run_err("paste", s, "--into", p, "--at", "2,1")  # --at is one frame's x,y
+    assert run("paste", s, "--into", f"{p}:*", "--at", "2,1") == 0
     doc = pxart.parse(p)
     assert all(f.grid[1][2] == "k" for f in doc.frames)
 
@@ -2697,8 +2698,8 @@ PAL_HERO = "pxart 1\n@palette pal.px\n@anim w ms=90\n\n@frame w/0\nkg\n@frame w/
     ["recolor", "{h}", "k=g", "-o", "{o}/c.px"],
     ["set", "{h}:w/0", "g", "0,0", "-o", "{o}/c.px"],
     ["fill", "{h}", "g", "-o", "{o}/c.px"],
-    ["mask", "{h}", "--keep", "0,0,1,1", "-o", "{o}/c.px"],
-    ["line", "{h}", "g", "0,0", "1,0", "-o", "{o}/c.px"],
+    ["mask", "{h}:*", "--keep", "0,0,1,1", "-o", "{o}/c.px"],
+    ["line", "{h}:*", "g", "0,0", "1,0", "-o", "{o}/c.px"],
     ["outline", "{h}", "--key", "g", "--inside", "-o", "{o}/c.px"],
     ["paste", "{h}:w/0", "--into", "{h}:w/1", "--at", "1,0", "-o", "{o}/c.px"],
     ["shade", "{h}:w/0", "--ramp", "kg", "--keys", "kg", "-o", "{o}/c.px"],
@@ -4002,7 +4003,7 @@ def test_recolor_swap_region_only(tmp_path):
 
 def test_recolor_swap_region_and_selection(tmp_path):
     p = write(tmp_path, "s.px", SWAP)
-    assert run("recolor", p, "r<>g", "--region", "2,1,2,1") == 0
+    assert run("recolor", f"{p}:*", "r<>g", "--region", "2,1,2,1") == 0
     assert grids(p) == {"a": ["kjrg", "jkrg"], "b": ["kkjj"]}
 
 
@@ -4976,14 +4977,14 @@ def test_mask_keep_keys(tmp_path, capsys, keys):
     p = write(tmp_path, "m.px", MASKK)
     assert run("mask", p, "--keep-keys", keys) == 0
     assert grids(p) == {"a": ["WTt.", ".WTt"], "b": ["....", "WWWW"]}
-    assert capsys.readouterr().out == f"erased 6 px; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nerased 6 px; wrote {p}\n"
 
 
 def test_mask_drop_keys(tmp_path, capsys):
     p = write(tmp_path, "m.px", MASKK)
     assert run("mask", p, "--drop-keys", "W,k") == 0
     assert grids(p) == {"a": [".Tt.", "..Tt"], "b": ["....", "...."]}
-    assert capsys.readouterr().out == f"erased 12 px; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nerased 12 px; wrote {p}\n"
 
 
 def test_mask_keep_and_drop_split_every_pixel(tmp_path):
@@ -5073,26 +5074,27 @@ def test_help_documents_mask_keys():
 
 
 # ---------------------------------------------------------------- GAMES-295: recolor says how many frames
+# (now the edit path's "edited N frames": the frames whose pixels changed, named)
 
 @pytest.mark.parametrize("target, maps, want", [
-    ("{p}", ["k=j"], "applied to 3 frames; wrote {p}"),                  # no selector: every frame
+    ("{p}", ["k=j"], "edited 2 frames: a, b\nwrote {p}"),              # no selector: every frame; c has no k
     ("{p}:a", ["k=j"], "wrote {p}"),                                     # one frame: no count
-    ("{p}", ["k<>j"], "applied to 3 frames; wrote {p}"),
+    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nwrote {p}"),
     ("{p}", ["k=#123456"], "wrote {p}"),                                 # a color change moves no pixels
-    ("{p}", ["k=#123456", "j=r"], "applied to 3 frames; wrote {p}"),
-    ("{p}", ["q=r"], "applied to 3 frames; no change: {p}"),            # q is in no frame: nothing changes
+    ("{p}", ["k=#123456", "j=r"], "edited 2 frames: a, c\nwrote {p}"),
+    ("{p}", ["q=r"], "no change: {p}"),                                  # q is in no frame: nothing changes
 ])
 def test_recolor_says_applied_to_n_frames(tmp_path, capsys, target, maps, want):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\nr #ff0000\nq #00ff00\n@frame a\nkj\n@frame b\nkr\n"
               "@frame c\njj\n")
     assert run("recolor", target.format(p=p), *maps) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == want.format(p=p)
+    assert capsys.readouterr().out == want.format(p=p) + "\n"
 
 
 def test_recolor_group_selector_counts_its_frames(tmp_path, capsys):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame w/0\nk\n@frame w/1\nk\n@frame x\nk\n")
     assert run("recolor", f"{p}:w", "k=j") == 0
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"
     assert grids(p) == {"w/0": ["j"], "w/1": ["j"], "x": ["k"]}
 
 
@@ -5288,7 +5290,7 @@ def test_recolor_rename_whole_file_renames_the_lines_in_place(tmp_path, capsys):
     assert run("recolor", p, "w>Z") == 0
     assert p.read_text() == RENAME.replace("w #", "Z #").replace("kw\n", "kZ\n").replace("ww\n", "ZZ\n")
     assert renders(p) == before
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
 
 
 def test_recolor_rename_part_keeps_the_old_key(tmp_path, capsys):
@@ -8964,7 +8966,7 @@ def test_shade_count_sums_over_frames(tmp_path, capsys):
     body = "\n".join(square_rows(6, pad=0))
     p = write(tmp_path, "m.px", SHADE_PAL + f"@frame w/0\n{body}\n@frame w/1\n{body}\n")
     assert run("shade", f"{p}:w", "--ramp", RAMP, "--light", "n") == 0
-    assert capsys.readouterr().out == f"changed 48 px: 8->A, 16->B, 16->D, 8->E; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nchanged 48 px: 8->A, 16->B, 16->D, 8->E; wrote {p}\n"
 
 
 def test_help_documents_changed_counts():
@@ -9287,21 +9289,21 @@ REPOINT_CMDS = {
     "transpose": ["transpose", "{p}"],
     "shift": ["shift", "{p}", "--dx", "1"],
     "shift-wrap": ["shift", "{p}", "--dx", "1", "--wrap"],
-    "mask": ["mask", "{p}", "--keep", "0,0,2,2"],
+    "mask": ["mask", "{p}:*", "--keep", "0,0,2,2"],
     "recolor": ["recolor", "{p}", "k=r"],
     "recolor-color": ["recolor", "{p}", "g=#00ff00"],
     "set": ["set", "{p}:walk/0", "w", "0,0"],
-    "fill": ["fill", "{p}", "w", "--region", "0,0,1,1"],
-    "line": ["line", "{p}", "w", "0,0", "3,3"],
-    "rect": ["rect", "{p}", "w", "0,0,2,2"],
-    "poly": ["poly", "{p}", "w", "0,0", "3,0", "3,3", "--fill"],
-    "paste-under": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1", "--under"],
-    "ellipse": ["ellipse", "{p}", "w", "1,1,1,1"],
-    "arc": ["arc", "{p}", "w", "2,2,2", "0,90"],
-    "flood": ["flood", "{p}", "w", "3,0"],
+    "fill": ["fill", "{p}:*", "w", "--region", "0,0,1,1"],
+    "line": ["line", "{p}:*", "w", "0,0", "3,3"],
+    "rect": ["rect", "{p}:*", "w", "0,0,2,2"],
+    "poly": ["poly", "{p}:*", "w", "0,0", "3,0", "3,3", "--fill"],
+    "paste-under": ["paste", "{s}:walk/0", "--into", "{p}:*", "--at", "1,1", "--under"],
+    "ellipse": ["ellipse", "{p}:*", "w", "1,1,1,1"],
+    "arc": ["arc", "{p}:*", "w", "2,2,2", "0,90"],
+    "flood": ["flood", "{p}:*", "w", "3,0"],
     "outline": ["outline", "{p}", "--key", "w"],
     "shade": ["shade", "{p}", "--ramp", "krw", "--keys", "k"],
-    "paste": ["paste", "{s}:walk/0", "--into", "{p}", "--at", "1,1"],
+    "paste": ["paste", "{s}:walk/0", "--into", "{p}:*", "--at", "1,1"],
     "dup": ["dup", "{p}:walk/0", "walk/2"],
     "anim-set": ["anim-set", "{p}:walk", "ms=50"],
     "anim-set-frame": ["anim-set", "{p}:walk/1", "ms=50"],
@@ -17228,7 +17230,7 @@ def test_recolor_rename_into_a_key_renamed_away(tmp_path, capsys):
     assert doc.palette == {"G": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
     assert doc.variants["dusk"] == {"G": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
     assert renders(p) == before
-    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
 
 
 def test_recolor_rename_into_a_freed_key_any_order(tmp_path):
@@ -17303,7 +17305,7 @@ def test_recolor_rename_swap_with_a_move(tmp_path):
 
 def test_recolor_rename_into_a_key_kept_by_the_region(tmp_path):
     p = write(tmp_path, "c.px", CHAIN)
-    msg = run_err("recolor", p, "g>G", "d>g", "--region", "0,0,1,1")
+    msg = run_err("recolor", f"{p}:*", "g>G", "d>g", "--region", "0,0,1,1")
     assert "E_BAD_ARG" in msg and "'g' stays one: 'g>G' leaves it in the palette (pixels outside the recolor " \
         "still draw with it)" in msg
     assert p.read_text() == CHAIN
@@ -21118,9 +21120,9 @@ def test_recolor_rename_onto_other_color_key_keeps_the_old_advice(tmp_path):
 
 def test_recolor_rename_onto_same_color_with_a_region(tmp_path):
     p = write(tmp_path, "s.px", SAMECOLOR)
-    msg = run_err("recolor", p, "i>y", "--region", "0,0,1,1")
+    msg = run_err("recolor", f"{p}:*", "i>y", "--region", "0,0,1,1")
     assert "write 'i=y'" in msg
-    assert run("recolor", p, "i=y", "--region", "0,0,1,1") == 0 and grids(p) == {"a": ["yyk"], "b": ["kki"]}
+    assert run("recolor", f"{p}:*", "i=y", "--region", "0,0,1,1") == 0 and grids(p) == {"a": ["yyk"], "b": ["kki"]}
 
 
 def test_recolor_rename_onto_same_color_other_moves_still_checked_first(tmp_path):
@@ -24932,3 +24934,217 @@ def test_readme_describes_the_command_help_order():
     assert "its usage and a line or three saying what it's for, its options one per line, then the details and " \
         "heuristics, then a see-also line" in readme
     assert 'zsh users: write `"${F}:walk"`, not `"$F:walk"`' in readme
+
+
+# ---------------------------------------------------------------- pixel coordinates address one frame; an edit of
+# several frames names them
+
+SEVERAL = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nkjjk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n" \
+    "@frame w/2\njjjj\njjjj\njjjj\njjjj\n"
+ONE = "k #000000\nj #ffffff\nkkkk\nkjjk\nkjjk\nkkkk\n"
+
+# Commands given pixel coordinates: argv with {p} for the target, {s} for a paste source.
+COORD_CMDS = {
+    "set": ["set", "{p}", "j", "0,0"],
+    "set-many": ["set", "{p}", "j", "0,0", "3,3"],
+    "fill-region": ["fill", "{p}", "j", "--region", "0,0,2,2"],
+    "line": ["line", "{p}", "j", "0,0", "3,3"],
+    "rect": ["rect", "{p}", "j", "0,0,4,4"],
+    "rect-fill": ["rect", "{p}", "j", "0,0,2,2", "--fill"],
+    "poly": ["poly", "{p}", "j", "0,0", "3,0", "3,3", "--fill"],
+    "ellipse": ["ellipse", "{p}", "j", "1.5,1.5,1.5,1.5"],
+    "arc": ["arc", "{p}", "j", "2,2,2", "0,180"],
+    "flood": ["flood", "{p}", "j", "0,0"],
+    "paste": ["paste", "{s}", "--into", "{p}", "--at", "1,1"],
+    "paste-under": ["paste", "{s}", "--into", "{p}", "--at", "1,1", "--under"],
+    "mask-keep": ["mask", "{p}", "--keep", "0,0,2,2"],
+    "mask-circle": ["mask", "{p}", "--keep-circle", "1,1,1"],
+    "shift-region": ["shift", "{p}", "--dx", "1", "--region", "0,0,2,2"],
+    "recolor-region": ["recolor", "{p}", "k<>j", "--region", "0,0,2,2"],
+    "shade-region": ["shade", "{p}", "--ramp", "kj", "--keys", "kj", "--region", "0,0,3,3"],
+}
+
+
+def coord_argv(tmp_path, name, target):
+    s = write(tmp_path, "src.px", "k #000000\nj #ffffff\njj\njj\n")
+    return [a.format(p=target, s=s) for a in COORD_CMDS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_several_frames_need_a_selector(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    msg = run_err(*coord_argv(tmp_path, name, p))
+    assert "E_SELECT" in msg and "pixel coordinates (" in msg and "address one frame" in msg
+    assert f"{p} has 3 frames: w/0, w/1, w/2" in msg
+    assert f"{p}:w/0 (a frame)" in msg and f"{p}:w (a group)" in msg and f"'{p}:*' (every frame" in msg
+    assert p.read_text() == SEVERAL  # nothing written
+    assert capsys.readouterr().out == ""  # a failed command prints no notes
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_with_star_edit_every_frame(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:*")) == 0
+    after = grids(p)
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    out = capsys.readouterr().out
+    assert "gets all of" not in out  # ':*' is the whole file: no note about the other frames
+    if len(touched) > 1:
+        assert f"edited {len(touched)} frames: {', '.join(touched)}\n" in out
+    else:
+        assert "edited" not in out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_with_one_frame_selected(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL)
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:w/0")) == 0
+    after = grids(p)
+    assert after["w/1"] == before["w/1"] and after["w/2"] == before["w/2"]
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_a_one_frame_file_need_no_selector(tmp_path, capsys, name):
+    p = write(tmp_path, "one.px", ONE)
+    assert run(*coord_argv(tmp_path, name, p)) == 0
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_on_a_one_frame_named_file_need_no_selector(tmp_path, name):
+    p = write(tmp_path, "one.px", "k #000000\nj #ffffff\n@frame solo\nkkkk\nkjjk\nkjjk\nkkkk\n")
+    assert run(*coord_argv(tmp_path, name, p)) == 0
+
+
+@pytest.mark.parametrize("name", sorted(COORD_CMDS))
+def test_coordinates_group_selector_names_its_frames(tmp_path, capsys, name):
+    p = write(tmp_path, "m.px", SEVERAL.replace("@frame w/2", "@frame x"))
+    before = grids(p)
+    assert run(*coord_argv(tmp_path, name, f"{p}:w")) == 0
+    after = grids(p)
+    assert after["x"] == before["x"]
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    out = capsys.readouterr().out
+    assert (f"edited {len(touched)} frames: {', '.join(touched)}\n" in out) == (len(touched) > 1)
+
+
+def test_coordinates_error_output_to_another_file_writes_nothing(tmp_path):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert "E_SELECT" in run_err("set", p, "j", "0,0", "-o", tmp_path / "o.px")
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_set_every_frame_reports_them(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("set", f"{p}:*", "j", "0,0") == 0
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"  # w/2's 0,0 is already j
+    assert [g[0][0] for g in grids(p).values()] == ["j", "j", "j"]
+
+
+def test_fill_without_region_is_a_whole_frame_edit(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("fill", p, "k") == 0
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {p}\n"
+    assert all(g == ["kkkk"] * 4 for g in grids(p).values())
+
+
+# Whole-frame edits: a plain FILE is every frame, and the note names what changed.
+WHOLE_CMDS = {
+    "flip": ["flip", "{p}"],
+    "flip-v": ["flip", "{p}", "--v"],
+    "rotate": ["rotate", "{p}", "90"],
+    "transpose": ["transpose", "{p}"],
+    "shift": ["shift", "{p}", "--dx", "1"],
+    "shift-wrap": ["shift", "{p}", "--dx", "1", "--wrap"],
+    "recolor": ["recolor", "{p}", "k<>j"],
+    "mask-keys": ["mask", "{p}", "--drop-keys", "k"],
+    "fill": ["fill", "{p}", "j"],
+    "outline": ["outline", "{p}", "--key", "j", "--inside"],
+    "shade": ["shade", "{p}", "--ramp", "kj", "--keys", "kj"],
+}
+WHOLE = "k #000000\nj #ffffff\n@frame a\nk...\nkk..\n@frame b\n..kk\n...k\n@frame c\nkkk.\n.k..\n@frame d\n....\n....\n"
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_keep_every_frame_and_name_them(tmp_path, capsys, name):
+    p = write(tmp_path, "w.px", WHOLE)
+    before = grids(p)
+    assert run(*[a.format(p=p) for a in WHOLE_CMDS[name]]) == 0
+    after = grids(p)
+    touched = [fid for fid in before if before[fid] != after[fid]]
+    assert len(touched) > 1
+    out = capsys.readouterr().out
+    assert f"edited {len(touched)} frames: {', '.join(touched)}\n" in out
+    assert out.index("edited") < out.index("wrote")
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_of_one_frame_say_nothing_more(tmp_path, capsys, name):
+    p = write(tmp_path, "w.px", WHOLE)
+    assert run(*[a.format(p=f"{p}:a") for a in WHOLE_CMDS[name]]) == 0
+    assert "edited" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_CMDS))
+def test_whole_frame_edits_with_star_match_a_plain_file(tmp_path, capsys, name):
+    p, q = write(tmp_path, "p.px", WHOLE), write(tmp_path, "q.px", WHOLE)
+    assert run(*[a.format(p=p) for a in WHOLE_CMDS[name]]) == 0
+    one = capsys.readouterr().out.replace(str(p), "F")
+    assert run(*[a.format(p=f"{q}:*") for a in WHOLE_CMDS[name]]) == 0
+    assert capsys.readouterr().out.replace(str(q), "F") == one
+    assert p.read_text() == q.read_text()
+
+
+def test_edited_note_truncates_a_long_list(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n" + "".join(f"@frame walk/down/{i}\nk.\n" for i in range(16)))
+    assert run("flip", p) == 0
+    assert capsys.readouterr().out == f"edited 16 frames: walk/down/0, walk/down/1, walk/down/2 and 13 more\nwrote {p}\n"
+
+
+def test_edited_note_counts_only_changed_frames(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nk.\n@frame b\nkk\n@frame c\n.k\n")
+    assert run("flip", p) == 0  # b is symmetric
+    assert capsys.readouterr().out == f"edited 2 frames: a, c\nwrote {p}\n"
+
+
+def test_edited_note_not_on_no_change(tmp_path, capsys):
+    p = write(tmp_path, "m.px", "k #000000\n@frame a\nkk\n@frame b\nkk\n")
+    assert run("flip", p) == 0
+    assert capsys.readouterr().out == f"no change: {p}\n"
+
+
+def test_edited_note_not_on_preview(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("outline", p, "--key", "j", "--inside", "--preview", tmp_path / "v.png") == 0
+    assert not capsys.readouterr().out.startswith("edited")
+
+
+def test_edited_note_with_output_elsewhere(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    out = tmp_path / "o.px"
+    assert run("recolor", p, "k<>j", "-o", out) == 0
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {out}\n"
+    assert p.read_text() == SEVERAL
+
+
+def test_star_selects_every_frame_for_looking_too(tmp_path):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert [f.id for f in pxart.parse(p).select("*")] == ["w/0", "w/1", "w/2"]
+    assert run("render", f"{p}:*", "-o", tmp_path / "r.png") == 0
+
+
+def test_put_still_names_one_frame(tmp_path, monkeypatch):
+    p = write(tmp_path, "m.px", SEVERAL)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("kk\nkk\n"))
+    assert "E_SELECT" in run_err("put", p)
+    assert p.read_text() == SEVERAL
+
+
+def test_help_documents_selector_rule():
+    doc = " ".join(pxart.__doc__.split())
+    assert "Coordinates (x,y, --region, --at) are one frame's: a file of several needs FILE:SEL ('FILE:*': all)" in doc
+    assert "one that edits several frames names them" in doc
+    assert "No SEL (or *) means every frame" in doc

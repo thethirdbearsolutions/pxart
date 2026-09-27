@@ -99,7 +99,12 @@ pxart 1
   starts a still group.
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
-`file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's
+`file.px:walk/down/0` (one frame); `'file.px:*'` (quoted for the shell) is every frame, as a
+plain `file.px` is. Pixel coordinates address one frame, so on a file of several frames `set`,
+`fill --region`, `line`, `rect`, `poly`, `ellipse`, `arc`, `flood`, `paste --at`, `mask --keep`
+and a `--region` of `shift`, `recolor` or `shade` want one of these, and the `E_SELECT` lists
+the frames. An edit that changes several frames names them before `wrote`: `edited 16 frames:
+walk/down/0, walk/down/1, walk/down/2 and 13 more`. A file with one unnamed grid calls it by the file's
 name (`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o
 ant.px:ant`) first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`:
 `"$F:walk/down"` applies a modifier, and a missing input like `hero.pxalk/down` is

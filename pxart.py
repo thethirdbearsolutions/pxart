@@ -44,9 +44,9 @@ FORMAT (.px)
   commands that render it print a WARNING naming them and the fix, and check notes it.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame). No SEL means every frame. A file with
-  one unnamed grid (no @frame) calls it by the file's name, as frames lists it: ant.px's
-  grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
+  path (FILE:walk/down = every walk/down/* frame). No SEL (or *) means every frame. A
+  file with one unnamed grid (no @frame) calls it by the file's name, as frames lists it:
+  ant.px's grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
   ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
   ant that is the frame written. Add %VARIANT to render with a variant: FILE:idle/0%night.
   +----------------------------------------------------------------------------------------+
@@ -309,14 +309,16 @@ CHECKING
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
-  frames edited and every other frame as it was (like editing a copy), and a note says so.
+  frames edited and every other frame as it was, and a note says so.
   To get only some frames, extract them first (or after). An OUT in another directory gets
   its @palette lines re-pointed from there (-o art/x.px of a file with '@palette pal.px'
   writes '@palette ../pal.px'), so it imports the same palette file; an absolute path stays.
   Edits rewrite only what changed: other lines keep their spelling and the blank lines and
   comments above them, and new frames get the file's spacing between @frame blocks.
-  An edit that changes nothing (set to the same key, flip of a symmetric frame) prints
-  "no change: FILE" and leaves the file untouched.
+  An edit changing nothing (set to the same key, flip of a symmetric frame) prints
+  "no change: FILE" and writes nothing; one that edits several frames names them.
+  Coordinates (x,y, --region, --at) are one frame's: a file of several needs FILE:SEL
+  ('FILE:*': all).
   Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
   unknown @sections), so an @anim written between frames moves up; a comment inside the
   file stays with the line below it and goes when that line goes (a removed frame, cut rows).
@@ -399,9 +401,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       d to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look). A key the
       call keeps (pixels outside --region or the selection draw with it, it is imported, or
       c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
-      the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
-      :SEL moves keys in every frame; moves over more than one frame print "applied to N
-      frames".
+      the palette and don't move pixels, so c=#hex and c=d can share a call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
         [--variant-map NAME=V1,V2] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
@@ -1083,6 +1083,7 @@ class Doc:
         self.dot_at = None          # where a '. transparent' line sat among the palette keys
         self.frame_gap = None       # blank lines the file puts between @frame blocks
         self.newline, self.final_newline = "\n", True
+        self.before = None          # edit_target: each frame's grid before the edit, to say what it touched
 
     @property
     def stem(self):
@@ -1119,7 +1120,7 @@ class Doc:
         return f.pivot or self.anims.get(f.group, {}).get("pivot")
 
     def select(self, sel):
-        if not sel:
+        if not sel or sel == "*":  # FILE:* says every frame out loud
             return list(self.frames)
         if self.implicit and sel == self.stem:  # the unnamed grid goes by the file's name, as frames lists it
             return list(self.frames)
@@ -2161,6 +2162,10 @@ def write_doc(doc, path=None):
     @palette lines are re-pointed from there (repoint)."""
     path = pathlib.Path(path or doc.path)
     repoint(doc, path)
+    if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
+        touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
+        if len(touched) > 1:
+            print(f"edited {len(touched)} frames: {listed(touched)}")
     text = doc.text()
     try:
         with open(path, newline="") as fh:
@@ -2171,17 +2176,26 @@ def write_doc(doc, path=None):
     return f"wrote {doc.save(path)}"
 
 
-def edit_target(arg, out, label="FILE"):
+def edit_target(arg, out, label="FILE", coords=None):
     """The shared edit path: (doc, selected frames, where to write). -o gets the whole file with the selection
-    edited, never just the selection (that's extract)."""
+    edited, never just the selection (that's extract). coords names the pixel coordinates the command was given
+    ('x,y', '--region'): they address one frame, so a file of several frames needs FILE:SEL, FILE:* for all."""
     path, sel = split_sel(arg)
     with reading(f"{label} ({arg})"):
         doc = parse(path)
+        if coords and not sel and len(doc.frames) > 1:
+            ids = [doc.label(f) for f in doc.frames]
+            group = next((f.group for f in doc.frames if f.group), None)
+            fail("E_SELECT", f"pixel coordinates ({coords}) address one frame, and {path} has {len(ids)} frames: "
+                 f"{', '.join(ids)}; say which: {path}:{ids[0]} (a frame)"
+                 + (f", {path}:{group} (a group)" if group else "") + f", or '{path}:*' (every frame; quoted, "
+                 "or the shell expands the *)", path=path)
         frames = doc.select(sel)
     out = pathlib.Path(out) if out else doc.path
-    if sel and out.resolve() != doc.path.resolve():
+    if sel and sel != "*" and out.resolve() != doc.path.resolve():
         print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
               f"'pxart extract {doc.path}:{sel} -o {out}'")
+    doc.before = {id(f): list(f.grid) for f in doc.frames}
     return doc, frames, out
 
 
@@ -4052,7 +4066,7 @@ def cmd_transpose(a):
 
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     if a.fill is not None and a.wrap:
         fail("E_BAD_ARG", "--fill paints the pixels a shift leaves behind; --wrap leaves none")
@@ -4146,7 +4160,8 @@ def cmd_mask(a):
         save_image(img, out)
         print(f"erased {erased} px; wrote {out}")
         return
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=(a.keep or a.keep_circle) and "--keep"
+                                   + "-circle" * (not a.keep))
     keys = set(key_list(by_key, "--keep-keys" if a.keep_keys else "--drop-keys")) if by_key else set()
     if keys - set(doc.resolved()):
         fail("E_SELECT", f"mask: keys {''.join(sorted(keys - set(doc.resolved())))!r} aren't in the palette")
@@ -4166,7 +4181,7 @@ def cmd_recolor(a):
     call, so they can't feed each other, and a key 'a>b' frees ('b>c' in the same call) can be a new key's name: 'a>b'
     'b>a' swaps two keys' names, pixels and colors staying as they look. Color changes (c=#hex) set the palette and
     are independent of moves."""
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     moves, said, renames = {}, {}, {}
     for m in a.maps:
@@ -4265,8 +4280,7 @@ def cmd_recolor(a):
         f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     rename_keys(doc, renames, left)
-    many = f"applied to {len(frames)} frames; " if moves and len(frames) > 1 else ""  # a whole file is easy to miss
-    print(many + write_doc(doc, out))
+    print(write_doc(doc, out))
 
 
 def rename_key(doc, k, v):
@@ -4310,7 +4324,7 @@ def rename_keys(doc, renames, left=None):
 
 
 def cmd_set(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords="x,y")
     if a.key not in doc.resolved():
         fail("E_SELECT", f"set: key {a.key!r} not in palette (add it with palette --add)")
     for f in frames:
@@ -4344,7 +4358,7 @@ def cmd_paste(a):
         src = place_item(a.src, "paste source")
         if not src.doc:
             fail("E_BAD_ARG", f"paste copies a .px frame, got {src.label}")
-    ddoc, dframes, out = edit_target(a.into, a.o, "--into")
+    ddoc, dframes, out = edit_target(a.into, a.o, "--into", coords="--at")
     ax, ay = map(int, a.at.split(","))
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, ddoc, out, [src.doc])
@@ -4556,7 +4570,7 @@ def cmd_put(a):
 
 
 def cmd_fill(a):
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     if a.key not in doc.resolved():
         fail("E_SELECT", f"fill: key {a.key!r} not in palette (add it with palette --add)")
     for f in frames:
@@ -4737,7 +4751,9 @@ def paint(f, pts, key):
 
 def draw(a, shape):
     """The drawing commands' shared edit: paint shape(frame) -> pixels with a.key in each selected frame."""
-    doc, frames, out = edit_target(a.file, a.o)
+    where = {"line": "x0,y0 x1,y1", "rect": "x,y,w,h", "poly": "x,y ...", "ellipse": "cx,cy,rx,ry", "arc": "cx,cy,r",
+             "flood": "x,y"}[a.cmd]
+    doc, frames, out = edit_target(a.file, a.o, coords=where)
     if a.key not in doc.resolved():
         fail("E_SELECT", f"{a.cmd}: key {a.key!r} not in palette (add it with palette --add)")
     changed = 0
@@ -4978,7 +4994,7 @@ def cmd_shade(a):
     """Re-shade a material (the pixels whose key is in --keys) with a ramp, lit from --light."""
     if a.preview and a.o:
         fail("E_BAD_ARG", "shade: --preview renders the result to a PNG and writes nothing; drop -o or --preview")
-    doc, frames, out = edit_target(a.file, a.o)
+    doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
     ramp = key_list(a.ramp, "--ramp")
     keys = key_list(a.keys, "--keys") if a.keys else list(ramp)
