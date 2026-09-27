@@ -207,7 +207,9 @@ rather than repeating them.
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
   from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g`
-  moves a sprite's own keys into the palette file it imports; `--remove k,n` takes out keys
+  moves a sprite's own keys into the palette file it imports; `--import pal.px` adds a
+  `@palette pal.px` line to a sprite and drops its key lines pal.px has in the same colors, so it
+  renders as before; `--remove k,n` takes out keys
   no frame draws with (`--to j` repaints their pixels as j first; an imported key then goes from
   its palette file only when no other `.px` under the directory holding both, or `--in DIR`, uses
   it); `--comment k 'text'`,

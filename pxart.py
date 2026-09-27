@@ -506,7 +506,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
           [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
-          [--remove KEYS [--to KEY]] [--in DIR]
+          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px]
       No flags: lists the keys, their colors, where they come from and how often they're
       used, then each variant's keys: 'dusk: recolors (darker) o x X c C; inherits: e E q'
       (the keys it recolors, then the base keys it leaves alone, both in palette order). A
@@ -558,6 +558,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       stays there, and a line names who uses it: 'b stays in pal.px: cavegirl.px uses it'.
       Removing a key from a palette file itself can't see the sprites that import it, so
       check them after (palette pal.px --in DIR shows who draws with each key).
+      --import P.px adds '@palette P.px' to FILE (re-pointed from FILE's directory) and drops
+      FILE's key lines P has in the same colors (and their variant lines P's variants say
+      already), saying which: 'dropped o t k (their key lines: the same colors in pal.px)'. A
+      key FILE has in another color than P's is E_KEY_CONFLICT, with free keys for FILE's
+      and the recolor that moves them ('pxart recolor boy.px 'k>a''), then --import again.
+      FILE renders as before, in every variant it had: where P's variant of that name would
+      recolor a key FILE keeps, FILE's variant lists the key's color, and says so. A variant
+      only P has comes along (a note says so).
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4899,6 +4907,15 @@ def cmd_palette(a):
              "them inherit the base colors) or --comment KEY 'text' (the comment above k's line in it)")
     if a.to is not None and not a.remove:
         fail("E_BAD_ARG", f"--to {a.to} goes with --remove KEYS: their pixels become {a.to} before the keys go")
+    if a.import_:
+        given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
+                                ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
+                                ("--derive-from", a.derive_from), ("--remove", a.remove)) if v] \
+            + (["--comment-header"] if a.comment_header is not None else [])
+        if given:
+            fail("E_BAD_ARG", f"--import adds a @palette line to FILE: give it alone, not with {', '.join(given)}")
+        print(import_palette(doc, a.import_))
+        return
     if a.remove:
         given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
                                 ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
@@ -5284,6 +5301,78 @@ def remove_keys(doc, keys, to=None, within=None):
     if imported:
         said += import_removal(doc, owners, within, later)
     return "; ".join(said + [write_doc(doc)] + later)
+
+
+def import_palette(doc, pal):
+    """palette FILE --import P.px: FILE gets '@palette P.px' (re-pointed from FILE's directory). FILE's own key lines
+    that P gives the same color go (their comments too; P documents them). A key FILE has that P gives another color
+    is E_KEY_CONFLICT, with free keys to move FILE's to first. FILE renders as before in its base palette and in every
+    variant it had: where P's variant of that name would recolor a key FILE keeps, FILE's variant lists the key's
+    color. What it did."""
+    with reading(f"--import ({pal})"):
+        try:
+            sub = parse(pal, palette_only=True)
+        except FileNotFoundError:
+            fail("E_PALETTE_FILE", f"can't find palette file {str(pal)!r}")
+    target = pathlib.Path(pal).resolve()
+    if target == doc.path.resolve() or doc.path.resolve() in import_chain(sub):
+        fail("E_BAD_ARG", f"--import {pal}: {doc.path} can't import itself" + (
+            "" if target == doc.path.resolve() else f" ({pal} imports it)"), path=doc.path)
+    if target in import_chain(doc):
+        return f"{doc.path} already imports {pal}; no change: {doc.path}"
+    theirs, mine = sub.resolved(), doc.resolved()
+    bad = [k for k in mine if k != "." and k in theirs and theirs[k] != mine[k]]
+    if bad:
+        moves = new_keys(bad, mine, theirs, set(mine) | set(theirs))
+        each = ", ".join(f"{k!r} {fmt_color(mine[k])} ({pal}: {fmt_color(theirs[k])})" for k in bad)
+        fix = (f"; give {doc.path}'s {'ones' if len(bad) > 1 else 'one'} free keys first (no pixel changes color): "
+               f"pxart recolor {shlex.quote(str(doc.path))} "
+               + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items())
+               + f", then palette {doc.path} --import {pal}") if moves else             "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
+        fail("E_KEY_CONFLICT", f"--import {pal}: {len(bad)} key{'s' * (len(bad) > 1)} of {doc.path} "
+             f"{'are other colors' if len(bad) > 1 else 'is another color'} in {pal}: {each}{fix}", path=doc.path)
+    names = variant_names(doc)
+    before = {n: doc.resolved(n) for n in names}
+    ref = pathlib.Path(os.path.relpath(target, doc.path.resolve().parent)).as_posix()
+    imports(doc, ref, sub)
+    same = [k for k in doc.palette if k in theirs]
+    order = list(doc.palette)
+    if doc.dot_at is not None:
+        doc.dot_at -= sum(1 for k in same if order.index(k) < doc.dot_at)
+    for k in same:
+        del doc.palette[k]
+        for store in (doc.lead, doc.raw, doc.at):
+            store.pop(("key", k), None)
+    base, lines = doc.resolved(), []
+    for n, over in list(doc.variants.items()):  # a dropped key's variant line P's variant says already goes too
+        for k in [k for k in same if k in over and over[k] == doc.shared_variants.get(n, {}).get(k, base[k])]:
+            del over[k]
+            lines.append(n)
+            for store in (doc.lead, doc.raw, doc.at):
+                store.pop(("vkey", n, k), None)
+        if not over and n in doc.shared_variants and not any(l.strip() for l in doc.lead.get(("variant", n)) or []):
+            del doc.variants[n]
+            for store in (doc.lead, doc.raw, doc.at):
+                store.pop(("variant", n), None)
+    kept = {}
+    for n in names:
+        now = doc.resolved(n)
+        for k, c in before[n].items():
+            if k != "." and now[k] != c:
+                doc.variants.setdefault(n, {})[k] = c
+                kept.setdefault(n, []).append(k)
+    said = [f"imported {pal} (@palette {ref})"]
+    if same:
+        said.append(f"dropped {' '.join(same)} ({'their key lines' if len(same) > 1 else 'its key line'}"
+                    + (f" and {len(lines)} line{'s' * (len(lines) > 1)} in @variant {', '.join(dict.fromkeys(lines))}"
+                       if lines else "") + f": the same color{'s' * (len(same) > 1)} in {pal})")
+    for n, ks in kept.items():
+        said.append(f"@variant {n} lists {' '.join(ks)} in {doc.path.name}'s colors ({pal}'s {n} recolors "
+                    f"{'them' if len(ks) > 1 else 'it'})")
+    new = [n for n in variant_names(doc) if n not in names]
+    if new:
+        said.append(f"{doc.path.name} now has {pal}'s @variant {', '.join(new)}")
+    return "; ".join(said + [write_doc(doc)])
 
 
 def drop_key_lines(doc, keys):
@@ -5967,6 +6056,8 @@ def parser(describe=True):
                    help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
                         "comment line above that line ('' removes it)")
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
+    p.add_argument("--import", dest="import_", metavar="P.px",
+                   help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("help")

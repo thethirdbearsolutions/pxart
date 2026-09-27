@@ -16479,6 +16479,7 @@ def help_fixtures(d):
                                 + "".join(f"@frame water/{i}\n" + ("b" * 16 + "\n") * 16 for i in range(2))
                                 + "@frame crate\n" + ("o" * 15 + ".\n") * 16)
     (d / "stall.px").write_text("r #c4473a\n" + ("r" * 32 + "\n") * 32)
+    (d / "boy.px").write_text("pxart 1\nk #965340\no #141b1b\n\nko\n")
     (d / "lamp.px").write_text("y #f3cf6b\n" + ("." * 7 + "yy" + "." * 7 + "\n") * 32)
     (d / "market.map").write_text("# ground layer, then props\nc tiles.px:cobble\nw tiles.px:water/0\n"
                                   "x tiles.px:crate+h\nS stall.px+b\nL lamp.px+b\nl lamp.px+hb\n\n"
@@ -17931,3 +17932,213 @@ def test_help_documents_compose_replace():
 def test_readme_documents_compose_replace():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "a plain OUT that exists keeps its palette, with a note, and `--replace` starts it as if new" in readme
+
+
+# ---------------------------------------------------------------- palette FILE --import P.px: add '@palette P.px',
+# drop FILE's key lines P has in the same colors, render the same
+
+IMP_PAL = "# cast palette\no #141b1b\n# teal\nt #548789\nk #965340\n\n@variant dusk\no #10121a\nt #526e72\nk #83473b\n"
+IMP_BOY = "pxart 1\n# boy\no #141b1b\nt #548789\nz #abcdef\n\n@variant dusk\no #10121a\nt #000000\n\n@frame b/0\notz\n"
+
+
+def imp(tmp_path, boy=IMP_BOY, pal=IMP_PAL):
+    return write(tmp_path, "pal.px", pal), write(tmp_path, "boy.px", boy)
+
+
+def test_import_adds_the_line_and_drops_same_keys(tmp_path, capsys):
+    pal, b = imp(tmp_path)
+    before = renders(b)
+    assert run("palette", b, "--import", pal) == 0
+    out = capsys.readouterr().out
+    assert out == (f"imported {pal} (@palette pal.px); dropped o t (their key lines and 1 line in @variant dusk: the "
+                   f"same colors in {pal}); wrote {b}\n")
+    doc = pxart.parse(b)
+    assert doc.palette_refs == ["pal.px"] and doc.palette == {"z": pxart.hex2rgba("#abcdef")}
+    assert doc.variants == {"dusk": {"t": (0, 0, 0, 255)}}  # boy's own dusk t stays: pal's differs
+    assert renders(b) == before
+
+
+def test_import_text(tmp_path, capsys):
+    pal, b = imp(tmp_path)
+    assert run("palette", b, "--import", pal) == 0
+    # '# boy' sat above o's line, so it goes with it, as a removed key's comment does
+    assert b.read_text() == "pxart 1\n@palette pal.px\nz #abcdef\n\n@variant dusk\nt #000000\n\n@frame b/0\notz\n"
+
+
+def test_import_from_another_directory_is_repointed(tmp_path, capsys):
+    (tmp_path / "pal").mkdir()
+    (tmp_path / "sprites").mkdir()
+    pal = write(tmp_path / "pal", "cast.px", IMP_PAL)
+    b = write(tmp_path / "sprites", "boy.px", IMP_BOY)
+    before = renders(b)
+    assert run("palette", b, "--import", pal) == 0
+    assert pxart.parse(b).palette_refs == ["../pal/cast.px"] and renders(b) == before
+
+
+def test_import_keeps_a_variant_the_file_had(tmp_path, capsys):
+    # boy's dusk lists nothing for k; pal's dusk recolors k: boy's dusk gets k's color on a line of its own.
+    pal, b = imp(tmp_path, boy="pxart 1\nk #965340\n\n@variant dusk\nq #111111\nq #111111\n\nk\n".replace(
+        "@variant dusk\nq #111111\nq #111111\n", "q #111111\n@variant dusk\nq #222222\n"))
+    before = renders(b)
+    assert run("palette", b, "--import", pal) == 0
+    out = capsys.readouterr().out
+    assert f"@variant dusk lists k in boy.px's colors ({pal}'s dusk recolors it)" in out
+    assert pxart.parse(b).variants["dusk"]["k"] == pxart.hex2rgba("#965340")
+    assert renders(b) == before
+
+
+def test_import_brings_a_new_variant(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\nk #965340\n\nk\n")
+    assert run("palette", b, "--import", pal) == 0
+    out = capsys.readouterr().out
+    assert f"boy.px now has {pal}'s @variant dusk" in out
+    doc = pxart.parse(b)
+    assert doc.palette == {} and doc.resolved("dusk")["k"] == pxart.hex2rgba("#83473b")
+
+
+def test_import_conflict(tmp_path):
+    pal, b = imp(tmp_path, boy=IMP_BOY.replace("t #548789", "t #ff0000"))
+    before = b.read_text()
+    msg = run_err("palette", b, "--import", pal)
+    assert "E_KEY_CONFLICT" in msg and f"1 key of {b} is another color in {pal}: 't' #ff0000 ({pal}: #548789)" in msg
+    assert f"give {b}'s one free keys first (no pixel changes color): pxart recolor {b} 't>a', then palette {b} " \
+        f"--import {pal}" in msg
+    assert b.read_text() == before
+
+
+def test_import_conflict_recipe_works(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy=IMP_BOY.replace("t #548789", "t #ff0000"))
+    before = renders(b)
+    msg = run_err("palette", b, "--import", pal)
+    recolor = shlex.split(msg.split("first (no pixel changes color): ")[1].split(", then ")[0])
+    assert run(*recolor[1:]) == 0
+    assert run("palette", b, "--import", pal) == 0
+    assert renders(b) == before and run("check", b) == 0
+
+
+def test_import_conflict_with_an_earlier_import(tmp_path):
+    write(tmp_path, "old.px", "t #ff0000\n")
+    pal, b = imp(tmp_path, boy="pxart 1\n@palette old.px\n\nt\n")
+    msg = run_err("palette", b, "--import", pal)
+    assert "E_KEY_CONFLICT" in msg and "'t' #ff0000" in msg
+
+
+def test_import_several_conflicts_get_distinct_keys(tmp_path):
+    pal, b = imp(tmp_path, boy="pxart 1\no #ff0000\nt #00ff00\na #0000ff\n\nota\n")
+    msg = run_err("palette", b, "--import", pal)
+    assert "2 keys of" in msg and "'o>b' 't>c'" in msg
+
+
+def test_import_already(tmp_path, capsys):
+    pal, b = imp(tmp_path)
+    assert run("palette", b, "--import", pal) == 0
+    text = b.read_text()
+    capsys.readouterr()
+    assert run("palette", b, "--import", pal) == 0
+    assert capsys.readouterr().out == f"{b} already imports {pal}; no change: {b}\n" and b.read_text() == text
+
+
+def test_import_already_through_a_chain(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\n@palette mid.px\n\nk\n")
+    write(tmp_path, "mid.px", "@palette pal.px\nm #000000\n")
+    assert run("palette", b, "--import", pal) == 0
+    assert "already imports" in capsys.readouterr().out
+
+
+def test_import_itself(tmp_path):
+    pal, b = imp(tmp_path)
+    assert "can't import itself" in run_err("palette", pal, "--import", pal)
+
+
+def test_import_a_cycle(tmp_path):
+    a = write(tmp_path, "a.px", "q #000000\n")
+    c = write(tmp_path, "c.px", "@palette a.px\nr #000001\n")
+    msg = run_err("palette", a, "--import", c)
+    assert "E_BAD_ARG" in msg and f"can't import itself ({c} imports it)" in msg
+
+
+def test_import_missing_file(tmp_path):
+    pal, b = imp(tmp_path)
+    msg = run_err("palette", b, "--import", tmp_path / "nope.px")
+    assert "E_PALETTE_FILE" in msg or "E_FILE" in msg
+
+
+def test_import_a_file_with_frames_is_no_palette(tmp_path):
+    pal, b = imp(tmp_path)
+    other = write(tmp_path, "other.px", "k #000000\n\nk\n")
+    msg = run_err("palette", b, "--import", other)
+    assert "E_PALETTE_FILE" in msg or "can't contain grid rows" in msg
+
+
+@pytest.mark.parametrize("more", [["--add", "q=#010101"], ["--hoist", "z"], ["--remove", "z"],
+                                  ["--comment-header", ""], ["--export", "x.gpl"]])
+def test_import_alone(tmp_path, more):
+    pal, b = imp(tmp_path)
+    msg = run_err("palette", b, "--import", pal, *more)
+    assert "E_BAD_ARG" in msg and "--import adds a @palette line to FILE: give it alone" in msg
+
+
+def test_import_into_a_palette_file(tmp_path, capsys):
+    pal, b = imp(tmp_path)
+    mine = write(tmp_path, "mine.px", "# mine\nk #965340\nq #123123\n")
+    assert run("palette", mine, "--import", pal) == 0
+    doc = pxart.parse(mine, palette_only=True)
+    assert doc.palette == {"q": pxart.hex2rgba("#123123")} and doc.palette_refs == ["pal.px"]
+
+
+def test_import_keeps_the_dot_line(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="o #141b1b\n. transparent\nz #abcdef\n\noz.\n")
+    assert run("palette", b, "--import", pal) == 0
+    assert b.read_text() == "@palette pal.px\n. transparent\nz #abcdef\n\noz.\n"
+
+
+def test_import_drops_the_comments_of_dropped_keys(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\n# the outline\no #141b1b\n# mine\nz #abcdef\n\noz\n")
+    assert run("palette", b, "--import", pal) == 0
+    text = b.read_text()
+    assert "# the outline" not in text and "# mine\nz #abcdef" in text
+
+
+def test_import_keeps_a_commented_empty_variant(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\no #141b1b\n\n# my dusk\n@variant dusk\no #10121a\n\no\n")
+    assert run("palette", b, "--import", pal) == 0
+    doc = pxart.parse(b)
+    assert "# my dusk\n@variant dusk" in b.read_text() and doc.variants == {"dusk": {}}
+
+
+def test_import_drops_an_uncommented_empty_variant(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\no #141b1b\n\n@variant dusk\no #10121a\n\no\n")
+    assert run("palette", b, "--import", pal) == 0
+    assert "@variant" not in b.read_text() and pxart.parse(b).resolved("dusk")["o"] == pxart.hex2rgba("#10121a")
+
+
+def test_import_keeps_a_variant_only_the_file_has(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\no #141b1b\n\n@variant night\no #000000\n\no\n")
+    before = renders(b)
+    assert run("palette", b, "--import", pal) == 0
+    doc = pxart.parse(b)
+    assert doc.variants == {"night": {"o": (0, 0, 0, 255)}}
+    got = renders(b)
+    assert {k: v for k, v in got.items() if k[1] != "dusk"} == before
+
+
+def test_import_then_check_and_compose(tmp_path, capsys):
+    pal, b = imp(tmp_path)
+    assert run("palette", b, "--import", pal) == 0
+    assert run("check", b) == 0
+    assert run("compose", "-o", tmp_path / "o.px", f"{b}:b/0@0,0") == 0
+    assert pxart.parse(tmp_path / "o.px").palette_refs == ["pal.px"]
+
+
+def test_help_documents_import():
+    text = " ".join(pxart.__doc__.split())
+    assert "[--remove KEYS [--to KEY]] [--in DIR] [--import P.px]" in text
+    assert "--import P.px adds '@palette P.px' to FILE (re-pointed from FILE's directory) and drops FILE's key lines P " \
+        "has in the same colors" in text
+    assert "FILE renders as before, in every variant it had" in text
+
+
+def test_readme_documents_import():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--import pal.px` adds a `@palette pal.px` line to a sprite and drops its key lines pal.px has in the " \
+        "same colors, so it renders as before" in readme
