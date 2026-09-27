@@ -169,7 +169,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
   does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set`
   (timing), `palette --add` (`palette FILE` alone lists the keys, then what each variant
-  overrides and keeps: `dusk: overrides o x X; keeps e E q`). Edits rewrite only the lines
+  recolors, relists in its base color and inherits: `night: recolors k w; relists unchanged:
+  l g; inherits: e E q`). Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and

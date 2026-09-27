@@ -11310,72 +11310,72 @@ def test_help_documents_extract_to_comments():
     assert "a sprite's header is about the sprite and stays" in doc
 
 
-# ---------------------------------------------------------------- palette FILE: what each variant overrides
+# ---------------------------------------------------------------- palette FILE: what each variant recolors and inherits
 
 def test_palette_lists_each_variants_overrides_and_keeps(tmp_path, capsys):
     p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
     assert run("palette", p) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[-2:] == ["variants: dusk", "  dusk: overrides o x X; keeps e E"]
+    assert out[-2:] == ["variants: dusk", "  dusk: recolors o x X; inherits: e E"]
 
 
 def test_palette_variant_lines_in_palette_order_not_variant_order(tmp_path, capsys):
     p = write(tmp_path, "s.px", "a #000000\nb #111111\nc #222222\n@variant v\nc #ffffff\na #eeeeee\n@frame f\nabc\n")
     assert run("palette", p) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "  v: overrides a c; keeps b"
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: recolors a c; inherits: b"
 
 
 def test_palette_variants_several_sorted(tmp_path, capsys):
     p = write(tmp_path, "s.px", "a #000000\nb #111111\n@variant night\na #010101\n@variant dawn\nb #020202\n"
                                 "@frame f\nab\n")
     assert run("palette", p) == 0
-    assert capsys.readouterr().out.splitlines()[-3:] == ["variants: dawn, night", "  dawn: overrides b; keeps a",
-                                                         "  night: overrides a; keeps b"]
+    assert capsys.readouterr().out.splitlines()[-3:] == ["variants: dawn, night", "  dawn: recolors b; inherits: a",
+                                                         "  night: recolors a; inherits: b"]
 
 
 def test_palette_variant_that_overrides_everything_or_nothing(tmp_path, capsys):
     p = write(tmp_path, "s.px", "a #000000\n@variant all\na #ffffff\n@variant none\n@frame f\na\n")
     assert run("palette", p) == 0
-    assert capsys.readouterr().out.splitlines()[-2:] == ["  all: overrides a; keeps nothing",
-                                                         "  none: overrides nothing; keeps a"]
+    assert capsys.readouterr().out.splitlines()[-2:] == ["  all: recolors a; inherits: nothing",
+                                                         "  none: recolors nothing; inherits: a"]
 
 
 def test_palette_variant_imported_and_extended_locally(tmp_path, capsys):
     write(tmp_path, "base.px", "a #000000\nb #111111\nc #222222\n@variant dusk\na #010101\n")
     p = write(tmp_path, "s.px", "@palette base.px\nd #333333\n@variant dusk\nd #030303\n@frame f\nabcd\n")
     assert run("palette", p) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: overrides a d; keeps b c"
+    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: recolors a d; inherits: b c"
 
 
 def test_palette_variant_keeps_transparent_keys_and_never_dot(tmp_path, capsys):
     p = write(tmp_path, "s.px", "a #000000\nt transparent\n@variant v\na #ffffff\n@frame f\nat.\n")
     assert run("palette", p) == 0
     line = capsys.readouterr().out.splitlines()[-1]
-    assert line == "  v: overrides a; keeps t" and "." not in line.split(";")[1]
+    assert line == "  v: recolors a; inherits: t" and "." not in line.split(";")[1]
 
 
 def test_palette_variant_lines_on_a_palette_file(tmp_path, capsys):
     p = write(tmp_path, "beast.px", BEAST)
     assert run("palette", p) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: overrides o x X; keeps e E"
+    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: recolors o x X; inherits: e E"
 
 
 def test_palette_without_variants_prints_no_variant_lines(tmp_path, capsys):
     p = write(tmp_path, "s.px", "a #000000\n\na\n")
     assert run("palette", p) == 0
-    assert "variants" not in capsys.readouterr().out and "overrides" not in capsys.readouterr().out
+    assert "variants" not in capsys.readouterr().out and "recolors" not in capsys.readouterr().out
 
 
 def test_frames_variants_line_is_unchanged(tmp_path, capsys):
     p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
     assert run("frames", p) == 0
     out = capsys.readouterr().out
-    assert out.splitlines()[-1] == "variants: dusk" and "overrides" not in out
+    assert out.splitlines()[-1] == "variants: dusk" and "recolors" not in out
 
 
 def test_help_documents_variant_overrides():
     doc = " ".join(pxart.__doc__.split())
-    assert "then each variant's keys: 'dusk: overrides o x X c C; keeps e E q'" in doc
+    assert "then each variant's keys: 'dusk: recolors o x X c C; inherits: e E q'" in doc
 
 
 # ---------------------------------------------------------------- anim-set FILE --still: no redundant '@still *'
@@ -12127,3 +12127,70 @@ def test_help_documents_onion_different_sprites():
     assert "different sprites: edges only" in doc and "unless both are frames of one animation in one file" in doc
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`different sprites: edges only`" in readme
+
+
+# ---------------------------------------------------------------- palette FILE: a variant's same-color relists
+
+LAMP_NIGHT = ("k #2a1f33\nw #f6f1e4\nl #fff4b0\ng #ffc861\n"
+              "# night: lamp colors (l, g) stay lit\n@variant night\nk #120e22\nw #9fb0d4\nl #fff4b0\ng #ffc861\n")
+
+
+def test_palette_variant_relists_unchanged_apart_from_recolors(tmp_path, capsys):
+    p = write(tmp_path, "pal.px", LAMP_NIGHT)
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  night: recolors k w; relists unchanged: l g; inherits: nothing"
+
+
+def test_palette_variant_without_relists_has_no_relists_part(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nb #111111\n@variant v\na #ffffff\n@frame f\nab\n")
+    assert run("palette", p) == 0
+    line = capsys.readouterr().out.splitlines()[-1]
+    assert line == "  v: recolors a; inherits: b" and "relists" not in line
+
+
+def test_palette_variant_that_only_relists(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nb #111111\n@variant v\na #000000\n@frame f\nab\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: recolors nothing; relists unchanged: a; inherits: b"
+
+
+def test_palette_relists_compare_with_the_rendered_base(tmp_path, capsys):
+    # An imported variant lists a in the import's base color, but the file overrides a locally: that recolors.
+    write(tmp_path, "base.px", "a #000000\nb #111111\n@variant dusk\na #000000\nb #111111\n")
+    p = write(tmp_path, "s.px", "@palette base.px\na #ff0000\n@frame f\nab\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  dusk: recolors a; relists unchanged: b; inherits: nothing"
+
+
+def test_palette_relists_in_an_imported_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", LAMP_NIGHT)
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame f\nkwlg\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  night: recolors k w; relists unchanged: l g; inherits: nothing"
+
+
+def test_palette_relists_in_palette_order(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nb #111111\nc #222222\n@variant v\nc #222222\na #000000\nb #ffffff\n"
+                                "@frame f\nabc\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: recolors b; relists unchanged: a c; inherits: nothing"
+
+
+def test_palette_relists_a_translucent_color_exactly(tmp_path, capsys):
+    # Same rgb, other alpha: a recolor, not a relist.
+    p = write(tmp_path, "s.px", "a #00000080\n@variant v\na #000000\n@frame f\na\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: recolors a; inherits: nothing"
+
+
+def test_palette_relists_transparent_key(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "a #000000\nt transparent\n@variant v\nt transparent\n@frame f\nat\n")
+    assert run("palette", p) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "  v: recolors nothing; relists unchanged: t; inherits: a"
+
+
+def test_help_documents_relists():
+    doc = " ".join(pxart.__doc__.split())
+    assert "'night: recolors k w; relists unchanged: l g; inherits: nothing'" in doc
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`night: recolors k w; relists unchanged: l g; inherits: e E q`" in readme
