@@ -4084,6 +4084,130 @@ def test_help_documents_recolor_swap_and_order():
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: palette --extract-to
+
+XBASE = "w #ffffff\nq #0000ff\n\n@variant night\nw #101010\n"
+XSRC = ("pxart 1\n# my palette\n@palette base.px\n. transparent\n# black\nk #000000\nq #00ff00\n\n@variant night\n"
+        "k #000011\n@variant day\nk #222222\n\n@anim w ms=5\n\n@frame w/0\nkwq.\n@frame w/1\nqwk.\n")
+
+
+def xsetup(tmp_path):
+    write(tmp_path, "base.px", XBASE)
+    return write(tmp_path, "src.px", XSRC)
+
+
+def test_palette_extract_to_writes_the_whole_palette(tmp_path, capsys):
+    p = xsetup(tmp_path)
+    out = tmp_path / "p.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == ("pxart 1\nw #ffffff\nq #00ff00\nk #000000\n\n@variant night\nw #101010\nk #000011\n"
+                               "\n@variant day\nk #222222\n")
+    assert p.read_text() == XSRC
+    assert capsys.readouterr().out == f"wrote {out} (3 key(s), variants night, day)\n"
+
+
+def test_palette_extract_to_is_a_palette_file(tmp_path, capsys):
+    p = xsetup(tmp_path)
+    out = tmp_path / "p.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    capsys.readouterr()
+    assert run("check", out) == 0
+    assert "palette file, 3 key(s), variants night, day" in capsys.readouterr().out
+
+
+def test_palette_extract_to_repoint_renders_the_same(tmp_path, capsys):
+    p = xsetup(tmp_path)
+    before = renders(p)
+    out = tmp_path / "p.px"
+    assert run("palette", p, "--extract-to", out, "--repoint") == 0
+    assert p.read_text() == "pxart 1\n# my palette\n@palette p.px\n\n@anim w ms=5\n\n@frame w/0\nkwq.\n@frame w/1\nqwk.\n"
+    assert renders(p) == before
+    assert capsys.readouterr().out == f"wrote {out} (3 key(s), variants night, day); wrote {p} (@palette p.px)\n"
+
+
+def test_palette_extract_to_other_directory_repoints_relative(tmp_path):
+    p = xsetup(tmp_path)
+    before = renders(p)
+    out = tmp_path / "pals" / "deep" / "p.px"
+    assert run("palette", p, "--extract-to", out, "--repoint") == 0
+    assert pxart.parse(p).palette_refs == ["pals/deep/p.px"] and renders(p) == before
+
+
+def test_palette_extract_to_from_a_subdirectory_file(tmp_path):
+    (tmp_path / "art").mkdir()
+    write(tmp_path / "art", "base.px", XBASE)
+    p = write(tmp_path / "art", "src.px", XSRC)
+    before = renders(p)
+    out = tmp_path / "shared" / "p.px"
+    assert run("palette", p, "--extract-to", out, "--repoint") == 0
+    assert pxart.parse(p).palette_refs == ["../shared/p.px"] and renders(p) == before
+
+
+def test_palette_extract_to_then_another_sprite_imports_it(tmp_path):
+    p = xsetup(tmp_path)
+    out = tmp_path / "p.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert run("new", tmp_path / "b.px", "--size", "2x1", "--key", "k", "--palette", out) == 0
+    doc = pxart.parse(tmp_path / "b.px")
+    assert doc.image(doc.frames[0], "day").getpixel((0, 0)) == pxart.hex2rgba("#222222")
+
+
+def test_palette_extract_to_without_repoint_leaves_file(tmp_path):
+    p = xsetup(tmp_path)
+    assert run("palette", p, "--extract-to", tmp_path / "p.px") == 0
+    assert p.read_text() == XSRC
+
+
+def test_palette_extract_to_self_contained_source(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\nt transparent\ng #00ff00aa\n\nktg\n")
+    before = renders(p)
+    assert run("palette", p, "--extract-to", tmp_path / "p.px", "--repoint") == 0
+    assert (tmp_path / "p.px").read_text() == "pxart 1\nk #000000\nt transparent\ng #00ff00aa\n"
+    assert p.read_text() == "@palette p.px\n\nktg\n" and renders(p) == before
+
+
+def test_palette_extract_to_from_a_palette_file(tmp_path):
+    p = write(tmp_path, "pal.px", "k #000000\n\n@variant x\nk #ffffff\n")
+    assert run("palette", p, "--extract-to", tmp_path / "copy.px") == 0
+    doc = pxart.parse(tmp_path / "copy.px", palette_only=True)
+    assert doc.palette == {"k": (0, 0, 0, 255)} and doc.variants == {"x": {"k": (255, 255, 255, 255)}}
+
+
+def test_palette_extract_to_overwrites_out(tmp_path):
+    p = xsetup(tmp_path)
+    out = write(tmp_path, "p.px", "z #123456\n")
+    assert run("palette", p, "--extract-to", out) == 0
+    assert "z " not in out.read_text()
+
+
+def test_palette_extract_to_itself_is_bad_arg(tmp_path):
+    p = xsetup(tmp_path)
+    assert "E_BAD_ARG" in run_err("palette", p, "--extract-to", p) and p.read_text() == XSRC
+
+
+def test_palette_repoint_needs_extract_to(tmp_path):
+    p = xsetup(tmp_path)
+    msg = run_err("palette", p, "--repoint")
+    assert "E_BAD_ARG" in msg and "--extract-to" in msg and p.read_text() == XSRC
+
+
+def test_palette_extract_to_notes_a_non_px_name(tmp_path, capsys):
+    p = xsetup(tmp_path)
+    assert run("palette", p, "--extract-to", tmp_path / "p.pal") == 0
+    assert "doesn't end in .px" in capsys.readouterr().out
+
+
+def test_palette_add_then_extract(tmp_path):
+    p = xsetup(tmp_path)
+    assert run("palette", p, "--add", "z=#abcdef", "--extract-to", tmp_path / "p.px") == 0
+    assert pxart.parse(tmp_path / "p.px", palette_only=True).palette["z"] == pxart.hex2rgba("#abcdef")
+
+
+def test_help_documents_palette_extract_to():
+    doc = pxart.__doc__
+    assert "[--extract-to P.px [--repoint]]" in doc and "--repoint" in doc
+
+
 # ---------------------------------------------------------------- GAMES-295: anim-set --still, new --still
 
 STILLS = ("pxart 1\nk #000000\n@anim w ms=100\n\n@frame w/0\nk\n@frame w/1\nk\n@frame ui/a\nk\n@frame ui/b\nk\n"

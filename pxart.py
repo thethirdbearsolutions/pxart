@@ -284,7 +284,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --still adds '@still GROUP' (the group is no animation: UI icons, parts), --no-still
       removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame). An
       @anim line stays, unused while the group is still.
-  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
+  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
+      No flags: lists the keys, their colors, where they come from and how often they're used.
+      --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
+      FILE renders with (imported ones too, local ones winning) and every variant. --repoint
+      then replaces FILE's @palette, key and @variant lines with '@palette P.px' (re-pointed
+      from FILE's directory): FILE renders the same, and other sprites can share P.px.
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
   are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
@@ -3157,6 +3162,10 @@ def cmd_palette(a):
         doc.add_key(k, CLEAR if v == "transparent" else hex2rgba(v))
     if a.add:
         print(write_doc(doc))
+    if a.repoint and not a.extract_to:
+        fail("E_BAD_ARG", "--repoint points FILE at the palette file --extract-to OUT.px writes; give both")
+    if a.extract_to:
+        extract_palette(doc, pathlib.Path(a.extract_to), a.repoint)
     pal = doc.resolved()
     used = {}
     for f in doc.frames:
@@ -3176,7 +3185,7 @@ def cmd_palette(a):
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
         print("wrote", a.export)
-    if a.add or a.export:
+    if a.add or a.export or a.extract_to:
         return
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
@@ -3184,6 +3193,32 @@ def cmd_palette(a):
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
+
+
+def extract_palette(doc, out, repoint=False):
+    """palette FILE --extract-to OUT.px: FILE's whole palette (imported keys too, with local ones winning, as FILE
+    renders) and every variant as a palette-only file. repoint: FILE's @palette, key and @variant lines become one
+    '@palette OUT.px' line, so it renders the same from there."""
+    if doc.path and out.resolve() == doc.path.resolve():
+        fail("E_BAD_ARG", f"--extract-to {out} is FILE itself")
+    note_suffix(out)
+    pal = Doc(out)
+    pal.version = FORMAT_VERSION
+    pal.palette = {k: c for k, c in doc.resolved().items() if k != "."}
+    for name in list(doc.shared_variants) + [n for n in doc.variants if n not in doc.shared_variants]:
+        pal.variants[name] = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
+    said = [write_doc(pal, out) + f" ({len(pal.palette)} key(s)" + (f", variants {', '.join(pal.variants)})"
+                                                                     if pal.variants else ")")]
+    if repoint:
+        ref = pathlib.Path(os.path.relpath(out.resolve(), doc.path.resolve().parent)).as_posix()
+        first = next((anchor for anchor, _, _ in doc.lines() if anchor[0] in ("palref", "key", "variant")), None)
+        lead = doc.lead.get(first)
+        doc.palette_refs, doc.palette, doc.variants, doc.dot_at = [ref], {}, {}, None
+        doc.shared, doc.shared_variants = dict(pal.palette), {n: dict(v) for n, v in pal.variants.items()}
+        if lead is not None:
+            doc.lead[("palref", ref)] = lead
+        said.append(write_doc(doc) + f" (@palette {ref})")
+    print("; ".join(said))
 
 
 def export_frames(args):
@@ -3440,6 +3475,8 @@ def main(argv=None):
     g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
     g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")
     p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
+    p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
+    p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
