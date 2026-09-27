@@ -319,8 +319,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       a setting.
       A path that is both a group and a frame means the group. Only that one line changes.
       --still adds '@still GROUP' (the group is no animation: UI icons, parts), --no-still
-      removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame). An
-      @anim line stays, unused while the group is still.
+      removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame),
+      unless every frame already is in a @still group: then it says so and adds nothing (a
+      top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
+      stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
           [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're used,
@@ -3475,6 +3477,9 @@ def set_still(doc, sel, still, no_still):
             return f"already @still {sel}"
         if "*" in doc.stills:
             return f"already still: '@still *' marks every frame"
+        if sel == "*" and doc.frames and all(f.group and doc.still(f.group) for f in doc.frames):
+            have = ", ".join(f"@still {g}" for g in doc.stills if g in doc.groups())
+            return f"already still: every frame is in a still group ({have}), so '@still *' would add nothing"
         doc.stills.append(sel)
         if sel in doc.anims:
             print(f"note: @anim {sel} stays; its timing is unused while the group is still")

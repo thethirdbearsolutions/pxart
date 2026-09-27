@@ -11320,3 +11320,54 @@ def test_frames_variants_line_is_unchanged(tmp_path, capsys):
 def test_help_documents_variant_overrides():
     doc = " ".join(pxart.__doc__.split())
     assert "then each variant's keys: 'dusk: overrides o x X c C; keeps e E q'" in doc
+
+
+# ---------------------------------------------------------------- anim-set FILE --still: no redundant '@still *'
+
+def test_anim_set_still_star_not_added_when_every_group_is_still(tmp_path, capsys):
+    text = "k #000000\n@still ui\n@frame ui/a\nk\n@frame ui/b\nk\n"
+    p = write(tmp_path, "ui.px", text)
+    assert run("anim-set", p, "--still") == 0
+    assert p.read_text() == text
+    assert capsys.readouterr().out == (f"already still: every frame is in a still group (@still ui), so '@still *' "
+                                       f"would add nothing; no change: {p}\n")
+
+
+def test_anim_set_still_star_names_every_still_group(tmp_path, capsys):
+    text = "k #000000\n@still ui\n@still icons\n@frame ui/a\nk\n@frame icons/b\nk\n"
+    p = write(tmp_path, "ui.px", text)
+    assert run("anim-set", f"{p}:*", "--still") == 0
+    assert p.read_text() == text and "(@still ui, @still icons)" in capsys.readouterr().out
+
+
+def test_anim_set_still_star_added_when_a_group_animates(tmp_path, capsys):
+    p = write(tmp_path, "ui.px", "k #000000\n@still ui\n@frame ui/a\nk\n@frame walk/0\nk\n")
+    assert run("anim-set", p, "--still") == 0
+    assert pxart.parse(p).stills == ["ui", "*"] and "@still *" in capsys.readouterr().out
+
+
+def test_anim_set_still_star_added_for_top_level_frames(tmp_path):
+    # '@still *' lists a top-level frame as still: not redundant there.
+    p = write(tmp_path, "ui.px", "k #000000\n@still ui\n@frame ui/a\nk\n@frame badge\nk\n")
+    assert run("anim-set", p, "--still") == 0
+    assert pxart.parse(p).stills == ["ui", "*"]
+
+
+def test_anim_set_still_star_on_a_file_without_still_groups(tmp_path):
+    p = write(tmp_path, "ui.px", "k #000000\n@frame ui/a\nk\n")
+    assert run("anim-set", p, "--still") == 0
+    assert pxart.parse(p).stills == ["*"]
+
+
+def test_anim_set_still_star_ignores_a_still_line_of_no_frames(tmp_path, capsys):
+    # '@still gone' names no frames: every frame (ui/a) is in '@still ui', and only that is named.
+    text = "k #000000\n@still ui\n@still gone\n@frame ui/a\nk\n"
+    p = write(tmp_path, "ui.px", text)
+    assert run("anim-set", p, "--still") == 0
+    out = capsys.readouterr().out
+    assert p.read_text() == text and "(@still ui)" in out and "gone" not in out
+
+
+def test_help_documents_redundant_still_star():
+    doc = " ".join(pxart.__doc__.split())
+    assert "unless every frame already is in a @still group: then it says so and adds nothing" in doc
