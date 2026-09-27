@@ -674,6 +674,31 @@ class Doc:
 
 # ---------------------------------------------------------------------------- parser
 
+def imports(doc, ref, sub):
+    """doc gets '@palette ref', whose file parsed as sub: its keys and variants (and those it imports) are shared."""
+    doc.palette_refs.append(ref)
+    doc.shared.update(sub.shared)
+    doc.shared.update(sub.palette)
+    for vname, over in list(sub.shared_variants.items()) + list(sub.variants.items()):
+        doc.shared_variants.setdefault(vname, {}).update(over)
+
+
+def start_doc(path, palette=None):
+    """A new doc for path, not written yet; with palette (a path as typed), importing it, re-pointed from path's
+    directory. Read here, not through the @palette line: path's directory may not exist until the doc is saved."""
+    doc = Doc(path)
+    doc.version = FORMAT_VERSION
+    if palette:
+        with reading(f"--palette ({palette})"):
+            try:
+                sub = parse(palette, palette_only=True)
+            except FileNotFoundError:
+                fail("E_PALETTE_FILE", f"can't find palette file {str(palette)!r}")
+        imports(doc, pathlib.Path(os.path.relpath(pathlib.Path(palette).resolve(),
+                                                  pathlib.Path(path).resolve().parent)).as_posix(), sub)
+    return doc
+
+
 def _kwargs(tokens, issues, path, n):
     pos, kw = [], {}
     for t in tokens:
@@ -791,12 +816,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     err("E_PALETTE_FILE", f"palette file {ref!r} has errors: {e.issues[0]}" + skip, n)
                     continue
                 pal_failed = before
-                doc.palette_refs.append(ref)
                 keep(("palref", ref))
-                doc.shared.update(sub.shared)
-                doc.shared.update(sub.palette)
-                for vname, over in list(sub.shared_variants.items()) + list(sub.variants.items()):
-                    doc.shared_variants.setdefault(vname, {}).update(over)
+                imports(doc, ref, sub)
                 state = "header"
             elif word == "@variant":
                 if len(pos) != 1:
@@ -2252,14 +2273,7 @@ def inline_palette(doc):
 def frame_slot(opath, osel, palette=None, flag="-o"):
     """Open OUT (or start it, importing `palette`) and find or make the frame OUT[:frame] names: (doc, frame).
     A new frame goes after the last frame of its animation, or at the end when the animation is new."""
-    if pathlib.Path(opath).exists():
-        doc = parse(opath, allow_empty=True)
-    else:
-        doc = Doc(opath)
-        doc.version = FORMAT_VERSION
-        if palette:
-            ref = pathlib.Path(os.path.relpath(palette, pathlib.Path(opath).resolve().parent)).as_posix()
-            doc = parse(opath, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
+    doc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() else start_doc(opath, palette)
     if osel:
         if doc.implicit:
             if not ID_RE.match(doc.stem):
@@ -3137,12 +3151,7 @@ def cmd_from_png(a):
         with reading(f"-o ({a.o})"):
             doc = parse(out, allow_empty=True)
     else:
-        doc = Doc(out or imgs[0][0].with_suffix(".px"))
-        doc.version = FORMAT_VERSION
-        if a.palette:
-            ref = os.path.relpath(a.palette, (out or imgs[0][0]).resolve().parent)
-            with reading(f"--palette ({a.palette})"):
-                doc = parse(doc.path, text=f"pxart 1\n@palette {ref}\n", allow_empty=True)
+        doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
     named = bool(a.id) or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists())
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):

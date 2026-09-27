@@ -2555,6 +2555,137 @@ def test_new_missing_palette_file(tmp_path):
     assert "E_PALETTE_FILE" in run_err("new", tmp_path / "a.px", "--size", "1x1", "--palette", tmp_path / "no.px")
 
 
+@pytest.mark.parametrize("sub", ["new", "a/b", "a/b/c"])
+def test_new_palette_creates_missing_output_directories(tmp_path, sub, capsys):
+    # GAMES-295: the output's directory didn't exist yet, and the @palette line was read from there: a misleading
+    # E_PALETTE_FILE for a right path.
+    write(tmp_path, "hero_pal.px", "k #102030\n@variant night\nk #000000\n")
+    out = tmp_path / sub / "hero.px"
+    assert run("new", out, "--size", "2x1", "--key", "k", "--palette", tmp_path / "hero_pal.px") == 0
+    depth = len(pathlib.Path(sub).parts)
+    ref = "../" * depth + "hero_pal.px"
+    assert out.read_text() == f"pxart 1\n@palette {ref}\n\nkk\n"
+    doc = pxart.parse(out)
+    assert doc.image(doc.frames[0]).getpixel((0, 0)) == (0x10, 0x20, 0x30, 255)
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (0, 0, 0, 255)
+    assert capsys.readouterr().out.startswith(f"wrote {out}")
+
+
+def test_new_palette_frame_in_missing_directory(tmp_path):
+    write(tmp_path, "pal.px", "g #00ff00\n")
+    out = tmp_path / "x" / "y" / "t.px"
+    assert run("new", f"{out}:walk/0", "--size", "1x2", "--key", "g", "--palette", tmp_path / "pal.px") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["../../pal.px"] and doc.get("walk/0").grid == ["g", "g"]
+
+
+def test_new_palette_relative_paths_from_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "pal.px", "g #00ff00\n")
+    assert run("new", "art/sprites/t.px", "--size", "1x1", "--key", "g", "--palette", "pal.px") == 0
+    assert pxart.parse(tmp_path / "art" / "sprites" / "t.px").palette_refs == ["../../pal.px"]
+    (tmp_path / "pals").mkdir()
+    write(tmp_path / "pals", "p2.px", "g #00ff00\n")
+    assert run("new", "art/u.px", "--size", "1x1", "--key", "g", "--palette", "pals/p2.px") == 0
+    assert pxart.parse(tmp_path / "art" / "u.px").palette_refs == ["../pals/p2.px"]
+
+
+def test_new_missing_palette_names_the_palette_and_creates_nothing(tmp_path):
+    msg = run_err("new", tmp_path / "d" / "e" / "a.px", "--size", "1x1", "--palette", tmp_path / "no.px")
+    assert msg.startswith(f"new: --palette ({tmp_path / 'no.px'}): E_PALETTE_FILE: can't find palette file")
+    assert not (tmp_path / "d").exists()
+
+
+def test_new_palette_with_grid_rows_is_palette_file_error(tmp_path):
+    write(tmp_path, "notpal.px", "k #000000\nk\n")
+    msg = run_err("new", tmp_path / "n" / "a.px", "--size", "1x1", "--palette", tmp_path / "notpal.px")
+    assert "E_PALETTE_FILE" in msg and "--palette" in msg
+    assert not (tmp_path / "n").exists()
+
+
+def test_from_png_palette_creates_missing_output_directories(tmp_path):
+    write(tmp_path, "pal.px", "o #010101\n")
+    Image.new("RGBA", (2, 1), (1, 1, 1, 255)).save(tmp_path / "i.png")
+    out = tmp_path / "p" / "q" / "o.px"
+    assert run("from-png", tmp_path / "i.png", "-o", out, "--palette", tmp_path / "pal.px") == 0
+    assert out.read_text() == "pxart 1\n@palette ../../pal.px\n\noo\n"
+    out2 = tmp_path / "r" / "o.px"
+    assert run("from-png", tmp_path / "i.png", "-o", out2, "--id", "x", "--palette", tmp_path / "pal.px") == 0
+    doc = pxart.parse(out2)
+    assert doc.palette_refs == ["../pal.px"] and doc.get("x/i").grid == ["oo"] and doc.palette == {}
+
+
+PAL_HERO = "pxart 1\n@palette pal.px\n@anim w ms=90\n\n@frame w/0\nkg\n@frame w/1\ngk\n"
+
+
+@pytest.mark.parametrize("argv", [
+    ["compose", "-o", "{o}/c.px", "{h}:w/0@0,0"],
+    ["compose", "-o", "{o}/c.px:x/0", "{h}:w/0@0,0"],
+    ["crop", "{h}:w/0", "0,0,1,1", "-o", "{o}/c.px"],
+    ["dup", "{h}:w/0", "w/2", "-o", "{o}/c.px"],
+    ["flip", "{h}", "-o", "{o}/c.px"],
+    ["rotate", "{h}", "90", "-o", "{o}/c.px"],
+    ["transpose", "{h}", "-o", "{o}/c.px"],
+    ["shift", "{h}", "--dx", "1", "-o", "{o}/c.px"],
+    ["extract", "{h}:w", "-o", "{o}/c.px"],
+    ["anim-set", "{h}:w", "ms=50", "-o", "{o}/c.px"],
+    ["recolor", "{h}", "k=g", "-o", "{o}/c.px"],
+    ["set", "{h}:w/0", "g", "0,0", "-o", "{o}/c.px"],
+    ["fill", "{h}", "g", "-o", "{o}/c.px"],
+    ["mask", "{h}", "--keep", "0,0,1,1", "-o", "{o}/c.px"],
+    ["line", "{h}", "g", "0,0", "1,0", "-o", "{o}/c.px"],
+    ["outline", "{h}", "--key", "g", "--inside", "-o", "{o}/c.px"],
+    ["paste", "{h}:w/0", "--into", "{h}:w/1", "--at", "1,0", "-o", "{o}/c.px"],
+    ["shade", "{h}:w/0", "--ramp", "kg", "--keys", "kg", "-o", "{o}/c.px"],
+])
+def test_every_px_writer_creates_missing_directories_and_repoints(tmp_path, argv):
+    # GAMES-295 audit: every -o/OUT .px writer into a directory that doesn't exist yet, from a file importing a
+    # palette: the directories are made and @palette is re-pointed from there, so the output renders.
+    write(tmp_path, "pal.px", "k #000000\ng #00ff00\n")
+    h = write(tmp_path, "h.px", PAL_HERO)
+    o = tmp_path / "out" / "deep"
+    assert run(*[x.format(h=h, o=o) for x in argv]) == 0
+    doc = pxart.parse(o / "c.px")
+    assert doc.palette_refs == ["../../pal.px"]
+    assert all(doc.image(f) for f in doc.frames)
+
+
+def test_put_into_new_file_in_missing_directory(tmp_path, monkeypatch):
+    import io
+    monkeypatch.setattr(sys, "stdin", io.StringIO("k #000000\nk.\n"))
+    out = tmp_path / "a" / "b" / "p.px"
+    assert run("put", f"{out}:x/0") == 0
+    assert pxart.parse(out).get("x/0").grid == ["k."]
+
+
+@pytest.mark.parametrize("argv, made", [
+    (["anim", "{h}", "-o", "{o}/a.gif"], ["a.gif", "a.strip.png"]),
+    (["onion", "{h}:w/0", "{h}:w/1", "-o", "{o}/o.png"], ["o.png"]),
+    (["sheet", "{h}", "-o", "{o}/s.png"], ["s.png"]),
+    (["render", "{h}", "-o", "{o}/r.png"], ["r.png"]),
+    (["scene", "{h}:w/0@0,0", "-o", "{o}/s.png"], ["s.png"]),
+    (["export", "{h}", "--aseprite", "{o}/s.json"], ["s.json", "s.png"]),
+    (["export", "{h}", "--tiled", "{o}/t.tsj"], ["t.tsj", "t.png"]),
+    (["export", "{h}", "--frames", "{o}"], ["w/0.png", "w/1.png"]),
+    (["palette", "{h}", "--export", "{o}/p.gpl"], ["p.gpl"]),
+    (["shade", "{h}:w/0", "--ramp", "kg", "--preview", "{o}/p.png"], ["p.png"]),
+])
+def test_every_image_writer_creates_missing_directories(tmp_path, argv, made):
+    write(tmp_path, "pal.px", "k #000000\ng #00ff00\n")
+    h = write(tmp_path, "h.px", PAL_HERO)
+    o = tmp_path / "out" / "deep"
+    assert run(*[x.format(h=h, o=o) for x in argv]) == 0
+    for m in made:
+        assert (o / m).exists(), m
+
+
+def test_png_writers_create_missing_directories(tmp_path):
+    Image.new("RGBA", (2, 2), (9, 9, 9, 255)).save(tmp_path / "s.png")
+    assert run("tint", tmp_path / "s.png", "#00000080", "-o", tmp_path / "t" / "u" / "t.png") == 0
+    assert run("mask", tmp_path / "s.png", "--keep", "0,0,1,1", "-o", tmp_path / "m" / "n" / "m.png") == 0
+    assert (tmp_path / "t" / "u" / "t.png").exists() and (tmp_path / "m" / "n" / "m.png").exists()
+
+
 def test_new_bad_frame_id(tmp_path):
     assert "E_BAD_ID" in run_err("new", f"{tmp_path / 'a.px'}:bad id", "--size", "1x1")
 
