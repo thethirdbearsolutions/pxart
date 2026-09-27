@@ -134,9 +134,11 @@ scene from a map, check an animation's feet. `pxart -h` is a short overview: the
 lines and the commands by topic.
 `pxart help all` has the full reference, `pxart help TOPIC` one part of it (FORMAT,
 LOOKING, CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS), and `pxart CMD -h` (or
-`pxart help CMD`) prints one command's part (`pxart poly -h`), then a see-also line naming
-the shared notes of the reference it relies on (EDITING, FORMAT: selecting frames, ...)
-rather than repeating them. `compose` and `palette`, the two longest, open with a short list of rules
+`pxart help CMD`) prints one command's part (`pxart poly -h`): its usage and a line or three
+saying what it's for, its options one per line, then the details and heuristics, then a
+see-also line naming the shared notes of the reference it relies on (EDITING, FORMAT:
+selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"`, not
+`"$F:walk"`; `pxart -h` says so in a box. `compose` and `palette`, the two longest, open with a short list of rules
 (a new OUT imports the layers' shared `@palette`; variants merge by name; ...) and examples;
 `pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 

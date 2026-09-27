@@ -48,10 +48,11 @@ FORMAT (.px)
   one unnamed grid (no @frame) calls it by the file's name, as frames lists it: ant.px's
   grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
   ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
-  ant that is the frame written. Add
-  %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
-  modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
-  letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
+  ant that is the frame written. Add %VARIANT to render with a variant: FILE:idle/0%night.
+  +----------------------------------------------------------------------------------------+
+  | zsh users: write "${F}:walk", not "$F:walk" (zsh reads ':w' as a modifier), or quote   |
+  | the whole argument. A missing hero.pxalk/0 or hero.pxidle is reported as that mistake. |
+  +----------------------------------------------------------------------------------------+
   An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash; an
   image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG.
   Paths: a path typed on the command line is read from the current directory, as the
@@ -152,8 +153,7 @@ LOOKING
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
-      (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
-      where '!' would be history expansion). Map legend entries (which also take +b, see
+      (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
       legend lines '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend
       chars ('.' = empty). In a legend line the rest of the line is the path, relative to
@@ -853,7 +853,6 @@ ERROR CODES
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
-  Frames of different sizes in one animation are allowed; check notes them.
 """
 import argparse, contextlib, csv, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
@@ -7199,6 +7198,54 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
                "FORMAT: variants", "FORMAT: selecting frames"],
     "from-png": ["FORMAT: paths"], "help": [],
 }
+SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its options (its section's details follow them)
+    "render": "Render frames to a preview PNG with a pixel grid and x/y rulers, to look at while you edit.",
+    "sheet": "Many frames (.px/.png files, or every .px under a directory) side by side on one PNG, each\n"
+             "labeled with its id, size and color count.",
+    "anim": "An animation as one GIF, plus a strip of what changed frame to frame (the whole-sprite shift\n"
+            "taken out) and one line of numbers per frame, so a walk that's secretly a bob shows up.",
+    "onion": "Frame B drawn over A's silhouette, and a readout of how B's edges moved from A's ('top -1'),\n"
+             "for a 1px jump too faint to see; --feet N reads only the bottom rows.",
+    "scene": "Place .px/.png items at x,y (or a text tilemap with --map) on one canvas and render it,\n"
+             "optionally in a variant (--variant night) or tinted (--tint).",
+    "tint": "Lay a translucent color over a PNG, as scene --tint does (a night in one step).",
+    "check": "Check .px and .map files: format errors with a code and location, size, colors, budget and\n"
+             "unused keys; one line per file. Exits 1 on any failure.",
+    "stats": "Size, bounding box and colors of frames, a variant's rendered colors (--colors), or one\n"
+             "pixel's key and color in every variant (--at x,y).",
+    "diff": "Compare renders pixel by pixel (a frame, a file, a folder of PNGs) and exit 1 when they differ:\n"
+            "proof that a port or a copy renders as its original.",
+    "frames": "List a file's frames and animations; or remove (--rm), move (--after/--before), rename\n"
+              "(--rename) or copy them into another file (--copy-to).",
+    "flip": "", "rotate": "", "transpose": "", "set": "", "fill": "", "rect": "",  # their usage line says it
+    "shift": "Move a frame's pixels (or a region's) by dx,dy, dropping or wrapping what goes past the edge.",
+    "mask": "Erase every pixel outside rectangles or circles (or inside, --invert), or by key; a PNG too.",
+    "recolor": "Repaint, swap or rename palette keys in frames ('a=b', 'a<>b', 'a>b'), or give a key a new color.",
+    "crop": "Cut a rectangle out of one frame into a frame of its own, in the same file or another.",
+    "paste": "Copy one frame (or a region of it) onto another at x,y; '.' never overwrites.",
+    "new": "Start a frame, blank or filled with one key, in a new file or an existing one; or a file with\n"
+           "no frames that imports a palette (--empty).",
+    "put": "Replace one frame's grid with rows from stdin (palette lines first, optionally).",
+    "line": "Draw a line of a palette key between two points (Bresenham), --width N wide.",
+    "poly": "Draw a closed polygon through the points, optionally --fill'ed.",
+    "ellipse": "Draw a symmetric pixel ellipse (or circle), optionally --fill'ed; .5 centers give even sizes.",
+    "arc": "Draw part of a circle, from angle a0 to a1 (a smear or swoosh), --width N wide.",
+    "flood": "Bucket-fill the region of one key that touches x,y.",
+    "outline": "Outline a frame's shape with a key, optionally lit on the side facing the light (--lit).",
+    "shade": "Re-shade a material with a darkest-to-lightest ramp, by how each pixel faces the light.",
+    "extract": "Write only the selected frames to a new file, with their palette, imports and @anim lines.",
+    "compose": "Stack frames from any files (layers at x,y, or a --map's cells) into one frame of OUT,\n"
+               "bringing their keys and variants into OUT's palette.",
+    "dup": "Copy a frame under a new id, placed after its animation's last frame, to edit the copy.",
+    "anim-set": "Write an animation's timing and pivot on its @anim line (or one frame's), or mark it @still.",
+    "palette": "List a file's palette and what each variant does; or edit it: add keys and variants, derive a\n"
+               "night or dusk, hoist, import, remove, order, comment, export.",
+    "export": "Write frames as PNGs (--frames), an Aseprite sheet and JSON (--aseprite) or a Tiled tileset\n"
+              "(--tiled), from files or whole folders.",
+    "help": "The reference: all of it, a topic, one command, or the six worked recipes.",
+    "from-png": "Convert PNGs (loose, a pack with a labels CSV, or one sheet sliced by --grid) to .px with\n"
+                "exact pixels.",
+}
 PASTE = {"rotate": ["transpose"]}  # transpose's section ends with the paragraph both share
 
 
@@ -7233,7 +7280,11 @@ def overview():
     fmt = lines.index("FORMAT (.px)")
     sample = lines[fmt + 1:lines.index("", fmt + 7)]  # the palette-and-grid example FORMAT opens with
     rows = [f"  {t:<11} {' '.join(cs)}" for t, cs in commands_by_topic().items()]
+    box = lines.index(next(l for l in lines if l.startswith("  | zsh users:"))) - 1  # FORMAT's, as it is there
+    zsh = [l[2:] for l in lines[box:box + 4]]
     return "\n".join([lines[0], "", "A sprite is a .px text file: a palette, then a grid of its keys.", *sample, "",
+                      "Any command that takes FILE takes FILE:walk/down (a group) or FILE:walk/down/0 (a frame).",
+                      *zsh, "",
                       "Commands by topic ('pxart CMD -h' for one, 'pxart help TOPIC' for a topic's reference):",
                       *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
@@ -7313,16 +7364,40 @@ def note(name):
     return None if j is None else "\n".join(lines[i:j]).rstrip()
 
 
+def split_section(cmd):
+    """CMD's section of the reference as (its usage lines, the details under them): the usage lines are the leading
+    ones that name CMD (indent 2) or carry on its options ('[--fit] ...')."""
+    lines = (reference(cmd) or f"  (pxart help all has no section for {cmd})").splitlines()
+    n = 1
+    while n < len(lines) and (lines[n].lstrip().startswith("[") or lines[n].startswith(f"  {cmd} ")):
+        n += 1
+    return "\n".join(lines[:n]), "\n".join(lines[n:]).rstrip()
+
+
 def command_help(cmd):
-    """What 'pxart CMD -h' prints under argparse's usage line: CMD's section (and PASTE's), then one see-also line
-    naming the blocks of pxart -h it relies on, each with what it has."""
-    parts = [reference(cmd) or f"  (pxart help all has no section for {cmd})"]
+    """What 'pxart CMD -h' prints around argparse's options, as (above them, below them). Above: CMD's usage lines
+    from the reference and its SUMMARY, so the options come early. Below: the rest of its section (the details and
+    heuristics, and PASTE's), then one see-also line naming the blocks of pxart help all it relies on, each with what
+    it has."""
+    usage, details = split_section(cmd)
+    summary = "\n".join("      " + l for l in SUMMARY.get(cmd, "").splitlines())
+    parts = [details] if details else []
     parts += [f"{ref} (from pxart help all):\n{reference(ref)}" for ref in PASTE.get(cmd, [])]
     refs = SEE.get(cmd, [])
     if refs:
         also = "See also, in pxart help all: " + "; ".join(f"{r} ({GIST[r]})" for r in refs) + "."
         parts.append("\n".join(textwrap.wrap(also, 92, subsequent_indent="  ", break_on_hyphens=False)))
-    return "\n\n".join(parts) + "\n\npxart help all has the whole reference, pxart help TOPIC one part of it."
+    return (usage + ("\n" + summary if summary else ""),
+            "\n\n".join(parts + ["pxart help all has the whole reference, pxart help TOPIC one part of it."]))
+
+
+class OneLine(argparse.RawDescriptionHelpFormatter):
+    """'pxart CMD -h' lists each option on one line: its help beside the flag, never wrapped."""
+    def __init__(self, prog):
+        super().__init__(prog, max_help_position=38)
+
+    def _split_lines(self, text, width):
+        return [" ".join(text.split())]
 
 
 def said(cmd, issue):
@@ -7551,8 +7626,8 @@ def parser(describe=True):
     p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
     p.add_argument("--prefix-dir", action="store_true",
                    help="id each PNG FOLDER/STEM, FOLDER its directory's name (dungeon/tile_0002)")
-    for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
-        p.description, p.formatter_class = command_help(name), argparse.RawDescriptionHelpFormatter
+    for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': usage, summary, options, details
+        (p.description, p.epilog), p.formatter_class = command_help(name), OneLine
     return ap, sub
 
 

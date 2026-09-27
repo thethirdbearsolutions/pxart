@@ -4478,17 +4478,81 @@ def test_every_subparser_has_a_section_in_the_top_level_help():
 
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_has_its_section(capsys, cmd):
+    # the whole section, split around the options: its usage lines (and the summary) above, the details below
     out = cmd_help(capsys, cmd)
     ref = pxart.reference(cmd)
+    usage, details = pxart.split_section(cmd)
     assert out.startswith(f"usage: pxart {cmd} ")
-    assert ref in out and ref.startswith(f"  {cmd}")
-    assert out.index(ref) < out.index("options:")
-    assert "pxart help all has the whole reference, pxart help TOPIC one part of it." in out
+    assert ref.startswith(f"  {cmd}") and ref == (usage + "\n" + details).rstrip()
+    assert usage in out and out.index(usage) < out.index("options:")
+    if details:
+        assert details in out and out.index("options:") < out.index(details)
+    assert out.rstrip().endswith("pxart help all has the whole reference, pxart help TOPIC one part of it.")
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_long_flag_too(capsys, cmd):
-    assert pxart.reference(cmd) in cmd_help(capsys, cmd, "--help")
+    out = cmd_help(capsys, cmd, "--help")
+    assert all(part in out for part in pxart.split_section(cmd))
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_order(capsys, cmd):
+    # usage, the summary, the options (one line each), then the details and heuristics, then the see-also
+    out = cmd_help(capsys, cmd)
+    usage, details = pxart.split_section(cmd)
+    at = [out.index(usage)]
+    for line in pxart.SUMMARY[cmd].splitlines():
+        at.append(out.index("      " + line + "\n"))
+    at.append(out.index("\noptions:\n"))
+    if details:
+        at.append(out.index(details))
+    if pxart.SEE.get(cmd):
+        at.append(out.index("See also, in pxart help all: "))
+    at.append(out.index("pxart help all has the whole reference"))
+    assert at == sorted(at) and len(set(at)) == len(at), cmd
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_options_one_line_each(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    block = out.split("\noptions:\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    assert block and all(l.startswith("  -") for l in block), (cmd, block)
+    flags = [a for a in pxart.parser()[1].choices[cmd]._actions if a.option_strings]
+    assert len(block) == len(flags), cmd
+    for a in flags:
+        line = next(l for l in block if l.lstrip().startswith(", ".join(a.option_strings)))
+        if a.help and a.help != argparse_suppress():
+            assert " ".join(a.help.replace("%%", "%").split()) in line, (cmd, a.option_strings)
+
+
+def argparse_suppress():
+    import argparse
+    return argparse.SUPPRESS
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_has_a_short_summary(cmd):
+    usage, _ = pxart.split_section(cmd)
+    summary = pxart.SUMMARY[cmd]
+    if not summary:  # its usage line says what it does: 'flip FILE ... mirror selected frames left-right'
+        assert re.search(r"\s{2,}[a-z]", usage.splitlines()[0].split("]")[-1] if "]" in usage else usage), cmd
+        return
+    lines = summary.splitlines()
+    assert 1 <= len(lines) <= 3 and all(len("      " + l) <= 104 for l in lines), cmd
+    assert summary.rstrip().endswith("."), cmd
+
+
+def test_summaries_name_every_command():
+    assert set(pxart.SUMMARY) == set(COMMANDS)
+
+
+def test_anim_help_options_come_before_the_heuristics(capsys):
+    # the gate's complaint: anim -h spent about 20 lines on heuristics before its options
+    out = cmd_help(capsys, "anim")
+    assert out.index("options:") < out.index("An idle: when the bottom stays exactly put")
+    assert out.index("options:") < out.index("Tiles and overlays:")
+    assert len(out[:out.index("options:")].splitlines()) <= 12
 
 
 def see_also(text):
@@ -4504,13 +4568,14 @@ def test_every_command_help_is_sliced_from_the_top_level_text(cmd):
     # One source of truth: every line of the per-command text (but the labels and the see-also line) is a line of
     # pxart -h.
     doc = pxart.__doc__.splitlines()
-    for part in pxart.command_help(cmd).split("\n\n"):
+    summary = ["      " + l for l in pxart.SUMMARY[cmd].splitlines()]  # the summary is -h's own
+    for part in "\n\n".join(pxart.command_help(cmd)).split("\n\n"):
         if part.startswith("See also, in pxart help all: "):
             continue
         for line in part.splitlines():
             if not line or line.endswith("(from pxart help all):") or line == "pxart help all has the whole reference, pxart help TOPIC one part of it.":
                 continue
-            assert line in doc, (cmd, line)
+            assert line in doc or line in summary, (cmd, line)
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
@@ -4545,7 +4610,7 @@ def test_every_command_help_is_short(capsys, cmd):
 
 def test_see_also_lines_are_wrapped(capsys):
     for cmd in COMMANDS:
-        for part in pxart.command_help(cmd).split("\n\n"):
+        for part in pxart.command_help(cmd)[1].split("\n\n"):
             if part.startswith("See also"):
                 lines = part.splitlines()
                 assert all(len(l) <= 92 for l in lines) and all(l.startswith("  ") for l in lines[1:]), (cmd, part)
@@ -15204,7 +15269,7 @@ def test_top_help_has_the_format_sample(capsys):
     out = top_help(capsys, "-h")
     assert "    k #3f2631                palette: one key char" in out and "    ....kkkk....             grid rows" in out
     doc = pxart.__doc__.splitlines()
-    sample = out[out.index("A sprite is"):out.index("Commands by topic")].splitlines()[1:]
+    sample = out[out.index("A sprite is"):out.index("Any command that takes FILE")].splitlines()[1:]
     assert all(l in doc for l in sample)
 
 
@@ -18553,7 +18618,7 @@ def test_help_documents_from_png_grid():
 
 
 def test_from_png_help_has_both_usage_lines(capsys):
-    text = pxart.command_help("from-png")
+    text = pxart.command_help("from-png")[0]
     lines = text.splitlines()
     assert "--palette P.px]" in lines[0] and "--labels FILE.csv" in lines[1] and "--grid WxH" in lines[2]
 
@@ -20712,9 +20777,11 @@ def test_palette_section_opens_with_rules():
 
 
 def test_compose_h_shows_the_rules_near_the_top(capsys):
+    # the rules open the details, right under the options (options first since loop V)
     out = cmd_help(capsys, "compose")
-    head = out.split("Examples:")[0]
-    assert len(head.splitlines()) <= 22  # argparse's usage and the --map usage line take 2 more since compose --map
+    details = out.split("\noptions:\n", 1)[1].split("\n\n", 1)[1]
+    head = details.split("Examples:")[0]
+    assert len(head.splitlines()) <= 14
     for fact in ("OUT imports it too", "Variants merge by name", "E_KEY_CONFLICT; --rekey gives it a free key"):
         assert fact in " ".join(head.split()), fact
 
@@ -24465,3 +24532,40 @@ def test_help_says_a_copied_still_drops_its_ms():
     doc = " ".join(pxart.__doc__.split())
     assert "A frame copied as a still (a top-level id, or a @still group) drops its ms and keeps its pivot, with a " \
         "note." in doc
+
+
+# ---------------------------------------------------------------- zsh users: a boxed line in FORMAT and in pxart -h
+
+def zsh_box(lines):
+    at = next(i for i, l in enumerate(lines) if "| zsh users:" in l)
+    return lines[at - 1:at + 3]
+
+
+def test_format_selector_paragraph_has_the_zsh_box():
+    note = pxart.note("FORMAT: selecting frames").splitlines()
+    box = zsh_box(note)
+    assert box[0].strip().startswith("+--") and box[-1] == box[0]
+    assert len({len(l) for l in box}) == 1  # a real box: every line as wide
+    text = " ".join(" ".join(l.strip(" |") for l in box[1:-1]).split())
+    assert text == 'zsh users: write "${F}:walk", not "$F:walk" (zsh reads \':w\' as a modifier), or quote the ' \
+                   "whole argument. A missing hero.pxalk/0 or hero.pxidle is reported as that mistake."
+
+
+def test_top_help_has_the_zsh_box(capsys):
+    out = top_help(capsys, "-h").splitlines()
+    box = zsh_box(out)
+    doc_box = [l[2:] for l in zsh_box(pxart.__doc__.splitlines())]
+    assert box == doc_box
+    assert out.index(box[0]) < next(i for i, l in enumerate(out) if l.startswith("Commands by topic"))
+
+
+def test_commands_that_take_a_selector_point_at_the_zsh_box(capsys):
+    for cmd in ("frames", "stats", "diff", "flip", "export"):
+        assert "FORMAT: selecting frames" in pxart.SEE[cmd] and "zsh" in pxart.GIST["FORMAT: selecting frames"]
+
+
+def test_readme_describes_the_command_help_order():
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "its usage and a line or three saying what it's for, its options one per line, then the details and " \
+        "heuristics, then a see-also line" in readme
+    assert 'zsh users: write `"${F}:walk"`, not `"$F:walk"`' in readme
