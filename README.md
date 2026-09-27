@@ -148,7 +148,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
   or a folder `wip`, in `check` and `stats` too; frames with one id from several files
   are labeled `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or
-  with `--fit` each frame's own, rows as tall as their tallest; `--align pivot` lines up
+  with `--fit` each frame's own, rows as tall as their tallest, and a frame over 8x the median
+  frame's area gets a note saying what it costs; `--align pivot` lines up
   each animation's frames by pivot, as `anim` does; `--rows group` puts each animation group
   on a row of its own), `anim` (one GIF, each
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a

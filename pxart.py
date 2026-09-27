@@ -81,14 +81,14 @@ LOOKING
       s.png'; PNGs in it are left out, a sheet rendered there too). --exclude GLOB
       (repeatable) leaves files out: one whose name or path under the directory matches
       ('_*.px', 'wip/*.px'), or every file under a directory that does ('wip'). A glob that
-      leaves out every file is E_FILE (check, stats and export alike, files named directly
-      too). A palette file (no frames) among the inputs, a directory's or a glob's, is
-      skipped with a note ('note: sheet skips palette.px: a palette file, no frames'); given
-      alone it is E_NO_FRAMES. Every cell is the largest frame's size, so a 16x16 tile
-      beside a 64x64 beast gets a 64x64 cell; --fit makes each cell its own frame's width
-      (or its label's, if wider) and each row as tall as its tallest frame, --cols cells to
-      a row, frames bottom-aligned in their row. A PNG whose four corners are exactly the
-      --bg color (a scene rendered with the same --bg) doesn't count that color: it's the
+      leaves out every file is E_FILE. A palette file (no frames) among the inputs, a
+      directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
+      palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
+      frame's size (a 16x16 tile beside a 64x64 beast gets a 64x64 cell; a frame over 8x the
+      median frame's area gets a note); --fit makes each cell its own frame's width (or its
+      label's, if wider) and each row as tall as its tallest frame, --cols cells to a row,
+      frames bottom-aligned in their row. A PNG whose four corners are exactly the --bg
+      color (a scene rendered with the same --bg) doesn't count that color: it's the
       backdrop. Frames with the same id from different files are labeled with their file's
       stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
@@ -2580,8 +2580,41 @@ def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     need_o(a, "sheet.png")
-    print(wrote(sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
-                      align=a.align, rows=a.rows)))
+    its = all_items(files, a.variant)
+    note = outsized(its, a.fit)
+    if note:
+        print(note)
+    print(wrote(sheet(its, a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit, align=a.align, rows=a.rows)))
+
+
+OUTSIZED = 8  # sheet notes a frame over this many times the median frame's area
+
+
+def outsized(its, fit):
+    """sheet's note for frames much bigger than the rest (over OUTSIZED times the median frame's area, among three or
+    more): with --fit each sets its row's height, and without it every cell's size. None when there are none."""
+    areas = sorted(it.img.width * it.img.height for it in its)
+    if len(areas) < 3:
+        return None
+    n = len(areas)
+    mid = areas[n // 2] if n % 2 else (areas[n // 2 - 1] + areas[n // 2]) / 2
+    big = [it for it in its if it.img.width * it.img.height > OUTSIZED * mid]
+    if not big:
+        return None
+    many = len(big) > 1
+    top = max(big, key=lambda it: it.img.width * it.img.height)
+    cost = (f"make{'' if many else 's'} its row {max(it.img.height for it in big)} px tall" if fit else
+            f"make{'' if many else 's'} every cell {top.img.width}x{top.img.height} (--fit sizes each cell to its frame)")
+    def home(it):
+        return it.doc.path.resolve() if it.doc else id(it)
+    shared = {home(it) for it in its if it not in big} & {home(it) for it in big}
+    names = sorted({it.doc.path.name for it in big if it.doc})
+    leave = ("pick the other frames with FILE:SEL" if shared else
+             f"--exclude {' --exclude '.join(names)}" if names and len(names) == len({home(it) for it in big}) else
+             f"--exclude {'their files' if many else 'its file'}")
+    return (f"note: {listed([f'{it.label} ({it.img.width}x{it.img.height})' for it in big], 5)} "
+            f"{'are' if many else 'is'} over {OUTSIZED}x the median frame's area ({mid:g} px) and {cost}: {leave}, "
+            f"or give {'them a sheet of their' if many else 'it a sheet of its'} own")
 
 
 def cmd_anim(a):

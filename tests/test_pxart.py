@@ -23554,6 +23554,46 @@ def test_diff_two_sizes_of_frames_get_no_render_note(tmp_path, monkeypatch, caps
     assert "note:" not in capsys.readouterr().out
 
 
+def outsized_file(tmp_path, big=16):
+    tiles = "".join(f"@frame t{i}\n" + "kkkk\n" * 4 for i in range(4))
+    return write(tmp_path, "s.px", "k #000000\n" + tiles + "@frame big\n" + ("k" * big + "\n") * big)
+
+
+def test_sheet_fit_notes_a_frame_much_bigger_than_the_rest(tmp_path, monkeypatch, capsys):
+    outsized_file(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "s.px", "--fit", "-o", "a.png") == 0
+    out = capsys.readouterr().out
+    assert "note: big (16x16) is over 8x the median frame's area (16 px) and makes its row 16 px tall: pick the " \
+        "other frames with FILE:SEL, or give it a sheet of its own" in out
+
+
+def test_sheet_notes_a_big_frame_without_fit_too(tmp_path, monkeypatch, capsys):
+    outsized_file(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "s.px", "-o", "a.png") == 0
+    assert "and makes every cell 16x16 (--fit sizes each cell to its frame)" in capsys.readouterr().out
+
+
+def test_sheet_big_frame_alone_in_its_file_names_exclude(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "c.px", "k #000000\nkk\n")
+    write(tmp_path, "b.px", "k #000000\n" + "k" * 16 + "\n" + ("k" * 16 + "\n") * 15)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "c.px", "c.px", "b.px", "c.px", "-o", "x.png") == 0
+    out = capsys.readouterr().out
+    assert "b (16x16) is over 8x the median frame's area (2 px)" in out and ": --exclude b.px, or give it" in out
+    assert run("sheet", "c.px", "c.px", "c.px", "-o", "x.png", "--exclude", "b.px") == 0
+
+
+def test_sheet_no_note_at_8x_or_for_two_frames(tmp_path, monkeypatch, capsys):
+    tiles = "".join(f"@frame t{i}\n" + "kk\n" * 2 for i in range(4))
+    write(tmp_path, "e.px", "k #000000\n" + tiles + "@frame big\n" + "kkkk\n" * 8)  # 32 px: exactly 8x of 4
+    write(tmp_path, "two.px", "k #000000\n@frame a\nk\n@frame b\n" + "kkkkkkkk\n" * 8)
+    monkeypatch.chdir(tmp_path)
+    assert run("sheet", "e.px", "-o", "a.png") == 0 and run("sheet", "two.px", "-o", "b.png") == 0
+    assert "median" not in capsys.readouterr().out
+
+
 def test_help_says_image_outputs_are_checked():
     assert "an image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG" in \
         " ".join(pxart.__doc__.split())
