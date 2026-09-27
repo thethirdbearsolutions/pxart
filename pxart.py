@@ -545,8 +545,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       else the first layer. Pixels that land outside the canvas
       are cropped, with a note saying how many. --under keeps OUT's frame and draws the layers
       behind it: they fill only its empty pixels (a floor or a shadow under a finished
-      sprite). The frame must exist. compose and dup note an output path that doesn't end in
-      .px (zsh "$OUT:frame").
+      sprite). The frame must exist.
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
@@ -713,10 +712,10 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       next and from the last back to the first (1px, the same whichever way round it goes).
       --fill adds every pixel whose center is inside (nonzero winding: a self-crossing star
       is solid). Two points are a line. 'poly rock.px o 2,14 5,6 11,3 14,9 12,14 --fill'.
-  ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]
+  ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]
       The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
       center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
-      (3.5,3.5,3.5,2.5 is 8x6 at 0,1). A thin 8-connected outline (Zingl's algorithm), mirror-
+      (3.5,3.5,3.5,2.5 is 8x6 at 0,1; so is --box 0,1,8,6, rect's x,y,w,h: no halves). A thin 8-connected outline (Zingl's algorithm), mirror-
       symmetric, no stray pixels; boxes 1 or 2 px across are filled.
   arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]
       Part of the circle ellipse cx,cy,r,r draws, from angle a0 to a1 in degrees, counter-
@@ -4885,7 +4884,8 @@ def ellipse_box(cx, cy, rx, ry, what, radii=("rx", "ry")):
         if c - r != int(c - r):
             fail("E_BAD_ARG", f"{what}: {cn}={c:g} and {rn}={r:g} put the shape's edge on half a pixel "
                  f"({cn}-{rn}..{cn}+{rn} must be whole pixels): give {cn} and {rn} both whole ({eg[0]}: 7 across) "
-                 f"or both ending in .5 ({eg[1]}: 8 across)")
+                 f"or both ending in .5 ({eg[1]}: 8 across)"
+                 + ("; or give the pixel box instead, as rect's: --box x,y,w,h" if what == "ellipse" else ""))
     return tuple(int(v) for v in (cx - rx, cy - ry, cx + rx, cy + ry))
 
 
@@ -4945,7 +4945,7 @@ def paint(f, pts, key):
 def draw(a, shape):
     """The drawing commands' shared edit: paint shape(frame) -> pixels with a.key in each selected frame."""
     where = {"line": "x0,y0 x1,y1", "rect": "x,y,w,h", "poly": "x,y ...", "ellipse": "cx,cy,rx,ry", "arc": "cx,cy,r",
-             "flood": "x,y"}[a.cmd]
+             "flood": "x,y"}[a.cmd] if not getattr(a, "box", None) else "--box"
     doc, frames, out = edit_target(a.file, a.o, coords=where)
     if a.key not in doc.resolved():
         fail("E_SELECT", f"{a.cmd}: key {a.key!r} not in palette (add it with palette --add)")
@@ -4986,8 +4986,16 @@ def cmd_poly(a):
 
 
 def cmd_ellipse(a):
-    cx, cy, rx, ry = coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True)
-    pts = ellipse_points(*ellipse_box(cx, cy, rx, ry, "ellipse"), fill=a.fill)
+    if (a.shape is None) == (a.box is None):
+        fail("E_BAD_ARG", "ellipse takes cx,cy,rx,ry or --box x,y,w,h (the pixel box it fills, as rect's), one of them")
+    if a.box:
+        x, y, w, h = coords(a.box, ("x", "y", "w", "h"), "--box")
+        if w < 1 or h < 1:
+            fail("E_BAD_ARG", f"--box {a.box}: w and h must be at least 1")
+        box = (x, y, x + w - 1, y + h - 1)
+    else:
+        box = ellipse_box(*coords(a.shape, ("cx", "cy", "rx", "ry"), "ellipse", half=True), "ellipse")
+    pts = ellipse_points(*box, fill=a.fill)
     draw(a, lambda f: sorted(pts, key=lambda p: (p[1], p[0])))
 
 
@@ -8035,7 +8043,9 @@ def parser(describe=True):
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("poly"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
-    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape")
+    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape", nargs="?")
+    p.add_argument("--box", metavar="x,y,w,h", help="instead of cx,cy,rx,ry: the pixel box it fills, as rect's (no "
+                   "half pixels: --box 0,0,8,6 is cx,cy,rx,ry 3.5,2.5,3.5,2.5)")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
     p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")

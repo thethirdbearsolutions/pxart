@@ -303,7 +303,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   - `poly … x,y x,y x,y … [--fill]`: a closed polygon from line's pixels (filled by nonzero
     winding, so a star is solid).
   - `rect … x,y,w,h [--fill]`, `ellipse … cx,cy,rx,ry [--fill]` (clean, symmetric pixel
-    ellipses; `.5` centers and radii for even sizes), `flood … x,y [--diagonal]`.
+    ellipses; `.5` centers and radii for even sizes, or
+    `--box x,y,w,h`, the pixel box as `rect` takes it, with no half pixels at all), `flood … x,y [--diagonal]`.
   - `arc … cx,cy,r a0,a1 --width 3`: a smear or swoosh (degrees, 0 = right, counter-clockwise).
   - `shade hero.px:idle/0 --ramp XxcCw --keys c --light nw`: re-shades a material with a
     darkest-to-lightest ramp. Each pixel's tone comes from its outward normal against the

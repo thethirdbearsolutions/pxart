@@ -7765,7 +7765,7 @@ def test_flood_count(tmp_path, capsys):
 def test_help_documents_drawing():
     doc = pxart.__doc__
     for s in ("DRAWING", "line FILE[:frame] KEY x0,y0 x1,y1 [--width N]", "rect FILE[:frame] KEY x,y,w,h [--fill]",
-              "ellipse FILE[:frame] KEY cx,cy,rx,ry [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
+              "ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]", "arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]",
               "flood FILE[:frame] KEY x,y [--diagonal]"):
         assert s in doc, s
 
@@ -26009,3 +26009,46 @@ def test_help_says_fill_dot_clears():
     assert "paint a rectangle (default: the frame; '.' clears)" in pxart.__doc__
     assert "`fill hero.px:walk/2 .` clears a frame" in (pathlib.Path(__file__).resolve().parent.parent
                                                          / "README.md").read_text()
+
+
+# ---------------------------------------------------------------- ellipse --box x,y,w,h: no half-pixel maths
+
+@pytest.mark.parametrize("box,shape", [("0,1,8,6", "3.5,3.5,3.5,2.5"), ("0,0,7,7", "3,3,3,3"), ("2,3,1,1", "2,3,0,0"),
+                                       ("1,1,2,5", "1.5,3,0.5,2"), ("-2,-1,6,4", "0.5,0.5,2.5,1.5"),
+                                       ("0,0,16,9", "7.5,4,7.5,4")])
+@pytest.mark.parametrize("fill", [[], ["--fill"]])
+def test_ellipse_box_draws_what_center_and_radii_draw(tmp_path, capsys, box, shape, fill):
+    blank = "k #000000\n" + "." * 16 + "\n" + ("." * 16 + "\n") * 11
+    a, b = write(tmp_path, "a.px", blank), write(tmp_path, "b.px", blank)
+    assert run("ellipse", a, "k", "--box", box, *fill) == 0
+    assert run("ellipse", b, "k", shape, *fill) == 0
+    assert a.read_text() == b.read_text() != blank
+
+
+def test_ellipse_box_or_shape_not_both_nor_neither(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "cx,cy,rx,ry or --box x,y,w,h" in run_err("ellipse", p, "k")
+    assert "cx,cy,rx,ry or --box x,y,w,h" in run_err("ellipse", p, "k", "1,1,1,1", "--box", "0,0,2,2")
+
+
+@pytest.mark.parametrize("box", ["0,0,0,3", "0,0,3,-1", "0,0,3", "0,0,1.5,2"])
+def test_ellipse_box_bad(tmp_path, box):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "E_BAD_ARG" in run_err("ellipse", p, "k", "--box", box)
+    assert p.read_text() == "k #000000\n....\n....\n"
+
+
+def test_ellipse_half_pixel_error_offers_box(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert run_err("ellipse", p, "k", "1.5,1,1.5,0.5").endswith(
+        "; or give the pixel box instead, as rect's: --box x,y,w,h")
+
+
+def test_arc_half_pixel_error_has_no_box(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n....\n....\n")
+    assert "--box" not in run_err("arc", p, "k", "1.5,1,1", "0,90")
+
+
+def test_ellipse_box_on_several_frames_needs_a_selector(tmp_path):
+    p = write(tmp_path, "e.px", "k #000000\n@frame a\n..\n@frame b\n..\n")
+    assert "pixel coordinates (--box) need you to say which frames" in run_err("ellipse", p, "k", "--box", "0,0,2,1")
