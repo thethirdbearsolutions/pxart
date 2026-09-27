@@ -15238,13 +15238,13 @@ def test_help_cmd_is_cmd_dash_h(capsys, cmd):
 
 def test_help_unknown_topic(capsys):
     msg = run_err("help", "nope")
-    assert msg.startswith("help: E_BAD_ARG: help 'nope': no such topic or command; topics: all, FORMAT") and \
+    assert msg.startswith("help: E_BAD_ARG: help 'nope': no such topic or command; topics: all, recipes, FORMAT") and \
         "commands:" in msg
 
 
 def test_help_section_in_the_reference():
     ref = pxart.reference("help")
-    assert ref.startswith("  help [all | TOPIC | CMD]") and "'pxart help all' prints this whole reference" in " ".join(
+    assert ref.startswith("  help [all | recipes | TOPIC | CMD]") and "'pxart help all' prints this whole reference" in " ".join(
         ref.split())
 
 
@@ -15253,7 +15253,7 @@ def test_command_help_footer_names_help_all(capsys):
 
 
 def test_help_upper_help_is_the_topic(capsys):
-    assert help_out(capsys, "HELP").startswith("HELP\n  help [all | TOPIC | CMD]")
+    assert help_out(capsys, "HELP").startswith("HELP\n  help [all | recipes | TOPIC | CMD]")
 
 
 def test_readme_documents_help_topics():
@@ -22116,3 +22116,204 @@ def test_help_documents_compose_map():
 def test_readme_documents_compose_map():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`compose --map room.map -o room.px` builds the map's room as a `.px` frame" in readme
+
+
+# ---------------------------------------------------------------- pxart help recipes: six workflows, all run here
+# 'pxart help all' is 65KB of reference. The recipes are the way in: each is a few commands a newcomer copies, end to
+# end. Every recipe runs here, its commands in order, in a fresh folder of the files it names, and each must exit 0
+# (a diff that proves something exits 1 when it doesn't).
+
+def recipe_fixtures(d):
+    """The files the recipes name: a PNG pack with labels.csv, a shared pal.px (with a night), a hero that imports
+    it (an idle and a walk that bobs over planted feet), two characters from other packs (keeper.px has a dark),
+    mossback.px's dusk to fit, a 64x64 walk sheet, and a market map of tiles, a stall and lamps."""
+    d = pathlib.Path(d)
+    (d / "pack").mkdir()
+    rows = "filename,proposed_name,notes\n"
+    for n, (name, c) in enumerate(zip(["grass", "roof-red", "wall", "lamp"],
+                                      [(58, 122, 58, 255), (196, 71, 58, 255), (106, 90, 74, 255),
+                                       (243, 207, 107, 255)])):
+        img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        for y in range(16):
+            for x in range(16):
+                if (x * 7 + y * 3 + n) % 5:
+                    img.putpixel((x, y), c)
+                elif (x + y) % 2:
+                    img.putpixel((x, y), (26, 20, 35, 255))
+        img.save(d / "pack" / f"tile_{n:04}.png")
+        rows += f"tile_{n:04}.png,{name},\n"
+    (d / "pack" / "labels.csv").write_text(rows)
+    (d / "pal.px").write_text("# shared palette\nk #1a1423\nw #efe6d2\ny #f3cf6b\nb #3d4f86\nr #c4473a\n"
+                              "@variant night\nk #0c0a18\nw #403f4a\nb #1a2040\nr #5a2a3a\n")
+    body = ["......kkkk......", ".....kwwwwk.....", ".....kwyywk.....", ".....kwwwwk.....", "......kbbk......",
+            ".....kbbbbk.....", "....kbbbbbbk....", "....kbbbbbbk....", ".....kbbbbk....."]
+    legs = [".....kr..rk.....", "....kr....rk....", "....kk....kk...."]
+    bob = ["." * 16] + body[:-1]  # the body 1px lower, the feet where they were
+    hero = "pxart 1\n@palette pal.px\n@anim walk/down ms=120\n@frame idle/0\n" + "\n".join(body + legs) + "\n"
+    for i, top in enumerate([body, bob, body, bob]):
+        hero += f"@frame walk/down/{i}\n" + "\n".join(top + legs) + "\n"
+    (d / "hero.px").write_text(hero)
+    (d / "keeper.px").write_text("pxart 1\nk #2b1e2f\nr #c4473a\nt #74c8d4\n@variant dark\nk #150f18\nr #83344e\n"
+                                 "t #3a6470\n@anim walk ms=150\n@frame walk/0\n.kk.\nkrrk\n.tt.\n@frame walk/1\n.kk.\n"
+                                 "krrk\nt..t\n")
+    (d / "wick.px").write_text("pxart 1\n@palette pal.px\no #f58b3c\n@variant night\no #f58b3c\n"
+                               "@anim walk/down ms=125\n@frame walk/down/0\n.ko.\nkwwk\n.bb.\n@frame walk/down/1\n.ko.\n"
+                               "kwwk\nb..b\n")
+    (d / "mossback.px").write_text("o #2b1d32\nT #74c8d4\nH #f4a04c\n@variant dusk\no #1a1428\nT #4a86a0\nH #d08040\n")
+    sheet = Image.new("RGBA", (64, 64))
+    for c in range(4):
+        for r in range(4):
+            for y in range(4, 14):
+                sheet.putpixel((c * 16 + 6 + r % 2, r * 16 + y), (200, 40 * c, 50 * r, 255))
+    sheet.save(d / "Walk.png")
+    (d / "tiles.px").write_text("pxart 1\n@palette pal.px\n@frame cobble\n" + ("kw" * 8 + "\n") * 16
+                                + "@frame water/0\n" + ("b" * 16 + "\n") * 16 + "@frame crate\n"
+                                + ("r" * 15 + ".\n") * 16)
+    (d / "stall.px").write_text("pxart 1\n@palette pal.px\n" + ("r" * 32 + "\n") * 10 + ("w" + "." * 30 + "w\n") * 22)
+    (d / "lamp.px").write_text("pxart 1\n@palette pal.px\n" + ("......yy........\n" * 8)
+                               + ("......kk........\n" * 24))
+    (d / "market.map").write_text("# ground layer, then props\nc tiles.px:cobble\nw tiles.px:water/0\n"
+                                  "x tiles.px:crate+h\nS stall.px+b\nL lamp.px%base+b\nl lamp.px+hb\n\n"
+                                  "cccccc\ncccccc\nwwwwww\n---\n......\n.S.L.l\nx.....\n")
+
+
+def recipes():
+    """[(title, [command argv])] from pxart help recipes: its numbered sections and their '$ pxart ...' lines."""
+    out = []
+    for line in pxart.RECIPES.splitlines():
+        m = re.match(r"^  (\d+)\. (.+)$", line)
+        if m:
+            out.append((m.group(2), []))
+        c = re.match(r"^\s+\$ pxart (.+)$", line)
+        if c:
+            out[-1][1].append(shlex.split(c.group(1)))
+    return out
+
+
+def run_recipe(tmp_path, monkeypatch, capsys, cmds):
+    """Each command in turn in tmp_path (the recipe fixtures), globs expanded as a shell would: [(argv, code, out)]."""
+    import glob
+    recipe_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    ran = []
+    for argv in cmds:
+        argv = [x for a in argv for x in (sorted(glob.glob(a)) if "*" in a else [a])]
+        try:
+            pxart.main(argv)
+            code = 0
+        except SystemExit as e:
+            code = e.code
+        ran.append((argv, code, capsys.readouterr().out))
+    return ran
+
+
+def test_recipes_are_six_and_short():
+    got = recipes()
+    assert [t for t, _ in got] == ["Port a pack and prove it lossless", "Merge packs, variants and all",
+                                   "Build a dusk or a night", "Slice a sheet", "Make a scene from a map",
+                                   "Check an animation's feet"]
+    assert all(3 <= len(cmds) <= 6 for _, cmds in got)
+    blocks = re.split(r"\n  \d+\. ", pxart.RECIPES)[1:]
+    assert all(len(b.strip().splitlines()) <= 12 for b in blocks)
+
+
+@pytest.mark.parametrize("title, cmds", recipes(), ids=[t for t, _ in recipes()])
+def test_recipe_runs(tmp_path, monkeypatch, capsys, title, cmds):
+    for argv, code, out in run_recipe(tmp_path, monkeypatch, capsys, cmds):
+        assert code in (0, None), (title, argv, code, out)
+
+
+def test_recipe_port_proves_every_frame(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Port a pack and prove it lossless"])
+    diffs = [out for argv, _, out in ran if argv[0] == "diff"]
+    assert len(diffs) == 2 and all(o.endswith("4 frame(s): 4 same\n") for o in diffs)
+    assert "grass vs tile_0000.png: same: 16x16, every pixel" in diffs[0]
+
+
+def test_recipe_port_catches_a_changed_pixel(tmp_path, monkeypatch, capsys):
+    cmds = dict(recipes())["Port a pack and prove it lossless"]
+    ran = run_recipe(tmp_path, monkeypatch, capsys, cmds[:1])
+    img = Image.open(tmp_path / "pack" / "tile_0002.png").convert("RGBA")
+    img.putpixel((0, 0), (1, 2, 3, 255))
+    img.save(tmp_path / "pack" / "tile_0002.png")
+    assert run(*cmds[1]) == 1
+    assert "wall vs tile_0002.png: 1 px differ in 0,0,1,1 (x,y,w,h)" in capsys.readouterr().out
+
+
+def test_recipe_merge_copies_render_as_their_originals(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Merge packs, variants and all"])
+    assert [out.splitlines()[-1] for argv, _, out in ran if argv[0] == "diff"] == ["2 frame(s): 2 same"] * 3
+    doc = pxart.parse(tmp_path / "party.px")
+    assert doc.palette_refs == ["pal.px"] and pxart.variant_names(doc) == ["night"]
+
+
+def test_recipe_night_keeps_the_lamp_lit(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Build a dusk or a night"])
+    stats = next(out for argv, _, out in ran if argv[0] == "stats")
+    assert "at 7,2: key y; base #f3cf6b, night #f3cf6b, dusk #" in stats
+    assert "relists unchanged: y" in next(out for argv, _, out in ran if argv == ["palette", "pal.px"])
+
+
+def test_recipe_slice_makes_a_group_per_column(tmp_path, monkeypatch, capsys):
+    run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Slice a sheet"])
+    doc = pxart.parse(tmp_path / "boy.px")
+    assert list(doc.groups()) == ["walk/down", "walk/up", "walk/left", "walk/right"]
+    assert doc.anims["walk/down"]["direction"] == "pingpong" and doc.anims["walk/down"]["ms"] == 120
+
+
+def test_recipe_map_room_renders_as_the_scene(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Make a scene from a map"])
+    assert ran[-1][2] == "same: 96x48, every pixel\n"
+    assert run("scene", "--map", "market.map", "--bg", "transparent", "--scale", "1", "-o", "day.png") == 0
+    assert run("diff", "market.px", "day.png") == 0
+
+
+def test_recipe_map_room_without_rekey_warns_and_its_night_differs(tmp_path, monkeypatch, capsys):
+    # why the recipe says --rekey: lamp.px%base's k is pal.px's k, which night recolors
+    cmds = [c for c in dict(recipes())["Make a scene from a map"] if "--rekey" not in c]
+    cmds.insert(2, ["compose", "--map", "market.map", "-o", "market.px"])
+    ran = run_recipe(tmp_path, monkeypatch, capsys, cmds)
+    assert "WARNING" in ran[2][2] and "compose --rekey k gives it a key of its own" in ran[2][2]
+    assert ran[-1][1] == 1
+
+
+def test_recipe_feet_stay_planted(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Check an animation's feet"])
+    anim = ran[0][2]
+    assert anim.count("(rows 9+ still;") == 4
+    onion = ran[1][2]
+    assert "B vs A (rows 9-11): left +0, right +0, top +0, bottom +0; best shift +0,+0" in onion
+    assert pxart.parse(tmp_path / "hero.px").anims["walk/down"]["pivot"] == (8, 11)
+
+
+def test_help_recipes_prints_them(capsys):
+    assert run("help", "recipes") == 0
+    out = capsys.readouterr().out
+    assert out == pxart.RECIPES.rstrip() + "\n" and out.startswith("RECIPES (pxart help recipes)")
+    assert run("help", "RECIPES") == 0
+
+
+def test_recipes_are_not_in_help_all():
+    assert "RECIPES" not in pxart.__doc__ and "$ pxart" not in pxart.__doc__
+
+
+def test_overview_points_at_the_recipes(capsys):
+    text = " ".join(pxart.overview().split())
+    assert "Start here: 'pxart help recipes' walks through six workflows end to end: port a pack and prove it " \
+        "lossless, merge packs with variants, build a dusk or night, slice a sheet, make a scene from a map, check " \
+        "an animation's feet." in text
+    assert run("-h") == 0
+    assert "'pxart help recipes'" in capsys.readouterr().out
+
+
+def test_unknown_help_topic_lists_recipes(capsys):
+    assert "topics: all, recipes, FORMAT" in run_err("help", "nope")
+
+
+def test_help_section_names_recipes():
+    assert "help [all | recipes | TOPIC | CMD]" in pxart.__doc__
+
+
+def test_readme_points_at_the_recipes():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`pxart help recipes` walks through six workflows end to end" in readme

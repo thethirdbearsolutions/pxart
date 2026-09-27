@@ -860,8 +860,9 @@ CONVERTING
       is E_BAD_ARG, unless the strip left over is empty (then a note says so).
 
 HELP
-  help [all | TOPIC | CMD]
-      pxart -h is a short overview and the commands by topic. 'pxart help all' prints this
+  help [all | recipes | TOPIC | CMD]
+      'pxart help recipes' walks through six workflows, command by command (not part of this
+      reference). pxart -h is a short overview and the commands by topic. 'pxart help all' prints this
       whole reference; 'pxart help TOPIC' one part of it: FORMAT, LOOKING, CHECKING, EDITING,
       DRAWING, CONVERTING, HELP or ERRORS (any case); 'pxart help CMD' is 'pxart CMD -h', the
       command's section of it and a see-also line naming the shared notes it relies on.
@@ -888,6 +889,69 @@ ERROR CODES
 """
 import argparse, contextlib, csv, fnmatch, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw
+
+RECIPES = """RECIPES (pxart help recipes)
+  Six workflows, end to end. Each runs as written from a folder holding the files it names;
+  'pxart help CMD' has the rest of each command.
+
+  1. Port a pack and prove it lossless
+     A pack's loose PNGs and the labels.csv it ships become one .px. One diff then checks every
+     frame against its PNG and exits 1 if any differs; so does a diff of two folders.
+       $ pxart from-png pack/*.png --labels pack/labels.csv -o town.px
+       $ pxart diff town.px pack/ --labels pack/labels.csv
+       $ pxart check town.px
+       $ pxart export town.px --frames out/
+       $ pxart diff out/ pack/ --labels pack/labels.csv
+
+  2. Merge packs, variants and all
+     Two characters from different packs into one file that imports a shared palette: --prefix
+     keeps their ids apart, --rekey their keys, and --variant-map reads the keeper's dark as
+     party.px's night. diff proves each copy renders as its original, variant by variant.
+       $ pxart new party.px --empty --palette pal.px
+       $ pxart frames wick.px:walk --copy-to party.px --prefix wick/
+       $ pxart frames keeper.px:walk --copy-to party.px --prefix keeper/ --rekey --variant-map night=dark
+       $ pxart diff keeper.px:walk party.px:keeper/walk
+       $ pxart diff keeper.px:walk%dark party.px:keeper/walk%night
+       $ pxart diff wick.px:walk%night party.px:wick/walk%night
+
+  3. Build a dusk or a night
+     A night derived from the base colors (darkened, tinted, the lamp kept lit), or a dusk
+     fitted to another pack's; then read what each recolors, and one pixel in every variant.
+       $ pxart palette pal.px --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y
+       $ pxart palette pal.px --variant dusk --derive-from base --match mossback.px%dusk
+       $ pxart palette pal.px
+       $ pxart stats hero.px:idle/0 --at 7,2
+       $ pxart sheet hero.px --variant night -o night.png
+
+  4. Slice a sheet
+     A 64x64 sheet whose columns are directions: a group per column, then timing, and a look.
+       $ pxart from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right -o boy.px
+       $ pxart anim-set boy.px:walk/down ms=120 direction=pingpong
+       $ pxart frames boy.px
+       $ pxart sheet boy.px --rows group -o boy.png
+
+  5. Make a scene from a map
+     A text tilemap (scene in 'pxart help LOOKING' has the format) renders as a PNG, or
+     composes into a .px room that renders the same, pixel for pixel. --rekey gives the map's
+     lamp.px%base its own keys, so the room's night leaves it lit, as scene does.
+       $ pxart check market.map
+       $ pxart scene --map market.map -o market.png
+       $ pxart compose --map market.map -o market.px --rekey
+       $ pxart scene --map market.map --bg transparent --scale 1 --variant night -o night.png
+       $ pxart diff market.px%night night.png
+
+  6. Check an animation's feet
+     anim prints what moved in each frame: 'rows 9+ still' says rows 9 down (the feet) never
+     moved, where 'shift +0,+1 then 0px' would be the whole sprite bobbing, feet and all. onion
+     --feet 3 reads the bottom 3 rows alone ('bottom +0': the feet stayed put). A pivot on the
+     feet then lines the frames up in sheet and anim.
+       $ pxart anim hero.px:walk/down
+       $ pxart onion hero.px:walk/down/0 hero.px:walk/down/1 --feet 3 -o feet.png
+       $ pxart anim-set hero.px:walk/down pivot=8,11
+       $ pxart sheet hero.px:walk/down --align pivot --fit -o walk.png
+       $ pxart anim hero.px:walk/down -o walk.gif
+"""
+
 
 FORMAT_VERSION = 1
 CLEAR = (0, 0, 0, 0)
@@ -6780,7 +6844,10 @@ def overview():
                       *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
-                      "whole reference."])
+                      "whole reference.", "",
+                      "Start here: 'pxart help recipes' walks through six workflows end to end: port a pack and prove "
+                      "it", "lossless, merge packs with variants, build a dusk or night, slice a sheet, make a scene "
+                      "from a map,", "check an animation's feet."])
 
 
 def cmd_help(a):
@@ -6790,6 +6857,8 @@ def cmd_help(a):
         print(parser()[0].format_help().rstrip())
     elif want == "all":
         print(__doc__.rstrip())
+    elif want.lower() == "recipes":
+        print(RECIPES.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -6800,7 +6869,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, {', '.join(TOPICS)}, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 

@@ -111,7 +111,10 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 ## Commands
 
-`pxart -h` is a short overview: the format in a few lines and the commands by topic.
+`pxart help recipes` walks through six workflows end to end, command by command: port a pack
+and prove it lossless, merge packs with variants, build a dusk or night, slice a sheet, make a
+scene from a map, check an animation's feet. `pxart -h` is a short overview: the format in a few
+lines and the commands by topic.
 `pxart help all` has the full reference, `pxart help TOPIC` one part of it (FORMAT,
 LOOKING, CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS), and `pxart CMD -h` (or
 `pxart help CMD`) prints one command's part (`pxart poly -h`), then a see-also line naming
