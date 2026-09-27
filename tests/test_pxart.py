@@ -4544,6 +4544,7 @@ PALETTE_GROUPS = {
     "import / hoist": ["--import", "--hoist", "--extract-to", "--repoint"],
     "comments": ["--comment", "--comment-header"],
     "export": ["--export", "--used"],
+    "where an edit goes": ["-o", "--dry-run"],
 }
 
 
@@ -4563,7 +4564,7 @@ def test_palette_help_groups_its_options_by_mode(capsys):
         assert [l.split()[0] for l in body] == flags, title
     # nothing cut off: every flag palette takes is listed, with its help
     every = [f for a in pxart.parser()[1].choices["palette"]._actions for f in a.option_strings if f.startswith("--")]
-    assert sorted(every) == sorted([f for fs in PALETTE_GROUPS.values() for f in fs] + ["--help"])
+    assert sorted(every) == sorted([f for fs in PALETTE_GROUPS.values() for f in fs if f != "-o"] + ["--help"])
     for a in pxart.parser()[1].choices["palette"]._actions:
         assert a.help or not a.option_strings, a.option_strings
         for f in a.option_strings:
@@ -25350,3 +25351,171 @@ def test_anim_group_note_on_dry_run(tmp_path, capsys):
     p = write(tmp_path, "h.px", DIRS)
     assert run("anim", f"{p}:walk", "--dry-run") == 0
     assert capsys.readouterr().out.startswith(f"note: {p}:walk is 4 groups")
+
+
+# ---------------------------------------------------------------- palette -o OUT and --dry-run
+
+PO_PAL = "# shared\nk #101010\nr #c02020\n\n@variant night\nr #400000\n"
+PO_SPRITE = ("pxart 1\n# the hero\n@palette pal.px\ng #20c020\nw #f0f0f0\nx #777777\n\n@variant night\ng #104010\n\n"
+             "@frame a\nkg\nrw\n")
+
+# Every edit mode of palette: argv after FILE.
+PO_EDITS = {
+    "add": ["--add", "q=#123456"],
+    "variant-add": ["--variant", "night", "--add", "w=#202020"],
+    "variant-keep": ["--variant", "night", "--keep", "g"],
+    "derive": ["--variant", "dusk", "--derive-from", "base", "--darken", "0.3"],
+    "comment": ["--comment", "g", "grass"],
+    "comment-header": ["--comment-header", "a new header"],
+    "remove": ["--remove", "x"],
+    "remove-to": ["--remove", "w", "--to", "g"],
+    "order": ["--order", "wg"],
+    "import": ["--import", "{d}/more.px"],
+    "extract-repoint": ["--extract-to", "{d}/ex.px", "--repoint"],
+}
+
+
+def po_setup(tmp_path):
+    write(tmp_path, "pal.px", PO_PAL)
+    write(tmp_path, "more.px", "x #777777\nz #abcdef\n")
+    return write(tmp_path, "h.px", PO_SPRITE)
+
+
+def po_argv(name, d):
+    return [a.format(d=d) for a in PO_EDITS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_o_writes_what_in_place_would(tmp_path, capsys, name):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    pa, pb = po_setup(a), po_setup(b)
+    assert run("palette", pa, *po_argv(name, a)) == 0
+    assert run("palette", pb, *po_argv(name, b), "-o", b / "out.px") == 0
+    assert pb.read_text() == PO_SPRITE  # FILE stays as it is
+    assert (b / "out.px").read_text() == pa.read_text()
+    assert f"wrote {b / 'out.px'}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_o_elsewhere_repoints_and_renders_the_same(tmp_path, name):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    pa, pb = po_setup(a), po_setup(b)
+    assert run("palette", pa, *po_argv(name, a)) == 0
+    out = b / "deep" / "er" / "out.px"
+    assert run("palette", pb, *po_argv(name, b), "-o", out) == 0
+    doc = pxart.parse(out)
+    assert all(ref.startswith("../../") for ref in doc.palette_refs) and doc.palette_refs
+    assert renders(out) == renders(pa)
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_dry_run_writes_nothing_and_shows_the_diff(tmp_path, capsys, name):
+    p = po_setup(tmp_path)
+    before = {f.name: f.read_text() for f in tmp_path.iterdir()}
+    assert run("palette", p, *po_argv(name, tmp_path), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert {f.name: f.read_text() for f in tmp_path.iterdir()} == before
+    assert out.endswith("(dry run; nothing written)\n")
+    assert f"--- {p}\n+++ {p}\n" in out and f"would write {p}" in out
+    assert "wrote" not in out.replace("would write", "")
+
+
+@pytest.mark.parametrize("name", sorted(PO_EDITS))
+def test_palette_dry_run_diff_applies_to_the_real_edit(tmp_path, capsys, name):
+    # The diff's + and - lines are exactly the lines the edit adds and takes away.
+    p = po_setup(tmp_path)
+    assert run("palette", p, *po_argv(name, tmp_path), "--dry-run") == 0
+    lines = capsys.readouterr().out.splitlines()
+    start = lines.index(f"--- {p}")
+    end = next(i for i in range(start + 2, len(lines)) if lines[i].startswith("---") or
+               not (lines[i][:1] in "+-" or lines[i].startswith("@@")))
+    diff = lines[start + 2:end]
+    assert run("palette", p, *po_argv(name, tmp_path)) == 0
+    import difflib
+    want = [l for l in difflib.unified_diff(PO_SPRITE.splitlines(), p.read_text().splitlines(), lineterm="", n=0)][2:]
+    assert diff == want
+
+
+def test_palette_dry_run_with_o_diffs_against_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    out = tmp_path / "sub" / "o.px"
+    assert run("palette", p, "--add", "q=#123456", "-o", out, "--dry-run") == 0
+    got = capsys.readouterr().out
+    assert got == (f"--- {p}\n+++ {out}\n@@ -3 +3 @@\n-@palette pal.px\n+@palette ../pal.px\n@@ -6,0 +7 @@\n"
+                   f"+q #123456\nwould write {out}\n(dry run; nothing written)\n")
+    assert not (tmp_path / "sub").exists()
+
+
+def test_palette_dry_run_no_change(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--order", "gwx", "--dry-run") == 0
+    assert capsys.readouterr().out == f"already in that order; no change: {p}\n(dry run; nothing written)\n"
+
+
+def test_palette_dry_run_hoist_shows_both_files(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--hoist", "w", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"+++ {tmp_path / 'pal.px'}" in out and f"+++ {p}" in out and "+w #f0f0f0" in out and "-w #f0f0f0" in out
+    assert p.read_text() == PO_SPRITE and (tmp_path / "pal.px").read_text() == PO_PAL
+
+
+def test_palette_dry_run_extract_shows_the_new_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--extract-to", tmp_path / "ex.px", "--repoint", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"--- /dev/null\n+++ {tmp_path / 'ex.px'}" in out and f"would write {tmp_path / 'ex.px'}" in out
+    assert not (tmp_path / "ex.px").exists()
+
+
+def test_palette_dry_run_remove_imported_shows_the_palette_file(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--remove", "r", "--to", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"+++ {tmp_path / 'pal.px'}" in out and "-r #c02020" in out
+    assert (tmp_path / "pal.px").read_text() == PO_PAL and p.read_text() == PO_SPRITE
+
+
+def test_palette_dry_run_export_with_an_edit_writes_nothing(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--add", "q=#123456", "--export", tmp_path / "x.gpl", "--dry-run") == 0
+    assert not (tmp_path / "x.gpl").exists() and p.read_text() == PO_SPRITE
+    assert f"would write {tmp_path / 'x.gpl'}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv, want", [
+    (["-o", "{d}/o.px"], "-o {d}/o.px goes with an edit of FILE"),
+    (["--dry-run"], "--dry-run goes with an edit of FILE"),
+    (["--export", "{d}/x.gpl", "--dry-run"], "--export writes its own file"),
+    (["--extract-to", "{d}/ex.px", "-o", "{d}/o.px"], "--extract-to writes its own file"),
+    (["--in", "{d}", "-o", "{d}/o.px"], "the listing writes nothing"),
+    (["--hoist", "w", "-o", "{d}/o.px"], "--hoist edits the palette file FILE imports too"),
+    (["--remove", "r", "--to", "k", "-o", "{d}/o.px"], "--remove of an imported key edits the palette file"),
+    (["--add", "q=#123456", "--export", "{d}/x.gpl", "-o", "{d}/o.px"], "--export writes its own file"),
+])
+def test_palette_o_and_dry_run_errors(tmp_path, argv, want):
+    p = po_setup(tmp_path)
+    msg = run_err("palette", p, *[a.format(d=tmp_path) for a in argv])
+    assert "E_BAD_ARG" in msg and want.format(d=tmp_path) in msg
+    assert not (tmp_path / "o.px").exists() and p.read_text() == PO_SPRITE
+
+
+def test_palette_o_same_as_file_edits_in_place(tmp_path, capsys):
+    p = po_setup(tmp_path)
+    assert run("palette", p, "--add", "q=#123456", "-o", p) == 0
+    assert "q #123456" in p.read_text()
+
+
+def test_palette_o_of_a_palette_file(tmp_path):
+    write(tmp_path, "pal.px", PO_PAL)
+    assert run("palette", tmp_path / "pal.px", "--variant", "night", "--add", "k=#000000", "-o", tmp_path / "p2.px") == 0
+    assert (tmp_path / "pal.px").read_text() == PO_PAL
+    assert pxart.parse(tmp_path / "p2.px", palette_only=True).variants["night"]["k"] == pxart.hex2rgba("#000000")
+
+
+def test_palette_help_documents_o_and_dry_run():
+    doc = " ".join(pxart.__doc__.split())
+    assert "[--order KEYS] [-o OUT] [--dry-run]" in doc
+    assert "Edits write FILE's own lines (-o OUT: a copy; --dry-run: a diff, nothing written)" in doc

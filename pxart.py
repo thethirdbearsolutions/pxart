@@ -577,13 +577,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
            [--keep-lit KEYS] [--lift-darks]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
-          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS]
+          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS] [-o OUT] [--dry-run]
       Rules ('pxart help palette-rules' prints only these):
         - No flags lists the palette: each key, its color, where it comes from and how often
           it's drawn, then what each variant recolors.
-        - Edits write FILE's own lines. An imported key or variant is edited in its palette
-          file: --hoist moves FILE's keys there, and --remove of an imported key takes it out
-          there when no other sprite under the directory uses it.
+        - Edits write FILE's own lines (-o OUT: a copy; --dry-run: a diff, nothing written). An
+          imported key or variant is edited in its palette file: --hoist moves FILE's keys
+          there, and --remove of an imported key takes it out there when no other sprite under
+          the directory uses it.
         - A variant is key lines over the base: --variant NAME --add sets keys in it (a key in
           its base color stays lit), --keep lets keys inherit, and --derive-from builds a
           whole variant from the base (--match fits another palette's mood; keys darker than a
@@ -653,8 +654,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       newline in the text makes two comment lines. One --comment takes several in turn
       ('palette pal.px --comment y "lamp" E "flame"'), and both repeat and go with --add in
       one call (the key added first): 'palette pal.px --variant night --add k=#120e22
-      --comment @variant night "night: only lamps glow"' (--variant night and @variant night
-      may name the same variant; two different ones are E_BAD_ARG).
+      --comment @variant night "night: only lamps glow"'.
 
       Removing keys: --remove k,n takes FILE's own keys out: their key lines, their lines in
       FILE's variants, and the comments above those. A key a frame still draws with is
@@ -855,7 +855,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, contextlib, csv, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 RECIPES = """RECIPES (pxart help recipes)
@@ -1084,6 +1084,7 @@ class Doc:
         self.frame_gap = None       # blank lines the file puts between @frame blocks
         self.newline, self.final_newline = "\n", True
         self.before = None          # edit_target: each frame's grid before the edit, to say what it touched
+        self.dest = None            # palette -o: where the edited file goes instead of path
 
     @property
     def stem(self):
@@ -2176,20 +2177,29 @@ def repoint(doc, out):
 
 def write_doc(doc, path=None):
     """Save doc unless the file already holds exactly its text; returns what to print. Written somewhere else, its
-    @palette lines are re-pointed from there (repoint)."""
-    path = pathlib.Path(path or doc.path)
+    @palette lines are re-pointed from there (repoint). doc.dest (palette -o) stands in for doc.path. A dry run
+    (palette --dry-run) prints the diff it would make and writes nothing."""
+    path = pathlib.Path(path or doc.dest or doc.path)
     repoint(doc, path)
     if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
         touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
         if len(touched) > 1:
             print(f"edited {len(touched)} frames: {listed(touched)}")
-    text = doc.text()
+    text, had = doc.text(), None
     try:
         with open(path, newline="") as fh:
-            if fh.read() == text:
-                return f"no change: {path}"
+            had = fh.read()
     except (OSError, ValueError):  # missing, or not text
         pass
+    if had == text:
+        return f"no change: {path}"
+    if DRY["run"]:  # a new OUT (palette -o) is shown against the FILE it copies
+        base, name = (had, path) if had is not None or not doc.path or not doc.path.exists() else \
+            (doc.path.read_text(), doc.path)
+        for line in difflib.unified_diff((base or "").splitlines(), text.splitlines(),
+                                         str(name) if base is not None else "/dev/null", str(path), lineterm="", n=0):
+            print(line)
+        return f"would write {path}"
     return f"wrote {doc.save(path)}"
 
 
@@ -6174,8 +6184,33 @@ def key_color(m):
 
 
 def cmd_palette(a):
+    """-o OUT and --dry-run go with the edit modes; the listing and --export write no edited FILE."""
+    edits = a.add or a.keep or a.derive_from is not None or a.comment or a.comment_header is not None or a.remove \
+        or a.order or a.import_ or a.hoist or (a.extract_to and a.repoint)
+    for flag, on in ((f"-o {a.o}", a.o), ("--dry-run", a.dry_run)):
+        if on and not edits:
+            fail("E_BAD_ARG", f"{flag} goes with an edit of FILE (--add, --variant, --remove, --order, --import, "
+                 "--hoist, --comment, --extract-to --repoint): " + ("the listing writes nothing" if not
+                 (a.export or a.extract_to) else f"{'--export' if a.export else '--extract-to'} writes its own file"))
+    if a.o and a.hoist:
+        fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE, and --hoist edits the palette file FILE imports "
+             "too; run it without -o (--dry-run shows both changes)")
+    if a.o and a.export:
+        fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE; --export writes its own file: give them apart")
+    palette_edit(a)
+    if a.dry_run:
+        print("(dry run; nothing written)")
+
+
+def palette_edit(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
+    if a.o:
+        doc.dest = pathlib.Path(a.o)
+        note_suffix(doc.dest)
+        if a.remove and any(k not in doc.palette for k in key_list(a.remove, "--remove")):
+            fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE, and --remove of an imported key edits the "
+                 "palette file that defines it too; run it without -o (--dry-run shows both changes)")
     if a.within and not os.path.isdir(a.within):
         fail("E_FILE", f"--in {typed_path(a.within)}: not a directory")
     notes = comment_args(a.comment)
@@ -6264,10 +6299,11 @@ def cmd_palette(a):
             body = "".join("%02x%02x%02x\n" % v[:3] for _, v in cols)
         else:
             fail("E_BAD_ARG", "--export wants a .gpl or .hex path")
-        outpath(a.export).write_text(body)
+        if not DRY["run"]:
+            outpath(a.export).write_text(body)
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
-        print("wrote", a.export)
+        print("would write" if DRY["run"] else "wrote", a.export)
     if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None or derive:
         return
     if a.within and doc.frames:
@@ -7893,6 +7929,11 @@ def parser(describe=True):
     g = p.add_argument_group("export", "Write the palette for another tool.")
     g.add_argument("--export", metavar="OUT.gpl|OUT.hex", help="write the base palette as a GIMP .gpl or a .hex list")
     g.add_argument("--used", action="store_true", help="with --export: only the keys FILE's frames draw with")
+    g = p.add_argument_group("where an edit goes", "With any edit above (not the listing or --export).")
+    g.add_argument("-o", metavar="OUT", help="write the edited FILE to OUT (its @palette lines re-pointed from there); "
+                   "FILE stays as it is")
+    g.add_argument("--dry-run", action="store_true", help="print what the edit says and a diff of each file it would "
+                   "change; write nothing")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p.add_argument("--prefix-file", action="store_true",
