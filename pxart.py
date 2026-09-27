@@ -540,8 +540,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       keys it is about: '# light-emitting keys' above f a i) stay below it. From several
       files, each saying which file's it is ('from keeper.px's @variant night, dusk here'),
       and one that names a variant --variant-map merged into another says so ('from player.px,
-      whose dark is dusk here'). An OUT whose palette is inlined also gets the palette files'
-      header comments at the top of its palette, each with the files it came from.
+      whose dark is dusk here'). A @variant's comment names only the files whose variant lines
+      gave OUT's own @variant keys, and when OUT imports the rest, says so ('from visitors.px's
+      @variant night; the rest from pal.px's night'). An OUT whose palette is inlined also gets
+      the palette files' header comments at the top of its palette, each with the files it
+      came from.
 
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
       parts.px:body@0,8. With OUT:frame, adds or replaces that frame in OUT and keeps its
@@ -4582,12 +4585,25 @@ def carry_notes(doc, docs, notes, renamed, owners, vmap):
             if got:
                 groups.setdefault(tuple(got), []).append((d, src))
         lines = []
+        # credit the files whose variant lines gave OUT's own @variant keys (a file whose keys all come from OUT's
+        # shared import gave none), and the import for the rest
+        gave = {id(owners[k]) for k in over if owners.get(k) is not None}
+        rest = [f"{pathlib.PurePath(r).name}'s" for r in doc.palette_refs] if name in doc.shared_variants else []
+        rest = f"{' and '.join(rest)} {name}" if rest else ""
         for got, whose in groups.items():
-            srcs = list(dict.fromkeys(src for _, src in whose))
-            what = " and ".join(dict.fromkeys(f"{d.path.name}'s" for d, _ in whose)) + f" @variant {'/'.join(srcs)}"
+            credited = [(d, src) for d, src in whose if id(d) in gave] if multi else whose
+            if not credited and not rest:  # nothing better to go on: every file that has it
+                credited = whose
+            srcs = list(dict.fromkeys(src for _, src in credited))
+            what = " and ".join(dict.fromkeys(f"{d.path.name}'s" for d, _ in credited)) + f" @variant {'/'.join(srcs)}"
             here = f", {name} here" if srcs != [name] else ""
-            lines += labeled(list(got), f"from {what}{here}" if multi else f"@variant {'/'.join(srcs)}{here}"
-                             if here else "")
+            if multi and not credited:
+                tag = f"from {rest}"
+            elif multi:
+                tag = f"from {what}{here}" + (f"; the rest from {rest}" if rest else "")
+            else:
+                tag = f"@variant {'/'.join(srcs)}{here}" if here else ""
+            lines += labeled(list(got), tag)
         froms = list(dict.fromkeys(f"{d.path.name}'s {src}" for d, src in takes))
         if name in vmap and any(src != name for _, src in takes):
             lines.append(f"# {name}: {', '.join(froms)} (compose --variant-map)")

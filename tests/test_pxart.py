@@ -14328,7 +14328,8 @@ def test_carried_variant_comment_of_a_shared_palette_said_once_naming_both(tmp_p
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{b}:y@1,0", f"{c}:z@2,0") == 0
     text = out.read_text()
-    assert text.count("# dusk: warm") == 1 and "# dusk: warm (from a.px's and b.px's @variant dusk)" in text
+    # a.px draws only k, which dusk leaves alone: OUT's dusk lines are b.px's r (and c.px's q), so b.px is credited
+    assert text.count("# dusk: warm") == 1 and "# dusk: warm (from b.px's @variant dusk)" in text
 
 
 def test_carried_comments_single_file_unlabeled(tmp_path, capsys):
@@ -14443,7 +14444,7 @@ def test_help_documents_carried_comment_labels():
 
 def test_readme_documents_carried_comment_labels():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
-    assert "each naming its file when there are several (`from keeper.px's @variant night, dusk here`)" in readme
+    assert "each naming its file when there are several (`from keeper.px's @variant night, dusk here`;" in readme
 
 
 def test_carried_comments_two_layers_of_one_file_unlabeled(tmp_path, capsys):
@@ -20971,3 +20972,127 @@ def test_help_and_readme_document_the_same_color_repaint():
         "the same" in " ".join(pxart.__doc__.split())
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "onto a key already in a's color the error says `a=b`" in readme
+
+
+# ---------------------------------------------------------------- compose credits the variant lines that gave keys
+# The town street: every tile file imports pal.px (with its commented @variant night), and visitors.px has a local
+# @variant night for its own keys. The new street.px imports pal.px too, so its own @variant night holds only the
+# visitors' keys, and its comment used to credit every tile file's night.
+
+def street_files(tmp_path, visitor_comment=""):
+    write(tmp_path, "pal.px", "g #3a7a3a\nw #8a5a3a\ny #f3cf6b\n\n# night: moonlit; glass y kept lit\n@variant night\n"
+                              "g #1a2a3a\nw #2a2a3a\ny #f3cf6b\n")
+    ground = write(tmp_path, "ground.px", "pxart 1\n@palette pal.px\n@frame grass\ngg\ngg\n")
+    trees = write(tmp_path, "trees.px", "pxart 1\n@palette pal.px\n@frame pine\n.g\nwg\n")
+    walls = write(tmp_path, "walls.px", "pxart 1\n@palette pal.px\n@frame wall\nww\nyw\n")
+    vis = write(tmp_path, "visitors.px", "pxart 1\n@palette pal.px\nS #f6eed8\nU #e84537\n"
+                + visitor_comment + "@variant night\nS #403f4a\nU #e84537\n@frame wick\nSU\nUS\n")
+    return ground, trees, walls, vis
+
+
+def street_compose(tmp_path, visitor_comment="", extra=()):
+    ground, trees, walls, vis = street_files(tmp_path, visitor_comment)
+    out = tmp_path / "street.px"
+    assert run("compose", "-o", out, "--size", "8x2", f"{ground}:grass@0,0", f"{trees}:pine@2,0", f"{walls}:wall@4,0",
+               f"{vis}:wick@6,0", *extra) == 0
+    return out, out.read_text()
+
+
+def test_compose_variant_comment_credits_only_the_files_that_gave_keys(tmp_path, capsys):
+    out, text = street_compose(tmp_path)
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and doc.variants == {"night": {"S": (0x40, 0x3f, 0x4a, 255),
+                                                                         "U": (0xe8, 0x45, 0x37, 255)}}
+    lines = text.splitlines()
+    night = lines.index("@variant night")
+    assert lines[night - 1] == "# night: moonlit; glass y kept lit (from visitors.px's @variant night; the rest from " \
+                               "pal.px's night)"
+    assert "ground.px" not in text and "trees.px" not in text and "walls.px" not in text
+
+
+def test_compose_variant_comment_credit_renders_unchanged(tmp_path, capsys):
+    # the comment is all that changed: the street renders each layer as its file does, in base and night
+    out, _ = street_compose(tmp_path)
+    ground, trees, walls, vis = (tmp_path / n for n in ("ground.px", "trees.px", "walls.px", "visitors.px"))
+    doc = pxart.parse(out)
+    for variant in (None, "night"):
+        img = doc.image(doc.frames[0], variant)
+        for src, fid, x in ((ground, "grass", 0), (trees, "pine", 2), (walls, "wall", 4), (vis, "wick", 6)):
+            s = pxart.parse(src)
+            want = s.image(s.get(fid), variant)
+            assert list(pxart.pixels(img.crop((x, 0, x + 2, 2)))) == list(pxart.pixels(want)), (fid, variant)
+
+
+def test_compose_variant_comment_the_files_own_comment_and_the_imports(tmp_path, capsys):
+    # visitors.px comments its own @variant night: that comment credits it; pal.px's, carried by the tile files that
+    # gave no key, is said to be pal.px's
+    out, text = street_compose(tmp_path, visitor_comment="# visitors: fire stays lit\n")
+    lines = text.splitlines()
+    night = lines.index("@variant night")
+    block = lines[night - 3:night]
+    assert "# visitors: fire stays lit (from visitors.px's @variant night; the rest from pal.px's night)" in block
+    assert "# night: moonlit; glass y kept lit (from pal.px's night)" in block
+    assert "ground.px" not in text and "trees.px" not in text
+
+
+def test_compose_variant_comment_two_files_that_gave_keys_are_both_credited(tmp_path, capsys):
+    ground, trees, walls, vis = street_files(tmp_path)
+    vis2 = write(tmp_path, "cat.px", "pxart 1\n@palette pal.px\nC #c0c0c0\n@variant night\nC #303030\n@frame cat\nC\n")
+    out = tmp_path / "street.px"
+    assert run("compose", "-o", out, "--size", "8x2", f"{ground}:grass@0,0", f"{vis}:wick@2,0", f"{vis2}:cat@4,0") == 0
+    assert "# night: moonlit; glass y kept lit (from visitors.px's and cat.px's @variant night; the rest from " \
+           "pal.px's night)" in out.read_text()
+
+
+def test_compose_variant_comment_inlined_palette_credits_the_owners(tmp_path, capsys):
+    # a layer without the import: OUT inlines every key, and its night has the tile files' keys too, so they are
+    # credited, and there is no import to give 'the rest'
+    ground, trees, walls, vis = street_files(tmp_path)
+    loner = write(tmp_path, "loner.px", "q #00ff00\n@frame z\nq\n")
+    out = tmp_path / "street.px"
+    assert run("compose", "-o", out, "--size", "8x2", f"{ground}:grass@0,0", f"{walls}:wall@2,0", f"{vis}:wick@4,0",
+               f"{loner}:z@6,0") == 0
+    text = out.read_text()
+    assert "pal.px's night" not in text and "@palette" not in text
+    assert "# night: moonlit; glass y kept lit (from ground.px's and walls.px's and visitors.px's @variant night)" \
+        in text and "the rest" not in text
+
+
+def test_compose_variant_comment_single_file_unlabeled_still(tmp_path, capsys):
+    ground, trees, walls, vis = street_files(tmp_path)
+    out = tmp_path / "one.px"
+    assert run("compose", "-o", out, f"{vis}:wick@0,0") == 0
+    text = out.read_text()
+    assert "# night: moonlit; glass y kept lit\n@variant night" in text and "(from" not in text
+
+
+def test_compose_variant_comment_only_tile_files_no_local_variant(tmp_path, capsys):
+    # no layer's file has local night keys: OUT imports pal.px, which has the night, and needs no @variant of its own
+    ground, trees, walls, vis = street_files(tmp_path)
+    out = tmp_path / "tiles.px"
+    assert run("compose", "-o", out, "--size", "4x2", f"{ground}:grass@0,0", f"{walls}:wall@2,0") == 0
+    text = out.read_text()
+    assert "@variant" not in text and "# night" not in text and "@palette pal.px" in text
+
+
+def test_compose_variant_comment_with_variant_map_still_says_the_merge(tmp_path, capsys):
+    ground, trees, walls, vis = street_files(tmp_path)
+    out = tmp_path / "street.px"
+    assert run("compose", "-o", out, "--size", "4x2", f"{ground}:grass@0,0", f"{vis}:wick@2,0",
+               "--variant-map", "dusk=night") == 0
+    text = out.read_text()
+    # --variant-map inlines the palette (OUT builds its variants): both files gave dusk keys
+    assert "(from ground.px's and visitors.px's @variant night, dusk here)" in text
+    assert "# dusk: ground.px's night, visitors.px's night (compose --variant-map)" in text
+
+
+def test_help_documents_variant_comment_credit():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A @variant's comment names only the files whose variant lines gave OUT's own @variant keys, and when OUT " \
+        "imports the rest, says so ('from visitors.px's @variant night; the rest from pal.px's night')" in doc
+
+
+def test_readme_documents_variant_comment_credit():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "a `@variant`'s names only the files whose variant lines gave it keys, `the rest from pal.px's night`" \
+        in readme

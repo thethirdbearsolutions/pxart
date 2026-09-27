@@ -191,7 +191,8 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
   comments on their key and `@variant` lines, each naming its file when there are several
-  (`from keeper.px's @variant night, dusk here`), with the palette files' headers at the
+  (`from keeper.px's @variant night, dusk here`; a `@variant`'s names only the files whose
+  variant lines gave it keys, `the rest from pal.px's night`), with the palette files' headers at the
   top; a key its file needs (drawn in other frames,
   named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports per
   source file, one line per reason, with what `--rekey` moved and why, and an `E_KEY_CONFLICT`
