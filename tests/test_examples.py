@@ -20,13 +20,31 @@ BUILD = EXAMPLES / "build.sh"
 
 # Hand-written files that build.sh doesn't produce or copy.
 NOT_BUILT = {"README.md", "build.sh"}
+# Scratch a reader leaves behind (a browser preview of a rendered page), never committed.
+SCRATCH = ("_preview.html",)
+
+
+def tracked_files():
+    """examples/'s git-tracked files, or None when git (or the repository) isn't there."""
+    try:
+        proc = subprocess.run(["git", "ls-files", "-z", "--", "."], cwd=EXAMPLES, capture_output=True, text=True)
+    except OSError:
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    return [EXAMPLES / rel for rel in proc.stdout.split("\0") if rel]
 
 
 def committed_files():
+    """The files build.sh must make: examples/'s tracked files (every file under it without git), less the
+    hand-written ones and scratch."""
+    found = tracked_files()
+    if found is None:
+        found = EXAMPLES.rglob("*")
     return sorted(
         p.relative_to(EXAMPLES).as_posix()
-        for p in EXAMPLES.rglob("*")
-        if p.is_file() and p.name not in NOT_BUILT
+        for p in found
+        if p.is_file() and p.name not in NOT_BUILT and not p.name.endswith(SCRATCH)
     )
 
 
@@ -57,6 +75,31 @@ def test_examples_exist():
     assert len(dirs) >= 9, dirs
     for d in dirs:
         assert (EXAMPLES / d / "README.md").is_file(), f"{d} has no README.md"
+
+
+def test_untracked_files_are_not_expected(tmp_path):
+    """A file git doesn't track (a reader's _preview.html, a stray render) isn't one build.sh must make."""
+    if tracked_files() is None:
+        pytest.skip("no git")
+    stray = [EXAMPLES / "01-format" / "_stray.txt", EXAMPLES / "02-animation" / "walk_preview.html"]
+    try:
+        for p in stray:
+            p.write_text("scratch\n")
+        got = committed_files()
+    finally:
+        for p in stray:
+            p.unlink()
+    assert "01-format/_stray.txt" not in got and "02-animation/walk_preview.html" not in got
+    assert got == COMMITTED
+
+
+def test_scratch_is_ignored_without_git(monkeypatch):
+    """With no git, every file under examples/ counts, except scratch previews."""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("no git")))
+    assert tracked_files() is None
+    got = committed_files()
+    assert not any(rel.endswith("_preview.html") for rel in got)
+    assert set(COMMITTED) <= set(got)
 
 
 def test_build_writes_nothing_uncommitted(built):
@@ -134,7 +177,8 @@ def test_quoted_output_appears_verbatim(path):
     A line ending in '...' only has to start one; a line that is just '...' marks a cut.
     """
     lines = set()
-    for txt in path.parent.rglob("*.txt"):
+    here = path.parent.name + "/"
+    for txt in (EXAMPLES / rel for rel in COMMITTED if rel.startswith(here) and rel.endswith(".txt")):
         lines.update(line.rstrip() for line in txt.read_text().splitlines())
     blocks = [block for info, block in fenced_blocks(path.read_text()) if info == "text"]
     for block in blocks:
