@@ -379,13 +379,26 @@ EDITING (writes .px; -o defaults to editing the input in place)
       unless every frame already is in a @still group: then it says so and adds nothing (a
       top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
       stays, unused while the group is still.
-  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
-          [--extract-to P.px [--repoint]]
+  palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
+          [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're
       used, then each variant's keys: 'dusk: recolors o x X c C; inherits: e E q' (the keys it
       recolors, then the base keys it leaves alone, both in palette order). A key the variant
       lists in its base color (a lamp that stays lit at night) is neither: 'night: recolors
       k w; relists unchanged: l g; inherits: nothing'.
+      --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
+      Authoring a variant: with --variant NAME, --add sets the keys in that variant instead,
+      over what it had, and makes the variant when FILE has none by that name: 'palette
+      pal.px --variant night --add k=#120e22 w=#9fb0d4'. A key given in its base color is
+      listed unchanged (a lamp kept lit at night). --variant NAME --keep l,g lets keys
+      inherit the base colors: their lines in the variant go, and a key an imported variant
+      recolors gets its base color on a line of FILE's own, since the import can't change
+      from here. --add and --keep can share one call; the keys must be in the base palette.
+      --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
+      with their lines in FILE's variants and the comments above both, so every sprite that
+      imports it gets them; FILE renders as before. A key the palette file has in another
+      color is E_KEY_CONFLICT (give FILE's a free key first: recolor FILE 'l>L'); a variant
+      line the palette file has in another color stays in FILE.
       --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
       FILE renders with (imported ones too, local ones winning) and every variant, with the
       comments that document them: those above key and @variant lines (a section comment,
@@ -3669,18 +3682,37 @@ def set_still(doc, sel, still, no_still):
     return f"removed @still {sel}"
 
 
+def key_color(m):
+    """palette --add's 'k=#rrggbb', or a palette line as the file has it, 'k #rrggbb': (key, rgba)."""
+    got = PAL_RE.match(m.strip())
+    k, v = got.groups() if got else (m[0], m[2:]) if len(m) >= 2 and m[1] == "=" else m.partition("=")[::2]
+    if not COLOR_RE.match(v) and v != "transparent":
+        fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent (or 'k #rrggbb')")
+    if len(k) != 1:
+        fail("E_BAD_KEY", f"{k!r}: keys are one character")
+    return k, CLEAR if v == "transparent" else hex2rgba(v)
+
+
 def cmd_palette(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
-    for m in a.add or []:
-        k, _, v = m.partition("=")
-        if not COLOR_RE.match(v) and v != "transparent":
-            fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent")
-        if len(k) != 1:
-            fail("E_BAD_KEY", f"{k!r}: keys are one character")
-        doc.add_key(k, CLEAR if v == "transparent" else hex2rgba(v))
-    if a.add:
-        print(write_doc(doc))
+    if (a.keep or a.variant) and not (a.variant and (a.add or a.keep)):
+        fail("E_BAD_ARG", "--keep KEYS goes with --variant NAME (the variant they inherit the base colors in)"
+             if a.keep else f"--variant {a.variant} goes with --add 'k=#rrggbb' (set k in it) or --keep KEYS (let "
+             "them inherit the base colors)")
+    if a.hoist and (a.add or a.variant or a.extract_to):
+        fail("E_BAD_ARG", "--hoist moves keys into the imported palette file: give it alone")
+    if a.variant:
+        print(variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
+                           if a.keep else []))
+    else:
+        for m in a.add or []:
+            doc.add_key(*key_color(m))
+        if a.add:
+            print(write_doc(doc))
+    if a.hoist:
+        print(hoist(doc, key_list(a.hoist, "--hoist")))
+        return
     if a.repoint and not a.extract_to:
         fail("E_BAD_ARG", "--repoint points FILE at the palette file --extract-to OUT.px writes; give both")
     if a.extract_to:
@@ -3704,7 +3736,7 @@ def cmd_palette(a):
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
         print("wrote", a.export)
-    if a.add or a.export or a.extract_to:
+    if a.add or a.keep or a.export or a.extract_to:
         return
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
@@ -3719,6 +3751,114 @@ def cmd_palette(a):
         keeps = [k for k in pal if k not in over and k != "."]
         print(f"  {name}: recolors {' '.join(sets) or 'nothing'}"
               + (f"; relists unchanged: {' '.join(same)}" if same else "") + f"; inherits: {' '.join(keeps) or 'nothing'}")
+
+
+def variant_edit(doc, name, adds, keeps):
+    """palette FILE --variant NAME --add 'k=#hex' ... --keep KEYS: set keys' colors in the variant (it is made when
+    FILE has none by that name) and let others inherit the base colors: a local line goes, and a key an imported
+    variant recolors gets its base color on a local line, since the import can't change from here. What it did."""
+    if name == "base" or not re.match(r"^[A-Za-z0-9_\-]+$", name):
+        fail("E_BAD_ARG", f"--variant {name!r}: a variant name is letters, digits, _ and -, and not 'base' (%base "
+             "means the base palette)")
+    both = sorted({k for k, _ in adds} & set(keeps))
+    if both:
+        fail("E_BAD_ARG", f"--add and --keep both name {''.join(both)!r}: a key is set in the variant or inherits "
+             "the base color, not both")
+    have = name in doc.variants or name in doc.shared_variants
+    if keeps and not adds and not have:
+        fail("E_SELECT", f"--keep: {doc.path} has no @variant {name!r} (have: "
+             f"{', '.join(sorted(set(doc.variants) | set(doc.shared_variants))) or 'none'})", path=doc.path)
+    base = doc.resolved()
+    for k in [k for k, _ in adds] + keeps:
+        if k not in base or k == ".":
+            fail("E_VARIANT_KEY", f"@variant {name} can't set {k!r}: the base palette doesn't define it (add it first: "
+                 f"pxart palette {doc.path} --add '{k}=#rrggbb')", path=doc.path)
+    said = [f"@variant {name}" if have else f"new @variant {name}"]
+    for k, c in adds:
+        doc.variants.setdefault(name, {})[k] = c
+    if adds:
+        said.append("sets " + " ".join(f"{k} {fmt_color(c)}" + (" (its base color)" if c == base[k] else "")
+                                      for k, c in adds))
+    gone, pinned, already = [], [], []
+    for k in keeps:
+        if k in doc.variants.get(name, {}):
+            del doc.variants[name][k]
+            doc.lead.pop(("vkey", name, k), None)
+            gone.append(k)
+        if doc.resolved(name)[k] != base[k]:  # an imported variant recolors it: say the base color here
+            doc.variants.setdefault(name, {})[k] = base[k]
+            pinned.append(k)
+        elif k not in gone:
+            already.append(k)
+
+    def inherit(ks, what):
+        return f"{' '.join(ks)} {what}" + ("s the base color" if len(ks) == 1 else " the base colors")
+    if [k for k in gone if k not in pinned]:
+        said.append(inherit([k for k in gone if k not in pinned], "inherit"))
+    if pinned:
+        said.append(f"{' '.join(pinned)} listed in {'its base color' if len(pinned) == 1 else 'their base colors'} "
+                    f"(the imported @variant {name} recolors {'it' if len(pinned) == 1 else 'them'})")
+    if already:
+        said.append(inherit(already, "already inherit"))
+    return "; ".join(said + [write_doc(doc)])
+
+
+def hoist(doc, keys):
+    """palette FILE --hoist KEYS: FILE's own key lines (and its variant lines for them, and the comments above both) move
+    into the palette file it imports, so its other sprites get them; FILE renders as before. The palette file must be
+    FILE's only import and not have the key in another color."""
+    if len(doc.palette_refs) != 1:
+        fail("E_BAD_ARG", f"--hoist moves keys into the palette file {doc.path} imports, and it imports "
+             + (f"{len(doc.palette_refs)}: {', '.join(doc.palette_refs)}; hoist from a file with one @palette"
+                if doc.palette_refs else f"none; to start one: pxart palette {doc.path} --extract-to P.px --repoint"),
+             path=doc.path)
+    ref = doc.palette_refs[0]
+    target = doc.path.parent / ref
+    with reading(f"@palette ({ref})"):
+        pal = parse(target, palette_only=True)
+    for k in keys:
+        if k not in doc.palette:
+            fail("E_SELECT", f"--hoist {k!r}: not one of {doc.path}'s own keys ("
+                 + (f"it comes from {ref} already" if k in doc.shared else "no such key") + ")", path=doc.path)
+        if k in pal.resolved() and pal.resolved()[k] != doc.palette[k]:
+            fail("E_KEY_CONFLICT", f"--hoist {k!r}: {ref} has {k!r} as {fmt_color(pal.resolved()[k])}, not "
+                 f"{fmt_color(doc.palette[k])}, and changing it would recolor every sprite that imports {ref}; give "
+                 f"{doc.path}'s {k!r} a free key first (pxart recolor {doc.path} '{k}>K')", path=doc.path)
+    kept, order = [], list(doc.palette)
+    if doc.dot_at is not None:  # a '. transparent' line keeps its place among the keys that stay
+        doc.dot_at -= sum(1 for k in keys if order.index(k) < doc.dot_at)
+    for k in keys:
+        c = doc.palette.pop(k)
+        if k not in pal.resolved():
+            pal.palette[k] = c
+            lead = doc.lead.pop(("key", k), None)
+            if lead and any(l.strip() for l in lead):
+                pal.lead[("key", k)] = lead
+        for name, over in doc.variants.items():
+            if k not in over:
+                continue
+            theirs = {**pal.shared_variants.get(name, {}), **pal.variants.get(name, {})}
+            if theirs.get(k) == over[k]:  # the palette file already says so
+                del over[k]
+                doc.lead.pop(("vkey", name, k), None)
+            elif k in theirs:
+                kept.append(f"{k} in @variant {name}")  # the palette file has its own color for it: FILE's line stays
+            else:  # a relist moves too: it says the key stays as it is in that variant (a lamp kept lit)
+                pal.variants.setdefault(name, {})[k] = over.pop(k)
+                lead = doc.lead.pop(("vkey", name, k), None)
+                if lead and any(l.strip() for l in lead):
+                    pal.lead[("vkey", name, k)] = lead
+    for name in [n for n, over in doc.variants.items() if not over and (n in pal.variants or n in pal.shared_variants)]:
+        del doc.variants[name]  # every line moved: the palette file's variant is FILE's now
+        lead = [l for l in doc.lead.pop(("variant", name), None) or [] if l.strip()]
+        if lead:  # its comment goes along, under the palette file's own
+            had = [l for l in pal.lead.get(("variant", name), []) if l.strip()]
+            pal.lead[("variant", name)] = [""] + had + [l for l in lead if l not in had]
+    doc.shared, doc.shared_variants = {**pal.shared, **pal.palette}, {}
+    for vname, over in list(pal.shared_variants.items()) + list(pal.variants.items()):
+        doc.shared_variants.setdefault(vname, {}).update(over)
+    note = f"; {', '.join(kept)} stays in {doc.path} ({ref} has its own color for it)" if kept else ""
+    return f"hoisted {' '.join(keys)} to {ref}{note}; {write_doc(pal, target)}; {write_doc(doc)}"
 
 
 def extract_palette(doc, out, repoint=False):
@@ -4140,7 +4280,11 @@ def parser(describe=True):
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
     g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")
-    p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
+    p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--export")
+    p.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
+    p.add_argument("--variant", metavar="NAME", help="--add and --keep edit this variant (made if FILE has none)")
+    p.add_argument("--keep", metavar="KEYS", help="with --variant: these keys inherit the base colors in it")
+    p.add_argument("--hoist", metavar="KEYS", help="move these keys into the palette file FILE imports")
     p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
     p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")

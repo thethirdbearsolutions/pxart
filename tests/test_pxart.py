@@ -12366,3 +12366,366 @@ def test_help_documents_directories_and_palette_files(capsys):
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`check crossover/` checks every `.px` and `.map` under it" in readme
     assert "a directory stands for every `.px` under it, sorted by path, and palette files are skipped" in readme
+
+
+# ---------------------------------------------------------------- palette --variant NAME --add / --keep, --hoist
+
+def renders(doc):
+    """Every frame's pixels in the base palette and every variant: what an edit that 'renders as before' keeps."""
+    names = [None] + sorted(set(doc.variants) | set(doc.shared_variants))
+    return {(f.id, n): pxart.pixels(doc.image(f, n)) for f in doc.frames for n in names}
+
+
+def test_palette_add_takes_a_palette_line_too(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\nk\n")
+    assert run("palette", p, "--add", "z #123456") == 0
+    assert pxart.parse(p).palette["z"] == (0x12, 0x34, 0x56, 255)
+
+
+def test_palette_add_key_equals_sign(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\nk\n")
+    assert run("palette", p, "--add", "==#123456") == 0
+    assert pxart.parse(p).palette["="] == (0x12, 0x34, 0x56, 255)
+
+
+def test_palette_add_key_equals_sign_as_a_line(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\nk\n")
+    assert run("palette", p, "--add", "= #123456") == 0
+    assert pxart.parse(p).palette["="] == (0x12, 0x34, 0x56, 255)
+
+
+def test_palette_add_bad_color_names_both_forms(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\nk\n")
+    msg = run_err("palette", p, "--add", "z #12345")
+    assert "E_BAD_COLOR" in msg and "'k #rrggbb'" in msg
+
+
+def test_palette_variant_add_makes_the_variant(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nw #ffffff\n\n@frame a\nkw\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010", "w #202020") == 0
+    assert capsys.readouterr().out == f"new @variant night; sets k #101010 w #202020; wrote {p}\n"
+    assert p.read_text() == "k #000000\nw #ffffff\n\n@variant night\nk #101010\nw #202020\n\n@frame a\nkw\n"
+
+
+def test_palette_variant_add_renders(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\nw #ffffff\n\n@frame a\nkw\n")
+    run("palette", p, "--variant", "night", "--add", "k=#101010")
+    doc = pxart.parse(p)
+    assert pxart.pixels(doc.image(doc.frames[0], "night")) == [(16, 16, 16, 255), (255, 255, 255, 255)]
+
+
+def test_palette_variant_add_overrides_one_line_only(tmp_path, capsys):
+    text = "k #000000\nw #ffffff\n\n# night: cool\n@variant night\nk #101010\nw #202020\n\n@frame a\nkw\n"
+    p = write(tmp_path, "s.px", text)
+    assert run("palette", p, "--variant", "night", "--add", "w=#303030") == 0
+    assert capsys.readouterr().out == f"@variant night; sets w #303030; wrote {p}\n"
+    assert p.read_text() == text.replace("w #202020", "w #303030")
+
+
+def test_palette_variant_add_adds_a_line_to_an_existing_variant(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\nw #ffffff\n\n@variant night\nk #101010\n\n@frame a\nkw\n")
+    run("palette", p, "--variant", "night", "--add", "w=#303030")
+    assert p.read_text() == "k #000000\nw #ffffff\n\n@variant night\nk #101010\nw #303030\n\n@frame a\nkw\n"
+
+
+def test_palette_variant_add_same_again_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #101010\n\n@frame a\nk\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010") == 0
+    assert capsys.readouterr().out == f"@variant night; sets k #101010; no change: {p}\n"
+
+
+def test_palette_variant_add_base_color_is_a_relist(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@variant night\nk #101010\n\n@frame a\nkl\n")
+    assert run("palette", p, "--variant", "night", "--add", "l=#fff4b0") == 0
+    assert capsys.readouterr().out == f"@variant night; sets l #fff4b0 (its base color); wrote {p}\n"
+    run("palette", p)
+    assert capsys.readouterr().out.splitlines()[-1] == "  night: recolors k; relists unchanged: l; inherits: nothing"
+
+
+def test_palette_variant_add_in_a_palette_file(tmp_path):
+    p = write(tmp_path, "pal.px", "k #000000\n")
+    assert run("palette", p, "--variant", "dusk", "--add", "k=#111111") == 0
+    assert pxart.parse(p, palette_only=True).variants == {"dusk": {"k": (17, 17, 17, 255)}}
+
+
+def test_palette_variant_add_over_an_imported_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\nw #ffffff\n@variant night\nk #101010\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n\n@frame a\nkw\n")
+    assert run("palette", p, "--variant", "night", "--add", "w=#202020") == 0
+    assert capsys.readouterr().out == f"@variant night; sets w #202020; wrote {p}\n"  # FILE had night, by import
+    doc = pxart.parse(p)
+    assert doc.variants == {"night": {"w": (32, 32, 32, 255)}}
+    assert pxart.pixels(doc.image(doc.frames[0], "night")) == [(16, 16, 16, 255), (32, 32, 32, 255)]
+
+
+def test_palette_variant_add_key_not_in_base(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@frame a\nk\n")
+    msg = run_err("palette", p, "--variant", "night", "--add", "z=#101010")
+    assert "E_VARIANT_KEY" in msg and "--add 'z=#rrggbb'" in msg
+    assert "@variant" not in p.read_text()
+
+
+def test_palette_variant_add_dot_is_refused(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@frame a\nk\n")
+    assert "E_VARIANT_KEY" in run_err("palette", p, "--variant", "night", "--add", ".=#101010")
+
+
+@pytest.mark.parametrize("name", ["base", "no good", "a/b", "x%y"])
+def test_palette_variant_bad_names(tmp_path, name):
+    p = write(tmp_path, "s.px", "k #000000\n\n@frame a\nk\n")
+    assert "E_BAD_ARG" in run_err("palette", p, "--variant", name, "--add", "k=#101010")
+
+
+def test_palette_variant_alone_is_an_error(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@frame a\nk\n")
+    msg = run_err("palette", p, "--variant", "night")
+    assert "E_BAD_ARG" in msg and "--add" in msg and "--keep" in msg
+
+
+def test_palette_keep_without_variant_is_an_error(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #111111\n\n@frame a\nk\n")
+    msg = run_err("palette", p, "--keep", "k")
+    assert "E_BAD_ARG" in msg and "--variant NAME" in msg
+
+
+def test_palette_keep_removes_the_line(tmp_path, capsys):
+    text = "k #000000\nl #fff4b0\n\n@variant night\nk #101010\n# lamp\nl #999999\n\n@frame a\nkl\n"
+    p = write(tmp_path, "s.px", text)
+    assert run("palette", p, "--variant", "night", "--keep", "l") == 0
+    assert capsys.readouterr().out == f"@variant night; l inherits the base color; wrote {p}\n"
+    assert p.read_text() == "k #000000\nl #fff4b0\n\n@variant night\nk #101010\n\n@frame a\nkl\n"  # comment goes too
+
+
+def test_palette_keep_two_keys_both_forms(tmp_path, capsys):
+    for i, keys in enumerate(("l,g", "lg")):
+        p = write(tmp_path, f"s{i}.px", "l #fff4b0\ng #ffc861\n\n@variant night\nl #111111\ng #222222\n\n@frame a\nlg\n")
+        assert run("palette", p, "--variant", "night", "--keep", keys) == 0
+        assert capsys.readouterr().out == f"@variant night; l g inherit the base colors; wrote {p}\n"
+        assert pxart.parse(p).variants == {"night": {}}
+
+
+def test_palette_keep_a_relist_goes_and_renders_the_same(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@variant night\nk #101010\nl #fff4b0\n\n@frame a\nkl\n")
+    before = renders(pxart.parse(p))
+    run("palette", p, "--variant", "night", "--keep", "l")
+    assert renders(pxart.parse(p)) == before and "l" not in pxart.parse(p).variants["night"]
+
+
+def test_palette_keep_pins_a_key_an_import_recolors(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\nl #fff4b0\n@variant night\nk #101010\nl #333333\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n\n@frame a\nkl\n")
+    assert run("palette", p, "--variant", "night", "--keep", "l") == 0
+    assert capsys.readouterr().out == (f"@variant night; l listed in its base color (the imported @variant night "
+                                       f"recolors it); wrote {p}\n")
+    doc = pxart.parse(p)
+    assert doc.variants == {"night": {"l": (0xff, 0xf4, 0xb0, 255)}}
+    assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (0xff, 0xf4, 0xb0, 255)
+
+
+def test_palette_keep_local_line_over_import_is_replaced_by_the_base_color(tmp_path, capsys):
+    write(tmp_path, "pal.px", "l #fff4b0\n@variant night\nl #333333\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@variant night\nl #444444\n\n@frame a\nl\n")
+    assert run("palette", p, "--variant", "night", "--keep", "l") == 0
+    assert pxart.parse(p).variants == {"night": {"l": (0xff, 0xf4, 0xb0, 255)}}
+    assert "listed in its base color" in capsys.readouterr().out
+
+
+def test_palette_keep_already_inheriting(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@variant night\nk #101010\n\n@frame a\nkl\n")
+    assert run("palette", p, "--variant", "night", "--keep", "l") == 0
+    assert capsys.readouterr().out == f"@variant night; l already inherits the base color; no change: {p}\n"
+
+
+def test_palette_keep_on_a_missing_variant(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #111111\n\n@frame a\nk\n")
+    msg = run_err("palette", p, "--variant", "dawn", "--keep", "k")
+    assert "E_SELECT" in msg and "no @variant 'dawn' (have: night)" in msg
+
+
+def test_palette_keep_key_not_in_base(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #111111\n\n@frame a\nk\n")
+    assert "E_VARIANT_KEY" in run_err("palette", p, "--variant", "night", "--keep", "z")
+
+
+def test_palette_add_and_keep_in_one_call(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@variant night\nl #111111\n\n@frame a\nkl\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010", "--keep", "l") == 0
+    assert capsys.readouterr().out == f"@variant night; sets k #101010; l inherits the base color; wrote {p}\n"
+    assert pxart.parse(p).variants == {"night": {"k": (16, 16, 16, 255)}}
+
+
+def test_palette_add_and_keep_same_key_is_an_error(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #111111\n\n@frame a\nk\n")
+    msg = run_err("palette", p, "--variant", "night", "--add", "k=#101010", "--keep", "k")
+    assert "E_BAD_ARG" in msg and "set in the variant or inherits" in msg
+
+
+def test_palette_variant_new_with_add_and_keep(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@frame a\nkl\n")
+    assert run("palette", p, "--variant", "dusk", "--add", "k=#101010", "--keep", "l") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("new @variant dusk; sets k #101010; l already inherits the base color; wrote ")
+
+
+def test_palette_variant_edit_prints_no_listing(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\n\n@frame a\nk\n")
+    run("palette", p, "--variant", "dusk", "--add", "k=#101010")
+    assert "used" not in capsys.readouterr().out
+
+
+def test_palette_authoring_the_keepers_night(tmp_path, capsys):
+    # The keeper's night, written with the tool: recolor the cloth, relist the lamp, listed as the author meant it.
+    p = write(tmp_path, "pal.px", "k #2a1f33\nw #f6f1e4\nl #fff4b0\ng #ffc861\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#120e22", "w=#9fb0d4", "l=#fff4b0", "g=#ffc861") == 0
+    capsys.readouterr()
+    run("palette", p)
+    assert capsys.readouterr().out.splitlines()[-1] == "  night: recolors k w; relists unchanged: l g; inherits: nothing"
+
+
+HOIST_PAL = "# pack palette\nk #000000\n@variant night\nk #111111\n"
+HOIST_HERO = ("@palette pal.px\n# lamp glass\nl #fff4b0\ng #ffc861\n\n# night: lamps stay lit\n@variant night\n"
+              "l #fff4b0\ng #ffc861\n\n@frame a\nklg\n")
+
+
+def test_hoist_moves_keys_and_comments(tmp_path, capsys):
+    pal, hero = write(tmp_path, "pal.px", HOIST_PAL), write(tmp_path, "hero.px", HOIST_HERO)
+    assert run("palette", hero, "--hoist", "l,g") == 0
+    assert capsys.readouterr().out == f"hoisted l g to pal.px; wrote {pal}; wrote {hero}\n"
+    assert pal.read_text() == ("# pack palette\nk #000000\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
+                               "# night: lamps stay lit\n@variant night\nk #111111\nl #fff4b0\ng #ffc861\n")
+    assert hero.read_text() == "@palette pal.px\n\n@frame a\nklg\n"
+
+
+def test_hoist_renders_as_before(tmp_path):
+    write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    before = renders(pxart.parse(hero))
+    run("palette", hero, "--hoist", "lg")
+    assert renders(pxart.parse(hero)) == before
+
+
+def test_hoist_other_importers_get_the_keys(tmp_path):
+    write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    other = write(tmp_path, "lamp.px", "@palette pal.px\n\n@frame a\nk\n")
+    run("palette", hero, "--hoist", "lg")
+    doc = pxart.parse(other)
+    assert doc.resolved()["l"] == (0xff, 0xf4, 0xb0, 255) and doc.resolved("night")["g"] == (0xff, 0xc8, 0x61, 255)
+
+
+def test_hoist_one_key_leaves_the_other(tmp_path):
+    pal = write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    before = renders(pxart.parse(hero))
+    assert run("palette", hero, "--hoist", "l") == 0
+    doc = pxart.parse(hero)
+    assert list(doc.palette) == ["g"] and doc.variants == {"night": {"g": (0xff, 0xc8, 0x61, 255)}}
+    assert "l #fff4b0" in pal.read_text() and renders(doc) == before
+
+
+def test_hoist_makes_the_variant_in_the_palette_file(tmp_path):
+    pal = write(tmp_path, "pal.px", "k #000000\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n@variant dusk\nl #806040\n\n@frame a\nkl\n")
+    before = renders(pxart.parse(hero))
+    assert run("palette", hero, "--hoist", "l") == 0
+    assert pxart.parse(pal, palette_only=True).variants == {"dusk": {"l": (0x80, 0x60, 0x40, 255)}}
+    assert renders(pxart.parse(hero)) == before and "@variant" not in hero.read_text()
+
+
+def test_hoist_keeps_a_variant_line_the_palette_file_has_otherwise(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "k #000000\nl #fff4b0\n@variant night\nl #333333\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n@variant night\nl #444444\n\n@frame a\nkl\n")
+    before = renders(pxart.parse(hero))
+    assert run("palette", hero, "--hoist", "l") == 0
+    out = capsys.readouterr().out
+    assert "l in @variant night stays in" in out and "(pal.px has its own color for it)" in out
+    assert renders(pxart.parse(hero)) == before and "l #444444" in hero.read_text() and "l #333333" in pal.read_text()
+
+
+def test_hoist_same_color_key_already_in_the_palette_file(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "k #000000\nl #fff4b0\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n\n@frame a\nkl\n")
+    text = pal.read_text()
+    assert run("palette", hero, "--hoist", "l") == 0
+    assert pal.read_text() == text and "l #" not in hero.read_text()
+    assert f"no change: {pal}" in capsys.readouterr().out
+
+
+def test_hoist_other_color_in_the_palette_file_is_a_conflict(tmp_path):
+    pal = write(tmp_path, "pal.px", "k #000000\nl #ffffff\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n\n@frame a\nkl\n")
+    texts = pal.read_text(), hero.read_text()
+    msg = run_err("palette", hero, "--hoist", "l")
+    assert "E_KEY_CONFLICT" in msg and "would recolor every sprite that imports pal.px" in msg and "'l>K'" in msg
+    assert (pal.read_text(), hero.read_text()) == texts
+
+
+def test_hoist_needs_an_import(tmp_path):
+    hero = write(tmp_path, "hero.px", "l #fff4b0\n\n@frame a\nl\n")
+    msg = run_err("palette", hero, "--hoist", "l")
+    assert "E_BAD_ARG" in msg and "--extract-to P.px --repoint" in msg
+
+
+def test_hoist_needs_one_import(tmp_path):
+    write(tmp_path, "a.px", "k #000000\n")
+    write(tmp_path, "b.px", "w #ffffff\n")
+    hero = write(tmp_path, "hero.px", "@palette a.px\n@palette b.px\nl #fff4b0\n\n@frame a\nl\n")
+    msg = run_err("palette", hero, "--hoist", "l")
+    assert "E_BAD_ARG" in msg and "imports 2: a.px, b.px" in msg
+
+
+def test_hoist_an_imported_key_is_an_error(tmp_path):
+    write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    msg = run_err("palette", hero, "--hoist", "k")
+    assert "E_SELECT" in msg and "it comes from pal.px already" in msg
+
+
+def test_hoist_an_unknown_key_is_an_error(tmp_path):
+    write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    assert "no such key" in run_err("palette", hero, "--hoist", "z")
+
+
+def test_hoist_is_given_alone(tmp_path):
+    write(tmp_path, "pal.px", HOIST_PAL)
+    hero = write(tmp_path, "hero.px", HOIST_HERO)
+    assert "E_BAD_ARG" in run_err("palette", hero, "--hoist", "l", "--add", "z=#000000")
+
+
+def test_hoist_from_a_subdirectory(tmp_path):
+    pal = write(tmp_path, "pal.px", HOIST_PAL)
+    (tmp_path / "sprites").mkdir()
+    hero = write(tmp_path / "sprites", "hero.px", HOIST_HERO.replace("@palette pal.px", "@palette ../pal.px"))
+    before = renders(pxart.parse(hero))
+    assert run("palette", hero, "--hoist", "lg") == 0
+    assert "l #fff4b0" in pal.read_text() and renders(pxart.parse(hero)) == before
+    assert hero.read_text().startswith("@palette ../pal.px\n")
+
+
+def test_hoist_keeps_a_dot_line_in_place(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n. transparent\nw #ffffff\n\n@frame a\nklw\n")
+    assert run("palette", hero, "--hoist", "l") == 0
+    assert hero.read_text() == "@palette pal.px\n. transparent\nw #ffffff\n\n@frame a\nklw\n"
+
+
+def test_hoist_keeps_the_local_variant_when_the_palette_file_lacks_it_and_lines_stay(tmp_path):
+    # A relist of a key the palette file has no variant for moves, making the variant there.
+    pal = write(tmp_path, "pal.px", "k #000000\n")
+    hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n@variant night\nl #fff4b0\n\n@frame a\nkl\n")
+    assert run("palette", hero, "--hoist", "l") == 0
+    assert pxart.parse(pal, palette_only=True).variants == {"night": {"l": (0xff, 0xf4, 0xb0, 255)}}
+    assert pxart.parse(hero).resolved("night")["l"] == (0xff, 0xf4, 0xb0, 255)
+
+
+def test_help_documents_variant_authoring(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]] [--hoist KEYS]" in doc
+    assert "Authoring a variant: with --variant NAME, --add sets the keys in that variant instead" in doc
+    assert "--variant NAME --keep l,g lets keys inherit the base colors" in doc
+    assert "--hoist l,g moves FILE's own keys into the palette file it imports" in doc
+    out = " ".join(cmd_help(capsys, "palette").split())
+    assert "Authoring a variant" in out and "--hoist" in out and "--keep" in out
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "with `--variant night` it sets keys in that variant, making it if needed" in readme
