@@ -248,14 +248,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
+      Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose.
   compose -o OUT[:frame] [--size WxH] [--under] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
       pixels (a floor or a shadow under a finished sprite). The frame must exist.
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
       An existing OUT keeps its own palette and @palette; each layer's keys are added to it
-      unless the key already exists with the same color (a different color is
-      E_KEY_CONFLICT). A new OUT starts with the layers' whole palettes, used or not, so a
+      unless the key already exists with the same color. A key a layer uses in another color
+      than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per layer naming all its
+      keys and both colors, with the recolor 'a>b' line that gives them free keys. A new OUT starts with the layers' whole palettes, used or not, so a
       later 'shade --ramp' or recolor finds its keys: when every layer imports the same
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
       colors become OUT's key lines. Local keys follow, the keys the layers use first: a key
@@ -397,7 +399,7 @@ ERROR CODES
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, json, math, os, pathlib, re, string, sys, unicodedata
+import argparse, contextlib, json, math, os, pathlib, re, shlex, string, sys, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
@@ -621,8 +623,9 @@ class Doc:
         have = self.resolved()
         if key in have:
             if have[key] != color and not (key == "." and color[3] == 0):
-                fail("E_KEY_CONFLICT", f"key {key!r} is {fmt_color(have[key])} here, not {fmt_color(color)}; "
-                     "recolor one side first", path=self.path)
+                fail("E_KEY_CONFLICT", f"key {key!r} is already {fmt_color(have[key])} in {self.path}, not "
+                     f"{fmt_color(color)}: to change its color, 'recolor {self.path} {key}={fmt_color(color)}'; to keep "
+                     "both colors, add this one under a free key", path=self.path)
             return
         if key not in KEYS:
             fail("E_BAD_KEY", f"{key!r} can't be a palette key", path=self.path)
@@ -1404,10 +1407,38 @@ def edit_target(arg, out, label="FILE"):
     return doc, frames, out
 
 
-def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False):
+def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, whose=None, taken=None):
+    """The keys src uses (non-transparent ones) that dst_doc has in other colors, as one E_KEY_CONFLICT Issue naming
+    them all, both colors, and a fix that works: recolor 'k>K' gives src's keys free ones (no pixel changes color),
+    then `redo` again. whose: key -> where dst's color came from; taken: keys the fix mustn't use (it adds the ones it
+    picks). None when there's no conflict."""
+    src_pal, have = src_doc.resolved(), dst_doc.resolved()
+    bad = [k for k in sorted(keys) if src_pal[k][3] and k in have and have[k] != src_pal[k]]
+    if not bad:
+        return None
+    taken = set() if taken is None else taken
+    free = [k for k in KEYS if k not in set(have) | set(src_pal) | taken][:len(bad)]
+    if len(free) < len(bad):
+        fix = "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
+    else:
+        taken.update(free)
+        fix = (f"; to keep both colors, give {what}'s keys free ones (no pixel changes color), then {redo} again: "
+               "pxart recolor " + " ".join(shlex.quote(x) for x in [str(src_doc.path)] + [f"{k}>{f}" for k, f in
+                                                                                        zip(bad, free)]))
+    n = len(bad)
+    return Issue("E_KEY_CONFLICT", f"{n} key{'s' * (n > 1)} of {what} {'are other colors' if n > 1 else 'is another color'}"
+                 f" in {dst_name}: " + ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
+                                                 + (f", from {whose[k]}" if whose and k in whose else "") + ")"
+                                                 for k in bad) + fix)
+
+
+def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste"):
     """Copy src frame (or a region of it) onto dst frame at `at`; '.'/transparent keys don't overwrite. under: only
     onto dst's empty (transparent) pixels, so src goes behind what dst has."""
     src_pal = src_doc.resolved()
+    clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, dst_doc.path, redo)
+    if clash:
+        raise PxError(clash)
     for k in set("".join(src.grid)):
         if src_pal[k][3]:
             dst_doc.add_key(k, src_pal[k])
@@ -2394,16 +2425,19 @@ def cmd_put(a):
                  f"frame is named on the command line: put {path}:FRAME)", path="stdin")
         if not src.frames:
             fail("E_NO_FRAMES", "no grid rows on stdin", path="stdin")
-        grid = src.frames[0].grid
+        grid, clash = src.frames[0].grid, []
         for k in sorted(set("".join(grid))):
             if k in src.palette:
                 have = doc.resolved().get(k)
                 if have and have != src.palette[k]:
                     n = next(n for n, l in enumerate(text.splitlines(), 1)
                              if l.strip()[:1] == k and PAL_RE.match(l.strip()))
-                    fail("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} it is "
-                         f"{fmt_color(have)}; use another key, or the file's color", path="stdin", line=n)
+                    clash.append(Issue("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} "
+                                       f"it is {fmt_color(have)}; use another key, or the file's color", "stdin", n))
+                    continue
                 doc.add_key(k, src.palette[k])
+        if clash:
+            raise PxError(sorted(clash, key=lambda i: i.line))
     was = target.size if target.grid else None
     if was and was != (len(grid[0]), len(grid)):
         print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
@@ -2864,8 +2898,8 @@ def seed_palette(doc, layers):
     layers use first: a key OUT already has in the same color is skipped, one that overrides an import (as in the
     layer) stays an override, and an unused key whose char another layer has in another color is left out (a used
     one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
-    first layer's winning. Returns what was left out: [(key, the layer it's left out of, the layer whose color OUT
-    has, whether that layer uses it)]."""
+    first layer's winning. Returns what was left out, [(key, the layer it's left out of, the layer whose color OUT
+    has, whether that layer uses it)], and {key: (the layer whose color OUT has, whether it uses it)}."""
     docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
     names = {}
     for lay, _, _, label in layers:
@@ -2896,7 +2930,7 @@ def seed_palette(doc, layers):
                 if doc.resolved().get(k) == base.get(k) and k not in doc.variants.get(name, {}) \
                         and doc.shared_variants.get(name, {}).get(k) != c:
                     doc.variants.setdefault(name, {})[k] = c
-    return left
+    return left, whose
 
 
 def cmd_compose(a):
@@ -2926,9 +2960,12 @@ def cmd_compose(a):
             fail("E_BAD_ARG", f"--under keeps the frame being replaced, {len(under[0])}x{len(under)}; drop --size "
                  f"{a.size}")
         target.grid = under
+    whose = {}  # key -> the layer whose color OUT has
     if fresh:
+        left_out, seeded = seed_palette(doc, layers)
+        whose = {k: w[0] for k, w in seeded.items()}
         left = {}
-        for k, lost, kept, uses in seed_palette(doc, layers):
+        for k, lost, kept, uses in left_out:
             left.setdefault((lost, kept, uses), []).append(k)
         for (lost, kept, uses), ks in left.items():
             print(f"note: {opath} leaves out {lost}'s color{'s' * (len(ks) > 1)} for {''.join(ks)!r} (unused "
@@ -2943,6 +2980,20 @@ def cmd_compose(a):
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
+    issues, taken = [], {k for lay, *_ in layers for k in lay.doc.resolved()}
+    for lay, x, y, label in layers:  # every layer's conflicts at once, before anything is drawn
+        keys, pal = set("".join(lay.frame.grid)), lay.doc.resolved()
+        clash = key_conflicts(doc, lay.doc, keys, "this layer", f"the new {opath}" if fresh else opath, "compose",
+                              whose, taken)
+        if clash:
+            clash.ctx = label
+            issues.append(clash)
+        for k in sorted(keys):
+            if pal[k][3] and k not in doc.resolved():
+                doc.add_key(k, pal[k])
+                whose[k] = label
+    if issues:
+        raise PxError(issues)
     for lay, x, y, label in layers:
         w, h = lay.frame.size
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)

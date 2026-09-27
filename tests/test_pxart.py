@@ -4084,6 +4084,144 @@ def test_help_documents_recolor_swap_and_order():
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: E_KEY_CONFLICT names every key
+
+def conflict_layers(tmp_path):
+    a = write(tmp_path, "a.px", "h #111111\nn #222222\nw #eee0b8\n\nhnw\n")
+    b = write(tmp_path, "b.px", "h #aaaaaa\nn #bbbbbb\nw #f6ecd2\nq #123456\n\nhnwq\n")
+    c = write(tmp_path, "c.px", "q #654321\n\nq\n")
+    return a, b, c
+
+
+def test_compose_conflict_new_out_lists_every_key_both_colors_and_origin(tmp_path):
+    a, b, c = conflict_layers(tmp_path)
+    out = tmp_path / "o.px"
+    msg = run_err("compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1")
+    assert msg == (f"compose: layer 2 ({b}): E_KEY_CONFLICT: 3 keys of this layer are other colors in the new {out}: "
+                   f"'h' #aaaaaa (#111111 there, from layer 1 ({a})), 'n' #bbbbbb (#222222 there, from layer 1 ({a})), "
+                   f"'w' #f6ecd2 (#eee0b8 there, from layer 1 ({a})); to keep both colors, give this layer's keys free "
+                   f"ones (no pixel changes color), then compose again: pxart recolor {b} 'h>a' 'n>b' 'w>c'")
+    assert not out.exists()
+    assert " here" not in msg and "recolor one side" not in msg
+
+
+def test_compose_conflict_every_layer_at_once(tmp_path):
+    a, b, c = conflict_layers(tmp_path)
+    out = tmp_path / "o.px"
+    lines = run_err("compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1").splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith(f"compose: layer 2 ({b}): E_KEY_CONFLICT: 3 keys")
+    assert lines[1] == (f"compose: layer 3 ({c}): E_KEY_CONFLICT: 1 key of this layer is another color in the new "
+                        f"{out}: 'q' #654321 (#123456 there, from layer 2 ({b})); to keep both colors, give this layer's "
+                        f"keys free ones (no pixel changes color), then compose again: pxart recolor {c} 'q>d'")
+
+
+def test_compose_conflict_recipe_works(tmp_path, capsys):
+    # The fix the message gives, run as it says, lets the compose through, and every layer's colors survive.
+    import shlex
+    a, b, c = conflict_layers(tmp_path)
+    out = tmp_path / "o.px"
+    argv = ["compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1"]
+    for line in run_err(*argv).splitlines():
+        fix = shlex.split(line.split("again: pxart ", 1)[1])
+        assert run(*fix) == 0
+    assert run(*argv) == 0
+    img = pxart.parse(out).image(pxart.parse(out).frames[0])
+    want = {(0, 0): "#111111", (1, 0): "#222222", (2, 0): "#eee0b8", (0, 1): "#aaaaaa", (1, 1): "#654321",
+            (2, 1): "#f6ecd2", (3, 1): "#123456"}
+    for xy, col in want.items():
+        assert img.getpixel(xy) == pxart.hex2rgba(col), xy
+
+
+def test_compose_conflict_existing_out(tmp_path):
+    a, b, c = conflict_layers(tmp_path)
+    out = write(tmp_path, "o.px", "w #eee0b8\nh #111111\n@frame x\nwh\n")
+    before = out.read_text()
+    msg = run_err("compose", "-o", f"{out}:y", f"{b}@0,0")
+    assert msg == (f"compose: layer 1 ({b}): E_KEY_CONFLICT: 2 keys of this layer are other colors in {out}: "
+                   "'h' #aaaaaa (#111111 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors, give this layer's "
+                   f"keys free ones (no pixel changes color), then compose again: pxart recolor {b} 'h>a' 'w>b'")
+    assert out.read_text() == before
+
+
+def test_compose_conflict_with_key_an_earlier_layer_added_to_existing_out(tmp_path):
+    a, b, c = conflict_layers(tmp_path)
+    out = write(tmp_path, "o.px", "k #000000\n@frame x\nk\n")
+    msg = run_err("compose", "-o", f"{out}:y", "--size", "4x2", f"{b}@0,0", f"{c}@0,1")
+    assert f"'q' #654321 (#123456 there, from layer 1 ({b}))" in msg and f"in {out}:" in msg
+
+
+def test_compose_conflict_free_keys_avoid_every_layer_and_out(tmp_path):
+    # 'a' is taken by the OUT, 'b' by layer 1's palette (unused), 'c' by layer 2: the fix picks 'd'.
+    a = write(tmp_path, "a.px", "k #000000\nb #0000ff\n\nk\n")
+    b = write(tmp_path, "b.px", "k #ffffff\nc #00ff00\n\nk\n")
+    out = write(tmp_path, "o.px", "a #ff0000\n@frame x\na\n")
+    msg = run_err("compose", "-o", f"{out}:y", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
+    assert msg.endswith(f"pxart recolor {b} 'k>d'")
+
+
+def test_compose_conflict_quotes_paths_and_keys_for_the_shell(tmp_path):
+    import shlex
+    d = tmp_path / "my parts"
+    d.mkdir()
+    a = write(d, "a.px", "' #000000\n\n'\n")
+    b = write(d, "b.px", "' #ffffff\n\n'\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
+    fix = shlex.split(msg.split("again: pxart ", 1)[1])
+    assert fix == ["recolor", str(b), "'>a"]
+    assert run(*fix) == 0 and pxart.parse(b).frames[0].grid == ["a"]
+
+
+def test_compose_conflict_transparent_keys_never_conflict(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\nt transparent\n\nkt\n")
+    b = write(tmp_path, "b.px", "t #ffffff\nj #00ff00\n\nj\n")
+    assert run("compose", "-o", tmp_path / "o.px", "--size", "3x1", f"{b}@0,0", f"{a}@1,0") == 0
+
+
+def test_compose_conflict_out_of_free_keys(tmp_path):
+    keys = pxart.KEYS
+    a = write(tmp_path, "a.px", "".join(f"{k} #000000\n" for k in keys) + "\n" + keys[0] + "\n")
+    b = write(tmp_path, "b.px", f"{keys[0]} #ffffff\n\n{keys[0]}\n")
+    msg = run_err("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
+    assert "E_KEY_CONFLICT" in msg and "aren't enough free keys" in msg
+
+
+def test_paste_conflict_lists_every_key_with_fix(tmp_path):
+    a, b, c = conflict_layers(tmp_path)
+    before = a.read_text()
+    msg = run_err("paste", b, "--into", a, "--at", "0,0")
+    assert msg == (f"paste: SRC ({b}): E_KEY_CONFLICT: 3 keys of SRC are other colors in {a}: 'h' #aaaaaa (#111111 "
+                   "there), 'n' #bbbbbb (#222222 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors, give SRC's "
+                   f"keys free ones (no pixel changes color), then paste again: pxart recolor {b} 'h>a' 'n>b' 'w>c'")
+    assert a.read_text() == before
+
+
+def test_paste_conflict_recipe_works(tmp_path):
+    import shlex
+    a, b, c = conflict_layers(tmp_path)
+    fix = shlex.split(run_err("paste", b, "--into", a, "--at", "0,0").split("again: pxart ", 1)[1])
+    assert run(*fix) == 0
+    assert run("paste", b, "--into", a, "--at", "0,0") == 0
+    doc = pxart.parse(a)
+    assert doc.image(doc.frames[0]).getpixel((2, 0)) == pxart.hex2rgba("#f6ecd2")
+
+
+def test_palette_add_conflict_says_how_to_change_the_color(tmp_path):
+    p = write(tmp_path, "p.px", "w #eee0b8\n\nw\n")
+    msg = run_err("palette", p, "--add", "w=#f6ecd2")
+    assert "E_KEY_CONFLICT" in msg and f"key 'w' is already #eee0b8 in {p}, not #f6ecd2" in msg
+    assert f"'recolor {p} w=#f6ecd2'" in msg and " here" not in msg
+
+
+def test_put_conflict_lists_every_key(tmp_path, monkeypatch):
+    import io
+    p = write(tmp_path, "p.px", "a #000000\nb #111111\n@frame x\nab\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("a #ffffff\nb #eeeeee\nc #00ff00\nabc\n"))
+    lines = run_err("put", f"{p}:x").splitlines()
+    assert [l.split(": E_")[0] for l in lines] == ["put: stdin:1", "put: stdin:2"]
+    assert "'a' #ffffff" in lines[0] and "#000000" in lines[0] and "'b' #eeeeee" in lines[1]
+
+
 # ---------------------------------------------------------------- GAMES-295: recolor 'a>b' (a new key)
 
 RENAME = ("pxart 1\n# keys\nk #000000\n# the white\nw #ffffff\n\n@variant night\nw #888888\nk #000011\n\n"
@@ -8343,8 +8481,9 @@ def test_seed_palette_returns_left_out_keys(tmp_path):
     b = write(tmp_path, "b.px", "j #00ff00\nz #ff0000\n@frame y\nj\n")
     layers = [(pxart.place_item(f"{a}:x", "layer"), 0, 0, "l1"), (pxart.place_item(f"{b}:y", "layer"), 0, 0, "l2")]
     doc = pxart.Doc(tmp_path / "o.px")
-    left = pxart.seed_palette(doc, layers)
+    left, whose = pxart.seed_palette(doc, layers)
     assert left == [("z", "l2", "l1", False)] and list(doc.palette) == ["k", "j", "z"]
+    assert whose == {"k": ("l1", True), "j": ("l2", True), "z": ("l1", False)}
 
 
 def test_help_documents_compose_new_palette():
