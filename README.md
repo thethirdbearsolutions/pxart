@@ -112,13 +112,14 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`), `anim` (one GIF, each frame at `--scale` with its 1x and
   2x copies beside it in the same picture, plus a motion strip; without `-o` it prints only
-  the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the
-  rise and the fall of one breath alike when the legs are identical in every frame; a
-  ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
-  `shift -1,+4 (wrap)`),
+  the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and writes nothing; "rows Y+
+  still" only when those rows are pixel-identical, and for the rise and the fall of one
+  breath alike when the legs are identical in every frame; a ground tile or a sparse
+  overlay like falling snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`),
   `onion` (B over a faded A, and a printed readout of how B's edges moved from A's, like
-  `top -1, bottom +0`, for a 1px jump too faint to see), `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v`
-  suffix as in `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room;
+  `top -1, bottom +0`, for a 1px jump too faint to see), `scene` (.px/.png items at x,y,
+  negative allowed, mirrored with a `+h`/`+v` suffix as in `hero.px:walk/0+h@3,4`;
+  `--variant V` recolors the whole room;
   `--tint '#10183080'` lays a translucent color over the finished scene for night; an item
   or legend entry ending in `%base` keeps its base palette, a lamp in a night room;
   `--bg transparent` works, as does `transparent` anywhere a color is typed), and
@@ -152,8 +153,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; both flags repeat, and the kept area is the union, so two lamps are one call;
-  works on a rendered PNG too; `--keep-keys W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in `compose`;
-  `--under` fills only the empty pixels), `compose` (stack layers into a frame; a new
+  works on a rendered PNG too; `--keep-keys W,T,t` or `--drop-keys` mask a .px by key),
+  `paste` (`+h`/`+v` mirror the source, as in `compose`; `--under` fills only the empty
+  pixels), `compose` (stack layers into a frame; a new
   frame lands after its animation; a new file gets the layers' whole palette, their shared
   `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
   its keys; `--under` draws the layers behind the frame that's there, in its empty
