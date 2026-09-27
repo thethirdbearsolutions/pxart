@@ -20228,7 +20228,7 @@ def test_stats_percent_variant_reads_the_variant_colors(tmp_path, capsys):
 def test_stats_without_variant_label_unchanged(tmp_path, capsys):
     p = write(tmp_path, "v.px", VPX)
     assert run("stats", f"{p}:idle/0") == 0
-    assert capsys.readouterr().out.startswith(f"{p}:idle/0: 3x2 bbox=(0, 0, 3, 2) colors=3 ")
+    assert capsys.readouterr().out.startswith(f"{p}:idle/0: 3x2 bbox x 0..2, y 0..1; colors=3 ")
 
 
 def test_stats_help_mentions_percent_variant(capsys):
@@ -27631,3 +27631,27 @@ def test_recolor_help_names_the_new_key_color_and_variant(capsys):
     assert "[--region x,y,w,h] [--variant V]" in doc and "c=#hex, c=d and 'b>t' t=#hex share a call" in doc
     assert run("recolor", "-h") == 0
     assert "'b>t' t=#hex gives the new key t a V color of its own" in " ".join(capsys.readouterr().out.split())
+
+
+# ---------------------------------------------------------------- one bbox convention: 'x 1..22, y 0..20', ends included
+
+def test_stats_and_onion_print_one_bbox_the_same_way(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a\n....\n.kk.\n.k..\n")
+    assert run("stats", f"{p}:a") == 0
+    assert capsys.readouterr().out.startswith(f"{p}:a: 4x3 bbox x 1..2, y 1..2; colors=1 ")
+    assert run("onion", f"{p}:a", f"{p}:a", "--dry-run") == 0
+    assert "A (frame a) covers x 1..2, y 1..2 " in capsys.readouterr().out
+
+
+def test_stats_bbox_of_an_empty_frame_is_none(tmp_path, capsys):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a\n..\n")
+    assert run("stats", p) == 0
+    assert capsys.readouterr().out == f"{p}:a: 2x1 bbox none; colors=0 \n"
+
+
+def test_box_text_is_inclusive():
+    assert pxart.box_text((1, 0, 23, 21)) == "x 1..22, y 0..20"
+
+
+def test_help_labels_stats_bbox():
+    assert "Size, bbox ('x 1..22, y 0..20': ends included)" in " ".join(pxart.__doc__.split())

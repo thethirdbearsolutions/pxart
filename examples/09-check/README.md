@@ -167,7 +167,7 @@ pxart stats broken.px:idle/0 --colors
 ```
 
 ```text
-broken.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
+broken.px:idle/0: 16x16 bbox x 1..14, y 0..15; colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
   #1a1423 58 px (k)
   #f6eed8 41 px (w)
   #d4bd92 13 px (c)
@@ -175,9 +175,8 @@ broken.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f5
   #fff6d0 1 px (i)
 ```
 
-`bbox` is the box around the pixels that aren't empty, as left, top, right, bottom. The
-right and bottom are one past the last pixel, so `(1, 0, 15, 16)` covers x from 1 to 14
-and y from 0 to 15. Below it, each color, how many pixels use it, and its key: 58 pixels
+`bbox` is the box around the pixels that aren't empty: `x 1..14, y 0..15` is x from 1 to
+14 and y from 0 to 15, both ends included (onion prints its boxes the same way). Below it, each color, how many pixels use it, and its key: 58 pixels
 of outline `k`, and a single pixel of `i`, the bright heart of the flame.
 
 

@@ -83,13 +83,13 @@ LOOKING
       leaves out every file is E_FILE. A palette file (no frames) among the inputs, a
       directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
       palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
-      frame's size (a 16x16 tile beside a 64x64 beast gets a 64x64 cell; a frame over 8x the
-      median frame's area gets a note); --fit makes each cell its own frame's width (or its
-      label's, if wider) and each row as tall as its tallest frame, --cols cells to a row,
-      frames bottom-aligned in their row. A PNG whose four corners are exactly the --bg
-      color (a scene rendered with the same --bg) doesn't count that color: it's the
-      backdrop. Frames with the same id from different files are labeled with their file's
-      stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
+      frame's size (a frame over 8x the median frame's area gets a note); --fit makes each
+      cell its own frame's width (or its label's, if wider) and each row as tall as its
+      tallest frame, --cols cells to a row, frames bottom-aligned in their row. A PNG whose
+      four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
+      count that color: it's the backdrop. Frames with the same id from different files are
+      labeled with their file's stem in front (hero:idle/0, beast:idle/0); render and anim
+      label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
       the group's frames are drawn on one canvas, every pivot on the same pixel. The
       default, --align bottom, bottom-aligns each frame in its cell.
@@ -243,8 +243,8 @@ CHECKING
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB]
-      Size, bbox, color count, colors per frame (a directory, palette files and --exclude as
-      for sheet). FILE:SEL%VARIANT reads the colors a variant renders: 'stats
+      Size, bbox ('x 1..22, y 0..20': ends included), colors (a directory, palette files and
+      --exclude as for sheet). FILE:SEL%VARIANT reads the colors a variant renders: 'stats
       hero.px:idle/0%night'. --colors lists each frame's rendered colors, most pixels first,
       each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
       (repeatable) prints that pixel's key and its color in the base palette and in every
@@ -3010,6 +3010,12 @@ def band_shift(prev, cur, y0, y1, reach=2):
     return best[1], best[2], best[0][0], n_changed(prev.crop(box), c)
 
 
+def box_text(b):
+    """A bounding box as every readout prints it, first and last pixel both included: (1, 0, 23, 21), PIL's
+    exclusive getbbox(), is 'x 1..22, y 0..20'."""
+    return f"x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}"
+
+
 def spans_of(y0, y1):
     """'row 20' or 'rows 20-23'."""
     return f"row {y0}" if y0 == y1 else f"rows {y0}-{y1}"
@@ -3041,7 +3047,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     else:
         boxes = [c.getchannel("A").getbbox() for c in clear]
     where = f"{spans_of(*band)} of the {w}x{h} canvas" if band else f"on the {w}x{h} canvas"
-    lines = [f"{n} (frame {it.label}) " + (f"covers x {b[0]}..{b[2] - 1}, y {b[1]}..{b[3] - 1}" if b else "is empty"
+    lines = [f"{n} (frame {it.label}) " + (f"covers {box_text(b)}" if b else "is empty"
                                            if not band else "covers nothing" if n == "A" else
                                            f"covers nothing in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
@@ -3503,10 +3509,11 @@ def cmd_stats(a):
         with reading(f"file {n} ({arg})"):
             its = items(arg)
         for it in its:
-            cs = colors(it.img)
+            cs, box = colors(it.img), it.img.getchannel("A").getbbox()
+            box = box and box_text(box)
             print(f"{arg if not (it.frame and it.frame.id) else split_sel(split_variant(arg)[0])[0] + ':' + it.label}"
                   + (f"%{split_variant(arg)[1]}" if split_variant(arg)[1] and it.frame and it.frame.id else "")
-                  + f": {it.img.width}x{it.img.height} bbox={it.img.getchannel('A').getbbox()} colors={len(cs)} "
+                  + f": {it.img.width}x{it.img.height} bbox {box or 'none'}; colors={len(cs)} "
                   + " ".join(rgba2hex(c) for c in cs[:32]))
             if a.colors:
                 for line in color_counts(it):
