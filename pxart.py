@@ -629,13 +629,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
       fitted by least squares over the keys that variant recolors (not the ones it relists,
-      the lamps), then --darken and --tint as above: the example above gives the cast the
-      mood of another pack's dusk, warm lights and blue shadows included (a red gain, a blue
-      offset), where one darken and one tint move every channel alike. The output prints the
-      fit: 'r x0.92 -17, g x0.81 -11, b x0.78 +10'. A key darker than a quarter (Rec. 709
-      luma under 64) never comes out brighter than its --derive-from color: it is scaled
-      back to that brightness, its hue kept, and listed as held, so a near-black outline
-      stays dark under a blue tint or offset; when none is, the output says 'held: none'.
+      the lamps), then --darken and --tint as above: the example above gives the cast
+      another pack's dusk (a red gain, a blue offset), where one darken and one tint move
+      every channel alike. The output prints the fit: 'r x0.92 -17, g x0.81 -11, b x0.78
+      +10'. The hold: a key darker than a quarter (Rec. 709 luma, .2126 R + .7152 G + .0722
+      B of the sRGB values, under 64) never comes out with a higher luma than its
+      --derive-from color: it is scaled back to that luma, its hue kept (a warmer red may
+      look a shade lighter), and listed as held, so a near-black outline stays dark under a
+      blue tint or offset; else 'held: none'.
       --lift-darks lets the derive brighten them (a fog), and names the ones it did; --add
       sets one anyway.
 
@@ -5859,18 +5860,24 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
                     f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened")
     elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
-                    f"color{'s' * (len(held) > 1)} (darker than a quarter: an outline stays dark; --lift-darks lets "
-                    "the derive brighten them)")
+                    f"color{'s' * (len(held) > 1)} by Rec. 709 luma (darker than a quarter: an outline stays dark; "
+                    "--lift-darks lets the derive brighten them)")
     else:
         said.append("held: none (no key darker than a quarter came out brighter)")
     return said
 
 
 def no_brighter(c, ref):
-    """c scaled down (each channel, floored) to ref's brightness at most: its hue kept, never lighter than ref."""
+    """c scaled down (each channel, floored) to ref's brightness (Rec. 709 luma) at most: its hue kept, its luma never
+    above ref's (a channel steps down where float rounding would leave it a hair over)."""
     b = brightness(c)
-    f = brightness(ref) / b if b else 0
-    return tuple(int(v * f) for v in c[:3]) + (c[3],)
+    if b <= brightness(ref):
+        return c
+    f = brightness(ref) / b
+    out = [int(v * f) for v in c[:3]]
+    while brightness(tuple(out) + (c[3],)) > brightness(ref) and any(out):
+        out = [max(0, v - 1) for v in out]
+    return tuple(out) + (c[3],)
 
 
 def matched(c, fit):

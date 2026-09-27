@@ -47,7 +47,7 @@ pxart palette palette.px --comment b 'sea' c 'sea foam; the shaded side of white
 From [`derive.txt`](derive.txt), [`add.txt`](add.txt) and [`palette.txt`](palette.txt):
 
 ```text
-new @variant dusk; derived from base (darkened 20%, tinted #ff6a3a38): recolors 15 key(s); l g kept lit (in their base colors); k N O held no brighter than their base colors (darker than a quarter: an outline stays dark; --lift-darks lets the derive brighten them); wrote derived/palette.px
+new @variant dusk; derived from base (darkened 20%, tinted #ff6a3a38): recolors 15 key(s); l g kept lit (in their base colors); k N O held no brighter than their base colors by Rec. 709 luma (darker than a quarter: an outline stays dark; --lift-darks lets the derive brighten them); wrote derived/palette.px
 @variant dusk; sets w #f2c6a8; wrote derived/palette.px
 b #3a7ca5     local  # sea
 c #8ccfd6     local  # sea foam; the shaded side of whitewash

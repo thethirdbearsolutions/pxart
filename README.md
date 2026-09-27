@@ -240,7 +240,7 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   from the base colors, as `scene --tint` would, with the lamps still lit; `--match
   mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted
   gain and offset: warm lights, blue shadows), and a key darker than a quarter is never
-  brightened unless `--lift-darks`; `--hoist l,g`
+  brightened, by Rec. 709 luma (hue kept), unless `--lift-darks`; `--hoist l,g`
   moves a sprite's own keys into the palette file it imports; `--import pal.px` adds a
   `@palette pal.px` line to a sprite and drops its key lines pal.px has in the same colors, so it
   renders as before; `--order o,t,k` puts those key lines first, comments and all; `--remove k,n` takes out keys

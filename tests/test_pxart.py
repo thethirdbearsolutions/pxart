@@ -18675,8 +18675,8 @@ def test_derive_never_brightens_a_near_black(tmp_path, capsys):
     p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n")
     assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
     out = capsys.readouterr().out
-    assert "o held no brighter than its base color (darker than a quarter: an outline stays dark; --lift-darks lets " \
-        "the derive brighten them)" in out
+    assert "o held no brighter than its base color by Rec. 709 luma (darker than a quarter: an outline stays dark; " \
+        "--lift-darks lets the derive brighten them)" in out
     got = dv(p, "dusk", "o")
     assert pxart.brightness(got) <= pxart.brightness(pxart.hex2rgba("#141b1b"))
     assert got[2] > got[0]  # still bluish: the hue kept
@@ -18752,11 +18752,11 @@ def test_help_documents_match_and_hold():
     assert "--match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps each channel the " \
         "way FILE's own base -> dusk does, a gain and an offset per channel fitted by least squares over the keys " \
         "that variant recolors" in text
-    assert "A key darker than a quarter (Rec. 709 luma under 64) never comes out brighter than its --derive-from " \
-        "color" in text
+    assert "The hold: a key darker than a quarter (Rec. 709 luma, .2126 R + .7152 G + .0722 B of the sRGB values, " \
+        "under 64) never comes out with a higher luma than its --derive-from color" in text
     assert "--lift-darks lets the derive brighten them (a fog), and names the ones it did; --add sets one anyway." \
         in text
-    assert "when none is, the output says 'held: none'" in text
+    assert "blue tint or offset; else 'held: none'." in text
 
 
 def test_readme_documents_match_and_hold():
@@ -22643,3 +22643,91 @@ def test_help_says_a_half_variant_warns():
 def test_readme_says_a_half_variant_warns():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "A variant a sprite gets only from its `@palette` can't know the sprite's own keys" in readme
+
+
+# ---------------------------------------------------------------- the hold's measure: Rec. 709 luma, named and true
+
+def random_derive_doc(rng, tmp_path, n):
+    """A palette file of n random keys, some near-black, with a dusk that recolors them (for --derive-from dusk)."""
+    lines = ["pxart 1"]
+    keys = pxart.FREE_ORDER[:n]
+    for k in keys:
+        dark = rng.random() < 0.5
+        c = [rng.randrange(0, 90 if dark else 256) for _ in range(3)]
+        a = rng.choice([255, 255, 255, rng.randrange(1, 256)])
+        lines.append(f"{k} #{c[0]:02x}{c[1]:02x}{c[2]:02x}" + (f"{a:02x}" if a != 255 else ""))
+    lines.append("@variant dusk")
+    for k in keys:
+        lines.append(f"{k} #{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}")
+    return write(tmp_path, "p.px", "\n".join(lines) + "\n")
+
+
+@pytest.mark.parametrize("seed", range(150))
+def test_property_every_held_key_is_no_brighter_by_luma(tmp_path, seed):
+    import random
+    rng = random.Random(seed)
+    p = random_derive_doc(rng, tmp_path, rng.randrange(2, 24))
+    doc = pxart.parse(p, palette_only=True)
+    src = rng.choice(["base", "dusk"])
+    fit = [(rng.uniform(0.3, 1.6), rng.uniform(-60, 90)) for _ in range(3)] if rng.random() < 0.6 else None
+    tint = f"#{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}{rng.randrange(256):02x}" \
+        if rng.random() < 0.7 else None
+    darken = rng.choice([0.0, rng.uniform(0, 0.9)])
+    from_ = doc.resolved(None if src == "base" else src)
+    said = pxart.derive_variant(doc, "night", src, darken, tint, [], ("fit", fit, 3) if fit else None)
+    got = doc.resolved("night")
+    held = next((s.split(" held no brighter")[0].split() for s in said if " held no brighter" in s), [])
+    for k in held:
+        assert pxart.brightness(got[k]) <= pxart.brightness(from_[k]), (k, got[k], from_[k])
+        assert got[k][3] == from_[k][3]
+    for k, c in from_.items():  # and no dark key came out brighter, held or not
+        if k != "." and c[3] and pxart.brightness(c) < pxart.DARK * c[3] / 255:
+            assert pxart.brightness(got[k]) <= pxart.brightness(c), (k, got[k], c)
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_property_no_brighter_never_exceeds_the_reference_luma(seed):
+    import random
+    rng = random.Random(seed)
+    c = tuple(rng.randrange(256) for _ in range(3)) + (rng.choice([255, rng.randrange(1, 256)]),)
+    ref = tuple(rng.randrange(256) for _ in range(3)) + (c[3],)
+    got = pxart.no_brighter(c, ref)
+    assert pxart.brightness(got) <= pxart.brightness(ref) and got[3] == c[3]
+    assert all(0 <= v <= 255 for v in got[:3])
+
+
+def test_no_brighter_keeps_the_hue_when_it_scales():
+    got = pxart.no_brighter((200, 100, 50, 255), (40, 40, 40, 255))
+    assert got[0] > got[1] > got[2] and pxart.brightness(got) <= 40
+
+
+def test_no_brighter_of_black_is_black():
+    assert pxart.no_brighter((0, 0, 0, 255), (0, 0, 0, 255)) == (0, 0, 0, 255)
+    assert pxart.no_brighter((10, 10, 10, 255), (0, 0, 0, 255)) == (0, 0, 0, 255)
+
+
+def test_hold_is_true_on_the_town_outline_that_looked_brighter():
+    # dusk o #4b241e against base #3f2631: redder, and by Rec. 709 luma of the sRGB values, not brighter (43.86 vs
+    # 44.11). The message names that measure; linear-light luminance would rank them the other way.
+    base, dusk = pxart.hex2rgba("#3f2631"), pxart.hex2rgba("#4b241e")
+    assert pxart.brightness(dusk) <= pxart.brightness(base)
+    assert round(pxart.brightness(base), 2) == 44.11 and round(pxart.brightness(dusk), 2) == 43.86
+
+
+def test_held_message_names_the_measure(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nn #1a1a2a\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
+    assert "o n held no brighter than their base colors by Rec. 709 luma (darker than a quarter" in \
+        capsys.readouterr().out
+
+
+def test_held_message_names_the_measure_from_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n@variant dusk\no #101418\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--tint", "#2040c0a0") == 0
+    assert "o held no brighter than its dusk color by Rec. 709 luma" in capsys.readouterr().out
+
+
+def test_help_names_the_luma_formula():
+    text = " ".join(pxart.__doc__.split())
+    assert ".2126 R + .7152 G + .0722 B of the sRGB values" in text
+    assert "its hue kept (a warmer red may look a shade lighter)" in text
