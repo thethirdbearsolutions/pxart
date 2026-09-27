@@ -102,6 +102,9 @@ on an input file also says which input:
 compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, row 1): row is 1 wide, ...
 ```
 
+A command that fails prints no notes or WARNINGs: they describe the write it was about to
+make, and nothing was written.
+
 Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 ## Commands

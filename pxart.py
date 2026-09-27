@@ -543,6 +543,8 @@ ERROR CODES
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
   Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
+  A command that fails prints none of its notes or WARNINGs: they describe the write it was
+  about to make (a grid renamed, keys rekeyed), and nothing was written.
   Frames of different sizes in one animation are allowed; check notes them.
 """
 import argparse, contextlib, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
@@ -4582,12 +4584,27 @@ def main(argv=None):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
     elif extra:
         ap.parse_args(argv)  # argparse's own error
+    told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:
-        globals()["cmd_" + a.cmd.replace("-", "_")](a)
+        with contextlib.redirect_stdout(told):
+            globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'
+        sys.stdout.write(unsaid(told.getvalue()))
         sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
+        sys.stdout.write(unsaid(told.getvalue()))
         sys.exit(file_error(e))
+    except BaseException:
+        sys.stdout.write(told.getvalue())
+        raise
+    sys.stdout.write(told.getvalue())
+
+
+def unsaid(text):
+    """A command that fails prints none of its notes and WARNINGs: they describe the write it was about to make (a grid
+    renamed, keys rekeyed, colors left out), and that write didn't happen. Its other lines (a 'wrote' for a file an
+    earlier step did write) stay."""
+    return "".join(l for l in text.splitlines(True) if not l.startswith(("note:", "WARNING:")))
 
 
 if __name__ == "__main__":

@@ -12859,18 +12859,15 @@ def test_three_packs_rekey_listing_shows_the_lamps_relisted(tmp_path, capsys):
     assert f"relists unchanged: {' '.join(lamp)}" in night
 
 
-def test_three_packs_without_rekey_warns_about_the_lamp_keys(tmp_path, capsys):
+def test_three_packs_without_rekey_prints_no_warning_for_the_file_it_didnt_write(tmp_path, capsys):
     code, out, (stall, keeper, candle) = compose_packs(tmp_path)
-    lines = capsys.readouterr().out.splitlines()
-    warn = [l for l in lines if l.startswith("WARNING:")]
-    assert len(warn) == 1 and f"leaves out layer 2 ({keeper}:idle)'s colors" in warn[0]
-    assert ("'lg' (layer 1's, which that layer uses; keeper.px draws with it, @variant night relists it unchanged)"
-            in warn[0])
-    assert warn[0].endswith(f"; compose --rekey keeps l g under free keys in {out}")
+    got = capsys.readouterr()
+    assert code == 1 and not out.exists()
+    assert not [l for l in got.out.splitlines() if l.startswith(("WARNING:", "note:"))]
 
 
 def test_three_packs_left_out_is_one_line_per_file(tmp_path, capsys):
-    compose_packs(tmp_path)
+    compose_packs(tmp_path, "--rekey")
     lines = [l for l in capsys.readouterr().out.splitlines() if "leaves out" in l]
     assert len(lines) == len({l.split("leaves out ")[1].split("'s colors")[0] for l in lines}) <= 3
 
@@ -13330,3 +13327,105 @@ def test_help_documents_compose_across_packs(capsys):
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--variant-map dusk=night,dark` merges several files' variants into one" in readme
     assert "a key two files have in one color but recolor differently in their variants" in readme
+
+
+# ---------------------------------------------------------------- notes only for writes that happen
+
+def test_unsaid_drops_notes_and_warnings_keeps_the_rest():
+    text = "note: a\nwrote x.png\nWARNING: b\n  walk/0  vs walk/1\nnote: c\n"
+    assert pxart.unsaid(text) == "wrote x.png\n  walk/0  vs walk/1\n"
+
+
+def test_unsaid_keeps_a_line_that_only_mentions_a_note():
+    assert pxart.unsaid("a note: here\n  note: indented\n") == "a note: here\n  note: indented\n"
+
+
+def test_unsaid_of_nothing():
+    assert pxart.unsaid("") == ""
+
+
+def test_failed_copy_to_prints_no_rename_note(tmp_path, capsys):
+    # DST's unnamed grid would become '@frame d', but the copy fails: no note, and DST is as it was.
+    s = write(tmp_path, "s.px", "k #000000\n@frame walk/0\nk\n")
+    d = write(tmp_path, "d.px", "k #ff0000\n.\n")
+    before = d.read_text()
+    capsys.readouterr()
+    msg = run_err("frames", s, "--copy-to", d)
+    got = capsys.readouterr()
+    assert "E_KEY_CONFLICT" in msg and "unnamed grid" not in got.out and "note:" not in got.out
+    assert d.read_text() == before
+
+
+def test_copy_to_that_succeeds_still_prints_the_rename_note(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n@frame walk/0\nk\n")
+    d = write(tmp_path, "d.px", "k #000000\n.\n")
+    capsys.readouterr()
+    assert run("frames", s, "--copy-to", d) == 0
+    out = capsys.readouterr().out
+    assert f"note: {d}'s unnamed grid is now '@frame d' (the id it went by)" in out and f"wrote {d}" in out
+
+
+def test_failed_compose_into_unnamed_grid_prints_no_rename_note(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nk\n")
+    o = write(tmp_path, "o.px", "k #ff0000\nk\n")
+    before = o.read_text()
+    capsys.readouterr()
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", f"{o}:x", f"{a}@0,0")
+    assert "note:" not in capsys.readouterr().out and o.read_text() == before
+
+
+def test_failed_edit_with_o_prints_no_whole_file_note(tmp_path, capsys):
+    p = write(tmp_path, "p.px", MULTI)
+    capsys.readouterr()
+    assert "E_SELECT" in run_err("set", f"{p}:idle", "Z", "0,0", "-o", tmp_path / "q.px")
+    assert "note:" not in capsys.readouterr().out and not (tmp_path / "q.px").exists()
+
+
+def test_edit_with_o_that_succeeds_prints_the_whole_file_note(tmp_path, capsys):
+    p = write(tmp_path, "p.px", MULTI)
+    capsys.readouterr()
+    assert run("set", f"{p}:idle", "g", "0,0", "-o", tmp_path / "q.px") == 0
+    assert f"note: {tmp_path / 'q.px'} gets all of {p} with idle edited" in capsys.readouterr().out
+
+
+def test_failed_rekey_prints_no_rekey_note(tmp_path, capsys):
+    # --rekey found moves, then the copy fails on a duplicate frame: the rekey note would describe a write that
+    # didn't happen.
+    s = write(tmp_path, "s.px", "k #000000\n@frame walk/0\nk\n")
+    d = write(tmp_path, "d.px", "k #ff0000\n@frame walk/0\nk\n")
+    capsys.readouterr()
+    assert "E_DUP_FRAME" in run_err("frames", s, "--copy-to", d, "--rekey")
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_failed_put_prints_no_size_note(tmp_path, capsys, monkeypatch):
+    import io
+    p = write(tmp_path, "p.px", "k #000000\n@frame a\nkk\n")
+    before = p.read_text()
+    monkeypatch.setattr("sys.stdin", io.StringIO("k #ff0000\nk\n"))
+    capsys.readouterr()
+    assert "E_KEY_CONFLICT" in run_err("put", f"{p}:a")
+    assert "note:" not in capsys.readouterr().out and p.read_text() == before
+
+
+def test_check_output_still_printed_when_it_exits_1(tmp_path, capsys):
+    bad = write(tmp_path, "bad.px", "k #000000\nkq\n")
+    good = write(tmp_path, "good.px", "k #000000\nk\n")
+    assert run("check", good, bad) == 1
+    out = capsys.readouterr().out
+    assert "good.px" in out and "E_UNKNOWN_KEY" in out
+
+
+def test_successful_command_output_is_in_order(tmp_path, capsys):
+    p = write(tmp_path, "p.px", MULTI)
+    capsys.readouterr()
+    assert run("set", f"{p}:idle", "g", "0,0", "-o", tmp_path / "q.px") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("note:") and lines[-1] == f"wrote {tmp_path / 'q.px'}"
+
+
+def test_help_and_readme_say_a_failed_command_prints_no_notes():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A command that fails prints none of its notes or WARNINGs" in doc
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "A command that fails prints no notes or WARNINGs" in readme
