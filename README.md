@@ -164,6 +164,9 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
   does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.
+  `--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` computes and prints
+  everything (the readout, notes and WARNINGs) and writes nothing, saying `(dry run; nothing
+  written)`; `-o` may then be left off.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
   entry that can't load is an error at its legend line. A `#` line before the rows is a

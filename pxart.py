@@ -66,12 +66,12 @@ FORMAT (.px)
   (from the current directory): E_FILE: No such file or directory'.
 
 LOOKING
-  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png]
+  render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png] [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB]
+        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
       PNGs in it are left out, a sheet rendered there too). --exclude GLOB (repeatable) leaves
@@ -98,7 +98,7 @@ LOOKING
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
       --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
       row with --cols frames.
-  anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
+  anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V] [--dry-run]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
       frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
@@ -122,7 +122,7 @@ LOOKING
       opaque) or a sparse overlay (at most 1/4 opaque: snow) also try every wrap-around scroll
       (shift --wrap), shown when it leaves strictly fewer pixels changed than the best plain
       shift: "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
-  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a] [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
       with render's grid and rulers, so where A shows past B is plain to see.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
@@ -133,9 +133,9 @@ LOOKING
       shift, as a keeper beside a market kid; --rows and --feet don't change that; two frames
       of one animation in one file are always one sprite, however much changed) print
       "...; different sprites: edges only": their edges still compare where the feet stand,
-      but a best shift between two characters means nothing. y grows down, so +1 is lower. The
-      edges are the sides of each frame's opaque bounding box (its leftmost, rightmost, top
-      and bottom opaque pixels): 'top -1' is B's top row of pixels 1px above A's.
+      but a best shift between two characters means nothing. y grows down, so +1 is lower.
+      The edges are the sides of each frame's opaque bounding box: 'top -1' is B's top row 1px
+      above A's.
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
       or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
       weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
@@ -146,7 +146,7 @@ LOOKING
       --tint-a COLOR draws the silhouette in another color, at that color's alpha
       (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
-        [--tint #rrggbbaa] ITEM@x,y ...
+        [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
@@ -206,8 +206,8 @@ LOOKING
       partly off the left/top edge), in scene and in compose.
       --tint '#10183080' lays that color, at its alpha, over the whole finished scene (bg,
       map, every item, those with their own %variant too) at 1x, before --scale: a night
-      scene in one step. To keep a light bright, render the scene untinted, mask the lit
-      circle out of it, and put that PNG over the tinted one.
+      scene in one step. To keep a light bright, mask its circle out of the untinted render
+      and lay that over the tinted one.
   tint IN.png '#rrggbbaa' [-o OUT.png]
       scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
@@ -217,6 +217,8 @@ LOOKING
   takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
   --tint, tint, palette --add k=transparent; the '#' may be left off, and in a script a
   '#' color needs quotes, or the shell reads a comment).
+  --dry-run (render, sheet, anim, onion, scene) computes and prints everything, writes nothing
+  and says '(dry run; nothing written)': the readout alone. -o may then be left off.
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
@@ -1750,21 +1752,37 @@ def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
 
-def outpath(p):
-    """Output path with its directory created; a file where a directory should be is a clear E_FILE."""
+def outpath(p, make=True):
+    """Output path with its directory created (not with make False: a dry run); a file where a directory should be is
+    a clear E_FILE."""
     p = pathlib.Path(p)
     for d in reversed(p.parents):
         if d.exists() and not d.is_dir():
             hint = f" (a frame goes after ':', as in {d}:{p.relative_to(d).as_posix()})" if d.suffix == ".px" else ""
             fail("E_FILE", f"can't write {p}: {d} is a file, not a directory{hint}")
-    p.parent.mkdir(parents=True, exist_ok=True)
+    if make:
+        p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+DRY = {"run": False}  # --dry-run (render, sheet, anim, onion, scene): everything computed and printed, nothing written
+
+
+def wrote(*paths):
+    """The line saying what a looking command wrote: 'wrote a.gif and a.strip.png', or on a dry run what it would
+    have, 'would write a.gif and a.strip.png (dry run; nothing written)'."""
+    paths = [str(p) for p in paths if p is not None]
+    if DRY["run"]:
+        return (f"would write {' and '.join(paths)} " if paths else "") + "(dry run; nothing written)"
+    return "wrote " + " and ".join(paths)
 
 
 def save_image(img, p, what="-o", **kw):
     """img written to p (its directory made, as outpath does), in the format p's extension names. A name with no
     extension, or one Pillow can't write (-o /dev/null, -o out.px), is E_BAD_ARG before anything is written, and so is
     a format that can't hold the image (RGBA as .jpg); a file that can't be written is the usual E_FILE. Returns p."""
+    if p is None and DRY["run"]:  # a dry run with no -o: nothing to check
+        return None
     p = pathlib.Path(p)
     ext = p.suffix.lower()
     fmt = Image.registered_extensions().get(ext)
@@ -1774,7 +1792,9 @@ def save_image(img, p, what="-o", **kw):
         fail("E_BAD_ARG", f"{what} {p}: {why}; name it {name}")
     if kw.get("save_all") and fmt not in Image.SAVE_ALL:
         fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold an animation; name it {name}")
-    p = outpath(p)
+    p = outpath(p, make=not DRY["run"])
+    if DRY["run"]:
+        return p
     try:
         img.save(p, **kw)
     except OSError as e:
@@ -2512,6 +2532,12 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
 
 # ---------------------------------------------------------------------------- commands
 
+def need_o(a, eg):
+    """sheet, onion and scene write -o OUT, which only --dry-run (the readout alone) goes without."""
+    if a.o is None and not DRY["run"]:
+        fail("E_BAD_ARG", f"-o is required: -o {eg} (or --dry-run to print the readout and write nothing)")
+
+
 def cmd_render(a):
     a.bg = parse_color(a.bg, "--bg")
     its = all_items(a.files, a.variant)
@@ -2521,14 +2547,15 @@ def cmd_render(a):
             doc = parse(path)
             if len(doc.frames) == 1:
                 save_image(doc.image(doc.frames[0], a.variant), pathlib.Path(path).with_suffix(".png"), "--png")
-    print("wrote", sheet(its, a.o, a.scale, bg=a.bg, grid=not a.no_grid, rulers=not a.no_grid))
+    print(wrote(sheet(its, a.o, a.scale, bg=a.bg, grid=not a.no_grid, rulers=not a.no_grid)))
 
 
 def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
-    print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
-                         align=a.align, rows=a.rows))
+    need_o(a, "sheet.png")
+    print(wrote(sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
+                      align=a.align, rows=a.rows)))
 
 
 def cmd_anim(a):
@@ -2586,6 +2613,8 @@ def cmd_anim(a):
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
     if not a.o:
+        if DRY["run"]:
+            print(wrote())
         return
     # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
     # readout's own words (its spaces and colons too), the label rows as tall as the most lines any cell needs
@@ -2608,10 +2637,11 @@ def cmd_anim(a):
             d.text((x, y2 + h * S + 1 + j * LINE_H), line, font=font, fill=color)
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
     save_image(strip, sp, "the strip")
-    print("wrote", a.o, "and", sp)
+    print(wrote(a.o, sp))
 
 
 def cmd_onion(a):
+    need_o(a, "x.png")
     with reading(f"A ({a.a})"):
         ia = one_frame(a.a)
     with reading(f"B ({a.b})"):
@@ -2643,7 +2673,7 @@ def cmd_onion(a):
     for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin,
                           feet=a.feet is not None):
         print(line)
-    print("wrote", a.o)
+    print(wrote(a.o))
 
 
 def onion_band(a, h):
@@ -2878,6 +2908,7 @@ def parse_tile(s):
 
 
 def cmd_scene(a):
+    need_o(a, "s.png")
     tint = parse_tint(a.tint) if a.tint else None
     bg = parse_color(a.bg, "--bg")
     placed = []
@@ -2916,7 +2947,7 @@ def cmd_scene(a):
     if tint:
         sc = tinted(sc, tint)
     save_image(sc.resize((W * a.scale, H * a.scale), Image.NEAREST), a.o)
-    print("wrote", a.o)
+    print(wrote(a.o))
 
 
 def check_map(path):
@@ -7099,7 +7130,7 @@ GIST = {  # what each block (or another command's section) has, for the see-also
     "FORMAT: variants": "@variant, %VARIANT",
     "FORMAT: selecting frames": "FILE:SEL, an unnamed grid's name, zsh's \"${F}:sel\"",
     "FORMAT: paths": "what a path is read from: the current directory, or a file's own",
-    "LOOKING: centering": "frames of different sizes, --bg",
+    "LOOKING: centering": "frames of different sizes, --bg, --dry-run",
     "EDITING": "-o OUT gets the whole file, only changed lines are rewritten, 'no change'",
     "DRAWING": "FILE[:SEL], KEY, clipping, 'painted N px'",
     "compose": "OUT's palette, frame placement, E_KEY_CONFLICT, --rekey",
@@ -7110,7 +7141,8 @@ DRAWS = ["DRAWING", "EDITING", "FORMAT: selecting frames"]
 SEE = {  # what a command's section relies on: other commands' sections (by name) and NOTES, named, not pasted
     "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
-    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants", "FORMAT: paths"], "tint": ["scene"],
+    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"],
+    "scene": ["FORMAT: variants", "FORMAT: paths", "LOOKING: centering"], "tint": ["scene"],
     "check": ["FORMAT: still groups", "FORMAT: paths"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
     "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
@@ -7262,6 +7294,7 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
+DRY_HELP = "compute and print everything, write nothing ('(dry run; nothing written)'); -o may be left off"
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
 TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
 REKEY_HELP = ("give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are. "
@@ -7278,7 +7311,8 @@ def parser(describe=True):
     p.add_argument("--png", action="store_true")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--bg", default="#3a3a44")
     p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
-    p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
+    p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
     p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
@@ -7286,13 +7320,15 @@ def parser(describe=True):
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
     p.add_argument("--rows", choices=["cols", "group"], default="cols",
                    help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
     p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
-    p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
-    p.add_argument("--scale", type=int, default=8)
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
+    p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o")
+    p.add_argument("--scale", type=int, default=8); p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     g = p.add_mutually_exclusive_group()
     g.add_argument("--rows", help="Y0-Y1: only these canvas rows count for the readout and the best shift")
     g.add_argument("--feet", type=int, metavar="N", help="only the bottom N rows count (--rows for the feet)")
@@ -7300,7 +7336,8 @@ def parser(describe=True):
     g.add_argument("--tint-a", nargs="?", const=TINT_A, metavar="COLOR",
                    help=f"draw A as a silhouette in COLOR (the default, in {TINT_A})")
     g.add_argument("--fade-a", action="store_true", help="draw A faded to 35%% instead, as onion once did")
-    p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
+    p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o")
+    p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
     p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>' (rest of line = path), blank line, rows")
@@ -7506,6 +7543,7 @@ def main(argv=None):
     elif extra:
         ap.parse_args(args)  # argparse's own error
     WARNED.clear()
+    DRY["run"] = bool(getattr(a, "dry_run", False))
     told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:
         with contextlib.redirect_stdout(told):

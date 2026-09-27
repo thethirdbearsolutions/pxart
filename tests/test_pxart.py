@@ -24119,3 +24119,120 @@ def test_frames_rm_help_says_frame_ids_and_the_selector(capsys):
     line = " ".join(out.rsplit("  --rm [ID ...]", 1)[1].split("\n  -", 1)[0].split())
     assert "frame ids" in line and "frames FILE:GROUP --rm" in line
     assert "(ids after --rm are frame ids, in SEL)" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- --dry-run: the readout alone, nothing written
+
+DRY_ANIM = "k #000000\n@anim w ms=100\n@frame w/0\n.k.\nkkk\n@frame w/1\n..k\nkkk\n"
+
+
+def listing(d):
+    return sorted(p.relative_to(d).as_posix() for p in d.rglob("*"))
+
+
+@pytest.mark.parametrize("argv,said", [
+    (["render", "a.px", "-o", "out/r.png", "--dry-run"], "would write out/r.png (dry run; nothing written)"),
+    (["render", "a.px", "--dry-run"], "would write preview.png (dry run; nothing written)"),
+    (["render", "one.px", "--png", "--dry-run"], "would write preview.png (dry run; nothing written)"),
+    (["sheet", "a.px", "-o", "out/s.png", "--dry-run"], "would write out/s.png (dry run; nothing written)"),
+    (["sheet", "a.px", "--dry-run"], "(dry run; nothing written)"),
+    (["anim", "a.px:w", "-o", "out/w.gif", "--dry-run"],
+     "would write out/w.gif and out/w.strip.png (dry run; nothing written)"),
+    (["anim", "a.px:w", "--dry-run"], "(dry run; nothing written)"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "out/o.png", "--dry-run"], "would write out/o.png (dry run; nothing written)"),
+    (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"], "(dry run; nothing written)"),
+    (["scene", "a.px:w/0@0,0", "-o", "out/s.png", "--dry-run"], "would write out/s.png (dry run; nothing written)"),
+    (["scene", "a.px:w/0@0,0", "--dry-run"], "(dry run; nothing written)"),
+])
+def test_dry_run_writes_nothing_and_says_so(tmp_path, monkeypatch, capsys, argv, said):
+    write(tmp_path, "a.px", DRY_ANIM)
+    write(tmp_path, "one.px", "k #000000\nk\n")
+    monkeypatch.chdir(tmp_path)
+    before = listing(tmp_path)
+    assert run(*argv) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == said
+    assert "wrote" not in out
+    assert listing(tmp_path) == before  # no file, no directory
+
+
+def test_dry_run_prints_the_same_readout(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    for real, dry in ((["anim", "a.px:w", "-o", "w.gif"], ["anim", "a.px:w", "--dry-run"]),
+                      (["onion", "a.px:w/0", "a.px:w/1", "-o", "o.png", "--feet", "1"],
+                       ["onion", "a.px:w/0", "a.px:w/1", "--feet", "1", "--dry-run"]),
+                      (["scene", "a.px:w/0@-1,0", "-o", "s.png"], ["scene", "a.px:w/0@-1,0", "--dry-run"])):
+        assert run(*real) == 0
+        got = capsys.readouterr().out.splitlines()
+        assert run(*dry) == 0
+        now = capsys.readouterr().out.splitlines()
+        assert got[:-1] == now[:-1] and len(got) > 1 or real[0] == "scene", (real, got, now)
+        assert got[-1].startswith("wrote") and now[-1].endswith("(dry run; nothing written)")
+
+
+def test_dry_run_scene_prints_its_notes(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("scene", "a.px:w/0@-1,0", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "note: 1 px of item 1 (a.px:w/0) fall outside" in out and not (tmp_path / "s.png").exists()
+
+
+def test_dry_run_prints_the_half_variant_warning(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert HALF_WARN.format(p="wick.px", pal="pal.px") in out and not (tmp_path / "preview.png").exists()
+
+
+@pytest.mark.parametrize("argv,err", [
+    (["render", "a.px", "-o", "x.px", "--dry-run"], "render: E_BAD_ARG: -o x.px: '.px' isn't an image type"),
+    (["anim", "a.px:w", "-o", "w.png", "--dry-run"], "anim: E_BAD_ARG: -o w.png: anim writes a GIF"),
+    (["onion", "a.px:w/0", "a.px:w/1", "-o", "/dev/null", "--dry-run"], "onion: E_BAD_ARG: -o /dev/null: it has no"),
+    (["scene", "a.px:w/0@0,0", "-o", "a.px/s.png", "--dry-run"], "scene: E_FILE: can't write a.px/s.png: a.px is a file"),
+    (["sheet", "nope.px", "--dry-run"], "E_FILE"),
+])
+def test_dry_run_still_checks_the_output(tmp_path, monkeypatch, argv, err):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert err in run_err(*argv)
+
+
+@pytest.mark.parametrize("argv,eg", [
+    (["sheet", "a.px"], "sheet.png"), (["onion", "a.px:w/0", "a.px:w/1"], "x.png"), (["scene", "a.px:w/0@0,0"], "s.png"),
+])
+def test_without_o_or_dry_run_says_both(tmp_path, monkeypatch, argv, eg):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run_err(*argv) == f"{argv[0]}: E_BAD_ARG: -o is required: -o {eg} (or --dry-run to print the readout and " \
+                              "write nothing)"
+
+
+def test_dry_run_is_off_in_the_next_run(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "a.px", "--dry-run") == 0
+    assert run("render", "a.px") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "wrote preview.png"
+    assert (tmp_path / "preview.png").exists()
+
+
+def test_dry_run_does_not_touch_an_existing_output(tmp_path, monkeypatch):
+    write(tmp_path, "a.px", DRY_ANIM)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "s.png").write_bytes(b"keep")
+    assert run("scene", "a.px:w/0@0,0", "-o", "s.png", "--dry-run") == 0
+    assert (tmp_path / "s.png").read_bytes() == b"keep"
+
+
+def test_help_documents_dry_run():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--dry-run (render, sheet, anim, onion, scene) computes and prints everything, writes nothing and says " \
+        "'(dry run; nothing written)': the readout alone. -o may then be left off." in doc
+    for cmd in ("render", "sheet", "anim", "onion", "scene"):
+        assert "[--dry-run]" in pxart.reference(cmd), cmd
+        assert "LOOKING: centering" in pxart.SEE[cmd], cmd
+    readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
+    assert "`--dry-run` on `render`, `sheet`, `anim`, `onion` and `scene` computes and prints everything" in readme
