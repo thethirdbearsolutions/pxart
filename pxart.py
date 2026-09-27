@@ -209,10 +209,10 @@ CHECKING
       (a file of one frame gets that frame's line); -v prints a line for every frame, as
       'ok   party.px:walk/down/0: 32x32 9c'. Notes follow their file's line, and checking
       more than one file ends with a summary: '6 files, 150 frames, 3 warnings' (', 1
-      failed' when one did; a warning is a note line). A directory checks every .px and .map under it,
-      recursively, sorted by path ('check crossover/'); a palette file (no frames) is checked
-      as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a .px, .gpl,
-      .hex, or text of #rrggbb. --strict also rejects unknown @sections and @anim/@still
+      failed' when one did; a warning is a note line). A directory checks every .px and .map
+      under it, recursively, sorted by path ('check crossover/'); a palette file (no frames)
+      is checked as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a
+      .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and @anim/@still
       lines whose group has no frames (without --strict those are a note). Exit 1 on any
       failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
@@ -315,7 +315,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
-  crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only] [--variant-map NAME=V1,V2]
+  crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only]
+       [--variant-map NAME=V1,V2]
       Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
       hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
       what crop is for, so there's no note about them; a rectangle that runs past the frame's
@@ -364,8 +365,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
       keys DST has in their color but recolors otherwise in its variants get a WARNING each;
-      --rekey gives both free keys in DST, as compose's does (--rekey KEYS too). SRC's new keys join DST's variants in
-      SRC's colors, as a compose layer's join an existing OUT (--variant-map too).
+      --rekey gives both free keys in DST, as compose's does (--rekey KEYS too). SRC's new
+      keys join DST's variants in SRC's colors, as a compose layer's join an existing OUT
+      (--variant-map too).
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] LAYER@x,y ...
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
