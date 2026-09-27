@@ -324,7 +324,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
       --rekey gives them free keys in DST, as compose's does.
-  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] LAYER@x,y ...
+  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only]
+          [--variant-map NAME=V1,V2] LAYER@x,y ...
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
       pixels (a floor or a shadow under a finished sprite). The frame must exist.
@@ -351,8 +352,23 @@ EDITING (writes .px; -o defaults to editing the input in place)
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
       colors become OUT's key lines. Local keys follow, the keys the layers use first: a key
       layers have in different colors gets the color of the layer that uses it, else the
-      earlier layer's, and a note names each layer's color left out and why. Variants come
-      along for the keys OUT has (the first layer's win). crop writes a new OUT the same way.
+      earlier layer's, and one line per source file names its colors left out and why. That
+      line is a WARNING when the file needs a key it lost (its frames draw with it, or a
+      variant lists it unchanged or keeps it while recoloring most keys: a lamp kept lit);
+      --rekey then keeps such keys under free keys in OUT. The comments above the layers'
+      key and @variant lines come along, as for palette --extract-to; a comment naming a key
+      --rekey renamed says so: '# lamp colors (l, g) stay lit (renamed l>I g>J)'.
+      Variants come along for the keys OUT has, each in the colors of the layer whose key OUT
+      has, so one file's variant never recolors another file's pixels. Layers from files
+      with different variants (a market's dusk, a keeper's night, a candle's dark): each of
+      OUT's variants covers only the layers whose file has it, and a note per variant says
+      which layers stay at their base colors in it. --variant-map dusk=night,dark (repeatable)
+      builds OUT's dusk from each layer's first of dusk, night, dark, so every layer dims
+      together; it takes a new OUT, whose palette is then inlined (its variants are built,
+      not imported). A key a layer draws in OUT's base color but that its file's variants
+      color otherwise (one red awning, recolored by one pack's dusk and another's night) gets
+      a note: OUT's variants color those pixels OUT's way. --rekey gives such a key a free
+      key of its own, as it does a key of another color. crop writes a new OUT the same way.
       --used-keys-only gives a new OUT only the keys its frame uses (and their variant
       colors; a @palette they all import is still imported, since it adds no key lines), so
       check has no 'unused keys' to note. It isn't the default because the unused keys are
@@ -360,8 +376,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       'shade --ramp XxcCw' to re-shade it. An existing OUT only ever gets the used keys.
       With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
       (OUT may be a palette-only file). A new frame goes after the last frame of its
-      animation (like dup), or at the end when the animation is new. Canvas size: --size, else the frame being
-      replaced, else the other frames of its animation, else the first layer. Pixels
+      animation (like dup), or at the end when the animation is new. Canvas size: --size,
+      else the frame being replaced, else the other frames of its animation, else the first
+      layer. Pixels
       that land outside the canvas are cropped, with a note saying how many.
       compose and dup note an output path that doesn't end in .px (zsh "$OUT:frame").
   dup FILE:ID NEWID [--after ID] [-o OUT]
@@ -1593,14 +1610,15 @@ def clashes(dst_doc, src_doc, keys, clear=False):
     return [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
 
 
-def new_keys(bad, src_pal, have, taken):
+def new_keys(bad, src_pal, have, taken, fits=None):
     """Where src's clashing keys can go, chosen once for the whole command: a key dst already has in the same color (and
-    src hasn't), else the first free key in FREE_ORDER (shell-safe first) that isn't in `taken`, which it adds to, so
-    no two suggestions collide. {key: new key}, or None when there aren't enough free keys."""
+    src hasn't; and fits(k, it), when given: the same colors in dst's variants too), else the first free key in
+    FREE_ORDER (shell-safe first) that isn't in `taken`, which it adds to, so no two suggestions collide. {key: new
+    key}, or None when there aren't enough free keys."""
     moves = {}
     for k in bad:
         same = next((c for c, v in have.items() if v == src_pal[k] and c != "." and c not in src_pal
-                     and c not in moves.values()), None)
+                     and c not in moves.values() and (fits is None or fits(k, c))), None)
         pick = same or next((c for c in FREE_ORDER if c not in taken and c not in have and c not in src_pal), None)
         if pick is None:
             return None
@@ -2716,8 +2734,8 @@ def rename_key(doc, k, v):
         doc.palette[v] = doc.resolved()[k]
         if left:
             print(f"note: {k!r} stays in the palette: pixels outside the recolor still use it")
-    for n, c in want.items():
-        if doc.resolved(n)[v] != c:
+    for n, c in want.items():  # a variant that lists k (a relist too: a lamp kept lit) lists v
+        if doc.resolved(n)[v] != c or k in doc.variants.get(n, {}) or k in doc.shared_variants.get(n, {}):
             doc.variants.setdefault(n, {})[v] = c
 
 
@@ -3385,23 +3403,136 @@ def cmd_shade(a):
     print(f"{changes(by)};", write_doc(doc, out))
 
 
-def seed_palette(doc, layers, gone=None, used_only=False):
+def variant_map(specs):
+    """compose --variant-map NAME=V1,V2 (repeatable): {NAME: [NAME, V1, V2]}, the variants of the layers' files that
+    OUT's variant NAME is built from, each layer taking the first of them its file has."""
+    vmap, seen = {}, {}
+    for spec in specs or []:
+        name, eq, srcs = spec.partition("=")
+        names = list(dict.fromkeys([name] + srcs.split(",")))
+        if not eq or not srcs or name == "base" or not all(re.match(r"^[A-Za-z0-9_\-]+$", n) for n in names):
+            fail("E_BAD_ARG", f"--variant-map {spec!r}: want NAME=V1,V2 (variant names; OUT's variant NAME takes, "
+                 "for each layer, the first of NAME, V1, V2 its file has), and not NAME 'base'")
+        for n in names:
+            if seen.get(n, name) != name:
+                fail("E_BAD_ARG", f"--variant-map: {n!r} goes into both {seen[n]!r} and {name!r}")
+            seen[n] = name
+        vmap[name] = names
+    return vmap
+
+
+def variant_names(d):
+    """A doc's variants, its own first, then the imported ones."""
+    return list(d.variants) + [n for n in d.shared_variants if n not in d.variants]
+
+
+def layer_variants(d, vmap):
+    """{OUT's variant: the variant of d's file it takes}: each of d's variants by its own name, or by the name
+    --variant-map merges it into (then d's first of that map's variants)."""
+    back = {n: name for name, ns in vmap.items() for n in ns}
+    out = {}
+    for n in variant_names(d):
+        t = back.get(n, n)
+        out.setdefault(t, next(x for x in vmap[t] if x in d.variants or x in d.shared_variants) if t in vmap else n)
+    return out
+
+
+def special_keys(d):
+    """The keys of d's file that losing would cost something: {key: why}. Its frames draw with them, or a variant
+    treats them on purpose: lists them in their base color (a lamp kept lit), or leaves them alone while it recolors
+    most of the other keys (a glow left out of the dark)."""
+    base, why = d.resolved(), {}
+    drawn = set("".join(r for f in d.frames for r in f.grid))
+    for k in base:
+        if k == "." or not base[k][3]:
+            continue
+        says = [f"{d.path.name} draws with it"] if k in drawn else []
+        for n in variant_names(d):
+            over = {**d.shared_variants.get(n, {}), **d.variants.get(n, {})}
+            recolored = sum(1 for x, c in over.items() if x != k and base.get(x) not in (None, c))
+            if over.get(k) == base[k]:
+                says.append(f"@variant {n} relists it unchanged")
+            elif k not in over and 2 * recolored > len(base) - 2:  # not counting '.' and k itself
+                says.append(f"@variant {n} keeps it while it recolors most keys")
+        if says:
+            why[k] = says
+    return why
+
+
+KEY_TOKEN = r"(?<![A-Za-z0-9]){}(?![A-Za-z0-9])"
+
+
+def renamed_lead(lead, moves, own=None):
+    """A comment carried into compose's OUT, where --rekey gave some of its file's keys new ones: each comment line that
+    names a renamed key (a letter or digit standing alone, as in 'lamp colors (l, g) stay lit') gets '(renamed l>P
+    g>Q)'; own (old, new): the key line it sits above was renamed, said on its last comment line if no line names it."""
+    out, told = [], set()
+    for line in lead:
+        text = line.split("#", 1)[1] if "#" in line else ""
+        ks = [k for k in moves if k.isalnum() and re.search(KEY_TOKEN.format(re.escape(k)), text)]
+        told |= set(ks)
+        out.append(line + (" (renamed " + " ".join(f"{k}>{moves[k]}" for k in ks) + ")" if ks else ""))
+    if own and own[0] not in told:
+        last = max((i for i, l in enumerate(out) if l.strip().startswith("#")), default=None)
+        if last is not None:
+            out[last] += f" (renamed {own[0]}>{own[1]})"
+    return out
+
+
+def carry_notes(doc, docs, notes, renamed, owners, vmap):
+    """compose's new OUT gets the comments that document its keys and variants in the layers' palettes (as --extract-to
+    carries them): above a key line, its owner's comment for it; above a @variant line, the comments above the variants
+    it takes, the layers' in order; above a variant key line, its owner's. A key --rekey renamed says so (renamed_lead).
+    A variant --variant-map merged from several gets a line naming them."""
+    def lead_of(d, anchor, own=None):
+        got = notes.get(d.path.resolve(), {}).get(anchor)
+        return renamed_lead(got, renamed.get(d.path.resolve(), {}), own) if got else None
+
+    def old(d, k):
+        return next((o for o, n in renamed.get(d.path.resolve(), {}).items() if n == k), k)
+    for k in doc.palette:
+        d = owners.get(k)
+        if d is not None and lead_of(d, ("key", old(d, k))):
+            doc.lead[("key", k)] = lead_of(d, ("key", old(d, k)), (old(d, k), k) if old(d, k) != k else None)
+    for name, over in doc.variants.items():
+        takes = [(d, layer_variants(d, vmap)[name]) for d in docs if name in layer_variants(d, vmap)]
+        lines = []
+        for d, src in takes:
+            lines += [l for l in lead_of(d, ("variant", src)) or [] if l.strip() and l not in lines]
+        froms = list(dict.fromkeys(f"{d.path.name}'s {src}" for d, src in takes))
+        if name in vmap and any(src != name for _, src in takes):
+            lines.append(f"# {name}: {', '.join(froms)} (compose --variant-map)")
+        if lines:
+            doc.lead[("variant", name)] = [""] + lines
+        for k in over:
+            d = owners.get(k)
+            src = layer_variants(d, vmap).get(name) if d is not None else None
+            got = lead_of(d, ("vkey", src, old(d, k)), (old(d, k), k) if old(d, k) != k else None) if src else None
+            if got:
+                doc.lead[("vkey", name, k)] = got
+
+
+def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None):
     """A new compose OUT starts with its layers' whole palettes, not only the keys they use, so a later shade ramp
     or recolor finds its keys. When every layer imports the same @palette files, OUT imports them too (re-pointed
-    from OUT); otherwise their colors become key lines. Then each layer's keys join in layer order, the keys the
-    layers use first: a key OUT already has in the same color is skipped, one that overrides an import (as in the
-    layer) stays an override, and an unused key whose char another layer has in another color is left out (a used
-    one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
-    first layer's winning. Returns what was left out, [(key, the layer it's left out of, the layer whose color OUT
-    has, whether that layer uses it)], and {key: (the layer whose color OUT has, whether it uses it)}. gone: {id(layer
-    doc): keys --rekey moved away}, which a shared import may still hold: never seeded. used_only
-    (--used-keys-only): only the keys the layers use become key lines (a shared @palette is still imported)."""
+    from OUT; not with --variant-map, whose variants OUT builds); otherwise their colors become key lines. Then each
+    layer's keys join in layer order, the keys the layers use first: a key OUT already has in the same color is
+    skipped, one that overrides an import (as in the layer) stays an override, and an unused key whose char another
+    layer has in another color is left out (a used one is E_KEY_CONFLICT when stamped). Variants come along for the
+    keys OUT has, each in the colors of the layer whose key OUT has (its owner), so one file's variant never recolors
+    another file's pixels; vmap (--variant-map) merges several variants into one. Returns what was left out, [(key, the
+    layer it's left out of, the layer whose color OUT has, whether that layer uses it)], and {key: (the layer whose
+    color OUT has, whether it uses it)}; owners, when given, gets {key: that layer's doc}. gone: {id(layer doc): keys
+    --rekey moved away}, which a shared import may still hold: never seeded. used_only (--used-keys-only): only the
+    keys the layers use become key lines (a shared @palette is still imported)."""
+    vmap = vmap or {}
+    owners = {} if owners is None else owners
     docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
     names = {}
     for lay, _, _, label in layers:
         names.setdefault(id(lay.doc), label)
     imports = {tuple((d.path.parent / r).resolve() for r in d.palette_refs) for d in docs}
-    keep = imports.pop() if len(imports) == 1 else ()
+    keep = imports.pop() if len(imports) == 1 and not vmap else ()
     if keep:  # the layers' imports, so their colors: no need to read the palette files again
         doc.palette_refs = [pathlib.Path(os.path.relpath(r, doc.path.resolve().parent)).as_posix() for r in keep]
         doc.shared = dict(docs[0].shared)
@@ -3416,60 +3547,120 @@ def seed_palette(doc, layers, gone=None, used_only=False):
                     continue
                 have = doc.resolved()
                 if k not in have or (have[k] != c and k not in doc.palette):
-                    doc.palette[k], whose[k] = c, (names[id(d)], want_used)
+                    doc.palette[k], whose[k], owners[k] = c, (names[id(d)], want_used), d
                 elif have[k] != c and not want_used:
                     left.append((k, names[id(d)]) + whose[k])
+    looks = {}  # (id(doc), variant) -> its resolved palette
+
+    def color(d, name, k):  # k in OUT's variant name, as d's file draws it (its base color when it has no such variant)
+        src = layer_variants(d, vmap).get(name)
+        if (id(d), src) not in looks:
+            looks[(id(d), src)] = d.resolved(src)
+        return looks[(id(d), src)].get(k)
     for d in docs:
-        base = d.resolved()
+        base, lv = d.resolved(), layer_variants(d, vmap)
         for name in list(d.variants) + ([] if keep else [n for n in d.shared_variants if n not in d.variants]):
+            out = next(t for t, src in lv.items() if src == name) if name in lv.values() else None
+            if out is None:  # another of its --variant-map variants is the one this file gives
+                continue
             over = {**({} if keep else d.shared_variants.get(name, {})), **d.variants.get(name, {})}
+            if out not in doc.shared_variants:
+                doc.variants.setdefault(out, {})  # there even when its keys all belong to other layers' files
             for k, c in over.items():
-                if doc.resolved().get(k) == base.get(k) and k not in doc.variants.get(name, {}) \
-                        and doc.shared_variants.get(name, {}).get(k) != c:
-                    doc.variants.setdefault(name, {})[k] = c
+                owner = owners.get(k)
+                if doc.resolved().get(k) == base.get(k) and k not in doc.variants.get(out, {}) \
+                        and doc.shared_variants.get(out, {}).get(k) != c \
+                        and (owner is None or owner is d or color(owner, out, k) == c):
+                    doc.variants.setdefault(out, {})[k] = c
     return left, whose
 
 
 def cmd_compose(a):
-    """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash and where they can go;
-    those move in the layers' docs (in memory, the files stay as they are) and the compose runs for real."""
+    """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash (in color, or in how the
+    variants color them) and where they can go; those move in the layers' docs (in memory, the files stay as they are)
+    and the compose runs for real."""
     layers = compose_layers(a)
-    gone = {}
+    vmap = variant_map(getattr(a, "variant_map", None))
+    notes = {}  # the comments on the layers' palettes, read before --rekey moves keys in memory
+    for lay, *_ in layers:
+        notes.setdefault(lay.doc.path.resolve(), palette_notes(lay.doc)[0])
+    gone, renamed = {}, {}
     if getattr(a, "rekey", False):
         try:
             with contextlib.redirect_stdout(io.StringIO()):  # its notes are the real run's
-                compose(a, layers, dry=True)
+                found = compose(a, layers, dry=True, vmap=vmap)
         except PxError as e:
-            for path, moves in getattr(e, "moves", {}).items():
-                for lay, *_ in layers:
-                    if lay.doc.path.resolve() == path:
-                        rekey(lay.doc, moves, [lay.frame])
-                        gone[id(lay.doc)] = set(moves)
-                src = next(lay.doc.path for lay, *_ in layers if lay.doc.path.resolve() == path)
-                print(said_rekey(src, split_sel(a.o)[0], moves))
-    compose(a, layers, gone=gone)
+            found = getattr(e, "moves", {})
+        for path, moves in found.items():
+            for lay, *_ in layers:
+                if lay.doc.path.resolve() == path:
+                    rekey(lay.doc, moves, [lay.frame])
+                    gone[id(lay.doc)] = set(moves)
+            renamed[path] = moves
+            src = next(lay.doc.path for lay, *_ in layers if lay.doc.path.resolve() == path)
+            print(said_rekey(src, split_sel(a.o)[0], moves))
+    compose(a, layers, gone=gone, vmap=vmap, notes=notes, renamed=renamed)
 
 
-def compose_layers(a):
-    layers = []
-    for n, spec in enumerate(a.layers, 1):
-        label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
-        label = getattr(a, "words", {}).get("label", label)
-        with reading(label):
-            p, x, y = split_at(spec)
-            lay = place_item(p, "layer")
-            if not lay.doc:
-                fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
-        layers.append((lay, x, y, label))
-    return layers
+def by_file(entries):
+    """[(layer number, label, doc)] -> labels, one per source file: 'layer 3 (keeper.px:idle/down/0)' for one layer,
+    'layers 1-2 (harbor.px)' for several of one file."""
+    files = {}
+    for n, label, d in entries:
+        files.setdefault(d.path.resolve(), []).append((n, label, d))
+    return [es[0][1] if len(es) == 1 else f"layers {spans([n for n, *_ in es])} ({es[0][2].path})"
+            for es in files.values()]
 
 
-def compose(a, layers, dry=False, gone=None):
+def said_left_out(opath, left_out, layers, rekey_said):
+    """compose's new OUT left out some layers' unused keys (another layer has those keys in other colors): one line
+    per source file, a note, or a WARNING when a key was one its file needs (special_keys: its frames draw with it, or
+    a variant keeps it lit), with --rekey as the way to keep them."""
+    number = {label: n for n, (_, _, _, label) in enumerate(layers, 1)}
+    doc_of = {label: lay.doc for lay, _, _, label in layers}
+    files = {}
+    for k, lost, kept, uses in left_out:
+        d = doc_of[lost]
+        f = files.setdefault(d.path.resolve(), {"layers": [], "keys": {}, "doc": d})
+        if (number[lost], lost, d) not in f["layers"]:
+            f["layers"].append((number[lost], lost, d))
+        f["keys"].setdefault(k, (kept.split(" (")[0], uses))
+    lines = []
+    for f in files.values():
+        why = special_keys(f["doc"])
+        parts, loud = {}, []
+        for k, (kept, uses) in f["keys"].items():
+            says = why.get(k, [])
+            if says:
+                loud.append(k)
+            parts.setdefault((kept, uses, tuple(says)), []).append(k)
+        text = ", ".join(f"{''.join(ks)!r} ({kept}'s, " + ("which that layer uses" if uses else "the earlier layer's")
+                         + (f"; {', '.join(says)}" if says else "") + ")" for (kept, uses, says), ks in parts.items())
+        label = by_file(f["layers"])[0]
+        lines.append(f"{'WARNING' if loud else 'note'}: {opath} leaves out {label}'s colors for keys unused there, "
+                     f"which it has in another layer's colors: {text}"
+                     + (f"; {rekey_said} keeps {' '.join(loud)} under free keys in {opath}" if loud else ""))
+    return lines
+
+
+def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None):
     """compose's run over loaded layers; dry: stop before writing (conflicts are raised all the same, with the keys they
-    can move to as e.moves). gone: {id(layer doc): keys --rekey moved away}, left out of a new OUT's palette."""
+    can move to as e.moves; with none, those moves are returned: keys whose variants clash, and keys a new OUT would
+    leave out that their file needs). gone: {id(layer doc): keys --rekey moved away}, left out of a new OUT's palette.
+    vmap: --variant-map. notes, renamed: the layers' palette comments, and the keys --rekey moved (carry_notes)."""
+    vmap = vmap or {}
     opath, osel = split_sel(a.o)
     note_suffix(opath)
     fresh, under = not pathlib.Path(opath).exists(), None  # under: the frame the layers go behind
+    if vmap and not fresh:
+        fail("E_BAD_ARG", f"--variant-map builds a new OUT's variants from the layers'; {opath} exists and keeps its "
+             "own (write to a new file, or edit its variants with palette --variant)")
+    have_names = sorted({n for lay, *_ in layers for n in variant_names(lay.doc)})
+    for name, ns in vmap.items():
+        missing = [n for n in ns[1:] if n not in have_names]
+        if missing:
+            fail("E_SELECT", f"--variant-map {name}={','.join(ns[1:])}: no layer's file has @variant "
+                 f"{', '.join(map(repr, missing))} (they have: {', '.join(have_names) or 'none'})")
     with reading(f"-o ({a.o})"):
         if getattr(a, "under", False) and not osel and not fresh:  # OUT's single grid, which frame_slot clears
             was = parse(opath, allow_empty=True)
@@ -3484,16 +3675,14 @@ def compose(a, layers, dry=False, gone=None):
             fail("E_BAD_ARG", f"--under keeps the frame being replaced, {len(under[0])}x{len(under)}; drop --size "
                  f"{a.size}")
         target.grid = under
-    whose = {}  # key -> the layer whose color OUT has
+    whose, owners, left_out = {}, {}, []  # whose: key -> the layer whose color OUT has; owners: its doc
+    engaged = fresh and bool(have_names)  # a new OUT's variants come from the layers: keep each layer's own look
+    rekey_said = getattr(a, "words", {}).get("redo", "compose") + " --rekey"
     if fresh:
-        left_out, seeded = seed_palette(doc, layers, gone, getattr(a, "used_keys_only", False))
+        left_out, seeded = seed_palette(doc, layers, gone, getattr(a, "used_keys_only", False), vmap, owners)
         whose = {k: w[0] for k, w in seeded.items()}
-        left = {}
-        for k, lost, kept, uses in left_out:
-            left.setdefault((lost, kept, uses), []).append(k)
-        for (lost, kept, uses), ks in left.items():
-            print(f"note: {opath} leaves out {lost}'s color{'s' * (len(ks) > 1)} for {''.join(ks)!r} (unused "
-                  f"there): it has {kept}'s, " + ("which that layer uses" if uses else "the earlier layer's"))
+        for line in said_left_out(opath, left_out, layers, rekey_said):
+            print(line)
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), "--size"
     elif target.grid:
@@ -3504,7 +3693,16 @@ def compose(a, layers, dry=False, gone=None):
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
-    clashed = {}  # every layer's conflicts at once, before anything is drawn, gathered by source file
+    out_names = variant_names(doc)
+    out_looks = {n: doc.resolved(n) for n in out_names}
+
+    def colors_of(d, k):  # k in each of OUT's variants, as d's file draws it
+        lv = layer_variants(d, vmap)
+        return [d.resolved(lv[n])[k] if n in lv else d.resolved()[k] for n in out_names]
+
+    def fits(d):  # --rekey may reuse OUT's key c for d's k only when c looks like k in every variant too
+        return lambda k, c: not engaged or colors_of(d, k) == [out_looks[n][c] for n in out_names]
+    clashed, vclashed = {}, {}  # every layer's conflicts at once, before anything is drawn, gathered by source file
     for n, (lay, x, y, label) in enumerate(layers, 1):
         keys, pal = set("".join(lay.frame.grid)), lay.doc.resolved()
         bad = clashes(doc, lay.doc, keys)
@@ -3512,17 +3710,24 @@ def compose(a, layers, dry=False, gone=None):
             c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             c["layers"].append((n, label, lay.doc))
             c["keys"].update(bad)
+        for k in sorted(keys - set(bad)) if engaged else ():
+            if pal[k][3] and k in doc.resolved() and colors_of(lay.doc, k) != [out_looks[v][k] for v in out_names]:
+                c = vclashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
+                if (n, label, lay.doc) not in c["layers"]:
+                    c["layers"].append((n, label, lay.doc))
+                c["keys"].add(k)
         for k in sorted(keys):
             if pal[k][3] and k not in doc.resolved():
                 doc.add_key(k, pal[k])
                 whose[k] = label
+    have, found = doc.resolved(), {}
+    taken = set(have) | {k for lay, *_ in layers for k in lay.doc.resolved()}
     if clashed:  # one recolor per file, covering every layer of it; free keys chosen once, so no two collide
-        have, issues, found, copies = doc.resolved(), [], {}, set()
-        taken = set(have) | {k for lay, *_ in layers for k in lay.doc.resolved()}
+        issues, copies = [], set()
         for path, c in clashed.items():
             src, ns = c["layers"][0][2], [n for n, *_ in c["layers"]]
             bad = sorted(c["keys"])
-            moves = new_keys(bad, src.resolved(), have, taken)
+            moves = new_keys(bad, src.resolved(), have, taken, fits(src))
             words = getattr(a, "words", {})
             what = words.get("what") or ("this layer" if len(ns) == 1 else "these layers")
             issue = conflict_issue(bad, src, have, what, f"the new {opath}" if fresh else opath,
@@ -3531,11 +3736,22 @@ def compose(a, layers, dry=False, gone=None):
             issues.append(issue)
             if moves:
                 found[path] = moves
+    if dry:  # --rekey moves these too: keys whose variants clash, and keys a new OUT would leave out that are needed
+        for path, c in vclashed.items():
+            src = c["layers"][0][2]
+            found.setdefault(path, {}).update(new_keys(sorted(c["keys"]), src.resolved(), have, taken, fits(src)) or {})
+        doc_of = {label: lay.doc for lay, _, _, label in layers}
+        for k, lost, *_ in left_out:
+            d = doc_of[lost]
+            if k in special_keys(d) and k not in found.get(d.path.resolve(), {}):
+                found.setdefault(d.path.resolve(), {}).update(new_keys([k], d.resolved(), have, taken, fits(d)) or {})
+        found = {p: m for p, m in found.items() if m}
+    if clashed:
         err = PxError(issues)
         err.moves = found
         raise err
     if dry:
-        return
+        return found
     for lay, x, y, label in layers:
         w, h = lay.frame.size
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
@@ -3549,11 +3765,66 @@ def compose(a, layers, dry=False, gone=None):
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         pal = doc.resolved()
         target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
+    if fresh:
+        carry_notes(doc, list({id(lay.doc): lay.doc for lay, *_ in layers}.values()), notes or {}, renamed or {},
+                    owners, vmap)
     if fresh and getattr(a, "used_keys_only", False):  # keys that landed on the canvas; a cropped-away one goes
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
         doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
+    for line in said_variants(opath, layers, out_names, vclashed, out_looks, vmap, rekey_said) if engaged else ():
+        print(line)
     print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
+
+
+def said_variants(opath, layers, out_names, vclashed, out_looks, vmap, rekey_said):
+    """A new OUT whose variants come from layers of different files: which layers each variant covers (the others stay
+    at their base colors in it), how --variant-map would merge them, and each layer key that has OUT's base color but
+    other variant colors (its pixels take OUT's)."""
+    lines, partial = [], []
+    entries = [(n, label, lay.doc) for n, (lay, _, _, label) in enumerate(layers, 1)]
+    for name in out_names:
+        has = [e for e in entries if name in layer_variants(e[2], vmap)]
+        lacks = [e for e in entries if e not in has]
+        if lacks:
+            partial.append(name)
+            them = by_file(lacks)
+            lines.append(f"note: {opath}'s @variant {name} covers {' and '.join(by_file(has))} only: "
+                         f"{' and '.join(them)} {'stays' if len(them) == 1 and len(lacks) == 1 else 'stay'} at "
+                         "base colors in it")
+    if len(partial) > 1 and not vmap:
+        lines.append(f"note: to give every layer one variant, merge them: --variant-map {partial[0]}="
+                     f"{','.join(partial[1:])} (each layer takes the first of {', '.join(partial)} its file has)")
+    for path, c in vclashed.items():
+        d, ks = c["layers"][0][2], sorted(c["keys"])
+        lv = layer_variants(d, vmap)
+        each = []
+        for k in ks:
+            base = d.resolved()[k]
+            diff = [(n, d.resolved(lv[n])[k] if n in lv else base, out_looks[n][k]) for n in out_names]
+            each.append(f"{k!r} {fmt_color(base)} (" + "; ".join(f"{n}: {fmt_color(mine)} in {d.path.name}, "
+                                                                 f"{fmt_color(theirs)} in {opath}"
+                                                                 for n, mine, theirs in diff if mine != theirs) + ")")
+        many = len(ks) > 1
+        lines.append(f"note: {by_file(c['layers'])[0]} draws {' and '.join(each)}: {opath} has "
+                     f"{'those keys' if many else 'that key'} in that base color but other variant colors, and its "
+                     f"variants color {'those' if many else 'the'} pixels its way; {rekey_said} gives "
+                     f"{'them keys' if many else 'it a key'} of {'their' if many else 'its'} own")
+    return lines
+
+
+def compose_layers(a):
+    layers = []
+    for n, spec in enumerate(a.layers, 1):
+        label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
+        label = getattr(a, "words", {}).get("label", label)
+        with reading(label):
+            p, x, y = split_at(spec)
+            lay = place_item(p, "layer")
+            if not lay.doc:
+                fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
+        layers.append((lay, x, y, label))
+    return layers
 
 
 def cmd_dup(a):
@@ -4277,6 +4548,8 @@ def parser(describe=True):
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
     p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
+    p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2",
+                   help="a new OUT's variant NAME takes each layer's first of NAME, V1, V2 (repeatable)")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

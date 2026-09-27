@@ -165,11 +165,17 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   `compose`; `--under` fills only the empty pixels), `compose` (stack layers into a frame;
   a new frame lands after its animation; a new file gets the layers' whole palette, their
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
-  finds its keys, or with `--used-keys-only` only the keys its frame uses; `--under` draws
+  finds its keys, or with `--used-keys-only` only the keys its frame uses, and the comments
+  on their key and `@variant` lines; a key its file needs (drawn in other frames, kept lit
+  by a variant) that it has to leave out is a `WARNING`; each variant colors only the
+  layers whose file has it, a note says which stay at their base colors, and
+  `--variant-map dusk=night,dark` merges several files' variants into one; `--under` draws
   the layers behind the frame that's there, in its empty pixels; a key a layer has in
   another color than OUT's is `E_KEY_CONFLICT`, one line per source file with free keys
   for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
-  does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set`
+  does for `crop`, `paste` and `frames --copy-to`; in a new OUT `--rekey` also gives free
+  keys to a key two files have in one color but recolor differently in their variants, and
+  to a needed key it would leave out), `dup` (copy a frame), `anim-set`
   (timing), `palette --add` (with `--variant night` it sets keys in that variant, making it if
   needed; `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves
   a sprite's own keys into the palette file it imports; `palette FILE` alone lists the keys, then what each variant

@@ -9494,8 +9494,9 @@ def test_compose_new_out_unused_conflicting_key_left_out_with_note(tmp_path, cap
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
     assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "j": (0, 255, 0, 255), "z": (255, 255, 255, 255)}
-    assert capsys.readouterr().out.splitlines()[0] == (f"note: {out} leaves out layer 2 ({b}:y)'s color for 'z' "
-                                                       f"(unused there): it has layer 1 ({a}:x)'s, the earlier layer's")
+    assert capsys.readouterr().out.splitlines()[0] == (f"note: {out} leaves out layer 2 ({b}:y)'s colors for keys "
+                                                       "unused there, which it has in another layer's colors: 'z' "
+                                                       "(layer 1's, the earlier layer's)")
 
 
 def keynote_layers(tmp_path):
@@ -9515,14 +9516,11 @@ def test_compose_key_note_names_only_colors_left_out_and_why(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "3x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1") == 0
     assert notes_of(capsys.readouterr().out) == [
-        f"note: {out} leaves out layer 1 ({a})'s colors for 'hn' (unused there): it has layer 2 ({b})'s, which that "
-        "layer uses",
-        f"note: {out} leaves out layer 2 ({b})'s color for 'r' (unused there): it has layer 1 ({a})'s, the earlier "
-        "layer's",
-        f"note: {out} leaves out layer 2 ({b})'s color for 'w' (unused there): it has layer 1 ({a})'s, which that "
-        "layer uses",
-        f"note: {out} leaves out layer 2 ({b})'s color for 'q' (unused there): it has layer 3 ({c})'s, which that "
-        "layer uses",
+        f"note: {out} leaves out layer 1 ({a})'s colors for keys unused there, which it has in another layer's colors: "
+        "'hn' (layer 2's, which that layer uses)",
+        f"note: {out} leaves out layer 2 ({b})'s colors for keys unused there, which it has in another layer's colors: "
+        "'r' (layer 1's, the earlier layer's), 'w' (layer 1's, which that layer uses), 'q' (layer 3's, which that "
+        "layer uses)",
     ]
 
 
@@ -9534,15 +9532,16 @@ def test_compose_key_note_matches_the_palette_written(tmp_path, capsys):
     pal = pxart.parse(out).palette
     assert pal == {"w": pxart.hex2rgba("#eee0b8"), "k": (0, 0, 0, 255), "h": pxart.hex2rgba("#aaaaaa"),
                    "n": pxart.hex2rgba("#bbbbbb"), "q": pxart.hex2rgba("#654321"), "r": pxart.hex2rgba("#333333")}
-    docs = {str(a): pxart.parse(a), str(b): pxart.parse(b), str(c): pxart.parse(c)}
+    docs = {"1": pxart.parse(a), "2": pxart.parse(b), "3": pxart.parse(c)}
     import re
-    for line in notes_of(capsys.readouterr().out):
-        m = re.match(r"note: .* leaves out layer \d \((.*)\)'s colors? for '(\w+)' \(unused there\): it has layer \d "
-                     r"\((.*)\)'s", line)
-        lost, keys, kept = m.groups()
-        for k in keys:
-            assert k in pal and pal[k] == docs[kept].palette[k] != docs[lost].palette[k]
-            assert k not in "".join(docs[lost].frames[0].grid)
+    lines = notes_of(capsys.readouterr().out)
+    assert len(lines) == 2
+    for line in lines:
+        lost = re.match(r"note: .* leaves out layer (\d) ", line).group(1)
+        for keys, kept in re.findall(r"'(\w+)' \(layer (\d)'s", line):
+            for k in keys:
+                assert k in pal and pal[k] == docs[kept].palette[k] != docs[lost].palette[k]
+                assert k not in "".join(docs[lost].frames[0].grid)
 
 
 def test_compose_key_note_absent_when_nothing_is_left_out(tmp_path, capsys):
@@ -9576,10 +9575,10 @@ def test_compose_key_note_later_used_key_beats_both_unused(tmp_path, capsys):
     assert run("compose", "-o", out, "--size", "3x1", f"{a}@0,0", f"{b}@1,0", f"{c}@2,0") == 0
     assert pxart.parse(out).palette["z"] == pxart.hex2rgba("#333333")
     assert notes_of(capsys.readouterr().out) == [
-        f"note: {out} leaves out layer 1 ({a})'s color for 'z' (unused there): it has layer 3 ({c})'s, which that "
-        "layer uses",
-        f"note: {out} leaves out layer 2 ({b})'s color for 'z' (unused there): it has layer 3 ({c})'s, which that "
-        "layer uses",
+        f"note: {out} leaves out layer 1 ({a})'s colors for keys unused there, which it has in another layer's colors: "
+        "'z' (layer 3's, which that layer uses)",
+        f"note: {out} leaves out layer 2 ({b})'s colors for keys unused there, which it has in another layer's colors: "
+        "'z' (layer 3's, which that layer uses)",
     ]
 
 
@@ -11098,7 +11097,8 @@ def test_rekey_flags_on_the_commands():
 
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
-    assert "compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] LAYER@x,y" in doc
+    assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] [--variant-map NAME=V1,V2] "
+            "LAYER@x,y") in doc
     assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
             "written)") in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
@@ -12752,3 +12752,581 @@ def test_onion_top_level_frames_are_not_one_animation(tmp_path, capsys):
     p = write(tmp_path, "m.px", f"k #000000\nr #ff0000\n@frame a\n{BLOCK6}\n@frame b\n{CHECK6}\n")
     lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
     assert lines[2].endswith("; different sprites: edges only")
+
+
+# ---------------------------------------------------------------- compose across packs: comments, variants, lost keys
+
+MARKET_PAL = ("# Harbor market palette: warm stone, one hot accent (awning red)\nk #2b1e2f\nr #c4473a\nl #bcb6b4\n"
+              "g #8f8a96\ny #f3cf6b\n\n@variant dusk\nk #1b1326\nr #a33a4c\nl #978ca6\ng #726a8a\ny #ffd66e\n")
+KEEPER_PAL = ("# Cozy seaside\nk #2a1f33\nr #c4473a\ns #f0c29a\n# lamp glass\nl #fff4b0\ng #ffc861\n\n"
+              "# night: cool moonlight; lamp colors (l, g) stay lit\n@variant night\nk #120e22\nr #83344e\n"
+              "s #b88f8c\nl #fff4b0\ng #ffc861\n")
+CANDLE_PAL = ("k #1a1423\nw #f6eed8\n# light-emitting keys: flame. Not in @variant dark, so it stays warm.\n"
+              "f #ffe07a\n\n# darkness: everything that only reflects light goes cold\n@variant dark\nk #0c0a18\n"
+              "w #403f4a\n")
+
+
+def three_packs(tmp_path):
+    """The crossover in small: a market (dusk), a keeper (night, lamps kept lit) and a candle (dark, flame kept warm),
+    each with its own palette file; the keeper's red is the market's awning red."""
+    for d in ("market", "keeper", "candle"):
+        (tmp_path / d).mkdir()
+    write(tmp_path / "market", "palette.px", MARKET_PAL)
+    stall = write(tmp_path / "market", "stall.px", "@palette palette.px\n@frame stall\nkrl\nggy\n")
+    write(tmp_path / "keeper", "palette.px", KEEPER_PAL)
+    keeper = write(tmp_path / "keeper", "keeper.px", "@palette palette.px\n@frame idle\nkrs\nkrs\n@frame lantern\nlgk\n"
+                                                      "kkk\n")
+    write(tmp_path / "candle", "pal.px", CANDLE_PAL)
+    candle = write(tmp_path / "candle", "player.px", "@palette pal.px\n@frame idle\n.f.\nkwk\n")
+    return stall, keeper, candle
+
+
+def compose_packs(tmp_path, *more, name="scene.px"):
+    stall, keeper, candle = three_packs(tmp_path)
+    out = tmp_path / name
+    code = run("compose", "-o", out, "--size", "9x2", f"{stall}:stall@0,0", f"{keeper}:idle@3,0", f"{candle}:idle@6,0",
+               *more)
+    return code, out, (stall, keeper, candle)
+
+
+def looks_as_its_file(out, layer_specs, vmap=None):
+    """Each layer's pixels in each of OUT's variants look as its own file draws them in that variant (vmap: OUT's name ->
+    the names a file may give it, first one it has), or in its base colors when its file has no such variant."""
+    doc = pxart.parse(out)
+    names = [None] + sorted(set(doc.variants) | set(doc.shared_variants))
+    for v in names:
+        img = doc.image(doc.frames[0], v)
+        for path, fid, x0, y0 in layer_specs:
+            src = pxart.parse(path)
+            have = set(src.variants) | set(src.shared_variants)
+            want = next((n for n in (vmap or {}).get(v, [v]) if n in have), None) if v else None
+            simg = src.image(src.get(fid), want)
+            for y in range(simg.height):
+                for x in range(simg.width):
+                    p = simg.getpixel((x, y))
+                    if p[3]:
+                        assert img.getpixel((x0 + x, y0 + y)) == p, (v, path.name, fid, x, y, want)
+    return True
+
+
+def test_three_packs_need_rekey(tmp_path):
+    code, out, _ = compose_packs(tmp_path)
+    assert code == 1 and not out.exists()
+
+
+def test_three_packs_rekey_every_layer_keeps_its_look(tmp_path, capsys):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    assert code == 0
+    assert looks_as_its_file(out, [(stall, "stall", 0, 0), (keeper, "idle", 3, 0), (candle, "idle", 6, 0)])
+
+
+def test_three_packs_rekey_separates_the_shared_awning_red(tmp_path, capsys):
+    # r is #c4473a in both the market and the keeper, but dusk and night recolor it differently: two keys in OUT.
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    doc = pxart.parse(out)
+    reds = [k for k, c in doc.palette.items() if c == pxart.hex2rgba("#c4473a")]
+    assert len(reds) == 2 and "r" in reds
+    new = next(k for k in reds if k != "r")
+    assert doc.variants["dusk"]["r"] == pxart.hex2rgba("#a33a4c") and "r" not in doc.variants["night"]
+    assert doc.variants["night"][new] == pxart.hex2rgba("#83344e") and new not in doc.variants["dusk"]
+    assert doc.frames[0].grid[0][4] == new  # the keeper's scarf
+
+
+def test_three_packs_rekey_note_names_the_red(tmp_path, capsys):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith(f"note: --rekey gives {keeper}'s"))
+    assert "'r>" in line and "'k>" in line and "'l>" in line and "'g>" in line
+
+
+def test_three_packs_rekey_keeps_the_keepers_lamp_keys(tmp_path, capsys):
+    # l g: unused in the idle frame, the market holds those letters, but the lantern draws with them and night keeps them
+    # lit: --rekey gives them free keys instead of leaving them out, relisted in night as the keeper's palette has them.
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    doc = pxart.parse(out)
+    lamp = {k for k, c in doc.palette.items() if c in (pxart.hex2rgba("#fff4b0"), pxart.hex2rgba("#ffc861"))}
+    assert len(lamp) == 2 and not lamp & {"l", "g"}
+    assert {k: doc.variants["night"][k] for k in lamp} == {k: doc.palette[k] for k in lamp}  # relisted unchanged
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_three_packs_rekey_listing_shows_the_lamps_relisted(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    doc = pxart.parse(out)
+    lamp = [k for k, c in doc.palette.items() if c in (pxart.hex2rgba("#fff4b0"), pxart.hex2rgba("#ffc861"))]
+    capsys.readouterr()
+    run("palette", out)
+    night = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("  night:"))
+    assert f"relists unchanged: {' '.join(lamp)}" in night
+
+
+def test_three_packs_without_rekey_warns_about_the_lamp_keys(tmp_path, capsys):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path)
+    lines = capsys.readouterr().out.splitlines()
+    warn = [l for l in lines if l.startswith("WARNING:")]
+    assert len(warn) == 1 and f"leaves out layer 2 ({keeper}:idle)'s colors" in warn[0]
+    assert ("'lg' (layer 1's, which that layer uses; keeper.px draws with it, @variant night relists it unchanged)"
+            in warn[0])
+    assert warn[0].endswith(f"; compose --rekey keeps l g under free keys in {out}")
+
+
+def test_three_packs_left_out_is_one_line_per_file(tmp_path, capsys):
+    compose_packs(tmp_path)
+    lines = [l for l in capsys.readouterr().out.splitlines() if "leaves out" in l]
+    assert len(lines) == len({l.split("leaves out ")[1].split("'s colors")[0] for l in lines}) <= 3
+
+
+def test_three_packs_rekey_coverage_notes(tmp_path, capsys):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    assert f"note: {out}'s @variant dusk covers layer 1 ({stall}:stall) only: layer 2 ({keeper}:idle) and layer 3 " \
+           f"({candle}:idle) stay at base colors in it" in lines
+    assert f"note: {out}'s @variant night covers layer 2 ({keeper}:idle) only: layer 1 ({stall}:stall) and layer 3 " \
+           f"({candle}:idle) stay at base colors in it" in lines
+    assert f"note: {out}'s @variant dark covers layer 3 ({candle}:idle) only: layer 1 ({stall}:stall) and layer 2 " \
+           f"({keeper}:idle) stay at base colors in it" in lines
+    assert ("note: to give every layer one variant, merge them: --variant-map dusk=night,dark (each layer takes the "
+            "first of dusk, night, dark its file has)") in lines
+
+
+def test_three_packs_notes_come_before_wrote(tmp_path, capsys):
+    compose_packs(tmp_path, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1].startswith("wrote ") and all(l.startswith("note:") for l in lines[:-1])
+
+
+def test_three_packs_variant_map_merges_one_dusk(tmp_path, capsys):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey", "--variant-map", "dusk=night,dark")
+    assert code == 0
+    doc = pxart.parse(out)
+    assert set(doc.variants) == {"dusk"} and not doc.shared_variants
+    assert looks_as_its_file(out, [(stall, "stall", 0, 0), (keeper, "idle", 3, 0), (candle, "idle", 6, 0)],
+                             {"dusk": ["dusk", "night", "dark"]})
+    assert "covers" not in capsys.readouterr().out  # every layer is in it
+
+
+def test_three_packs_variant_map_keeps_the_flame_and_lamps_lit(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey", "--variant-map", "dusk=night,dark")
+    doc = pxart.parse(out)
+    flame = next(k for k, c in doc.palette.items() if c == pxart.hex2rgba("#ffe07a"))
+    assert flame not in doc.variants["dusk"]  # left out of dark, so out of the merged dusk too
+    capsys.readouterr()
+    run("palette", out)
+    dusk = capsys.readouterr().out.splitlines()[-1]
+    assert "relists unchanged:" in dusk and dusk.endswith(f"inherits: {flame}")
+
+
+def test_three_packs_variant_map_comment_names_its_sources(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey", "--variant-map", "dusk=night,dark")
+    text = out.read_text()
+    head = text.split("@variant dusk")[0].splitlines()
+    assert head[-1] == "# dusk: stall.px's dusk, keeper.px's night, player.px's dark (compose --variant-map)"
+    assert "# night: cool moonlight; lamp colors (l, g) stay lit (renamed " in text
+    assert "# darkness: everything that only reflects light goes cold" in text
+
+
+def test_three_packs_comments_come_along(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    lines = out.read_text().splitlines()
+    flame = next(i for i, l in enumerate(lines) if l.endswith("#ffe07a"))
+    assert lines[flame - 1].startswith("# light-emitting keys: flame. Not in @variant dark, so it stays warm.")
+    night = lines.index("@variant night")
+    assert lines[night - 1].startswith("# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>")
+    dark = lines.index("@variant dark")
+    assert lines[dark - 1] == "# darkness: everything that only reflects light goes cold"
+
+
+def test_three_packs_renamed_lamp_comment_names_both_keys(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    doc = pxart.parse(out)
+    new = {c: k for k, c in doc.palette.items()}
+    l, g = new[pxart.hex2rgba("#fff4b0")], new[pxart.hex2rgba("#ffc861")]
+    assert f"# night: cool moonlight; lamp colors (l, g) stay lit (renamed l>{l} g>{g})" in out.read_text()
+    assert f"# lamp glass (renamed l>{l})" in out.read_text()  # above the renamed key line itself
+
+
+def test_three_packs_comments_survive_extract_to(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    assert run("palette", out, "--extract-to", tmp_path / "shared.px") == 0
+    text = (tmp_path / "shared.px").read_text()
+    assert "# light-emitting keys: flame." in text and "# night: cool moonlight;" in text and "# darkness:" in text
+
+
+def test_three_packs_output_renders_like_the_sources_in_base(tmp_path):
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    doc, s = pxart.parse(out), pxart.parse(stall)
+    assert doc.image(doc.frames[0]).crop((0, 0, 3, 2)).tobytes() == s.image(s.get("stall")).tobytes()
+
+
+def test_three_packs_check_strict_passes(tmp_path, capsys):
+    code, out, _ = compose_packs(tmp_path, "--rekey")
+    assert run("check", "--strict", out) == 0
+
+
+# ---------------------------------------------------------------- compose: a shared key whose variants differ
+
+AWNING = "r #c4473a\nk #000000\n@variant dusk\nr #a33a4c\n@frame a\nrk\n"
+SCARF = "r #c4473a\nk #000000\n@variant night\nr #83344e\n@frame s\nr.\n"
+
+
+def test_variant_clash_note_without_rekey(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert (f"note: layer 2 ({b}:s) draws 'r' #c4473a (dusk: #c4473a in scarf.px, #a33a4c in {out}; night: #83344e "
+            f"in scarf.px, #c4473a in {out}): {out} has that key in that base color but other variant colors, and its "
+            "variants color the pixels its way; compose --rekey gives it a key of its own") in lines
+
+
+def test_variant_clash_owner_decides_without_rekey(tmp_path, capsys):
+    # OUT's r belongs to layer 1 (the awning): dusk recolors it, night doesn't. The scarf's night is lost (noted), and the
+    # awning isn't recolored by the scarf's night any more.
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1")
+    doc = pxart.parse(out)
+    assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}, "night": {}}  # night's only key is the awning's
+    assert doc.image(doc.frames[0], "night").getpixel((0, 0)) == pxart.hex2rgba("#c4473a")
+
+
+def test_variant_clash_rekey_gives_the_scarf_its_own_key(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
+    assert capsys.readouterr().out.splitlines()[0] == f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' " \
+                                                      f"({b} is unchanged)"
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid == ["rk", "a."]
+    assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}, "night": {"a": pxart.hex2rgba("#83344e")}}
+    assert looks_as_its_file(out, [(a, "a", 0, 0), (b, "s", 0, 1)])
+
+
+def test_variant_clash_rekey_order_of_layers(tmp_path, capsys):
+    # The scarf first: it owns r now, and the awning's r is the one that moves.
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{b}:s@0,1", f"{a}:a@0,0", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid[1] == "r." and doc.frames[0].grid[0][0] != "r"
+    assert looks_as_its_file(out, [(a, "a", 0, 0), (b, "s", 0, 1)])
+
+
+def test_variant_clash_not_when_variants_agree(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame a\nr\n")
+    b = write(tmp_path, "b.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame b\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:a@0,0", f"{b}:b@1,0", "--rekey") == 0
+    out_text = capsys.readouterr().out
+    assert "--rekey gives" not in out_text and "draws 'r'" not in out_text and "covers" not in out_text
+    assert pxart.parse(out).frames[0].grid == ["rr"]
+
+
+def test_variant_clash_not_without_any_variants(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "r #c4473a\n@frame a\nr\n")
+    b = write(tmp_path, "b.px", "r #c4473a\n@frame b\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:a@0,0", f"{b}:b@1,0") == 0
+    assert capsys.readouterr().out == f"wrote {out}\n"
+
+
+def test_variant_clash_variantless_layer_stays_base(tmp_path, capsys):
+    # A layer whose file has no variants stays at its base colors in OUT's variants: a shared key is separated.
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "plain.px", "r #c4473a\n@frame p\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:p@0,1", "--rekey") == 0
+    assert looks_as_its_file(out, [(a, "a", 0, 0), (b, "p", 0, 1)])
+    assert f"@variant dusk covers layer 1 ({a}:a) only: layer 2 ({b}:p) stays at base colors in it" \
+        in capsys.readouterr().out
+
+
+def test_variant_clash_existing_out_unchanged(tmp_path, capsys):
+    # An existing OUT keeps its own variants, as before: no variant notes, no rekey for them.
+    b = write(tmp_path, "scarf.px", SCARF)
+    out = write(tmp_path, "o.px", AWNING)
+    assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got == f"wrote {out} frame b\n" and pxart.parse(out).get("b").grid == ["r."]
+
+
+def test_new_keys_fits_skips_a_same_color_key_that_looks_different(tmp_path):
+    pick = pxart.new_keys(["r"], {"r": (1, 1, 1, 255)}, {"z": (1, 1, 1, 255), "q": (2, 2, 2, 255)}, {"z", "q", "r"},
+                          fits=lambda k, c: c != "z")
+    assert pick["r"] not in ("z", "q", "r")
+    assert pxart.new_keys(["r"], {"r": (1, 1, 1, 255)}, {"z": (1, 1, 1, 255)}, {"z", "r"}) == {"r": "z"}
+
+
+# ---------------------------------------------------------------- compose --variant-map
+
+def test_variant_map_bad_syntax(tmp_path):
+    a = write(tmp_path, "awning.px", AWNING)
+    for bad in ("dusk", "dusk=", "=night", "base=night", "du sk=night", "dusk=ni/ght"):
+        msg = run_err("compose", "-o", tmp_path / "o.px", f"{a}:a@0,0", "--variant-map", bad)
+        assert "E_BAD_ARG" in msg and "NAME=V1,V2" in msg, bad
+
+
+def test_variant_map_name_in_two_maps(tmp_path):
+    a = write(tmp_path, "awning.px", AWNING)
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{a}:a@0,0", "--variant-map", "dusk=night",
+                  "--variant-map", "eve=night")
+    assert "E_BAD_ARG" in msg and "'night' goes into both 'dusk' and 'eve'" in msg
+
+
+def test_variant_map_unknown_source(tmp_path):
+    a = write(tmp_path, "awning.px", AWNING)
+    msg = run_err("compose", "-o", tmp_path / "o.px", f"{a}:a@0,0", "--variant-map", "dusk=nigth")
+    assert "E_SELECT" in msg and "no layer's file has @variant 'nigth' (they have: dusk)" in msg
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_variant_map_existing_out_is_an_error(tmp_path):
+    a = write(tmp_path, "awning.px", AWNING)
+    out = write(tmp_path, "o.px", AWNING)
+    msg = run_err("compose", "-o", f"{out}:b", f"{a}:a@0,0", "--variant-map", "dusk=dusk")
+    assert "E_BAD_ARG" in msg and "keeps its own" in msg
+
+
+def test_variant_map_renames_one_files_variant(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey",
+               "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(out)
+    assert set(doc.variants) == {"dusk"}
+    assert looks_as_its_file(out, [(a, "a", 0, 0), (b, "s", 0, 1)], {"dusk": ["dusk", "night"]})
+
+
+def test_variant_map_same_red_both_dimmed_needs_no_rekey_when_colors_agree(tmp_path, capsys):
+    # Merged, the two reds dim to the same color: one key is enough.
+    a = write(tmp_path, "a.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame a\nr\n")
+    b = write(tmp_path, "b.px", "r #c4473a\n@variant night\nr #a33a4c\n@frame b\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:a@0,0", f"{b}:b@1,0", "--rekey",
+               "--variant-map", "dusk=night") == 0
+    assert "--rekey gives" not in capsys.readouterr().out and pxart.parse(out).frames[0].grid == ["rr"]
+
+
+def test_variant_map_first_listed_variant_a_file_has_wins(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "r #c4473a\n@variant night\nr #000001\n@variant dark\nr #000002\n@frame a\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:a@0,0", "--variant-map", "dusk=dark,night") == 0
+    assert pxart.parse(out).variants == {"dusk": {"r": (0, 0, 2, 255)}}
+
+
+def test_variant_map_leaves_unmapped_variants_alone(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "r #c4473a\n@variant night\nr #000001\n@variant dawn\nr #000003\n@frame a\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:a@0,0", "--variant-map", "dusk=night") == 0
+    assert pxart.parse(out).variants == {"dusk": {"r": (0, 0, 1, 255)}, "dawn": {"r": (0, 0, 3, 255)}}
+
+
+def test_variant_map_inlines_a_shared_import(tmp_path, capsys):
+    write(tmp_path, "pal.px", "r #c4473a\n@variant night\nr #000001\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame a\nr\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:a@0,0", "--variant-map", "dusk=night") == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == [] and doc.variants == {"dusk": {"r": (0, 0, 1, 255)}}
+
+
+def test_variant_map_without_rekey_still_notes_a_clash(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--variant-map", "dusk=night") == 0
+    assert "draws 'r' #c4473a (dusk: #83344e in scarf.px, #a33a4c in" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- compose: left-out keys, one line per file
+
+def test_left_out_two_layers_of_one_file_one_line(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n@frame y\nk\n")
+    b = write(tmp_path, "b.px", "z #ff0000\n@frame z\nz\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{a}:y@1,0", f"{b}:z@2,0") == 0
+    lines = [l for l in capsys.readouterr().out.splitlines() if "leaves out" in l]
+    assert lines == [f"note: {out} leaves out layers 1-2 ({a})'s colors for keys unused there, which it has in another "
+                     "layer's colors: 'z' (layer 3's, which that layer uses)"]
+
+
+def test_left_out_key_drawn_elsewhere_in_its_file_is_a_warning(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nl #ffff00\n@frame x\nk\n@frame lamp\nl\n")
+    b = write(tmp_path, "b.px", "l #ff0000\n@frame z\nl\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
+    assert capsys.readouterr().out.splitlines()[0] == (
+        f"WARNING: {out} leaves out layer 1 ({a}:x)'s colors for keys unused there, which it has in another layer's "
+        f"colors: 'l' (layer 2's, which that layer uses; a.px draws with it); compose --rekey keeps l under free keys "
+        f"in {out}")
+
+
+def test_left_out_relisted_key_is_a_warning(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nl #ffff00\n@variant night\nk #000011\nl #ffff00\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "l #ff0000\n@frame z\nl\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
+    assert "(layer 2's, which that layer uses; @variant night relists it unchanged)" in capsys.readouterr().out
+
+
+def test_left_out_key_kept_out_of_a_dark_variant_is_a_warning(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nw #ffffff\nc #808080\nf #ffe07a\n@variant dark\nk #000011\nw #111111\n"
+                                "c #222222\n@frame x\nkwc\n")
+    b = write(tmp_path, "b.px", "f #ff0000\n@frame z\nf\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "4x1", f"{a}:x@0,0", f"{b}:z@3,0") == 0
+    assert "'f' (layer 2's, which that layer uses; @variant dark keeps it while it recolors most keys)" \
+        in capsys.readouterr().out
+
+
+def test_left_out_plain_key_is_a_note(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "z #ff0000\n@frame z\nz\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0")
+    got = capsys.readouterr().out
+    assert "WARNING" not in got and got.startswith("note: ")
+
+
+def test_left_out_warning_rekey_keeps_the_key(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nl #ffff00\n@frame x\nk\n@frame lamp\nl\n")
+    b = write(tmp_path, "b.px", "l #ff0000\n@frame z\nl\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got.splitlines()[0] == f"note: --rekey gives {a}'s keys free ones in {out}: 'l>a' ({a} is unchanged)"
+    assert "WARNING" not in got and "leaves out" not in got
+    assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "l": (255, 0, 0, 255), "a": (255, 255, 0, 255)}
+
+
+def test_left_out_warning_rekey_not_for_plain_keys(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "z #ff0000\n@frame z\nz\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0", "--rekey")
+    got = capsys.readouterr().out
+    assert "--rekey gives" not in got and "leaves out layer 1" in got
+
+
+def test_special_keys(tmp_path):
+    doc = pxart.parse(write(tmp_path, "s.px", "k #000000\nl #ffff00\nq #123456\nf #ffe07a\nw #ffffff\n"
+                                              "@variant night\nk #000011\nl #ffff00\nw #111111\nq #222222\n"
+                                              "@frame a\nk\n@frame b\nq\n"))
+    why = pxart.special_keys(doc)
+    assert why == {"k": ["s.px draws with it"], "q": ["s.px draws with it"], "l": ["@variant night relists it unchanged"],
+                   "f": ["@variant night keeps it while it recolors most keys"]}
+
+
+def test_special_keys_a_variant_recoloring_few_keeps_nothing_special(tmp_path):
+    doc = pxart.parse(write(tmp_path, "s.px", "k #000000\na #111111\nb #222222\nc #333333\n@variant v\nk #000011\n"
+                                              "@frame a\nk\n"))
+    assert pxart.special_keys(doc) == {"k": ["s.px draws with it"]}
+
+
+# ---------------------------------------------------------------- compose: palette comments come along
+
+def test_compose_carries_key_and_variant_comments(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
+                                "# the dark outline\nk #000011\n@frame x\nkf\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{a}:x@0,0") == 0
+    assert out.read_text() == ("pxart 1\nk #000000\n# glow: left out of dusk\nf #ffe07a\n\n# dusk: dim\n@variant dusk\n"
+                               "# the dark outline\nk #000011\n\nkf\n")
+
+
+def test_compose_carries_comments_from_the_layers_imports(tmp_path, capsys):
+    write(tmp_path, "pal.px", "# header\npxart 1\n# ink\nk #000000\n")
+    write(tmp_path, "pal2.px", "pxart 1\n# the sun\ny #ffff00\n")
+    a = write(tmp_path, "a.px", "@palette pal.px\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "@palette pal2.px\n@frame y\ny\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
+    assert out.read_text() == "pxart 1\n# ink\nk #000000\n# the sun\ny #ffff00\n\nky\n"  # a palette header stays
+
+
+def test_compose_comment_of_a_left_out_key_goes(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n# a white\nz #ffffff\n@frame x\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\n# a red\nz #ff0000\n@frame y\nz\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0")
+    assert "# a red\nz #ff0000" in out.read_text() and "# a white" not in out.read_text()
+
+
+def test_compose_a_sprites_header_comment_stays_with_it(tmp_path, capsys):
+    # Comments above a file's first line are its header, about the sprite: not a key's comment.
+    a = write(tmp_path, "a.px", "# the hero\nk #000000\n@frame x\nk\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, f"{a}:x@0,0")
+    assert "# the hero" not in out.read_text()
+
+
+def test_compose_comments_not_for_an_existing_out(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\n# ink\nk #000000\n@frame x\nk\n")
+    out = write(tmp_path, "o.px", "w #ffffff\n@frame y\nw\n")
+    run("compose", "-o", f"{out}:z", f"{a}:x@0,0")
+    assert "# ink" not in out.read_text()
+
+
+def test_compose_used_keys_only_drops_the_comments_of_dropped_keys(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\n# ink\nk #000000\n# unused\nz #ffffff\n@frame x\nk\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, f"{a}:x@0,0", "--used-keys-only")
+    assert out.read_text() == "pxart 1\n# ink\nk #000000\n\nk\n"
+
+
+def test_compose_rekey_renamed_key_comment_says_so(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "s #111111\n@frame x\ns\n")
+    b = write(tmp_path, "b.px", "pxart 1\n# grass (s) and its shadow\ns #00ff00\n@frame y\ns\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0", "--rekey") == 0
+    assert "# grass (s) and its shadow (renamed s>a)\na #00ff00" in out.read_text()
+
+
+def test_compose_rekey_renamed_key_own_comment_without_the_letter(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "s #111111\n@frame x\ns\n")
+    b = write(tmp_path, "b.px", "pxart 1\n# grass\ns #00ff00\n@frame y\ns\n")
+    out = tmp_path / "o.px"
+    run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0", "--rekey")
+    assert "# grass (renamed s>a)\na #00ff00" in out.read_text()
+
+
+def test_renamed_lead_words_and_punctuation():
+    lead = ["", "# a lamp (l, g) stays lit; the glass", "# kl is not l"]
+    assert pxart.renamed_lead(lead, {"l": "P", "g": "Q"}) == [
+        "", "# a lamp (l, g) stays lit; the glass (renamed l>P g>Q)", "# kl is not l (renamed l>P)"]
+
+
+def test_renamed_lead_punctuation_keys_only_by_their_own_line():
+    assert pxart.renamed_lead(["# 50% gray"], {"%": "a"}) == ["# 50% gray"]
+    assert pxart.renamed_lead(["# 50% gray"], {"%": "a"}, ("%", "a")) == ["# 50% gray (renamed %>a)"]
+
+
+def test_renamed_lead_own_key_already_named():
+    assert pxart.renamed_lead(["# l: the lamp"], {"l": "P"}, ("l", "P")) == ["# l: the lamp (renamed l>P)"]
+
+
+def test_renamed_lead_blank_only_lead_unchanged():
+    assert pxart.renamed_lead(["", ""], {"l": "P"}, ("l", "P")) == ["", ""]
+
+
+def test_recolor_rename_keeps_a_relist(tmp_path, capsys):
+    # 'l>L' where night lists l in its base color (kept lit): L is listed the same way, not left to inherit.
+    write(tmp_path, "pal.px", "l #fff4b0\nk #000000\n@variant night\nk #000011\nl #fff4b0\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nkl\n")
+    assert run("recolor", p, "l>L") == 0
+    doc = pxart.parse(p)
+    assert doc.variants == {"night": {"L": (0xff, 0xf4, 0xb0, 255)}} and doc.frames[0].grid == ["kL"]
+
+
+def test_help_documents_compose_across_packs(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "That line is a WARNING when the file needs a key it lost" in doc
+    assert "--rekey then keeps such keys under free keys in OUT" in doc
+    assert "The comments above the layers' key and @variant lines come along, as for palette --extract-to" in doc
+    assert "'# lamp colors (l, g) stay lit (renamed l>I g>J)'" in doc
+    assert "so one file's variant never recolors another file's pixels" in doc
+    assert "--variant-map dusk=night,dark (repeatable) builds OUT's dusk from each layer's first of dusk, night, dark" \
+        in doc
+    assert "--rekey gives such a key a free key of its own" in doc
+    out = " ".join(cmd_help(capsys, "compose").split())
+    assert "--variant-map" in out and "WARNING" in out
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--variant-map dusk=night,dark` merges several files' variants into one" in readme
+    assert "a key two files have in one color but recolor differently in their variants" in readme
