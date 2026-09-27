@@ -197,10 +197,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
   fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
-  new OUT[:frame] --size WxH [--key K] [--palette P.px]
+  new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
       (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
-      already exists is E_DUP_FRAME: fill it instead.
+      already exists is E_DUP_FRAME: fill it instead. --still marks its group '@still GROUP'
+      (new ui.px:icons/life --still); a top-level frame is never animated and needs none.
   put FILE[:frame] [-o OUT] < grid.txt
       Replace one frame's grid with the rows on stdin: 'pxart put hero.px:walk/1 < w1.txt'.
       Stdin is rows, or palette lines then rows; the keys the rows use join FILE's palette
@@ -274,12 +275,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
       A new animation inherits the source animation's @anim timing. Then edit the copy.
-  anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [-o OUT]
+  anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still] [-o OUT]
       Write timing: updates the '@anim GROUP' line, or adds one after the other @anim lines.
       FILE:GROUP/ID (one frame) takes only ms=N and pivot=X,Y and sets that frame's own
       ('@frame ID ms=N pivot=X,Y'), which wins over the group's. KEY= with no value clears
       a setting.
       A path that is both a group and a frame means the group. Only that one line changes.
+      --still adds '@still GROUP' (the group is no animation: UI icons, parts), --no-still
+      removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame). An
+      @anim line stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
@@ -2399,7 +2403,13 @@ def cmd_new(a):
     if key not in doc.resolved():
         fail("E_SELECT", f"new: key {key!r} not in palette (add it with palette --add, or start with --palette)")
     target.grid = [key * w] * h
-    print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
+    still = ""
+    if a.still and target.group and not doc.still(target.group):
+        doc.stills.append(target.group)
+        still = f"; @still {target.group}"
+    elif a.still and not target.group:
+        print(f"note: {doc.label(target)} is a top-level frame, never animated: no @still line needed")
+    print(write_doc(doc, opath) + (f" frame {osel}" if osel else "") + still)
 
 
 def cmd_put(a):
@@ -3059,9 +3069,15 @@ def cmd_anim_set(a):
     with reading(f"FILE ({a.target})"):
         doc = parse(path)
     out = pathlib.Path(a.o) if a.o else doc.path
+    if not sel and (a.still or a.no_still):
+        sel = "*"  # the whole file: '@still *'
     if not sel:
         fail("E_SELECT", f"anim-set needs FILE:GROUP (an animation's @anim line) or FILE:GROUP/ID (one frame's ms=); "
              f"animations: {', '.join(g for g in doc.groups() if g) or 'none'}", path=doc.path)
+    said = set_still(doc, sel, a.still, a.no_still)
+    if said and not a.settings:
+        print(f"{said}; {write_doc(doc, out)}")
+        return
     kw = {}
     for arg in a.settings:
         k, eq, v = arg.partition("=")
@@ -3070,7 +3086,8 @@ def cmd_anim_set(a):
                  "one)", path=doc.path)
         kw[k] = timing_value(k, v)
     if not kw:
-        fail("E_BAD_ARG", "anim-set: give ms=N, direction=D, repeat=N and/or pivot=X,Y", path=doc.path)
+        fail("E_BAD_ARG", "anim-set: give ms=N, direction=D, repeat=N, pivot=X,Y, --still and/or --no-still",
+             path=doc.path)
     groups = doc.groups()
     if sel in groups and sel:
         anim = doc.anims.setdefault(sel, {})
@@ -3092,7 +3109,40 @@ def cmd_anim_set(a):
         for k, v in kw.items():
             setattr(f, k, v)
         line = next(text for anchor, _, text in doc.lines() if anchor == ("frame", f.id))
-    print(f"{line}; {write_doc(doc, out)}")
+    print(f"{line}; " + (f"{said}; " if said else "") + write_doc(doc, out))
+
+
+def set_still(doc, sel, still, no_still):
+    """anim-set --still / --no-still: add or remove '@still GROUP' ('*': every frame). What it did, or None."""
+    if not still and not no_still:
+        if sel == "*":
+            fail("E_SELECT", "FILE:* is for --still / --no-still ('@still *'); timing goes on FILE:GROUP",
+                 path=doc.path)
+        return None
+    groups = [g for g in doc.groups() if g]
+    if sel != "*" and sel not in groups:
+        f = doc.get(sel)
+        why = (f"{sel!r} is a top-level frame, which is never animated" if f and not f.group else
+               f"{sel!r} is one frame; @still marks its group: anim-set {doc.path}:{f.group} --still" if f else
+               f"{sel!r} is no group; groups: {', '.join(groups) or 'none'}")
+        fail("E_SELECT", f"--{'still' if still else 'no-still'} marks a group of frames (or FILE for all): {why}",
+             path=doc.path)
+    if still:
+        if sel in doc.stills:
+            return f"already @still {sel}"
+        if "*" in doc.stills:
+            return f"already still: '@still *' marks every frame"
+        doc.stills.append(sel)
+        if sel in doc.anims:
+            print(f"note: @anim {sel} stays; its timing is unused while the group is still")
+        return f"@still {sel}"
+    if sel != "*" and "*" in doc.stills:
+        fail("E_BAD_ARG", f"'@still *' marks every group, {sel!r} too; remove it with anim-set {doc.path} --no-still",
+             path=doc.path)
+    if sel not in doc.stills:
+        return f"not still: {sel}"
+    doc.stills.remove(sel)
+    return f"removed @still {sel}"
 
 
 def cmd_palette(a):
@@ -3349,6 +3399,7 @@ def main(argv=None):
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
+    p.add_argument("--still", action="store_true", help="mark the frame's group '@still GROUP'")
     p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
@@ -3386,13 +3437,19 @@ def main(argv=None):
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
+    g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
+    g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")
     p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--add", nargs="+"); p.add_argument("--export")
     p.add_argument("--used", action="store_true")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
-    a = ap.parse_args(argv)
+    a, extra = ap.parse_known_args(argv)
+    if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
+        a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
+    elif extra:
+        ap.parse_args(argv)  # argparse's own error
     try:
         globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'

@@ -76,7 +76,9 @@ pxart 1
 - **`@variant night`:** followed by key lines, defines a recolor, rendered with
   `--variant night`.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
-  frame, top-level ids included (a parts file).
+  frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
+  (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`
+  starts a still group.
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
 `file.px:walk/down/0` (one frame). A file with one unnamed grid calls it by the file's

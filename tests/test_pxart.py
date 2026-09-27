@@ -4084,6 +4084,189 @@ def test_help_documents_recolor_swap_and_order():
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: anim-set --still, new --still
+
+STILLS = ("pxart 1\nk #000000\n@anim w ms=100\n\n@frame w/0\nk\n@frame w/1\nk\n@frame ui/a\nk\n@frame ui/b\nk\n"
+          "@frame top\nk\n")
+
+
+def test_anim_set_still_adds_the_line(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:ui", "--still") == 0
+    assert p.read_text() == STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still ui\n")
+    assert capsys.readouterr().out == f"@still ui; wrote {p}\n"
+    doc = pxart.parse(p)
+    assert doc.still("ui") and not doc.animated("ui") and doc.animated("w")
+
+
+def test_anim_set_still_is_what_export_and_frames_see(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:ui", "--still") == 0
+    assert run("export", p, "--aseprite", tmp_path / "s.json") == 0
+    tags = json.loads((tmp_path / "s.json").read_text())["meta"]["frameTags"]
+    assert [t["name"] for t in tags] == ["w"]
+    capsys.readouterr()
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "ui: 2 frame(s) [still]" in out and "  ui/a  1x1  still" in out
+
+
+def test_anim_set_still_twice_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:ui", "--still") == 0
+    text = p.read_text()
+    capsys.readouterr()
+    assert run("anim-set", f"{p}:ui", "--still") == 0
+    assert p.read_text() == text and capsys.readouterr().out == f"already @still ui; no change: {p}\n"
+
+
+def test_anim_set_no_still_removes_the_line(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still ui\n"))
+    assert run("anim-set", f"{p}:ui", "--no-still") == 0
+    assert p.read_text() == STILLS and capsys.readouterr().out == f"removed @still ui; wrote {p}\n"
+
+
+def test_anim_set_no_still_of_an_animation_is_no_change(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:w", "--no-still") == 0
+    assert p.read_text() == STILLS and capsys.readouterr().out == f"not still: w; no change: {p}\n"
+
+
+def test_anim_set_still_keeps_the_anim_line_with_a_note(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:w", "--still") == 0
+    assert "@anim w ms=100\n@still w\n" in p.read_text()
+    out = capsys.readouterr().out
+    assert out == f"note: @anim w stays; its timing is unused while the group is still\n@still w; wrote {p}\n"
+    assert run("anim-set", f"{p}:w", "--no-still") == 0
+    assert p.read_text() == STILLS
+
+
+@pytest.mark.parametrize("order", ["flag-first", "flag-last"])
+def test_anim_set_still_with_settings(tmp_path, capsys, order):
+    p = write(tmp_path, "s.px", STILLS)
+    argv = ["--still", "ms=50"] if order == "flag-first" else ["ms=50", "--still"]
+    assert run("anim-set", f"{p}:w", *argv) == 0
+    assert "@anim w ms=50\n@still w\n" in p.read_text()
+    assert capsys.readouterr().out.splitlines()[-1] == f"@anim w ms=50; @still w; wrote {p}"
+
+
+def test_anim_set_settings_after_dash_o(tmp_path):
+    # argparse spends a '*' positional before an option; settings after -o OUT still count.
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:w", "-o", tmp_path / "o.px", "ms=70") == 0
+    assert pxart.parse(tmp_path / "o.px").anims["w"]["ms"] == 70 and p.read_text() == STILLS
+
+
+def test_anim_set_unknown_option_is_still_an_error(tmp_path):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:w", "--bogus") == 2 and p.read_text() == STILLS
+
+
+@pytest.mark.parametrize("target", ["{p}", "{p}:*"])
+def test_anim_set_still_whole_file(tmp_path, capsys, target):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", target.format(p=p), "--still") == 0
+    assert "@anim w ms=100\n@still *\n" in p.read_text()
+    doc = pxart.parse(p)
+    assert all(doc.still(f.group) for f in doc.frames)
+    assert run("anim-set", target.format(p=p), "--no-still") == 0
+    assert p.read_text() == STILLS
+
+
+def test_anim_set_still_group_under_star_is_already_still(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still *\n"))
+    text = p.read_text()
+    assert run("anim-set", f"{p}:ui", "--still") == 0
+    assert p.read_text() == text and "already still: '@still *' marks every frame" in capsys.readouterr().out
+
+
+def test_anim_set_no_still_group_under_star_is_bad_arg(tmp_path):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still *\n"))
+    msg = run_err("anim-set", f"{p}:ui", "--no-still")
+    assert "E_BAD_ARG" in msg and f"anim-set {p} --no-still" in msg
+
+
+@pytest.mark.parametrize("sel, bit", [
+    ("ui/a", "'ui/a' is one frame; @still marks its group: anim-set {p}:ui --still"),
+    ("top", "'top' is a top-level frame, which is never animated"),
+    ("nope", "'nope' is no group; groups: w, ui"),
+])
+def test_anim_set_still_needs_a_group(tmp_path, sel, bit):
+    p = write(tmp_path, "s.px", STILLS)
+    msg = run_err("anim-set", f"{p}:{sel}", "--still")
+    assert "E_SELECT" in msg and bit.format(p=p) in msg and p.read_text() == STILLS
+
+
+def test_anim_set_star_without_still_is_select_error(tmp_path):
+    p = write(tmp_path, "s.px", STILLS)
+    assert "E_SELECT" in run_err("anim-set", f"{p}:*", "ms=5")
+
+
+def test_anim_set_still_and_no_still_together_is_usage_error(tmp_path):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:ui", "--still", "--no-still") == 2
+
+
+def test_anim_set_still_with_output(tmp_path):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("anim-set", f"{p}:ui", "--still", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == STILLS and pxart.parse(tmp_path / "o.px").stills == ["ui"]
+
+
+def test_anim_set_still_after_existing_stills(tmp_path):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still ui\n"))
+    assert run("anim-set", f"{p}:w", "--still") == 0
+    assert "@still ui\n@still w\n" in p.read_text()
+
+
+def test_new_still_marks_a_new_group(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("new", f"{p}:icons/life", "--size", "1x1", "--still") == 0
+    assert capsys.readouterr().out == f"wrote {p} frame icons/life; @still icons\n"
+    doc = pxart.parse(p)
+    assert doc.stills == ["icons"] and doc.get("icons/life").grid == ["."]
+
+
+def test_new_still_in_new_file(tmp_path):
+    out = tmp_path / "ui.px"
+    assert run("new", f"{out}:icons/life", "--size", "2x1", "--still") == 0
+    assert out.read_text() == "pxart 1\n\n@still icons\n\n@frame icons/life\n..\n"
+
+
+def test_new_still_group_already_still_adds_nothing(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still ui\n"))
+    assert run("new", f"{p}:ui/c", "--size", "1x1", "--still") == 0
+    assert pxart.parse(p).stills == ["ui"] and capsys.readouterr().out == f"wrote {p} frame ui/c\n"
+
+
+def test_new_still_under_star_adds_nothing(tmp_path):
+    p = write(tmp_path, "s.px", STILLS.replace("@anim w ms=100\n", "@anim w ms=100\n@still *\n"))
+    assert run("new", f"{p}:x/c", "--size", "1x1", "--still") == 0
+    assert pxart.parse(p).stills == ["*"]
+
+
+def test_new_still_top_level_frame_notes(tmp_path, capsys):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("new", f"{p}:badge", "--size", "1x1", "--still") == 0
+    out = capsys.readouterr().out
+    assert "note: badge is a top-level frame, never animated: no @still line needed" in out
+    assert pxart.parse(p).stills == []
+
+
+def test_new_still_into_an_animation_marks_it(tmp_path):
+    p = write(tmp_path, "s.px", STILLS)
+    assert run("new", f"{p}:w/2", "--size", "1x1", "--still") == 0
+    doc = pxart.parse(p)
+    assert doc.stills == ["w"] and not doc.animated("w")
+
+
+def test_help_documents_still_flags():
+    doc = pxart.__doc__
+    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still]" in doc
+    assert "new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]" in doc
+
+
 # ---------------------------------------------------------------- GAMES-295: E_KEY_CONFLICT names every key
 
 def conflict_layers(tmp_path):
@@ -4579,7 +4762,7 @@ def test_anim_set_frames_listing_shows_it(tmp_path, capsys):
 
 def test_help_documents_anim_set():
     doc = pxart.__doc__
-    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [-o OUT]" in doc
+    assert "anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still] [-o OUT]" in doc
     assert "FILE:GROUP/ID (one frame) takes only ms=N" in doc and "Only that one line changes" in doc
 
 
