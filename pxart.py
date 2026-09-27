@@ -715,8 +715,9 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
   ellipse FILE[:frame] KEY cx,cy,rx,ry | --box x,y,w,h [--fill]
       The ellipse inscribed in the box cx-rx..cx+rx, cy-ry..cy+ry: 2*rx+1 wide, so a whole
       center and radius give odd sizes (4,4,3,3 is 7x7) and both ending in .5 give even ones
-      (3.5,3.5,3.5,2.5 is 8x6 at 0,1; so is --box 0,1,8,6, rect's x,y,w,h: no halves). A thin 8-connected outline (Zingl's algorithm), mirror-
-      symmetric, no stray pixels; boxes 1 or 2 px across are filled.
+      (3.5,3.5,3.5,2.5 is 8x6 at 0,1; so is --box 0,1,8,6, rect's x,y,w,h: no halves). A thin
+      8-connected outline (Zingl's algorithm), mirror-symmetric, no stray pixels; boxes 1 or
+      2 px across are filled.
   arc FILE[:frame] KEY cx,cy,r a0,a1 [--width N]
       Part of the circle ellipse cx,cy,r,r draws, from angle a0 to a1 in degrees, counter-
       clockwise, 0 = right, 90 = up (0,90 is the upper-right quarter; 300,60 wraps through 0;
@@ -6665,6 +6666,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
     own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
+    had = name in doc.variants
     over = doc.variants.setdefault(name, {})
     recolored, held = [], []
     for k, c in base.items():
@@ -6685,6 +6687,12 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
         over[k] = got
         if got != c:
             recolored.append(k)
+    if own and not had and not over:  # every key is imported, and the import's variant colors them all: nothing to add
+        del doc.variants[name]
+        print(f"note: {doc.path}'s keys all come from {' and '.join(doc.palette_refs)}, whose @variant {name} colors "
+              f"them; no @variant {name} of its own to write (derive it in the palette file instead)" if not
+              doc.palette else f"note: the derive leaves {doc.path}'s own keys at their base colors; no @variant "
+              f"{name} of its own to write")
     how = ", ".join(([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else []))
     how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
                     + ([how] if how else []))

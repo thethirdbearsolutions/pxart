@@ -26052,3 +26052,51 @@ def test_arc_half_pixel_error_has_no_box(tmp_path):
 def test_ellipse_box_on_several_frames_needs_a_selector(tmp_path):
     p = write(tmp_path, "e.px", "k #000000\n@frame a\n..\n@frame b\n..\n")
     assert "pixel coordinates (--box) need you to say which frames" in run_err("ellipse", p, "k", "--box", "0,0,2,1")
+
+
+# ---------------------------------------------------------------- derive with nothing of its own writes no empty @variant
+
+DV_PAL = "k #202020\nw #e0e0e0\n@variant night\nk #101010\n"
+
+
+def test_derive_all_imported_keys_writes_no_empty_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3") == 0
+    out = capsys.readouterr().out
+    assert s.read_text() == "pxart 1\n@palette pal.px\n@frame a\nkw\n"
+    assert f"note: {s}'s keys all come from pal.px, whose @variant night colors them; no @variant night of its own " \
+        "to write (derive it in the palette file instead)\n" in out
+    assert out.rstrip().endswith(f"no change: {s}")
+
+
+def test_derive_all_imported_keys_dry_run_shows_no_diff(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "@@" not in out and "+@variant" not in out and "no @variant night of its own to write" in out
+
+
+def test_derive_own_keys_at_base_writes_no_empty_variant(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nz #ff0000\n@frame a\nkwz\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0") == 0
+    out = capsys.readouterr().out
+    assert "@variant" not in s.read_text()
+    assert f"note: the derive leaves {s}'s own keys at their base colors; no @variant night of its own to write" in out
+
+
+def test_derive_own_keys_still_writes_them(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nz #ff0000\n@frame a\nkwz\n")
+    assert run("palette", s, "--variant", "night", "--derive-from", "base", "--darken", "0.3") == 0
+    assert s.read_text().endswith("@variant night\nz #b20000\n@frame a\nkwz\n")
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_derive_a_variant_the_import_lacks_still_derives_imported_keys(tmp_path, capsys):
+    write(tmp_path, "pal.px", DV_PAL)
+    s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
+    assert run("palette", s, "--variant", "dusk", "--derive-from", "base", "--darken", "0.3") == 0
+    assert "@variant dusk\nk #161616\nw #9d9d9d\n" in s.read_text()
