@@ -351,10 +351,11 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       --dither mixes adjacent tones with a 4x4 ordered (Bayer) pattern where the lighting is
       within a quarter step of a band boundary (and skips the stray-pixel pass). --light: n
       ne e se s sw w nw (default nw). --preview P.png renders the result (render's grid and
-      rulers) and writes nothing else. Prints the count per tone.
+      rulers) and writes nothing else. Prints the pixels it changed, by the tone they got,
+      darkest first: "changed 24 px: 4->A, 8->B, 8->D, 4->E" (with --preview, "would change").
       'shade hero.px:idle/0 --ramp XxcCw --keys c' shades the cloak c with the ramp X x c C w.
   outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
-          [--corners]
+          [--corners] [--preview P.png]
       Outline the frame's shape (every pixel whose color isn't transparent). --outside (the
       default) paints the empty pixels touching the shape on a side; --inside repaints the
       shape's own pixels that have an empty side (off the frame counts as empty). Sides only is
@@ -366,7 +367,9 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       the empty pixels within 2px minus that of the shape's, 1/distance-weighted, so a
       staircase reads as its slope) dotted with the light's direction; above 0 is lit, so a
       nw light lights the top and left edges and a 45-degree edge (ne, sw) stays K.
-      --light: n ne e se s sw w nw (default nw). Prints "outlined N px (A lit, B K)".
+      --light: n ne e se s sw w nw (default nw). --preview P.png renders the result, as shade's
+      does, and writes nothing else. Prints the pixels it changed, by the key they got:
+      "changed 12 px: 6->o, 6->l" (outline pixels that already had their key don't count).
 
 CONVERTING
   export FILE[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
@@ -2754,8 +2757,22 @@ def outline_points(shape, w, h, inside=False, corners=False):
             if (x, y) not in shape and any((x + dx, y + dy) in shape for dx, dy in near)}
 
 
+def changes(by, verb="changed"):
+    """'changed 41 px: 29->C, 12->X': the pixels an edit changed, by the key they got (in `by`'s order)."""
+    n = sum(by.values())
+    return f"{verb} {n} px" + (": " + ", ".join(f"{c}->{k}" for k, c in by.items() if c) if n else "")
+
+
+def preview(doc, frames, png, what):
+    """--preview: render the edited frames (render's grid and rulers) to png; the file isn't written."""
+    its = [Item(doc.label(f), doc.image(f), doc.ms(f), doc, f) for f in frames]
+    return f"{what}; wrote {sheet(its, png, 8, grid=True, rulers=True)} (preview; {doc.path} unchanged)"
+
+
 def cmd_outline(a):
     """Outline the frame's opaque pixels with a.key; --lit KEY (selective) on the edges facing the light."""
+    if a.preview and a.o:
+        fail("E_BAD_ARG", "outline: --preview renders the result to a PNG and writes nothing; drop -o or --preview")
     doc, frames, out = edit_target(a.file, a.o)
     pal = doc.resolved()
     if a.selective and not a.lit:
@@ -2764,17 +2781,19 @@ def cmd_outline(a):
         if k is not None and k not in pal:
             fail("E_SELECT", f"outline: key {k!r} not in palette (add it with palette --add)")
     L = light_vec(a.light)
-    counts = {"lit": 0, "dark": 0}
+    by = dict.fromkeys([a.key] + ([a.lit] if a.lit else []), 0)
     for f in frames:
         w, h = f.size
         shape = opaque_set(doc, f)
         ring = sorted(outline_points(shape, w, h, a.inside, a.corners), key=lambda p: (p[1], p[0]))
         lit = [p for p in ring if a.lit and sum(n * l for n, l in zip(normal(p, shape), L)) > 0]
-        counts["lit"] += paint(f, lit, a.lit)[0] if a.lit else 0
-        counts["dark"] += paint(f, [p for p in ring if p not in set(lit)], a.key)[0]
-    said = f"outlined {counts['lit'] + counts['dark']} px" + (f" ({counts['lit']} lit {a.lit!r}, {counts['dark']} "
-                                                            f"{a.key!r})" if a.lit else "")
-    print(f"{said};", write_doc(doc, out))
+        if a.lit:
+            by[a.lit] += paint(f, lit, a.lit)[0]
+        by[a.key] += paint(f, [p for p in ring if p not in set(lit)], a.key)[0]
+    if a.preview:
+        print(preview(doc, frames, a.preview, changes(by, "would change")))
+        return
+    print(f"{changes(by)};", write_doc(doc, out))
 
 
 def nearest_edge(shape):
@@ -2883,8 +2902,7 @@ def cmd_shade(a):
     base = ramp.index(a.base) if a.base else len(ramp) // 2
     if a.strength <= 0:
         fail("E_BAD_ARG", "shade: --strength wants N > 0 (px from the edge)")
-    counts = dict.fromkeys(ramp, 0)
-    changed = 0
+    by = dict.fromkeys(ramp, 0)  # changed pixels, by the tone they got
     for f in frames:
         x0, y0, rw, rh = parse_rect(a.region, f.size)
         # The whole frame's material is the shape, so --region's own border is no edge; only its pixels change.
@@ -2893,17 +2911,14 @@ def cmd_shade(a):
                  if x0 <= p[0] < x0 + rw and y0 <= p[1] < y0 + rh}
         g = [list(r) for r in f.grid]
         for (x, y), k in sorted(tones.items(), key=lambda kv: (kv[0][1], kv[0][0])):
-            counts[k] += 1
             if g[y][x] != k:
-                g[y][x], changed = k, changed + 1
+                g[y][x] = k
+                by[k] += 1
         f.grid = ["".join(r) for r in g]
-    tally = ", ".join(f"{k} {n}" for k, n in counts.items())
     if a.preview:
-        its = [Item(doc.label(f), doc.image(f), doc.ms(f), doc, f) for f in frames]
-        print(f"shade: {tally} (darkest to lightest); wrote {sheet(its, a.preview, 8, grid=True, rulers=True)} "
-              f"(preview; {doc.path} unchanged)")
+        print(preview(doc, frames, a.preview, changes(by, "would change")))
         return
-    print(f"shaded {changed} px ({tally}, darkest to lightest);", write_doc(doc, out))
+    print(f"{changes(by)};", write_doc(doc, out))
 
 
 def seed_palette(doc, layers):
@@ -3455,6 +3470,7 @@ def main(argv=None):
     p = sub.add_parser("outline"); p.add_argument("file"); p.add_argument("--key", required=True)
     p.add_argument("--lit", help="lighter key for the edges facing the light (selective outline)")
     p.add_argument("--selective", action="store_true"); p.add_argument("--light", choices=list(LIGHTS), default="nw")
+    p.add_argument("--preview", help="render the result to this PNG; write nothing else")
     g = p.add_mutually_exclusive_group(); g.add_argument("--inside", action="store_true")
     g.add_argument("--outside", action="store_true"); p.add_argument("--corners", action="store_true")
     p.add_argument("-o")

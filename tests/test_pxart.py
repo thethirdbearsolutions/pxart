@@ -7651,13 +7651,13 @@ def test_selective_inside(tmp_path):
 def test_outline_counts(tmp_path, capsys):
     p = shape_file(tmp_path, SQUARE)
     assert run("outline", f"{p}:a", "--key", "o", "--lit", "l") == 0
-    assert capsys.readouterr().out.startswith("outlined 12 px (6 lit 'l', 6 'o'); wrote")
+    assert capsys.readouterr().out == f"changed 12 px: 6->o, 6->l; wrote {p}\n"
 
 
 def test_outline_count_plain(tmp_path, capsys):
     p = shape_file(tmp_path, SQUARE)
     assert run("outline", f"{p}:a", "--key", "o") == 0
-    assert capsys.readouterr().out.startswith("outlined 12 px; wrote")
+    assert capsys.readouterr().out == f"changed 12 px: 12->o; wrote {p}\n"
 
 
 def test_selective_needs_lit(tmp_path):
@@ -7954,6 +7954,95 @@ def test_shade_bad_strength(tmp_path):
     assert "E_BAD_ARG" in run_err("shade", f"{p}:a", "--ramp", RAMP, "--strength", "0")
 
 
+# GAMES-295: outline and shade report the pixels they changed, by the key they got, never totals.
+
+def test_outline_rerun_changes_nothing(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l") == 0
+    text = p.read_text()
+    capsys.readouterr()
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--inside") == 0  # the ring is already o and l
+    assert capsys.readouterr().out == f"changed 0 px; no change: {p}\n" and p.read_text() == text
+
+
+def test_outline_counts_only_changed_pixels(tmp_path, capsys):
+    # Half the ring is already 'o': only the other half counts.
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    g = grid_of(p)
+    ring = sum(c == "o" for row in g for c in row)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--corners") == 0
+    out = capsys.readouterr().out.splitlines()[-1]
+    g2 = grid_of(p)
+    lit = sum(c == "l" for row in g2 for c in row)
+    new_o = sum(a != b and b == "o" for r1, r2 in zip(g, g2) for a, b in zip(r1, r2))
+    assert out == f"changed {lit + new_o} px: " + ", ".join(f"{n}->{k}" for k, n in (("o", new_o), ("l", lit)) if n) \
+        + f"; wrote {p}"
+    assert ring > 0
+
+
+def test_outline_lit_same_as_key_counts_once(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "o") == 0
+    assert capsys.readouterr().out == f"changed 12 px: 12->o; wrote {p}\n"
+
+
+def test_outline_preview_writes_only_the_png(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    before = p.read_text()
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--preview", tmp_path / "v.png") == 0
+    assert p.read_text() == before
+    assert capsys.readouterr().out == (f"would change 12 px: 6->o, 6->l; wrote {tmp_path / 'v.png'} (preview; {p} "
+                                       "unchanged)\n")
+    img = Image.open(tmp_path / "v.png").convert("RGBA")
+    doc = pxart.parse(p)
+    assert pxart.parse(p).resolved()["o"] in set(pxart.pixels(img))
+
+
+def test_outline_preview_matches_the_write(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    q = write(tmp_path, "q.px", p.read_text())
+    assert run("outline", f"{p}:a", "--key", "o", "--lit", "l", "--preview", tmp_path / "v.png") == 0
+    assert run("outline", f"{q}:a", "--key", "o", "--lit", "l") == 0
+    assert run("render", f"{q}:a", "-o", tmp_path / "r.png") == 0
+    assert list(pxart.pixels(Image.open(tmp_path / "v.png").convert("RGBA"))) == \
+        list(pxart.pixels(Image.open(tmp_path / "r.png").convert("RGBA")))
+
+
+def test_outline_preview_and_o_conflict(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    msg = run_err("outline", f"{p}:a", "--key", "o", "--preview", tmp_path / "v.png", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "drop -o or --preview" in msg and not (tmp_path / "v.png").exists()
+
+
+def test_shade_rerun_changes_nothing(tmp_path, capsys):
+    p = material_file(tmp_path, square_rows(6, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
+    capsys.readouterr()
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
+    assert capsys.readouterr().out == f"changed 0 px; no change: {p}\n"
+
+
+def test_shade_preview_says_would_change(tmp_path, capsys):
+    p = material_file(tmp_path, square_rows(6, pad=0))
+    assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n", "--preview", tmp_path / "v.png") == 0
+    assert capsys.readouterr().out == (f"would change 24 px: 4->A, 8->B, 8->D, 4->E; wrote {tmp_path / 'v.png'} "
+                                       f"(preview; {p} unchanged)\n")
+
+
+def test_shade_count_sums_over_frames(tmp_path, capsys):
+    body = "\n".join(square_rows(6, pad=0))
+    p = write(tmp_path, "m.px", SHADE_PAL + f"@frame w/0\n{body}\n@frame w/1\n{body}\n")
+    assert run("shade", f"{p}:w", "--ramp", RAMP, "--light", "n") == 0
+    assert capsys.readouterr().out == f"changed 48 px: 8->A, 16->B, 16->D, 8->E; wrote {p}\n"
+
+
+def test_help_documents_changed_counts():
+    doc = pxart.__doc__
+    assert '"changed 24 px: 4->A, 8->B, 8->D, 4->E"' in doc and '"changed 12 px: 6->o, 6->l"' in doc
+    assert "[--corners] [--preview P.png]" in doc and "Prints the count per tone" not in doc
+
+
 def test_shade_key_list_comma_key():
     assert pxart.key_list(",,a", "--ramp") == [",", "a"]
     assert pxart.key_list("abc", "--ramp") == ["a", "b", "c"] == pxart.key_list("a,b,c", "--ramp")
@@ -7964,7 +8053,7 @@ def test_shade_prints_counts(tmp_path, capsys):
     p = material_file(tmp_path, square_rows(6, pad=0))
     assert run("shade", f"{p}:a", "--ramp", RAMP, "--light", "n") == 0
     out = capsys.readouterr().out
-    assert out.startswith("shaded 24 px (A 4, B 8, C 12, D 8, E 4, darkest to lightest); wrote")
+    assert out == f"changed 24 px: 4->A, 8->B, 8->D, 4->E; wrote {p}\n"
 
 
 def test_shade_preview_writes_only_the_png(tmp_path, capsys):
@@ -9380,8 +9469,9 @@ def test_shade_region_counts_only_region_pixels(tmp_path, capsys):
     p = material_file(tmp_path, square_rows(10, pad=0))
     assert run("shade", f"{p}:a", "--ramp", RAMP, "--region", "0,0,2,2") == 0
     out = capsys.readouterr().out
-    counts = [int(x.split()[1]) for x in out.split("(")[1].split(",")[:5]]
-    assert sum(counts) == 4
+    changed = sum(c != "C" for row in grid_of(p) for c in row)
+    assert 0 < changed <= 4 and out.startswith(f"changed {changed} px: ")
+    assert sum(int(x.split("->")[0]) for x in out.split(": ", 1)[1].split(";")[0].split(", ")) == changed
 
 
 def test_shade_region_preview_matches_region_write(tmp_path):

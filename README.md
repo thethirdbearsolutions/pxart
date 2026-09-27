@@ -180,7 +180,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
     border is no edge).
   - `outline beast.px:idle --key o --lit m`: an outline around the shape (or `--inside` on
     its edge), pixel-perfect by default (`--corners` keeps square corners), and selective:
-    the edges facing the light get the lighter `--lit` key.
+    the edges facing the light get the lighter `--lit` key (`--preview p.png` as for shade).
+  - Both print only the pixels they changed, by the key they got: `changed 41 px: 29->C, 12->X`.
   - `rotate FILE 90|180|270` and `transpose` turn path tiles into their edges and corners
     (then re-light with `shade` and `outline --lit`, since the light turned too).
 - **Converting:**
