@@ -12039,3 +12039,91 @@ def test_help_documents_the_walk_rule():
 def test_readme_documents_the_walk_rule():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "a walk frame whose legs happen to stay put reads as its bob" in readme
+
+
+# ---------------------------------------------------------------- onion: two different sprites get their edges only
+
+KEEPER_ISH = "k #000000\ny #ffff00\n@frame a\n.kk.\nkyyk\nkyyk\n.kk.\n"
+KID_ISH = "k #000000\ns #ff8080\n@frame a\ns..s\n.ss.\n.ss.\ns..s\n"   # same 4x4 size, nearly every pixel different
+TALL = "k #000000\n@anim w ms=100\n@frame w/0\n.k.\nkkk\nk.k\n@frame w/1\n.k.\n.k.\nkkk\nk.k\n@frame x\n.k.\nkkk\nk.k\nk.k\n"
+
+
+def test_onion_different_characters_same_size_edges_only(tmp_path, capsys):
+    a, b = write(tmp_path, "keeper.px", KEEPER_ISH), write(tmp_path, "kid.px", KID_ISH)
+    lines = onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a")
+    assert lines[2] == "B vs A: left +0, right +0, top +0, bottom +0; different sprites: edges only"
+    assert "best shift" not in "\n".join(lines)
+
+
+def test_onion_different_characters_band_edges_only_too(tmp_path, capsys):
+    # The band doesn't make them one sprite: the whole sprites decide.
+    a, b = write(tmp_path, "keeper.px", KEEPER_ISH), write(tmp_path, "kid.px", KID_ISH)
+    lines = onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a", "--feet", "1")
+    assert lines[2] == "B vs A (row 3): left -1, right +1, top +0, bottom +0; different sprites: edges only"
+
+
+def test_onion_different_sizes_different_files_edges_only(tmp_path, capsys):
+    a = write(tmp_path, "keeper.px", KEEPER_ISH)
+    b = write(tmp_path, "small.px", "k #000000\ny #ffff00\n@frame a\n.kk.\nkyyk\n.kk.\n")  # 4x3: nearly the same art
+    lines = onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a")
+    assert lines[2].endswith("; different sprites: edges only") and lines[2].startswith("B vs A: left +0, right +0, ")
+
+
+def test_onion_different_sizes_one_animation_keeps_the_best_shift(tmp_path, capsys):
+    # Frames of one animation may differ in size (an attack frame): still one sprite.
+    p = write(tmp_path, "t.px", TALL)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
+    assert "; best shift " in lines[2] and "different sprites" not in lines[2]
+
+
+def test_onion_different_sizes_other_group_of_one_file_edges_only(tmp_path, capsys):
+    p = write(tmp_path, "t.px", TALL)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:x")
+    assert lines[2].endswith("; different sprites: edges only")
+
+
+def test_onion_same_size_similar_frames_keep_the_best_shift(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BOB)
+    lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
+    assert lines[2].endswith("; best shift +0,+1 then 3px changed (no shift: 5px)")
+
+
+def test_onion_exactly_half_changed_is_still_one_sprite(tmp_path, capsys):
+    # 2 of 4 opaque pixels changed at the best shift: not more than half.
+    p = write(tmp_path, "h.px", "k #000000\nr #ff0000\n@frame a\nkk\nkk\n@frame b\nkr\nrk\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[2] == "B vs A: left +0, right +0, top +0, bottom +0; best shift +0,+0 then 2px changed (no shift: 2px)"
+
+
+def test_onion_more_than_half_changed_is_two_sprites(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\nr #ff0000\n@frame a\nkk\nkk\n@frame b\nkr\nrr\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[2] == "B vs A: left +0, right +0, top +0, bottom +0; different sprites: edges only"
+
+
+def test_onion_different_sprites_png_image_unchanged(tmp_path, capsys):
+    # Only the readout changes: the picture is drawn as always.
+    a, b = write(tmp_path, "keeper.px", KEEPER_ISH), write(tmp_path, "kid.px", KID_ISH)
+    onion_lines(tmp_path, capsys, f"{a}:a", f"{b}:a")
+    img = Image.open(tmp_path / "o.png")
+    assert img.size == (4 * 8 + 16, 4 * 8 + 16)
+
+
+def test_onion_pngs_of_two_sizes_are_two_sprites(tmp_path, capsys):
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "a.png")
+    Image.new("RGBA", (2, 1), (1, 2, 3, 255)).save(tmp_path / "b.png")
+    lines = onion_lines(tmp_path, capsys, tmp_path / "a.png", tmp_path / "b.png")
+    assert lines[2] == "B vs A: left +0, right +0, top +1, bottom +0; different sprites: edges only"
+
+
+def test_onion_one_png_against_itself_keeps_the_shift(tmp_path, capsys):
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "a.png")
+    lines = onion_lines(tmp_path, capsys, tmp_path / "a.png", tmp_path / "a.png")
+    assert lines[2].endswith("best shift +0,+0 then 0px changed (no shift: 0px)")
+
+
+def test_help_documents_onion_different_sprites():
+    doc = " ".join(pxart.__doc__.split())
+    assert "different sprites: edges only" in doc and "unless both are frames of one animation in one file" in doc
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`different sprites: edges only`" in readme

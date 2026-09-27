@@ -120,7 +120,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   its bob, `shift +0,+1 then 23px`), and for the rise and the fall of one breath alike; a
   ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
   `shift -1,+4 (wrap)`), `onion` (B over a faded A, and a printed readout of how B's edges
-  moved from A's, like `top -1, bottom +0`, for a 1px jump too faint to see; `--feet N` or
+  moved from A's, like `top -1, bottom +0`, for a 1px jump too faint to see, and the best
+  shift, or for two different characters `different sprites: edges only`; `--feet N` or
   `--rows Y0-Y1` reads only that band, so a weapon swing doesn't hide the feet, and
   `--tint-a` draws A as a colored silhouette), `scene` (.px/.png items at x,y, negative
   allowed, mirrored with a `+h`/`+v` suffix as in `hero.px:walk/0+h@3,4`; `--variant V`
