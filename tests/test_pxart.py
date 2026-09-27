@@ -27775,7 +27775,7 @@ def test_onion_unknown_variant_is_e_select(tmp_path):
 
 
 def test_help_documents_onion_variant(capsys):
-    assert "[--tint-a [COLOR] | --fade-a] [--variant V]" in pxart.__doc__
+    assert "[--tint-a [COLOR] | --fade-a] [--variant V]" in " ".join(pxart.__doc__.split())
     assert run("onion", "-h") == 0
     assert "draw A and B in V (a halo lit only at night counts)" in " ".join(capsys.readouterr().out.split())
 
@@ -27848,3 +27848,39 @@ def test_edit_of_nine_frames_still_shortens_the_list(tmp_path, capsys):
     p = write(tmp_path, "e.px", EIGHT)
     assert run("recolor", p, "k=j") == 0
     assert capsys.readouterr().out.startswith("edited 9 frames: f/0, f/1, f/2 and 6 more\n")
+
+
+# ---------------------------------------------------------------- compose: a merged @variant credits every file in it
+
+def credit_packs(tmp_path):
+    (tmp_path / "pal.px").write_text("pxart 1\nk #111111\n# night: shells sink into blue\n@variant night\nk #000022\n")
+    (tmp_path / "lamppal.px").write_text("pxart 1\no #2b2b33\n@variant night\no #15151f\n")
+    write(tmp_path, "bug.px", "pxart 1\n@palette pal.px\nt #1e4548\n@variant night\nt #10262c\n@frame b\nkt\n")
+    write(tmp_path, "lamp.px", "pxart 1\n@palette lamppal.px\n@frame l\noo\n")
+
+
+def test_compose_merged_variant_credits_a_file_with_no_comment_too(tmp_path, capsys):
+    credit_packs(tmp_path)
+    out = tmp_path / "s.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{tmp_path}/lamp.px:l@0,0", f"{tmp_path}/bug.px:b@0,1") == 0
+    text = out.read_text()
+    assert "# night: shells sink into blue (from bug.px's @variant night)\n# night: also from lamp.px's night\n" \
+           "@variant night\n" in text
+
+
+def test_compose_merged_variant_no_also_line_when_every_file_is_credited(tmp_path, capsys):
+    credit_packs(tmp_path)
+    (tmp_path / "lamppal.px").write_text("pxart 1\no #2b2b33\n# night: the lamp dims\n@variant night\no #15151f\n")
+    out = tmp_path / "s.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{tmp_path}/lamp.px:l@0,0", f"{tmp_path}/bug.px:b@0,1") == 0
+    text = out.read_text()
+    assert "also from" not in text
+    assert "# night: the lamp dims (from lamp.px's @variant night)" in text
+    assert "# night: shells sink into blue (from bug.px's @variant night)" in text
+
+
+def test_compose_one_file_variant_has_no_also_line(tmp_path, capsys):
+    credit_packs(tmp_path)
+    out = tmp_path / "s.px"
+    assert run("compose", "-o", out, f"{tmp_path}/bug.px:b@0,0") == 0
+    assert "also from" not in out.read_text()

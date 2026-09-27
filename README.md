@@ -249,7 +249,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
   comments on their key and `@variant` lines, each naming its file when there are several
   (`from keeper.px's @variant night, dusk here`; a `@variant`'s names only the files whose
-  variant lines gave it keys, `the rest from pal.px's night`), with the palette files' headers at the
+  variant lines gave it keys, `the rest from pal.px's night`, and a line
+  `# night: also from lamp.px's night` credits a file that gave it keys with no comment of its own), with the palette files' headers at the
   top; a key its file needs (drawn in other frames,
   named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports per
   source file, one line per reason, with what `--rekey` moved and why, and an `E_KEY_CONFLICT`

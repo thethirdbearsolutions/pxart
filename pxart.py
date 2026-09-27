@@ -104,7 +104,7 @@ LOOKING
       frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
       P: N as a percent of the frame's opaque pixels, or of both frames' if more; a bob alone
       shows "then 0px (0%)"). The numbers print too, a line per frame (a FILE of several
-      groups: a block each, top-level and @still frames left out; -o a DIR);
+      groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
@@ -124,8 +124,8 @@ LOOKING
       opaque) or a sparse overlay (at most 1/4 opaque: snow) also try every wrap-around scroll
       (shift --wrap), shown when it leaves strictly fewer pixels changed than the best plain
       shift: "shift dx,dy (wrap) then N px (P%) (no shift: M px)". A character sprite never wraps.
-  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a] [--variant V]
-        [--dry-run]
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
+        [--variant V] [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
       with render's grid and rulers, so where A shows past B is plain to see.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
@@ -248,9 +248,9 @@ CHECKING
       --exclude as for sheet).
       FILE:SEL%VARIANT reads the colors a variant renders (--variant V: every FILE's): 'stats
       hero.px:idle/0%night'. --colors lists each frame's rendered colors, most pixels first,
-      each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y (repeatable) prints that pixel's key and its color in
-      the base palette and in every variant ('at 3,4: key k; base #3f2631, night #120e22'),
-      or only in the one named.
+      each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
+      (repeatable) prints that pixel's key and its color in the base palette and in every
+      variant ('at 3,4: key k; base #3f2631, night #120e22'), or only in the one named.
   diff A B [--variant V] [--strict-alpha] [--exclude GLOB] [-o DIFF.png|DIR [--scale N]]
        [--labels CSV [--label-col C] [--file-col C]]
       Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
@@ -381,12 +381,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
       variants, and @anim/@still lines (minus those of groups left behind;
-      @anim lines in the order of the frames' groups): 'extract hero.px:walk/down -o walk.px'. An OUT that exists
-      is E_FILE, since its frames would be lost (E_DUP_FRAME when it has one of the ids):
-      'frames FILE:SEL --copy-to OUT' adds them to it, and --replace overwrites it.
-      --inline-palette makes OUT self-contained for a hand-off: the imported keys it uses become key lines,
-      with their variant colors, and the @palette lines go. OUT renders exactly like the
-      source frames, in every variant.
+      @anim lines in the order of the frames' groups): 'extract hero.px:walk/down -o
+      walk.px'. An OUT that exists is E_FILE, since its frames would be lost (E_DUP_FRAME
+      when it has one of the ids): 'frames FILE:SEL --copy-to OUT' adds them to it, and
+      --replace overwrites it. --inline-palette makes OUT self-contained for a hand-off: the
+      imported keys it uses become key lines, with their variant colors, and the @palette
+      lines go. OUT renders exactly like the source frames, in every variant.
   recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h] [--variant V]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
@@ -401,8 +401,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       'a>b' of the call renames away is free for a new key, so 'g>r' 'd>g' renames g to r and
       d to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look). A key the
       call keeps (pixels outside --region or the selection draw with it, it is imported, or
-      c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
-      the palette (V's: --variant V) and don't move pixels: c=#hex, c=d and 'b>t' t=#hex share a call.
+      c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes (V's:
+      --variant V) set the palette, moving no pixels: c=#hex, c=d and 'b>t' t=#hex share a
+      call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
         [--variant-map NAME=V1,V2] [--align shift|pivot|bottom|bbox] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
@@ -5796,10 +5797,12 @@ def carry_notes(doc, docs, notes, renamed, owners, vmap):
         gave = {id(d) for d, src in takes if any(lines_of(d, src).get(k) == c for k, c in over.items())}
         rest = [f"{pathlib.PurePath(r).name}'s" for r in doc.palette_refs] if name in doc.shared_variants else []
         rest = f"{' and '.join(rest)} {name}" if rest else ""
+        named = set()  # the files a comment's tag credits
         for got, whose in groups.items():
             credited = [(d, src) for d, src in whose if id(d) in gave] if multi else whose
             if not credited and not rest:  # nothing better to go on: every file that has it
                 credited = whose
+            named |= {id(d) for d, _ in credited}
             srcs = list(dict.fromkeys(src for _, src in credited))
             what = " and ".join(dict.fromkeys(f"{d.path.name}'s" for d, _ in credited)) + f" @variant {'/'.join(srcs)}"
             here = f", {name} here" if srcs != [name] else ""
@@ -5813,6 +5816,13 @@ def carry_notes(doc, docs, notes, renamed, owners, vmap):
         froms = list(dict.fromkeys(f"{d.path.name}'s {src}" for d, src in takes))
         if name in vmap and any(src != name for _, src in takes):
             lines.append(f"# {name}: {', '.join(froms)} (compose --variant-map)")
+        elif multi and lines:  # a file whose variant gave keys but no comment is credited too, so no tag reads as all
+            also = [(d, src) for d, src in takes if id(d) in gave and id(d) not in named]
+            if also:
+                same = all(src == name for _, src in also)  # 'far.px's and mid.px's dusk', else each one's
+                whose = [f"{d.path.name}'s" + ("" if same else f" {src}") for d, src in also]
+                lines.append(f"# {name}: also from {', '.join(whose[:-1]) + ' and ' if len(whose) > 1 else ''}"
+                             f"{whose[-1]}" + (f" {name}" if same else ""))
         if lines:
             doc.lead[("variant", name)] = [""] + lines
         for k in over:

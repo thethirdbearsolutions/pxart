@@ -80,6 +80,7 @@ k #9e5a52
 
 # dusk: ~30% down, shadows toward plum-blue, lit tones pick up the sunset orange.
 # Kept a step brighter than the field's dusk so the hero still reads on the grass. (renamed s>N; from hero.px's @variant dusk)
+# dusk: also from far.px's, mid.px's, field.px's and tree.px's dusk
 @variant dusk
 1 #2c2458
 2 #4c2e6a
