@@ -16754,3 +16754,118 @@ def test_help_documents_palette_explained():
     assert "A recolor is darker, brighter ('brightens y W': lamps lit brighter at night) or as bright" in text
     assert "--in DIR counts the .px files under DIR that import it" in text
     assert "[--remove KEYS [--to KEY]] [--in DIR]" in text
+
+
+# ---------------------------------------------------------------- sheet --rows group: one animation group per row
+
+ROWS_SRC = ("pxart 1\nk #000000\nw #ffffff\n@anim walk/down ms=100\n@anim walk/up ms=100\n"
+            + "".join(f"@frame walk/down/{i}\nkw\nwk\n" for i in range(3))
+            + "".join(f"@frame walk/up/{i}\nkkk\nwww\nkkk\n" for i in range(2))
+            + "@frame icon\nk\n@frame badge\nw\n")
+
+
+def rows_items(tmp_path, text=ROWS_SRC, name="p.px"):
+    return pxart.all_items([str(write(tmp_path, name, text))])
+
+
+def test_sheet_rows_default_is_cols(tmp_path):
+    its = rows_items(tmp_path)
+    assert pxart.sheet_rows(its, 3) == [[0, 1, 2], [3, 4, 5], [6]]
+    assert pxart.sheet_rows(its, 3, "cols") == [[0, 1, 2], [3, 4, 5], [6]]
+
+
+def test_sheet_rows_group_one_row_each(tmp_path):
+    its = rows_items(tmp_path)
+    assert pxart.sheet_rows(its, 8, "group") == [[0, 1, 2], [3, 4], [5, 6]]
+
+
+def test_sheet_rows_group_wraps_within_a_long_group(tmp_path):
+    its = rows_items(tmp_path)
+    assert pxart.sheet_rows(its, 2, "group") == [[0, 1], [2], [3, 4], [5, 6]]
+
+
+def test_sheet_rows_group_one_col(tmp_path):
+    its = rows_items(tmp_path)
+    assert pxart.sheet_rows(its, 1, "group") == [[0], [1], [2], [3], [4], [5], [6]]
+
+
+def test_sheet_rows_group_interleaved_frames_gather(tmp_path):
+    text = "k #000000\n@frame a/0\nk\n@frame b/0\nk\n@frame a/1\nk\n"
+    assert pxart.sheet_rows(rows_items(tmp_path, text), 8, "group") == [[0, 2], [1]]
+
+
+def test_sheet_rows_group_same_group_two_files(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\n@frame walk/0\nk\n@frame walk/1\nk\n")
+    b = write(tmp_path, "b.px", "k #000000\n@frame walk/0\nk\n")
+    its = pxart.all_items([str(a), str(b)])
+    assert pxart.sheet_rows(its, 8, "group") == [[0, 1], [2]]
+
+
+def test_sheet_rows_group_pngs_alone(tmp_path):
+    for n in "xy":
+        Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / f"{n}.png")
+    its = pxart.all_items([str(tmp_path / "x.png"), str(tmp_path / "y.png")])
+    assert pxart.sheet_rows(its, 8, "group") == [[0], [1]]
+
+
+def test_sheet_rows_group_unnamed_grid(tmp_path):
+    its = rows_items(tmp_path, "k #000000\nkk\n")
+    assert pxart.sheet_rows(its, 8, "group") == [[0]]
+
+
+def test_sheet_fit_rows_group_image_is_one_row_per_group(tmp_path, capsys):
+    p = write(tmp_path, "p.px", ROWS_SRC)
+    one, grouped = tmp_path / "one.png", tmp_path / "g.png"
+    assert run("sheet", p, "--fit", "-o", one, "--scale", "4") == 0
+    assert run("sheet", p, "--fit", "--rows", "group", "-o", grouped, "--scale", "4") == 0
+    a, b = Image.open(one), Image.open(grouped)
+    assert b.height > a.height and b.width < a.width
+    # three rows: each as tall as its tallest frame (8, 12, 4 px at scale 4) plus the label band and padding
+    assert b.height == 10 + (8 + 26 + 10) + (12 + 26 + 10) + (4 + 26 + 10)
+
+
+def test_sheet_rows_group_without_fit(tmp_path, capsys):
+    p = write(tmp_path, "p.px", ROWS_SRC)
+    out = tmp_path / "g.png"
+    assert run("sheet", p, "--rows", "group", "-o", out, "--scale", "4") == 0
+    img = Image.open(out)
+    cells_h = 3 * 4 + 26 + 10
+    assert img.height == 10 + 3 * cells_h
+
+
+def test_sheet_rows_cols_is_the_default_bytes(tmp_path, capsys):
+    p = write(tmp_path, "p.px", ROWS_SRC)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", p, "--fit", "-o", a, "--cols", "3") == 0
+    assert run("sheet", p, "--fit", "--rows", "cols", "-o", b, "--cols", "3") == 0
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_sheet_rows_group_with_align_pivot(tmp_path, capsys):
+    p = write(tmp_path, "p.px", ROWS_SRC.replace("@anim walk/down ms=100", "@anim walk/down ms=100 pivot=1,1"))
+    assert run("sheet", p, "--fit", "--rows", "group", "--align", "pivot", "-o", tmp_path / "s.png") == 0
+
+
+def test_sheet_rows_bad_choice(tmp_path):
+    p = write(tmp_path, "p.px", ROWS_SRC)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["sheet", str(p), "--rows", "anim", "-o", str(tmp_path / "s.png")])
+    assert e.value.code == 2
+
+
+def test_sheet_rows_group_labels_every_frame_once(tmp_path, capsys):
+    # every frame is drawn: the sheet with rows by group has the same cells, only placed otherwise
+    its = rows_items(tmp_path)
+    got = sorted(n for row in pxart.sheet_rows(its, 2, "group") for n in row)
+    assert got == list(range(len(its)))
+
+
+def test_help_documents_sheet_rows_group():
+    text = " ".join(pxart.__doc__.split())
+    assert "[--fit] [--align bottom|pivot] [--rows cols|group]" in text
+    assert "--rows group starts a row for each animation group" in text
+
+
+def test_readme_documents_sheet_rows_group():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--rows group` puts each animation group on a row of its own" in readme

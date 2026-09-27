@@ -55,7 +55,7 @@ LOOKING
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-        [--fit] [--align bottom|pivot]
+        [--fit] [--align bottom|pivot] [--rows cols|group]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
       PNGs in it are left out, a sheet rendered there too). A palette file (no frames) among
@@ -74,6 +74,11 @@ LOOKING
       without one uses its bottom-centre pixel), so a walk frame whose pivot says it stands
       1px lower isn't shown 1px high. The label keeps the frame's own WxH. The default,
       --align bottom, bottom-aligns each frame in its cell.
+      --rows group starts a row for each animation group (one file's walk/down, then its
+      walk/up, ...; a file's top-level frames share one; a PNG has its own) and wraps within
+      a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
+      --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
+      row with --cols frames.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames,
@@ -1451,7 +1456,20 @@ def file_error(cmd, e):
     return msg
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom"):
+def sheet_rows(its, cols, rows="cols"):
+    """The sheet's rows, as lists of item indexes: --cols items each, or with rows 'group' one animation group per row
+    (a file's frames of one group; a file's top-level frames together; a PNG alone), groups in order of first
+    appearance, wrapping within a group longer than --cols."""
+    if rows != "group":
+        return [list(range(n, min(n + cols, len(its)))) for n in range(0, len(its), cols)]
+    groups = {}
+    for n, it in enumerate(its):
+        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "") if it.doc else ("png", n)
+        groups.setdefault(key, []).append(n)
+    return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
+
+
+def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom", rows="cols"):
     """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
     frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right. align 'pivot':
     the frames of one animation group (one file's) are drawn on one canvas each, lined up by pivot as anim does
@@ -1476,22 +1494,25 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
     cols = max(1, min(cols, len(tiles)))
-    rows = (len(tiles) + cols - 1) // cols
+    lines = sheet_rows(its, cols, rows)
+    order = [n for line in lines for n in line]  # the items in the order they're drawn
+    spots = {}
     if fit:
         cws = [max(t.width, l + (it.img.width if it.img.height <= 22 else 0) + 8) for (it, t), l in zip(tiles, lws)]
-        chs = [max(t.height for _, t in tiles[r * cols:(r + 1) * cols]) for r in range(rows)]
-        spots, y = [], pad
-        for r in range(rows):
-            x = pad
-            for n in range(r * cols, min((r + 1) * cols, len(tiles))):
-                spots.append((x, y, cws[n], chs[r], lws[n]))
+        y = pad
+        for line in lines:
+            h, x = max(tiles[n][1].height for n in line), pad
+            for n in line:
+                spots[n] = (x, y, cws[n], h, lws[n])
                 x += cws[n] + pad
-            y += chs[r] + lab + pad
-        size = (max(x + w + pad for x, _, w, _, _ in spots), y)
+            y += h + lab + pad
+        size = (max(x + w + pad for x, _, w, _, _ in spots.values()), y)
     else:
-        spots = [(pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad), cw, ch, lw)
-                 for n in range(len(tiles))]
-        size = (pad + cols * (cw + pad), pad + rows * (ch + lab + pad))
+        for r, line in enumerate(lines):
+            for c, n in enumerate(line):
+                spots[n] = (pad + c * (cw + pad), pad + r * (ch + lab + pad), cw, ch, lw)
+        size = (pad + max(len(line) for line in lines) * (cw + pad), pad + len(lines) * (ch + lab + pad))
+    tiles, spots = [tiles[n] for n in order], [spots[n] for n in order]
     s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
     for (it, big), (x, y, cw, ch, lw) in zip(tiles, spots):
@@ -2118,7 +2139,7 @@ def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
     files = frames_only(in_dirs(a.files), "sheet")
     print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
-                         align=a.align))
+                         align=a.align, rows=a.rows))
 
 
 def cmd_anim(a):
@@ -5517,6 +5538,8 @@ def parser(describe=True):
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
+    p.add_argument("--rows", choices=["cols", "group"], default="cols",
+                   help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
     p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
