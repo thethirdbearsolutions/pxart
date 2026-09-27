@@ -211,8 +211,8 @@ CHECKING
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and
                                     palette files as for sheet)
-  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
-         [--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2]]
+  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
+         [--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2] [--prefix P | --rename GROUP NEWGROUP]]
       List frames, sizes, durations (only for animation frames; 'still' for @still groups
       and every frame under '@still *') and animations; or delete / reorder frames (prints
       what it removed or moved, not the listing; a move to where the frames already are
@@ -235,6 +235,14 @@ CHECKING
       back a frame removed by mistake, copy it from a copy of the file, --after its neighbor.
       DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
       --empty --palette P.px' one with no frames that imports P.
+      Copies under other ids, when DST has those already (two packs' walk/*): --prefix wick/
+      puts wick/ in front of every copy's id ('frames wick.px:walk --copy-to party.px --prefix
+      wick/' writes wick/walk/down/0 and '@anim wick/walk/down'), and --rename walk wick/walk
+      renames only the group (or frame) it names; FILE stays as it is. --rename repeats.
+      --rename GROUP NEWGROUP without --copy-to renames in FILE itself: GROUP's frames (walk/0,
+      walk/1, or the frame GROUP) become NEWGROUP's (wick/walk/0, ...), and the @anim and
+      @still lines of GROUP and the groups under it follow, with their comments. A NEWGROUP
+      FILE already has is E_DUP_FRAME.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -2467,12 +2475,25 @@ def cmd_frames(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(path, allow_empty=True)
         picked = doc.select(sel) if sel else doc.frames
+    if a.prefix is not None and not a.copy_to:
+        fail("E_BAD_ARG", f"--prefix names the copies --copy-to DST makes; to rename frames in {path}: frames "
+             f"{path} --rename GROUP NEWGROUP")
+    if a.rename and a.prefix is not None:
+        fail("E_BAD_ARG", "give --prefix P (every copied id gets P in front) or --rename GROUP NEWGROUP, not both")
     if a.copy_to:
         if a.rm is not None or a.move:
             fail("E_BAD_ARG", "--copy-to copies frames; --rm and --move edit FILE: give one")
         if a.after and a.before:
             fail("E_BAD_ARG", "give --after or --before, not both")
         print(frames_copy(a, doc, sel, picked))
+        return
+    if a.rename:
+        if a.rm is not None or a.move or a.after or a.before:
+            fail("E_BAD_ARG", "--rename renames in place; --rm, --move, --after and --before are other edits: give one")
+        if sel:
+            fail("E_BAD_ARG", f"--rename GROUP NEWGROUP names what it renames; give FILE without :{sel}: frames {path} "
+                 f"--rename {sel} NEWGROUP")
+        print("; ".join(rename_frames(doc, a.rename) + [write_doc(doc)]))
         return
     if a.rm is not None or a.move or a.after or a.before:
         if doc.implicit:
@@ -2517,6 +2538,14 @@ def frames_copy(a, doc, sel, picked):
         if missing:
             fail("E_SELECT", f"--copy-to {', '.join(missing)}: no such frame" + (f" in {sel!r}" if sel else ""))
         picked = [f for f in picked if f.id in ids]
+    renames = [tuple(r) for r in a.rename or []]
+    if a.prefix is not None:
+        renames = [(g, a.prefix + g) for g in dict.fromkeys(f.id.split("/", 1)[0] for f in picked)]
+        if not a.prefix or not all(ID_RE.match(n) for _, n in renames):
+            fail("E_BAD_ID", f"--prefix {a.prefix!r}: the copies' ids would be {', '.join(n for _, n in renames)}; "
+                 "a prefix is a path of letters, digits, _ - and . ('wick/', or 'wick-')")
+    check_renames(renames, [f.id for f in picked], f"{a.file}'s frames to copy")
+    new_id = {id(f): renamed_id(f.id, renames) for f in picked}
     if not pathlib.Path(dpath).exists():
         fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames and {doc.path}'s palette: "
              f"pxart extract {doc.path}{':' + sel if sel else ''} -o {dpath}; to copy them into a file that imports "
@@ -2528,10 +2557,11 @@ def frames_copy(a, doc, sel, picked):
             fail("E_MIXED_FRAMES", f"{dpath} has one unnamed grid, and its name {dst.stem!r} can't be a frame id")
         dst.promote()
         print(f"note: {dpath}'s unnamed grid is now '@frame {dst.stem}' (the id it went by)")
-    dups = [f.id for f in picked if dst.get(f.id)]
+    dups = [new_id[id(f)] for f in picked if dst.get(new_id[id(f)])]
     if dups:
         fail("E_DUP_FRAME", f"{dpath} already has {', '.join(dups)}; remove them first (pxart frames {dpath} --rm "
-             f"{' '.join(dups)}) or copy the others")
+             f"{' '.join(dups)}), copy the others, or copy them under other ids (--prefix P, or --rename GROUP "
+             "NEWGROUP)")
     anchor = dst.get(a.after or a.before or "")
     if (a.after or a.before) and not anchor:
         fail("E_SELECT", f"--{'after' if a.after else 'before'} {a.after or a.before!r}: no such frame in {dpath}")
@@ -2556,17 +2586,18 @@ def frames_copy(a, doc, sel, picked):
         print("note: " + ". ".join(p for p in parts if p))
     said = []
     for g in dict.fromkeys(f.group for f in picked if f.group):
-        if g in doc.anims and g not in dst.anims:
-            dst.anims[g] = dict(doc.anims[g])
-            said.append(f"added @anim {g}")
-        elif g in doc.anims and any(doc.anims[g].get(k) != dst.anims[g].get(k) for k in ("direction", "repeat")):
-            print(f"note: {dpath}'s @anim {g} stays (direction and repeat are the group's)")
-        if doc.still(g) and not dst.still(g):
-            dst.stills.append(g)
-            said.append(f"added @still {g}")
+        n = renamed_id(g, renames)
+        if g in doc.anims and n not in dst.anims:
+            dst.anims[n] = dict(doc.anims[g])
+            said.append(f"added @anim {n}")
+        elif g in doc.anims and any(doc.anims[g].get(k) != dst.anims[n].get(k) for k in ("direction", "repeat")):
+            print(f"note: {dpath}'s @anim {n} stays (direction and repeat are the group's)")
+        if doc.still(g) and not dst.still(n):
+            dst.stills.append(n)
+            said.append(f"added @still {n}")
     at = dst.frames.index(anchor) + (1 if a.after else 0) if anchor else None
     for f in picked:
-        new = Frame(f.id, list(f.grid), f.ms, pivot=f.pivot)
+        new = Frame(new_id[id(f)], list(f.grid), f.ms, pivot=f.pivot)
         if at is not None:
             dst.frames.insert(at, new)
             at += 1
@@ -2577,11 +2608,80 @@ def frames_copy(a, doc, sel, picked):
             new.ms = doc.ms(f)
         if dst.pivot(new) != doc.pivot(f):
             if doc.pivot(f) is None:
-                print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {f.group} pivot there")
+                print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {new.group} pivot there")
             else:
                 new.pivot = doc.pivot(f)
     where = f" ({'after' if a.after else 'before'} {anchor.id})" if anchor else ""
-    return "; ".join([f"copied {', '.join(f.id for f in picked)} to {dpath}{where}"] + said + [write_doc(dst)])
+    names = [f"{o} as {n}" for o, n in renames if any(new_id[id(f)] != f.id and renamed_id(f.id, [(o, n)]) != f.id
+                                                       for f in picked)]
+    return "; ".join([f"copied {', '.join(f.id for f in picked)} to {dpath}{where}"
+                      + (f", {', '.join(names)}" if names else "")] + said + [write_doc(dst)])
+
+
+def renamed_id(fid, renames):
+    """A frame id or group under --rename's [(OLD, NEW)]: OLD itself becomes NEW, OLD/rest becomes NEW/rest (the first
+    rename that names it); any other id stays."""
+    for old, new in renames:
+        if fid == old:
+            return new
+        if fid and fid.startswith(old + "/"):
+            return new + fid[len(old):]
+    return fid
+
+
+def check_renames(renames, ids, where):
+    """--rename's pairs against the frame ids they rename: each OLD names some of them, each new id is a valid one."""
+    for old, new in renames:
+        if not any(i == old or i.startswith(old + "/") for i in ids):
+            fail("E_SELECT", f"--rename {old} {new}: no frame {old!r} or {old}/... in {where}; frames: "
+                 f"{', '.join(ids) or 'none'}")
+    bad = [renamed_id(i, renames) for i in ids if not ID_RE.match(renamed_id(i, renames))]
+    if bad:
+        fail("E_BAD_ID", f"--rename gives bad frame ids: {', '.join(map(repr, bad))} (ids are paths of letters, "
+             "digits, _ - and .)")
+
+
+def rename_frames(doc, renames):
+    """frames FILE --rename GROUP NEWGROUP (repeatable): the frames of GROUP (or the frame GROUP) get NEWGROUP's ids,
+    and GROUP's @anim and @still lines name NEWGROUP; comments above them stay with them. What it did."""
+    renames = [tuple(r) for r in renames]
+    ids = [f.id for f in doc.frames if f.id]
+    if doc.implicit:
+        fail("E_MIXED_FRAMES", f"{doc.path} has one unnamed grid; nothing to rename")
+    check_renames(renames, ids, doc.path)
+    moving = {i for i in ids if renamed_id(i, renames) != i}
+    new_ids = [renamed_id(i, renames) for i in ids]
+    taken = [n for i, n in zip(ids, new_ids) if i in moving and (n in set(ids) - moving or new_ids.count(n) > 1)]
+    groups = {f.group for f in doc.frames if f.id not in moving}
+    into = [new for _, new in renames if new in groups or new in set(ids) - moving]
+    if taken or into:
+        what = sorted(set(taken)) or into
+        fail("E_DUP_FRAME", f"--rename: {doc.path} already has {listed(what, 5)}; rename into a group it hasn't "
+             "got (or remove those frames first: frames FILE:GROUP --rm)")
+    for store in (doc.lead, doc.raw, doc.at):
+        for anchor in [k for k in store if k[0] in ("frame", "row", "anim", "still") and k[1] is not None]:
+            new = renamed_id(anchor[1], renames)
+            if new != anchor[1]:
+                store[(anchor[0], new) + anchor[2:]] = store.pop(anchor)
+    for f in doc.frames:
+        f.id = renamed_id(f.id, renames)
+    said = []
+    anims = {}
+    for g, v in doc.anims.items():
+        n = renamed_id(g, renames)
+        anims[n] = v
+        if n != g:
+            said.append(f"@anim {n}")
+    doc.anims = anims
+    stills = []
+    for g in doc.stills:
+        n = renamed_id(g, renames) if g != "*" else g
+        stills.append(n)
+        if n != g:
+            said.append(f"@still {n}")
+    doc.stills = stills
+    per = [f"{old} -> {new} ({sum(1 for i in ids if renamed_id(i, [(old, new)]) != i)} frame(s))" for old, new in renames]
+    return [f"renamed {', '.join(per)}" + (f"; {', '.join(said)}" if said else "")]
 
 
 def drop_orphans(doc, emptied):
@@ -5107,6 +5207,10 @@ def parser(describe=True):
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
+    p.add_argument("--rename", nargs=2, action="append", metavar=("GROUP", "NEWGROUP"),
+                   help="GROUP's frames (or the frame GROUP) get NEWGROUP's ids, @anim/@still lines too; with "
+                        "--copy-to, only the copies (repeatable)")
+    p.add_argument("--prefix", metavar="P", help="with --copy-to: every copy's id gets P in front ('wick/')")
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
     p.add_argument("-o")

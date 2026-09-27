@@ -4828,7 +4828,8 @@ def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
 
 def test_help_documents_frames_copy_to():
     doc = pxart.__doc__
-    assert "[--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+    assert "[--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2] [--prefix P | --rename GROUP NEWGROUP]]" \
+        in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
 
 
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
@@ -15424,3 +15425,312 @@ def test_help_says_the_map_adds(capsys):
 def test_readme_says_the_map_adds():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "it adds to the same-name lookup, never replaces it: OUT's night still reads each file's night" in readme
+
+
+# ---------------------------------------------------------------- frames --copy-to --prefix / --rename, frames --rename
+# Wick's walk/* met the keeper's walk/* in party.px: the copies need other ids, and a group needs renaming in place.
+
+RSRC = ("pxart 1\nk #000000\nw #ffffff\n\n# the walk\n@anim walk/down ms=150 pivot=0,1\n@anim walk/up ms=140\n"
+        "@still ui\n\n# first step\n@frame walk/down/0\nkw\nk.\n@frame walk/down/1 ms=200\nwk\n.k\n"
+        "@frame walk/up/0\nkk\nww\n@frame ui/a\nw\n@frame idle\nkk\n")
+RDST = "pxart 1\nk #000000\nw #ffffff\n@anim walk/down ms=90\n@frame walk/down/0\nk\n@frame walk/down/1\nw\n"
+
+
+def rpair(tmp_path, src=RSRC, dst=RDST):
+    return write(tmp_path, "wick.px", src), write(tmp_path, "party.px", dst)
+
+
+def test_copy_to_same_ids_is_dup_and_names_prefix(tmp_path):
+    s, d = rpair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d)
+    assert "E_DUP_FRAME" in msg and "--prefix P, or --rename GROUP NEWGROUP" in msg
+
+
+def test_copy_to_prefix_renames_every_copy(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/") == 0
+    assert ids(d) == ["walk/down/0", "walk/down/1", "wick/walk/down/0", "wick/walk/down/1", "wick/walk/up/0"]
+
+
+def test_copy_to_prefix_brings_the_anim_lines_renamed(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/")
+    doc = pxart.parse(d)
+    def said(g):
+        return {k: v for k, v in doc.anims[g].items() if v is not None}
+    assert said("wick/walk/down") == {"ms": 150, "pivot": (0, 1)}
+    assert said("wick/walk/up") == {"ms": 140}
+    assert said("walk/down") == {"ms": 90}  # DST's own stays
+
+
+def test_copy_to_prefix_keeps_timing_and_pivots(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/")
+    src, dst = pxart.parse(s), pxart.parse(d)
+    for fid in ("walk/down/0", "walk/down/1", "walk/up/0"):
+        f, g = src.get(fid), dst.get("wick/" + fid)
+        assert g.grid == f.grid and dst.ms(g) == src.ms(f) and dst.pivot(g) == src.pivot(f), fid
+
+
+def test_copy_to_prefix_says_what_it_renamed(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/")
+    assert capsys.readouterr().out == (
+        f"copied walk/down/0, walk/down/1, walk/up/0 to {d}, walk as wick/walk; added @anim wick/walk/down; added "
+        f"@anim wick/walk/up; wrote {d}\n")
+
+
+def test_copy_to_prefix_leaves_the_source_alone(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/")
+    assert s.read_text() == RSRC
+
+
+def test_copy_to_prefix_without_slash(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:walk/up", "--copy-to", d, "--prefix", "wick-") == 0
+    assert "wick-walk/up/0" in ids(d) and "wick-walk/up" in pxart.parse(d).anims
+
+
+def test_copy_to_prefix_whole_file_top_level_and_still(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", s, "--copy-to", d, "--prefix", "w/") == 0
+    doc = pxart.parse(d)
+    assert {"w/idle", "w/ui/a", "w/walk/up/0"} <= set(ids(d)) and "w/ui" in doc.stills
+
+
+def test_copy_to_prefix_by_ids(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", s, "--copy-to", d, "walk/up/0", "--prefix", "wick/") == 0
+    assert ids(d)[-1] == "wick/walk/up/0" and len(ids(d)) == 3
+
+
+def test_copy_to_prefix_bad(tmp_path):
+    s, d = rpair(tmp_path)
+    for bad in ("", "a b/", "x//"):
+        msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--prefix", bad)
+        assert "E_BAD_ID" in msg and "--prefix" in msg, bad
+    assert d.read_text() == RDST
+
+
+def test_copy_to_prefix_still_collides(tmp_path):
+    s, d = rpair(tmp_path, dst=RDST + "@frame wick/walk/up/0\nk\n")
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--prefix", "wick/")
+    assert "E_DUP_FRAME" in msg and "already has wick/walk/up/0" in msg
+
+
+def test_prefix_needs_copy_to(tmp_path):
+    s, _ = rpair(tmp_path)
+    msg = run_err("frames", s, "--prefix", "wick/")
+    assert "E_BAD_ARG" in msg and "--prefix names the copies --copy-to DST makes" in msg and "--rename" in msg
+
+
+def test_prefix_and_rename_not_both(tmp_path):
+    s, d = rpair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--prefix", "a/", "--rename", "walk", "b/walk")
+    assert "E_BAD_ARG" in msg and "not both" in msg
+
+
+def test_copy_to_rename_one_group(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rename", "walk", "wick/walk") == 0
+    assert ids(d)[2:] == ["wick/walk/down/0", "wick/walk/down/1", "wick/walk/up/0"]
+    assert f"to {d}, walk as wick/walk;" in capsys.readouterr().out
+
+
+def test_copy_to_rename_a_subgroup_only(tmp_path, capsys):
+    s, d = rpair(tmp_path, dst=RDST.replace("walk/down", "run"))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rename", "walk/up", "climb") == 0
+    assert ids(d) == ["run/0", "run/1", "walk/down/0", "walk/down/1", "climb/0"]
+    assert set(pxart.parse(d).anims) == {"run", "walk/down", "climb"}
+
+
+def test_copy_to_rename_repeats(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rename", "walk/down", "a", "--rename", "walk/up", "b") == 0
+    assert ids(d)[2:] == ["a/0", "a/1", "b/0"]
+
+
+def test_copy_to_rename_a_single_frame(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:idle", "--copy-to", d, "--rename", "idle", "wick-idle") == 0
+    assert ids(d)[-1] == "wick-idle"
+
+
+def test_copy_to_rename_that_names_nothing(tmp_path):
+    s, d = rpair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rename", "run", "x")
+    assert "E_SELECT" in msg and "--rename run x: no frame 'run' or run/..." in msg
+    assert d.read_text() == RDST
+
+
+def test_copy_to_rename_prefix_of_a_name_is_not_a_match(tmp_path):
+    s, d = rpair(tmp_path)
+    assert "E_SELECT" in run_err("frames", f"{s}:walk", "--copy-to", d, "--rename", "wal", "x")
+
+
+def test_copy_to_rename_bad_new_id(tmp_path):
+    s, d = rpair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rename", "walk", "bad id")
+    assert "E_BAD_ID" in msg
+
+
+def test_copy_to_rename_after_a_frame(tmp_path, capsys):
+    s, d = rpair(tmp_path)
+    assert run("frames", f"{s}:walk/up", "--copy-to", d, "--rename", "walk/up", "wick/up", "--after",
+               "walk/down/0") == 0
+    assert ids(d) == ["walk/down/0", "wick/up/0", "walk/down/1"]
+
+
+def test_copy_to_rename_with_rekey_and_map(tmp_path, capsys):
+    src = RSRC.replace("\n\n# the walk", "\n@variant night\nw #111111\n\n# the walk")
+    dst = RDST.replace("@anim", "@variant dusk\nw #222222\n@anim")
+    s, d = rpair(tmp_path, src, dst)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "--variant-map", "dusk=night", "--prefix",
+               "wick/") == 0
+    doc = pxart.parse(d)
+    f = doc.get("wick/walk/down/0")
+    assert doc.image(f, "dusk").getpixel((1, 0)) == pxart.hex2rgba("#111111")
+
+
+def test_rename_in_place_group(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    assert run("frames", s, "--rename", "walk", "wick/walk") == 0
+    assert ids(s) == ["wick/walk/down/0", "wick/walk/down/1", "wick/walk/up/0", "ui/a", "idle"]
+    assert list(pxart.parse(s).anims) == ["wick/walk/down", "wick/walk/up"]
+
+
+def test_rename_in_place_says_what(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    run("frames", s, "--rename", "walk", "wick/walk")
+    assert capsys.readouterr().out == (f"renamed walk -> wick/walk (3 frame(s)); @anim wick/walk/down, @anim "
+                                       f"wick/walk/up; wrote {s}\n")
+
+
+def test_rename_in_place_keeps_everything_else(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    run("frames", s, "--rename", "walk", "wick/walk")
+    assert s.read_text() == RSRC.replace("walk/", "wick/walk/")
+
+
+def test_rename_in_place_keeps_timing_and_pivots(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    before = pxart.parse(s)
+    run("frames", s, "--rename", "walk/down", "run")
+    after = pxart.parse(s)
+    for i in (0, 1):
+        f, g = before.get(f"walk/down/{i}"), after.get(f"run/{i}")
+        assert g.grid == f.grid and after.ms(g) == before.ms(f) and after.pivot(g) == before.pivot(f)
+
+
+def test_rename_in_place_comments_move_with_their_lines(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    run("frames", s, "--rename", "walk/down", "run")
+    lines = s.read_text().splitlines()
+    assert lines[lines.index("@anim run ms=150 pivot=0,1") - 1] == "# the walk"
+    assert lines[lines.index("@frame run/0") - 1] == "# first step"
+
+
+def test_rename_in_place_still_group(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    assert run("frames", s, "--rename", "ui", "hud") == 0
+    doc = pxart.parse(s)
+    assert doc.stills == ["hud"] and "hud/a" in ids(s)
+    assert "@still hud" in capsys.readouterr().out
+
+
+def test_rename_in_place_one_frame(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    assert run("frames", s, "--rename", "walk/up/0", "walk/up/9") == 0
+    assert "walk/up/9" in ids(s) and "walk/up" in pxart.parse(s).anims
+
+
+def test_rename_in_place_top_level_frame(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    assert run("frames", s, "--rename", "idle", "rest") == 0
+    assert ids(s)[-1] == "rest"
+
+
+def test_rename_in_place_repeats(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    assert run("frames", s, "--rename", "walk/down", "a", "--rename", "walk/up", "b") == 0
+    assert ids(s)[:3] == ["a/0", "a/1", "b/0"]
+
+
+def test_rename_in_place_swap_is_not_a_collision(tmp_path, capsys):
+    # walk/down <-> walk/up in one call: each lands where the other was.
+    s, _ = rpair(tmp_path, src=RSRC.replace("@frame walk/up/0", "@frame walk/up/1\nkk\nkk\n@frame walk/up/0"))
+    assert run("frames", s, "--rename", "walk/down", "walk/up", "--rename", "walk/up", "walk/down") == 0
+
+
+def test_rename_in_place_into_an_existing_group(tmp_path):
+    s, _ = rpair(tmp_path)
+    before = s.read_text()
+    msg = run_err("frames", s, "--rename", "walk/down", "walk/up")
+    assert "E_DUP_FRAME" in msg and "already has walk/up" in msg
+    assert s.read_text() == before
+
+
+def test_rename_in_place_onto_an_existing_frame(tmp_path):
+    s, _ = rpair(tmp_path)
+    msg = run_err("frames", s, "--rename", "walk/up/0", "idle")
+    assert "E_DUP_FRAME" in msg and "already has idle" in msg
+
+
+def test_rename_in_place_names_nothing(tmp_path):
+    s, _ = rpair(tmp_path)
+    msg = run_err("frames", s, "--rename", "run", "x")
+    assert "E_SELECT" in msg and f"no frame 'run' or run/... in {s}" in msg
+
+
+def test_rename_in_place_bad_id(tmp_path):
+    s, _ = rpair(tmp_path)
+    assert "E_BAD_ID" in run_err("frames", s, "--rename", "walk", "a b")
+
+
+def test_rename_in_place_with_selection_is_refused(tmp_path):
+    s, _ = rpair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--rename", "walk", "x")
+    assert "E_BAD_ARG" in msg and f"frames {s} --rename walk NEWGROUP" in msg
+
+
+def test_rename_in_place_not_with_rm(tmp_path):
+    s, _ = rpair(tmp_path)
+    assert "E_BAD_ARG" in run_err("frames", s, "--rename", "walk", "x", "--rm", "idle")
+
+
+def test_rename_in_place_unnamed_grid(tmp_path):
+    s = write(tmp_path, "ant.px", "k #000000\nk\n")
+    assert "E_MIXED_FRAMES" in run_err("frames", s, "--rename", "ant", "x")
+
+
+def test_rename_in_place_renders_the_same(tmp_path, capsys):
+    s, _ = rpair(tmp_path)
+    before = pxart.parse(s)
+    run("frames", s, "--rename", "walk", "w")
+    after = pxart.parse(s)
+    for f in before.frames:
+        g = after.get(pxart.renamed_id(f.id, [("walk", "w")]))
+        assert list(pxart.pixels(before.image(f))) == list(pxart.pixels(after.image(g)))
+
+
+def test_renamed_id():
+    r = [("walk", "wick/walk"), ("idle", "rest")]
+    assert pxart.renamed_id("walk", r) == "wick/walk"
+    assert pxart.renamed_id("walk/down/0", r) == "wick/walk/down/0"
+    assert pxart.renamed_id("walker/0", r) == "walker/0"
+    assert pxart.renamed_id("idle", r) == "rest"
+    assert pxart.renamed_id("idle/0", r) == "rest/0"
+    assert pxart.renamed_id("run/walk", r) == "run/walk"
+
+
+def test_help_documents_rename_and_prefix():
+    text = " ".join(pxart.__doc__.split())
+    assert "--prefix wick/ puts wick/ in front of every copy's id" in text
+    assert "--rename GROUP NEWGROUP without --copy-to renames in FILE itself" in text
+
+
+def test_readme_documents_rename_and_prefix():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "under other ids with `--prefix wick/` or `--rename walk wick/walk`" in readme
+    assert "`frames hero.px --rename walk hero/walk` renames a group in place" in readme

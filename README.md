@@ -157,7 +157,9 @@ rather than repeating them.
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
   frame removes its `@anim`/`@still` line; `frames hero.px:walk --copy-to beast.px
   [--after ID]` copies frames into another file, in order, with their ms, pivots and
-  `@anim` line).
+  `@anim` line, under other ids with `--prefix wick/` or `--rename walk wick/walk`;
+  `frames hero.px --rename walk hero/walk` renames a group in place, `@anim` and `@still`
+  lines too).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file; `new party.px
   --empty --palette palette.px` starts a file with no frames that imports a palette, for
   `frames --copy-to` to fill), `put` (`put hero.px:walk/1 < rows.txt` replaces one
