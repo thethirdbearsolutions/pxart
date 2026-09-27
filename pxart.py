@@ -276,8 +276,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Layers can be frames of one parts file: parts.px:hat@3,0 parts.px:body@0,8.
       An existing OUT keeps its own palette and @palette; each layer's keys are added to it
       unless the key already exists with the same color. A key a layer uses in another color
-      than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per layer naming all its
-      keys and both colors, with the recolor 'a>b' line that gives them free keys. A new OUT
+      than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per source file (all its
+      layers: 'layers 1-4, 7 (field.px)') naming every key and both colors, with the one
+      recolor 'a>b' line that gives them free keys. The free keys are chosen once for the
+      whole compose, so the lines' fixes don't collide and can be run in any order: letters
+      and digits first, then % + - / : ^ _, and only when those run out the keys a shell
+      reads (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (, and =); a key OUT already
+      has in that color is suggested first. A new OUT
       starts with the layers' whole palettes, used or not, so a later 'shade --ramp' or
       recolor finds its keys: when every layer imports the same
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
@@ -441,6 +446,11 @@ DEFAULT_MS = 100
 # Keys: printable ASCII minus whitespace and chars with a job ('#' comment, '@' section,
 # '.' transparent) or that break XPM export ('"', '\').
 KEYS = [c for c in string.ascii_letters + string.digits + string.punctuation if c not in '#@."\\']
+# The order free keys are suggested in (E_KEY_CONFLICT's recolor, --rekey): letters and digits, then punctuation that
+# nothing reads specially, and only when those run out the keys a shell reads (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or
+# pxart's own arguments do (',' separates --keep-keys and --keys lists, '=' is recolor's a=b).
+AWKWARD = set("!$`'*?[]{}~&;|<>(),=")
+FREE_ORDER = [k for k in KEYS if k not in AWKWARD] + [k for k in KEYS if k in AWKWARD]
 DIRECTIONS = ("forward", "reverse", "pingpong", "pingpong_reverse")
 ID_RE = re.compile(r"^[A-Za-z0-9_\-.]+(/[A-Za-z0-9_\-.]+)*$")
 COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
@@ -1440,29 +1450,66 @@ def edit_target(arg, out, label="FILE"):
     return doc, frames, out
 
 
-def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, whose=None, taken=None, clear=False):
-    """The keys src uses (non-transparent ones) that dst_doc has in other colors, as one E_KEY_CONFLICT Issue naming
-    them all, both colors, and a fix that works: recolor 'k>K' gives src's keys free ones (no pixel changes color),
-    then `redo` again. whose: key -> where dst's color came from; taken: keys the fix mustn't use (it adds the ones it
-    picks); clear: transparent keys count too (a whole grid is copied, not stamped). None when there's no conflict."""
+def clashes(dst_doc, src_doc, keys, clear=False):
+    """The keys src uses (its non-transparent ones; every one with clear, when a whole grid is copied, not stamped) that
+    dst_doc has in other colors, sorted."""
     src_pal, have = src_doc.resolved(), dst_doc.resolved()
-    bad = [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
-    if not bad:
-        return None
-    taken = set() if taken is None else taken
-    free = [k for k in KEYS if k not in set(have) | set(src_pal) | taken][:len(bad)]
-    if len(free) < len(bad):
+    return [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
+
+
+def new_keys(bad, src_pal, have, taken):
+    """Where src's clashing keys can go, chosen once for the whole command: a key dst already has in the same color (and
+    src hasn't), else the first free key in FREE_ORDER (shell-safe first) that isn't in `taken`, which it adds to, so
+    no two suggestions collide. {key: new key}, or None when there aren't enough free keys."""
+    moves = {}
+    for k in bad:
+        same = next((c for c, v in have.items() if v == src_pal[k] and c != "." and c not in src_pal
+                     and c not in moves.values()), None)
+        pick = same or next((c for c in FREE_ORDER if c not in taken and c not in have and c not in src_pal), None)
+        if pick is None:
+            return None
+        moves[k] = pick
+        taken.add(pick)
+    return moves
+
+
+def conflict_issue(bad, src_doc, have, what, dst_name, redo, moves, whose=None):
+    """One E_KEY_CONFLICT naming every clashing key of src, both colors (and whose dst's is: whose, key -> label), and
+    a fix that works: recolor 'k>K' gives src's keys free ones (no pixel changes color), then `redo` again."""
+    src_pal = src_doc.resolved()
+    if moves is None:
         fix = "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
     else:
-        taken.update(free)
-        fix = (f"; to keep both colors, give {what}'s keys free ones (no pixel changes color), then {redo} again: "
-               "pxart recolor " + " ".join(shlex.quote(x) for x in [str(src_doc.path)] + [f"{k}>{f}" for k, f in
-                                                                                        zip(bad, free)]))
+        whose_keys = what + ("'" if what.endswith("s") else "'s")  # this layer's, these layers'
+        fix = (f"; to keep both colors, give {whose_keys} keys free ones (no pixel changes color), then {redo} again: "
+               "pxart recolor " + " ".join(shlex.quote(x) for x in [str(src_doc.path)] + [f"{k}>{v}" for k, v in
+                                                                                        moves.items()]))
     n = len(bad)
     each = ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
-                     + (f", from {whose[k]}" if whose and k in whose else "") + ")" for k in bad)
+                     + (f", from {whose[k]}" if whose and whose.get(k) else "") + ")" for k in bad)
     return Issue("E_KEY_CONFLICT", f"{n} key{'s' * (n > 1)} of {what} "
                  f"{'are other colors' if n > 1 else 'is another color'} in {dst_name}: {each}{fix}")
+
+
+def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, clear=False):
+    """One source's clashes with dst as an E_KEY_CONFLICT Issue (conflict_issue), or None when there are none."""
+    bad = clashes(dst_doc, src_doc, keys, clear)
+    if not bad:
+        return None
+    have = dst_doc.resolved()
+    moves = new_keys(bad, src_doc.resolved(), have, set(have) | set(src_doc.resolved()))
+    return conflict_issue(bad, src_doc, have, what, dst_name, redo, moves)
+
+
+def spans(ns):
+    """[1, 2, 3, 5] -> '1-3, 5'."""
+    out = []
+    for n in ns:
+        if out and out[-1][1] == n - 1:
+            out[-1][1] = n
+        else:
+            out.append([n, n])
+    return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste"):
@@ -3164,19 +3211,29 @@ def cmd_compose(a):
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
-    issues, taken = [], {k for lay, *_ in layers for k in lay.doc.resolved()}
-    for lay, x, y, label in layers:  # every layer's conflicts at once, before anything is drawn
+    clashed = {}  # every layer's conflicts at once, before anything is drawn, gathered by source file
+    for n, (lay, x, y, label) in enumerate(layers, 1):
         keys, pal = set("".join(lay.frame.grid)), lay.doc.resolved()
-        clash = key_conflicts(doc, lay.doc, keys, "this layer", f"the new {opath}" if fresh else opath, "compose",
-                              whose, taken)
-        if clash:
-            clash.ctx = label
-            issues.append(clash)
+        bad = clashes(doc, lay.doc, keys)
+        if bad:
+            c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
+            c["layers"].append((n, label, lay.doc))
+            c["keys"].update(bad)
         for k in sorted(keys):
             if pal[k][3] and k not in doc.resolved():
                 doc.add_key(k, pal[k])
                 whose[k] = label
-    if issues:
+    if clashed:  # one recolor per file, covering every layer of it; free keys chosen once, so no two collide
+        have, issues = doc.resolved(), []
+        taken = set(have) | {k for lay, *_ in layers for k in lay.doc.resolved()}
+        for c in clashed.values():
+            src, ns = c["layers"][0][2], [n for n, *_ in c["layers"]]
+            bad = sorted(c["keys"])
+            issue = conflict_issue(bad, src, have, "this layer" if len(ns) == 1 else "these layers",
+                                   f"the new {opath}" if fresh else opath, "compose",
+                                   new_keys(bad, src.resolved(), have, taken), whose)
+            issue.ctx = c["layers"][0][1] if len(ns) == 1 else f"layers {spans(ns)} ({src.path})"
+            issues.append(issue)
         raise PxError(issues)
     for lay, x, y, label in layers:
         w, h = lay.frame.size

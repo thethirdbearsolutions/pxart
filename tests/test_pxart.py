@@ -10533,3 +10533,211 @@ def test_help_documents_under():
     doc = " ".join(pxart.__doc__.split())
     assert "--under keeps OUT's frame and draws the layers behind it" in doc
     assert "--under fills only DST's empty pixels: SRC goes behind" in doc
+
+
+# ---------------------------------------------------------------- key conflicts: one recolor per source file
+
+FIELD = ("s #00ff00\nt #008800\nu #88ff88\nv #ff00ff\n"
+         "@frame grass_a\nst\nts\n@frame grass_c\nsu\nus\n@frame flowers\nvs\nsv\n")
+SCENE = "s #111111\nt #222222\nu #333333\nv #444444\n@frame x\nstuv\n"
+
+
+def field_scene(tmp_path):
+    return write(tmp_path, "field.px", FIELD), write(tmp_path, "scene.px", SCENE)
+
+
+def floor_argv(f, out, n=4):
+    frames = ["grass_a", "grass_c", "flowers", "grass_a", "grass_c", "flowers", "grass_a"][:n]
+    return ["compose", "-o", f"{out}:floor", "--size", f"{2 * n}x2"] + [f"{f}:{fr}@{2 * i},0" for i, fr in
+                                                                         enumerate(frames)]
+
+
+def test_conflict_one_line_for_a_file_used_as_many_layers(tmp_path):
+    f, out = field_scene(tmp_path)
+    lines = run_err(*floor_argv(f, out)).splitlines()
+    assert lines == [f"compose: layers 1-4 ({f}): E_KEY_CONFLICT: 4 keys of these layers are other colors in {out}: "
+                     "'s' #00ff00 (#111111 there), 't' #008800 (#222222 there), 'u' #88ff88 (#333333 there), "
+                     "'v' #ff00ff (#444444 there); to keep both colors, give these layers' keys free ones (no pixel "
+                     f"changes color), then compose again: pxart recolor {f} 's>a' 't>b' 'u>c' 'v>d'"]
+
+
+def test_conflict_covers_every_frame_the_compose_uses_from_the_file(tmp_path):
+    # grass_a has s t, grass_c s u, flowers s v: the one recolor covers all four, not only the first layer's.
+    f, out = field_scene(tmp_path)
+    msg = run_err(*floor_argv(f, out, 3))
+    for k in "stuv":
+        assert f"'{k}>" in msg
+    assert msg.count("E_KEY_CONFLICT") == 1
+
+
+def test_conflict_only_the_used_frames_keys(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("compose", "-o", f"{out}:floor", "--size", "4x2", f"{f}:grass_a@0,0", f"{f}:grass_a@2,0")
+    assert f"layers 1-2 ({f})" in msg and "'s>a' 't>b'" in msg and "'u>" not in msg and "'v>" not in msg
+
+
+def test_conflict_same_key_twice_in_a_file_is_named_once(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err(*floor_argv(f, out, 7))
+    assert msg.count("'s' #00ff00") == 1 and msg.count("'s>") == 1 and "layers 1-7" in msg
+
+
+def test_conflict_recipe_runs_once_and_the_compose_goes_through(tmp_path):
+    import shlex
+    f, out = field_scene(tmp_path)
+    argv = floor_argv(f, out, 7)
+    fix = shlex.split(run_err(*argv).split("again: pxart ", 1)[1])
+    assert run(*fix) == 0
+    assert run(*argv) == 0
+    doc = pxart.parse(out)
+    img = doc.image(doc.get("floor"))
+    assert img.getpixel((0, 0)) == pxart.hex2rgba("#00ff00") and img.getpixel((1, 0)) == pxart.hex2rgba("#008800")
+    assert img.getpixel((3, 0)) == pxart.hex2rgba("#88ff88") and img.getpixel((4, 0)) == pxart.hex2rgba("#ff00ff")
+    assert doc.image(doc.get("x")).getpixel((0, 0)) == pxart.hex2rgba("#111111")
+
+
+def test_conflict_layers_of_one_file_split_by_another(tmp_path):
+    f, out = field_scene(tmp_path)
+    g = write(tmp_path, "g.px", "t #abcdef\n\nt\n")
+    msg = run_err("compose", "-o", f"{out}:floor", "--size", "6x2", f"{f}:grass_a@0,0", f"{g}@2,0",
+                  f"{f}:flowers@4,0")
+    lines = msg.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith(f"compose: layers 1, 3 ({f}): E_KEY_CONFLICT: 3 keys of these layers")
+    assert lines[1].startswith(f"compose: layer 2 ({g}): E_KEY_CONFLICT: 1 key of this layer is another color")
+
+
+def test_conflict_single_layer_keeps_its_label(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
+    assert msg.startswith(f"compose: layer 1 ({f}:grass_a): E_KEY_CONFLICT: 2 keys of this layer are other colors")
+    assert "give this layer's keys free ones" in msg
+
+
+def test_conflict_suggestions_of_several_files_never_collide(tmp_path):
+    import shlex
+    f, out = field_scene(tmp_path)
+    g = write(tmp_path, "g.px", "s #0000aa\nt #0000bb\n\nst\n")
+    h = write(tmp_path, "h.px", "u #0000cc\n\nu\n")
+    argv = ["compose", "-o", f"{out}:floor", "--size", "6x2", f"{f}:grass_a@0,0", f"{g}@2,0", f"{h}@4,0",
+            f"{f}:grass_c@4,1"]
+    lines = run_err(*argv).splitlines()
+    assert len(lines) == 3
+    fixes = [shlex.split(l.split("again: pxart ", 1)[1]) for l in lines]
+    new = [m.split(">")[1] for fix in fixes for m in fix[2:]]
+    assert len(new) == len(set(new)), new
+    for fix in reversed(fixes):  # any order works
+        assert run(*fix) == 0
+    assert run(*argv) == 0
+
+
+def test_conflict_fixes_run_in_order_too(tmp_path):
+    import shlex
+    f, out = field_scene(tmp_path)
+    g = write(tmp_path, "g.px", "s #0000aa\n\ns\n")
+    argv = ["compose", "-o", f"{out}:floor", "--size", "4x2", f"{f}:grass_a@0,0", f"{g}@2,0", f"{f}:flowers@2,0"]
+    for line in run_err(*argv).splitlines():
+        assert run(*shlex.split(line.split("again: pxart ", 1)[1])) == 0
+    assert run(*argv) == 0
+
+
+def test_conflict_reuses_a_key_out_has_in_the_same_color(tmp_path):
+    f = write(tmp_path, "field.px", FIELD)
+    out = write(tmp_path, "scene.px", SCENE.replace("v #444444\n", "v #444444\nJ #00ff00\n"))
+    msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
+    assert msg.endswith(f"pxart recolor {f} 's>J' 't>a'")
+
+
+def test_conflict_reuse_is_not_a_key_the_source_has(tmp_path):
+    f = write(tmp_path, "field.px", FIELD.replace("v #ff00ff\n", "v #ff00ff\nJ #999999\n"))
+    out = write(tmp_path, "scene.px", SCENE.replace("v #444444\n", "v #444444\nJ #00ff00\n"))
+    msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
+    assert "'s>J'" not in msg and msg.endswith(f"pxart recolor {f} 's>a' 't>b'")
+
+
+def test_conflict_reuse_never_twice_in_one_recolor(tmp_path):
+    # s and t both #00ff00 in the source; OUT has J #00ff00: only one of them can take J (recolor refuses two).
+    import shlex
+    f = write(tmp_path, "f.px", "s #00ff00\nt #00ff00\n\nst\n")
+    out = write(tmp_path, "o.px", "s #111111\nt #222222\nJ #00ff00\n@frame x\nstJ\n")
+    msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
+    assert msg.endswith(f"pxart recolor {f} 's>J' 't>a'")
+    assert run(*shlex.split(msg.split("again: pxart ", 1)[1])) == 0
+    assert run("compose", "-o", f"{out}:y", f"{f}@0,0") == 0
+
+
+def test_free_order_is_every_key_shell_safe_first():
+    assert sorted(pxart.FREE_ORDER) == sorted(pxart.KEYS) and len(set(pxart.FREE_ORDER)) == len(pxart.KEYS)
+    safe = [k for k in pxart.FREE_ORDER if k not in pxart.AWKWARD]
+    assert pxart.FREE_ORDER[:len(safe)] == safe
+    assert "".join(pxart.FREE_ORDER[:62]) == pxart.string.ascii_letters + pxart.string.digits
+    assert "".join(safe[62:]) == "%+-/:^_"
+    for c in "!$`'*?[]{}~&;|<>(),=":
+        assert c in pxart.AWKWARD and pxart.FREE_ORDER.index(c) >= len(safe)
+    for c in '"\\#@. ':
+        assert c not in pxart.FREE_ORDER
+
+
+def test_conflict_suggests_digits_then_safe_punctuation_before_awkward(tmp_path):
+    letters = pxart.string.ascii_letters
+    pal = "".join(f"{k} #{i:06x}\n" for i, k in enumerate(letters + pxart.string.digits[:9], 1))
+    out = write(tmp_path, "o.px", pal + "@frame x\na\n")
+    f = write(tmp_path, "f.px", "a #fefefe\nb #fdfdfd\nc #fcfcfc\n\nabc\n")
+    msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
+    assert msg.endswith(f"pxart recolor {f} 'a>9' 'b>%' 'c>+'")
+
+
+def test_conflict_awkward_keys_only_when_nothing_else_is_free(tmp_path):
+    import shlex
+    safe = [k for k in pxart.FREE_ORDER if k not in pxart.AWKWARD]
+    pal = "".join(f"{k} #{i:06x}\n" for i, k in enumerate(safe, 1))
+    out = write(tmp_path, "o.px", pal + "@frame x\na\n")
+    f = write(tmp_path, "f.px", "a #fefefe\n\na\n")
+    msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
+    fix = shlex.split(msg.split("again: pxart ", 1)[1])
+    assert fix[2][2] == pxart.FREE_ORDER[len(safe)] and fix[2][2] in pxart.AWKWARD
+    assert run(*fix) == 0 and run("compose", "-o", f"{out}:y", f"{f}@0,0") == 0
+
+
+def test_new_keys_helper():
+    src = {"s": (0, 255, 0, 255), "t": (0, 136, 0, 255), ".": pxart.CLEAR}
+    have = {"s": (1, 1, 1, 255), "t": (2, 2, 2, 255), "a": (9, 9, 9, 255), ".": pxart.CLEAR}
+    taken = set(have) | set(src)
+    assert pxart.new_keys(["s", "t"], src, have, taken) == {"s": "b", "t": "c"}
+    assert {"b", "c"} <= taken
+    assert pxart.new_keys(["s"], src, have, taken) == {"s": "d"}  # never one it gave out before
+
+
+def test_new_keys_helper_never_suggests_dot_for_a_transparent_key():
+    src = {"z": pxart.CLEAR, ".": pxart.CLEAR}
+    have = {"z": (1, 1, 1, 255), ".": pxart.CLEAR}
+    assert pxart.new_keys(["z"], src, have, set(have) | set(src)) == {"z": "a"}
+
+
+def test_new_keys_helper_out_of_keys():
+    src = {"s": (0, 255, 0, 255)}
+    have = {k: (1, 1, 1, 255) for k in pxart.KEYS}
+    assert pxart.new_keys(["s"], src, have, set(have)) is None
+
+
+@pytest.mark.parametrize("ns, want", [([1], "1"), ([1, 2], "1-2"), ([1, 2, 3, 5], "1-3, 5"),
+                                      ([2, 4, 6], "2, 4, 6"), ([1, 3, 4, 5, 9, 10], "1, 3-5, 9-10")])
+def test_spans(ns, want):
+    assert pxart.spans(ns) == want
+
+
+def test_paste_and_frames_copy_suggest_shell_safe_keys_too(tmp_path):
+    safe = [k for k in pxart.FREE_ORDER if k not in pxart.AWKWARD]
+    pal = "".join(f"{k} #{i:06x}\n" for i, k in enumerate(pxart.string.ascii_letters + pxart.string.digits, 1))
+    d = write(tmp_path, "d.px", pal + "@frame x\na\n")
+    s = write(tmp_path, "s.px", "a #fefefe\n@frame y\na\n")
+    assert run_err("paste", s, "--into", f"{d}:x", "--at", "0,0").endswith(f"pxart recolor {s} 'a>%'")
+    assert run_err("frames", s, "--copy-to", d).endswith(f"pxart recolor {s} 'a>%'")
+    assert safe[62] == "%"
+
+
+def test_help_documents_conflicts_per_file_and_safe_keys():
+    doc = " ".join(pxart.__doc__.split())
+    assert "one line per source file (all its layers: 'layers 1-4, 7 (field.px)')" in doc
+    assert "chosen once for the whole compose, so the lines' fixes don't collide" in doc
+    assert "letters and digits first, then % + - / : ^ _" in doc
