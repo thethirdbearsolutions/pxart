@@ -7235,7 +7235,8 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
     "shade": "Re-shade a material with a darkest-to-lightest ramp, by how each pixel faces the light.",
     "extract": "Write only the selected frames to a new file, with their palette, imports and @anim lines.",
     "compose": "Stack frames from any files (layers at x,y, or a --map's cells) into one frame of OUT,\n"
-               "bringing their keys and variants into OUT's palette.",
+               "bringing their keys and variants into OUT's palette. Add --rekey when two sources (or a source\n"
+               "and OUT) use the same key letter for different colors: E_KEY_CONFLICT says so.",
     "dup": "Copy a frame under a new id, placed after its animation's last frame, to edit the copy.",
     "anim-set": "Write an animation's timing and pivot on its @anim line (or one frame's), or mark it @still.",
     "palette": "List a file's palette and what each variant does; or edit it: add keys and variants, derive a\n"

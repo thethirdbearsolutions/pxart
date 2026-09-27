@@ -4555,6 +4555,14 @@ def test_anim_help_options_come_before_the_heuristics(capsys):
     assert len(out[:out.index("options:")].splitlines()) <= 12
 
 
+def test_compose_help_says_when_to_rekey_on_its_first_screen(capsys):
+    # the gate's complaint: when --rekey is needed was only in the rules, well below the options
+    out = cmd_help(capsys, "compose")
+    first = " ".join(out[:out.index("options:")].split())
+    assert "Add --rekey when two sources (or a source and OUT) use the same key letter for different colors" in first
+    assert len(out[:out.index("options:")].splitlines()) <= 16
+
+
 def see_also(text):
     """The see-also paragraph of a command's -h, as one line, or None."""
     for part in text.split("\n\n"):
