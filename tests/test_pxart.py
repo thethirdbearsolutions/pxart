@@ -22968,3 +22968,150 @@ def test_diff_two_dirs_by_path_skip_palette_files(tmp_path, monkeypatch, capsys)
     monkeypatch.chdir(tmp_path)
     assert run("diff", "town", "copy") == 0
     assert "pal.px" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- image outputs: a clean error, never a traceback
+
+def image_out_fixtures(d):
+    d = pathlib.Path(d)
+    (d / "a.px").write_text("pxart 1\nk #1a1423\nw #efe6d2\n@anim walk ms=100\n@frame walk/0\nkw\nwk\n"
+                            "@frame walk/1\nwk\nkw\n")
+    Image.new("RGBA", (4, 4), (40, 60, 80, 255)).save(d / "s.png")
+    (d / "adir.png").mkdir()
+    (d / "afile").write_text("x")
+
+
+IMAGE_WRITERS = {  # command argv with OUT where the image path goes
+    "render": ["render", "a.px", "-o", "OUT"],
+    "sheet": ["sheet", "a.px", "-o", "OUT"],
+    "anim": ["anim", "a.px:walk", "-o", "OUT"],
+    "onion": ["onion", "a.px:walk/0", "a.px:walk/1", "-o", "OUT"],
+    "scene": ["scene", "a.px:walk/0@0,0", "-o", "OUT"],
+    "outline --preview": ["outline", "a.px:walk/0", "--key", "k", "--preview", "OUT"],
+    "shade --preview": ["shade", "a.px:walk/0", "--ramp", "kw", "--keys", "w", "--preview", "OUT"],
+}
+BAD_IMAGE_OUTS = {
+    "/dev/null": ("E_BAD_ARG", "it has no extension to tell the image type by"),
+    "noext": ("E_BAD_ARG", "it has no extension to tell the image type by"),
+    "x.bmpx": ("E_BAD_ARG", "'.bmpx' isn't an image type pxart can write"),
+    "x.px": ("E_BAD_ARG", "'.px' isn't an image type pxart can write"),
+    "x.txt": ("E_BAD_ARG", "'.txt' isn't an image type pxart can write"),
+    "adir.png": ("E_FILE", "adir.png (from the current directory): E_FILE: Is a directory"),
+    "afile/x.png": ("E_FILE", "afile is a file, not a directory"),
+}
+
+
+@pytest.mark.parametrize("cmd", list(IMAGE_WRITERS))
+@pytest.mark.parametrize("out", list(BAD_IMAGE_OUTS))
+def test_image_output_errors_are_clean(tmp_path, monkeypatch, capsys, cmd, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    argv = [out if x == "OUT" else x for x in IMAGE_WRITERS[cmd]]
+    err = run_err(*argv)  # a SystemExit with a message, not a traceback
+    code, words = BAD_IMAGE_OUTS[out] if cmd != "anim" else ("E_BAD_ARG", "anim writes a GIF")
+    assert code in err and words in err, err
+    assert err.startswith(argv[0] + ": "), err
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before  # nothing written
+    assert (tmp_path / "a.px").read_text().startswith("pxart 1\nk #1a1423\nw #efe6d2\n")
+
+
+@pytest.mark.parametrize("cmd", [c for c in IMAGE_WRITERS if c != "anim"])
+def test_image_output_jpeg_cant_hold_rgba(tmp_path, monkeypatch, capsys, cmd):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err(*[("x.jpg" if x == "OUT" else x) for x in IMAGE_WRITERS[cmd]])
+    assert "E_BAD_ARG" in err and "a JPEG can't hold this image" in err and "name it .png" in err
+    assert not (tmp_path / "x.jpg").exists()
+
+
+@pytest.mark.parametrize("out", ["x.jpg", "x.bmp", "x.tiff", "x.png", "x.webp", "x.GIFF"])
+def test_anim_output_must_be_a_gif(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("anim", "a.px:walk", "-o", out)
+    assert "E_BAD_ARG" in err and f"-o {out}: anim writes a GIF (and its strip beside it, as .strip.png); name " \
+        "it .gif" in err
+    assert not (tmp_path / out).exists() and not list(tmp_path.glob("*.strip.png"))
+
+
+@pytest.mark.parametrize("cmd", list(IMAGE_WRITERS))
+@pytest.mark.parametrize("out", ["ok.png", "ok.gif", "ok.bmp", "sub/dir/ok.png"])
+def test_image_outputs_that_work_still_work(tmp_path, monkeypatch, capsys, cmd, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    argv = [out if x == "OUT" else x for x in IMAGE_WRITERS[cmd]]
+    if cmd == "anim" and not out.endswith(".gif"):
+        pytest.skip("anim writes a GIF: test_anim_output_must_be_a_gif")
+    assert run(*argv) == 0
+    assert (tmp_path / out).is_file()
+
+
+def test_image_output_read_only_place_is_e_file(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    (tmp_path / "ro").mkdir()
+    (tmp_path / "ro").chmod(0o500)
+    monkeypatch.chdir(tmp_path)
+    try:
+        err = run_err("render", "a.px", "-o", "ro/x.png")
+    finally:
+        (tmp_path / "ro").chmod(0o700)
+    assert "E_FILE" in err and err.startswith("render: ")
+
+
+@pytest.mark.parametrize("out", ["/dev/null", "noext", "x.px"])
+def test_tint_output_errors_are_clean(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("tint", "s.png", "#10183080", "-o", out)
+    assert "E_BAD_ARG" in err and err.startswith("tint: ")
+
+
+@pytest.mark.parametrize("out", ["/dev/null", "noext", "x.px", "x.jpg"])
+def test_mask_png_output_errors_are_clean(tmp_path, monkeypatch, capsys, out):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("mask", "s.png", "--keep", "0,0,2,2", "-o", out)
+    assert "E_BAD_ARG" in err and err.startswith("mask: ")
+
+
+def test_export_frames_under_a_file_is_e_file(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("export", "a.px", "--frames", "afile")
+    assert "E_FILE" in err and "afile is a file, not a directory" in err
+
+
+@pytest.mark.parametrize("flag", ["--aseprite", "--tiled"])
+def test_export_sheet_into_a_directory_named_png_is_e_file(tmp_path, monkeypatch, capsys, flag):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    err = run_err("export", "a.px", flag, "adir.json")
+    assert "adir.png (from the current directory): E_FILE: Is a directory" in err
+
+
+def test_render_png_beside_is_still_a_png(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one.px").write_text("k #1a1423\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "one.px", "--png", "-o", "p.png") == 0
+    assert Image.open(tmp_path / "one.png").size == (2, 1)
+
+
+def test_help_says_image_outputs_are_checked():
+    assert "an image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG" in \
+        " ".join(pxart.__doc__.split())
+
+
+def test_anim_gif_upper_case_suffix_is_a_gif(tmp_path, monkeypatch, capsys):
+    image_out_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "a.px:walk", "-o", "W.GIF") == 0
+    assert Image.open(tmp_path / "W.GIF").format == "GIF" and (tmp_path / "W.strip.png").is_file()
+
+
+def test_save_image_refuses_an_animation_in_a_still_format(tmp_path):
+    img = Image.new("RGBA", (2, 2))
+    with pytest.raises(pxart.PxError) as e:
+        pxart.save_image(img, tmp_path / "x.bmp", save_all=True, append_images=[img])
+    assert codes(e) == ["E_BAD_ARG"] and "a BMP can't hold an animation; name it .gif" in str(e.value)
+    assert not (tmp_path / "x.bmp").exists()

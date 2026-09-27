@@ -50,7 +50,8 @@ FORMAT (.px)
   %VARIANT to render with a variant: FILE:idle/0%night. In zsh, "$F:walk" is read as a
   modifier; write "${F}:walk" or quote the whole argument. A missing input whose name has
   letters glued to .px/.png (hero.pxalk/0, hero.pxidle) is reported as that mistake.
-  An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash.
+  An output under a path that is a file (-o hero.px/walk/0) is E_FILE, not a crash; an
+  image output with no image extension (-o /dev/null, -o x.px) is E_BAD_ARG.
   Paths: a path typed on the command line is read from the current directory, as the
   shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
   --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
@@ -1717,6 +1718,31 @@ def outpath(p):
     return p
 
 
+def save_image(img, p, what="-o", **kw):
+    """img written to p (its directory made, as outpath does), in the format p's extension names. A name with no
+    extension, or one Pillow can't write (-o /dev/null, -o out.px), is E_BAD_ARG before anything is written, and so is
+    a format that can't hold the image (RGBA as .jpg); a file that can't be written is the usual E_FILE. Returns p."""
+    p = pathlib.Path(p)
+    ext = p.suffix.lower()
+    fmt = Image.registered_extensions().get(ext)
+    name = ".gif" if kw.get("save_all") else ".png"  # an animation, or a picture
+    if fmt is None or fmt not in Image.SAVE:
+        why = f"{ext!r} isn't an image type pxart can write" if ext else "it has no extension to tell the image type by"
+        fail("E_BAD_ARG", f"{what} {p}: {why}; name it {name}")
+    if kw.get("save_all") and fmt not in Image.SAVE_ALL:
+        fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold an animation; name it {name}")
+    p = outpath(p)
+    try:
+        img.save(p, **kw)
+    except OSError as e:
+        if e.errno is not None or e.filename:  # the file itself: PermissionError and the like, E_FILE in main
+            raise
+        fail("E_BAD_ARG", f"{what} {p}: a {fmt} can't hold this image ({e}); name it {name}")
+    except (ValueError, KeyError, TypeError) as e:
+        fail("E_BAD_ARG", f"{what} {p}: can't write it as {fmt} ({e}); name it {name}")
+    return p
+
+
 ZSH_EATEN_RE = re.compile(r"\.(px|png)[A-Za-z]")
 
 
@@ -1752,7 +1778,8 @@ def sheet_rows(its, cols, rows="cols"):
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom", rows="cols"):
+def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom", rows="cols",
+          what="-o"):
     """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
     frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right. align 'pivot':
     the frames of one animation group (one file's) are drawn on one canvas each, lined up by pivot as anim does
@@ -1805,7 +1832,7 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
-    s.save(outpath(out))
+    save_image(s, out, what)
     return out
 
 
@@ -2450,7 +2477,7 @@ def cmd_render(a):
         if a.png and path.endswith(".px") and not sel:
             doc = parse(path)
             if len(doc.frames) == 1:
-                doc.image(doc.frames[0], a.variant).save(pathlib.Path(path).with_suffix(".png"))
+                save_image(doc.image(doc.frames[0], a.variant), pathlib.Path(path).with_suffix(".png"), "--png")
     print("wrote", sheet(its, a.o, a.scale, bg=a.bg, grid=not a.no_grid, rulers=not a.no_grid))
 
 
@@ -2464,6 +2491,8 @@ def cmd_sheet(a):
 def cmd_anim(a):
     """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written)."""
     its = all_items(a.files, a.variant)
+    if a.o and pathlib.Path(a.o).suffix.lower() != ".gif":
+        fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered
@@ -2481,7 +2510,7 @@ def cmd_anim(a):
             canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-        gif[0].save(outpath(a.o), save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
+        save_image(gif[0], a.o, save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
         pad, lab, lab2 = 8, 14, 26
         size = (pad + len(framed) * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2)
         strip = Image.new("RGBA", size, (30, 30, 36, 255))
@@ -2527,7 +2556,7 @@ def cmd_anim(a):
     if not a.o:
         return
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
-    strip.save(sp)
+    save_image(strip, sp, "the strip")
     print("wrote", a.o, "and", sp)
 
 
@@ -2556,7 +2585,7 @@ def cmd_onion(a):
         ImageDraw.Draw(shade).rectangle([0, 0, w - 1, h - 1], fill=(0, 0, 0, 150))
         ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
         base.alpha_composite(shade)
-    upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
+    save_image(upscale(base, a.scale, grid=True, rulers=True), a.o)
     one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
                and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
     kin = True if one else None if A.size == B.size else False
@@ -2757,7 +2786,7 @@ def cmd_tint(a):
     if not a.file.endswith(".png") or not str(a.o or a.file).endswith(".png"):
         fail("E_BAD_ARG", "tint reads and writes PNGs (a rendered scene); for a whole scene use scene --tint")
     out = a.o or a.file
-    tinted(Image.open(a.file).convert("RGBA"), color).save(outpath(out))
+    save_image(tinted(Image.open(a.file).convert("RGBA"), color), out)
     print("wrote", out)
 
 
@@ -2818,7 +2847,7 @@ def cmd_scene(a):
               f"--map); --size {reach[0]}x{reach[1]} holds every item")
     if tint:
         sc = tinted(sc, tint)
-    sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
+    save_image(sc.resize((W * a.scale, H * a.scale), Image.NEAREST), a.o)
     print("wrote", a.o)
 
 
@@ -3756,7 +3785,7 @@ def cmd_mask(a):
         if not erased and pathlib.Path(out).resolve() == pathlib.Path(path).resolve():
             print(f"erased 0 px; no change: {out}")
             return
-        img.save(outpath(out))
+        save_image(img, out)
         print(f"erased {erased} px; wrote {out}")
         return
     doc, frames, out = edit_target(a.file, a.o)
@@ -4469,7 +4498,7 @@ def changes(by, verb="changed"):
 def preview(doc, frames, png, what):
     """--preview: render the edited frames (render's grid and rulers) to png; the file isn't written."""
     its = [Item(doc.label(f), doc.image(f), doc.ms(f), doc, f) for f in frames]
-    return f"{what}; wrote {sheet(its, png, 8, grid=True, rulers=True)} (preview; {doc.path} unchanged)"
+    return f"{what}; wrote {sheet(its, png, 8, grid=True, rulers=True, what='--preview')} (preview; {doc.path} unchanged)"
 
 
 def cmd_outline(a):
@@ -6533,8 +6562,7 @@ def cmd_export(a):
     if a.frames:
         pngs = []
         for it in its:
-            p = outpath(pathlib.Path(a.frames) / (it.label + ".png"))
-            it.img.save(p)
+            p = save_image(it.img, pathlib.Path(a.frames) / (it.label + ".png"), "--frames")
             pngs.append(str(p))
         wrote += pngs if len(pngs) <= 8 else [f"{len(pngs)} PNGs under {a.frames} ({pngs[0]} ... {pngs[-1]})"]
         pivots = {it.label: dict(zip("xy", it.doc.pivot(it.frame))) for it in its if it.doc.pivot(it.frame)}
@@ -6550,8 +6578,7 @@ def cmd_export(a):
         its2 = grouped(its)
         sheet_img, spots, _, _, _ = pack(its2)
         jp = outpath(a.aseprite)
-        ip = jp.with_suffix(".png")
-        sheet_img.save(ip)
+        ip = save_image(sheet_img, jp.with_suffix(".png"), "--aseprite's sheet")
         frames, tags, i = [], [], 0
         for it, (x, y) in zip(its2, spots):
             w, h = it.img.size
@@ -6584,8 +6611,7 @@ def cmd_export(a):
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = outpath(a.tiled)
-        ip = tp.with_suffix(".png")
-        sheet_img.save(ip)
+        ip = save_image(sheet_img, tp.with_suffix(".png"), "--tiled's image")
         index = {id(it.frame): n for n, it in enumerate(its)}
         tiles = []
         for doc, g, fs, tag_name in groups():
