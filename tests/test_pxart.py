@@ -4704,7 +4704,7 @@ def test_anim_set_help_points_at_the_pivot_notes(capsys):
 def test_poly_help_explains_its_arguments(capsys):
     out = cmd_help(capsys, "poly")
     assert "A closed polygon through the points in order" in out and "nonzero winding" in out
-    assert "DRAWING (FILE[:SEL], KEY, clipping, 'painted N px')" in see_also(out)
+    assert "DRAWING (FILE[:SEL], KEY ('.' erases), clipping, 'painted N px')" in see_also(out)
 
 
 def test_rotate_help_has_the_shared_turn_paragraph(capsys):
@@ -26169,7 +26169,7 @@ def test_fill_dot_clears_one_frame(tmp_path, capsys):
     p = write(tmp_path, "c.px", "k #000000\n@frame a\nkk\nk.\n@frame b\nkk\nkk\n")
     assert run("fill", f"{p}:a", ".") == 0
     assert grids(p) == {"a": ["..", ".."], "b": ["kk", "kk"]}
-    assert capsys.readouterr().out == f"painted 3 px; wrote {p}\n"
+    assert capsys.readouterr().out == f"erased 3 px; wrote {p}\n"
 
 
 def test_fill_dot_clears_with_a_palette_that_lists_no_dot(tmp_path, capsys):
@@ -27754,3 +27754,38 @@ def test_help_documents_onion_variant(capsys):
     assert "[--tint-a [COLOR] | --fade-a] [--variant V]" in pxart.__doc__
     assert run("onion", "-h") == 0
     assert "draw A and B in V (a halo lit only at night counts)" in " ".join(capsys.readouterr().out.split())
+
+
+# ---------------------------------------------------------------- '.' erases, in every drawing command
+
+@pytest.mark.parametrize("argv, n", [
+    (["line", ".", "0,0", "3,3"], 4),
+    (["rect", ".", "0,0,2,2", "--fill"], 4),
+    (["poly", ".", "0,0", "3,0", "3,3", "--fill"], 10),
+    (["ellipse", ".", "--box", "0,0,4,4", "--fill"], 12),
+    (["arc", ".", "1,1,1", "0,90"], 2),
+    (["flood", ".", "0,0"], 16),
+    (["fill", "."], 16),
+])
+def test_dot_erases_in_every_drawing_command(tmp_path, capsys, argv, n):
+    p = write(tmp_path, "e.px", "k #000000\n@frame a\nkkkk\nkkkk\nkkkk\nkkkk\n")
+    assert run(argv[0], f"{p}:a", *argv[1:]) == 0
+    assert capsys.readouterr().out == f"erased {n} px; wrote {p}\n"
+    assert sum(row.count(".") for row in grids(p)["a"]) == n
+
+
+def test_drawing_a_key_still_says_painted(tmp_path, capsys):
+    p = write(tmp_path, "e.px", "k #000000\n@frame a\n....\n")
+    assert run("line", f"{p}:a", "k", "0,0", "3,0") == 0
+    assert capsys.readouterr().out == f"painted 4 px; wrote {p}\n"
+
+
+@pytest.mark.parametrize("cmd", ["line", "rect", "poly", "ellipse", "arc", "flood"])
+def test_drawing_help_says_dot_erases(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    assert "a palette key, or '.' to erase" in out and "KEY ('.' erases)" in " ".join(out.split())
+
+
+def test_drawing_intro_says_dot_erases():
+    assert "KEY is a palette key, or '.' to erase" in " ".join(pxart.__doc__.split())
+    assert 'flood print "painted N px" ("erased" for \'.\')' in " ".join(pxart.__doc__.split())

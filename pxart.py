@@ -700,9 +700,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       P.px.
 
 DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, only changed rows
-  are rewritten; KEY must be in the palette, '.' erases). Shapes are clipped to the frame (a note
-  says how many px fell outside); x,y may be negative. line, rect, poly, ellipse, arc and
-  flood print "painted N px".
+  are rewritten; KEY is a palette key, or '.' to erase). Shapes are clipped to the frame (a
+  note says how many px fell outside); x,y may be negative. line, rect, poly, ellipse, arc and
+  flood print "painted N px" ("erased" for '.').
   line FILE[:frame] KEY x0,y0 x1,y1 [--width N]
       Bresenham: one pixel per step along the longer axis, 8-connected, no doubled corners;
       the same pixels whichever end comes first (0,0 8,2 is three runs of 3). --width N
@@ -786,7 +786,7 @@ CONVERTING
         {"frame": N, "bounds": {"x": 0, "y": 0, "w": W, "h": H}, "pivot": {"x": X, "y": Y}},
         bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
-      (--aseprite x.json and --tiled x.tsj share one identical x.png)
+      (--aseprite x.json and --tiled x.tsj write the same x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
       Several files and directories export together, file by file in the order named; a
@@ -941,6 +941,7 @@ RECIPES = """RECIPES (pxart help recipes)
 """
 
 
+KEY_HELP = "a palette key, or '.' to erase"
 FORMAT_VERSION = 1
 CLEAR = (0, 0, 0, 0)
 DEFAULT_MS = 100
@@ -4999,7 +5000,7 @@ def cmd_fill(a):
         x0, y0, w, h = parse_rect(a.region, f.size)
         f.grid = ["".join(a.key if x0 <= x < x0 + w and y0 <= y < y0 + h else c for x, c in enumerate(row))
                   for y, row in enumerate(f.grid)]
-    print(px_changed(doc, frames, "painted"), write_doc(doc, out))
+    print(px_changed(doc, frames, "erased" if a.key == "." else "painted"), write_doc(doc, out))
 
 
 def px_changed(doc, frames, verb):
@@ -5195,7 +5196,7 @@ def draw(a, shape):
         if cut:
             print(f"note: {cut} px of the {a.cmd} fall outside {doc.label(f)} ({f.size[0]}x{f.size[1]}) and were "
                   "clipped")
-    print(f"painted {changed} px;", write_doc(doc, out))
+    print(f"{'erased' if a.key == '.' else 'painted'} {changed} px;", write_doc(doc, out))
 
 
 def cmd_line(a):
@@ -8005,7 +8006,7 @@ GIST = {  # what each block (or another command's section) has, for the see-also
     "FORMAT: paths": "what a path is read from: the current directory, or a file's own",
     "LOOKING: centering": "frames of different sizes, --bg, --dry-run",
     "EDITING": "-o OUT gets the whole file, only changed lines are rewritten, 'no change'",
-    "DRAWING": "FILE[:SEL], KEY, clipping, 'painted N px'",
+    "DRAWING": "FILE[:SEL], KEY ('.' erases), clipping, 'painted N px'",
     "compose": "OUT's palette, frame placement, E_KEY_CONFLICT, --rekey",
     "scene": "--tint, items, maps",
 }
@@ -8408,22 +8409,22 @@ def parser(describe=True):
     p.add_argument("-o")
     coord = re.compile(r"^-\d+(\.\d+)?(,-?\d+(\.\d+)?)*$")  # a negative x,y is an argument, not an option
     ap._negative_number_matcher = coord
-    p = sub.add_parser("line"); p.add_argument("file"); p.add_argument("key"); p.add_argument("p0"); p.add_argument("p1")
+    p = sub.add_parser("line"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("p0"); p.add_argument("p1")
     p.add_argument("--width", type=int, default=1); p.add_argument("-o")
-    p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key"); p.add_argument("rect")
+    p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("rect")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
-    p = sub.add_parser("poly"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
+    p = sub.add_parser("poly"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("points", nargs="+")
     p.add_argument("--fill", action="store_true"); p.add_argument("-o")
-    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key"); p.add_argument("shape", nargs="?")
+    p = sub.add_parser("ellipse"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("shape", nargs="?")
     p.add_argument("--box", metavar="x,y,w,h", help="instead of cx,cy,rx,ry: the pixel box it fills, as rect's (no "
                    "half pixels: --box 0,0,8,6 is cx,cy,rx,ry 3.5,2.5,3.5,2.5)")
     p.add_argument("--fill", action="store_true")
     p.add_argument("--ring", type=int, metavar="N", help="an outline N px thick, inside the shape (1: the plain "
                    "outline); not with --fill")
     p.add_argument("-o")
-    p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key"); p.add_argument("circle")
+    p = sub.add_parser("arc"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("circle")
     p.add_argument("angles"); p.add_argument("--width", type=int, default=1); p.add_argument("-o")
-    p = sub.add_parser("flood"); p.add_argument("file"); p.add_argument("key"); p.add_argument("at")
+    p = sub.add_parser("flood"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("at")
     p.add_argument("--diagonal", action="store_true"); p.add_argument("-o")
     p = sub.add_parser("outline"); p.add_argument("file"); p.add_argument("--key", required=True)
     p.add_argument("--lit", help="lighter key for the edges facing the light (selective outline)")

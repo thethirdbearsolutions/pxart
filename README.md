@@ -304,7 +304,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   renders the same with nothing beside it. extract writes a new file: onto one that exists it is an error
   (its frames would be lost), unless `--replace`; `frames --copy-to` adds to it instead.
 - **Drawing** (for 32x48 heroes, 64x64 beasts and 256-wide layers, where typing every
-  pixel is the bottleneck; each draws a palette key on `FILE[:SEL]`, clipped to the frame,
+  pixel is the bottleneck; each draws a palette key, or `.` to erase (`ellipse hero.px:idle/0 . 8,8,3,3 --fill` cuts
+  a hole, and says `erased 37 px`), on `FILE[:SEL]`, clipped to the frame,
   and rewrites only the rows it changed):
   - `line hero.px:attack/2 W 3,40 28,12 --width 2`: Bresenham, no doubled corners.
   - `poly … x,y x,y x,y … [--fill]`: a closed polygon from line's pixels (filled by nonzero
