@@ -60,7 +60,8 @@ LOOKING
       labeled with their file's stem in front (hero:idle/0, beast:idle/0; the path as given
       when the stems match too); render and anim label them the same way.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
-      GIF (with 1x and 2x copies alongside), plus walk.strip.png: row 1 = frames,
+      walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
+      picture), plus walk.strip.png: row 1 = frames,
       row 2 = what changed from the previous frame after removing the whole-sprite
       shift ("shift dx,dy then N px (P%) (no shift: M px)"; P is N as a percent of the
       frame's opaque pixels; a walk that's only a bob shows "then 0px (0%)"). When the

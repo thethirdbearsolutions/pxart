@@ -6661,6 +6661,44 @@ def test_anim_gif_with_pivots_is_the_pivot_canvas(tmp_path, capsys):
     assert gif.size == (5 * 1 + 8 * 3 + 5 * 3, max(5 * 1, 5 * 3 + 8))  # w*S + 3 gaps + 1x and 2x copies
 
 
+def test_anim_writes_exactly_the_gif_and_the_strip(tmp_path, capsys):
+    # GAMES-295: -h promised 1x and 2x GIF copies "alongside"; they're inside the one GIF, beside the big frame.
+    p = write(tmp_path, "w.px", "k #ff0000\ng #00ff00\n@frame w/0\nkg\ngk\n@frame w/1\ngk\nkg\n")
+    out = tmp_path / "o"
+    assert run("anim", f"{p}:w", "-o", out / "w.gif", "--scale", "4") == 0
+    assert sorted(x.name for x in out.iterdir()) == ["w.gif", "w.strip.png"]
+    assert capsys.readouterr().out.splitlines()[-1] == f"wrote {out / 'w.gif'} and {out / 'w.strip.png'}"
+
+
+@pytest.mark.parametrize("n", [0, 1])
+def test_anim_gif_frame_holds_the_1x_and_2x_copies(tmp_path, n):
+    p = write(tmp_path, "w.px", "k #ff0000\ng #00ff00\n@frame w/0\nkg\ngk\n@frame w/1\ngk\nkg\n")
+    S, gap, w = 4, 8, 2
+    assert run("anim", f"{p}:w", "-o", tmp_path / "w.gif", "--scale", S) == 0
+    gif = Image.open(tmp_path / "w.gif")
+    assert gif.size == (w * S + gap * 3 + w * 3, max(w * S, w * 3 + gap))
+    gif.seek(n)
+    im = gif.convert("RGBA")
+    doc = pxart.parse(p)
+    src = doc.image(doc.frames[n])
+    for y in range(w):
+        for x in range(w):
+            want = src.getpixel((x, y))
+            assert im.getpixel((x * S, y * S)) == want                       # --scale
+            assert im.getpixel((w * S + gap + x, y)) == want                 # 1x
+            for dy in (0, 1):
+                for dx in (0, 1):                                            # 2x
+                    assert im.getpixel((w * S + gap * 2 + w + 2 * x + dx, 2 * y + dy)) == want
+
+
+def test_anim_help_describes_one_gif_with_copies_inside():
+    doc = pxart.__doc__
+    assert "GIF (with 1x and 2x copies alongside)" not in doc
+    assert "walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same" in doc
+    readme = (pathlib.Path(pxart.__file__).parent / "README.md").read_text()
+    assert "2x copies beside it in the same picture" in readme
+
+
 def test_onion_aligns_by_pivot(tmp_path):
     p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
     assert run("onion", f"{p}:a/0", f"{p}:a/1", "-o", tmp_path / "o.png", "--scale", "1") == 0

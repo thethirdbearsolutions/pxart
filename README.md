@@ -107,9 +107,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 `pxart -h` has the full reference.
 
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
-  `hero:idle/0`, `beast:idle/0`), `anim` (GIF with 1x and 2x copies, plus a motion strip;
-  without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and
-  writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the
+  `hero:idle/0`, `beast:idle/0`), `anim` (one GIF, each frame at `--scale` with its 1x and
+  2x copies beside it in the same picture, plus a motion strip; without `-o` it prints only
+  the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for the
   rise and the fall of one breath alike when the legs are identical in every frame; a
   ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
   `shift -1,+4 (wrap)`),
