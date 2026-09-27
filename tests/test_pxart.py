@@ -17418,3 +17418,117 @@ def test_help_documents_remove_of_an_imported_key():
         "own); DIR is --in DIR, else the directory holding both FILE and the palette file" in text
     assert "'b stays in pal.px: cavegirl.px uses it'" in text
     assert "remove it there" not in text
+
+
+# ---------------------------------------------------------------- scene: pixels past the edge are cropped with a note,
+# and at the default size (96x64) a note says so and names the --size that holds every item
+
+def big(tmp_path, name="big.px", w=192, h=144):
+    return write(tmp_path, name, "k #000000\n\n" + ("k" * w + "\n") * h)
+
+
+def test_scene_default_size_crop_says_so(tmp_path, capsys):
+    b = big(tmp_path)
+    out_png = tmp_path / "s.png"
+    assert run("scene", "-o", out_png, f"{b}@0,0") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == [f"note: {192 * 144 - 96 * 64} px of item 1 ({b}) fall outside the 96x64 scene (size from the "
+                   "default) and were cropped",
+                   "note: 96x64 (six 16x16 tiles by four) is scene's size when nothing sizes it (no --size, no --map); "
+                   "--size 192x144 holds every item",
+                   f"wrote {out_png}"]
+    assert Image.open(out_png).size == (96 * 4, 64 * 4)
+
+
+def test_scene_default_size_suggestion_fits(tmp_path, capsys):
+    b = big(tmp_path)
+    s = write(tmp_path, "s.px", "k #000000\n\nkk\nkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{b}@0,0", f"{s}@200,150") == 0
+    out = capsys.readouterr().out
+    assert "--size 202x152 holds every item" in out
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "202x152", f"{b}@0,0", f"{s}@200,150") == 0
+    assert "note" not in capsys.readouterr().out
+
+
+def test_scene_default_size_no_note_when_everything_fits(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n\nkk\nkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{s}@94,62") == 0
+    assert capsys.readouterr().out == f"wrote {tmp_path / 's.png'}\n"
+
+
+def test_scene_transparent_pixels_past_the_edge_are_no_crop(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n\nk.\n..\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{s}@95,63") == 0
+    assert capsys.readouterr().out == f"wrote {tmp_path / 's.png'}\n"
+
+
+def test_scene_counts_only_the_pixels_outside(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n\nkkkk\nkkkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{s}@94,63") == 0
+    out = capsys.readouterr().out
+    assert f"note: 6 px of item 1 ({s}) fall outside the 96x64 scene (size from the default) and were cropped" in out
+
+
+@pytest.mark.parametrize("at, n", [("-1,0", 2), ("0,-1", 4), ("-4,0", 8), ("-10,-10", 8), ("96,0", 8), ("0,64", 8),
+                                   ("-2,-1", 6)])
+def test_scene_negative_and_far_positions_count(tmp_path, capsys, at, n):
+    s = write(tmp_path, "s.px", "k #000000\n\nkkkk\nkkkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{s}@{at}") == 0
+    assert f"note: {n} px of item 1 ({s}) fall outside" in capsys.readouterr().out
+
+
+def test_scene_with_size_crop_note_names_size(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n\nkkkk\nkkkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", "--size", "3x3", f"{s}@0,0") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"note: 2 px of item 1 ({s}) fall outside the 3x3 scene (size from --size) and were cropped"
+    assert "holds every item" not in "\n".join(out)
+
+
+def test_scene_same_file_twice_gets_a_note_each(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n\nkk\n")
+    assert run("scene", "-o", tmp_path / "s.png", f"{s}@95,0", f"{s}@-1,5") == 0
+    out = capsys.readouterr().out
+    assert f"1 px of item 1 ({s})" in out and f"1 px of item 2 ({s})" in out
+
+
+def test_scene_map_overhang_gets_one_note(tmp_path, capsys):
+    write(tmp_path, "t.px", "k #000000\n\n" + ("k" * 4 + "\n") * 4)
+    write(tmp_path, "tall.px", "k #000000\n\n" + ("k" * 4 + "\n") * 8)
+    m = write(tmp_path, "m.map", "t t.px\nL tall.px+b\n\ntt\nLL\n")
+    assert run("scene", "--map", m, "--tile", "4x4", "-o", tmp_path / "s.png") == 0
+    out = capsys.readouterr().out
+    assert out.count("note:") == 0  # the tall props rise into row 0, still inside
+    m2 = write(tmp_path, "m2.map", "L tall.px+b\n\nLL\n")
+    assert run("scene", "--map", m2, "--tile", "4x4", "-o", tmp_path / "s.png") == 0
+    out = capsys.readouterr().out
+    assert "note: 32 px of the map fall outside the 8x4 scene (size from --map) and were cropped" in out
+    assert "holds every item" not in out
+
+
+def test_scene_png_item_crop(tmp_path, capsys):
+    png = tmp_path / "p.png"
+    Image.new("RGBA", (100, 10), (255, 0, 0, 255)).save(png)
+    assert run("scene", "-o", tmp_path / "s.png", f"{png}@0,0") == 0
+    out = capsys.readouterr().out
+    assert f"note: 40 px of item 1 ({png}) fall outside the 96x64 scene" in out and "--size 100x10 holds" in out
+
+
+def test_scene_crop_render_unchanged(tmp_path, capsys):
+    # The note is all that's new: the picture is what it was.
+    b = big(tmp_path)
+    assert run("scene", "-o", tmp_path / "s.png", "--scale", "1", f"{b}@-5,-5") == 0
+    img = Image.open(tmp_path / "s.png")
+    assert img.size == (96, 64) and img.getpixel((0, 0)) == (0, 0, 0, 255)
+
+
+def test_help_documents_scene_default_size():
+    text = " ".join(pxart.__doc__.split())
+    assert "Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the edge are cropped, " \
+        "with a note per item (and one for the map) saying how many; at the default size a note also names the " \
+        "--size that holds every item." in text
+
+
+def test_readme_documents_scene_default_size():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "on a 96x64 scene unless `--size` or `--map` says otherwise, pixels past its edge cropped with a note" in readme

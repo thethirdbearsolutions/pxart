@@ -134,7 +134,8 @@ rather than repeating them.
   characters `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only
   that band, so a weapon swing doesn't hide the feet; `--tint-a COLOR` picks the
   silhouette's color and `--fade-a` draws A faded instead),
-  `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v` suffix as in
+  `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`
+  says otherwise, pixels past its edge cropped with a note, mirrored with a `+h`/`+v` suffix as in
   `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as

@@ -133,6 +133,9 @@ LOOKING
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
+      Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
+      edge are cropped, with a note per item (and one for the map) saying how many; at the
+      default size a note also names the --size that holds every item.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4 walks the other way; '+' needs no quoting in bash or zsh,
       where '!' would be history expansion). Map legend entries (which also take +b, see
@@ -2457,6 +2460,18 @@ def cmd_tint(a):
     print("wrote", out)
 
 
+def outside_px(img, x, y, w, h):
+    """How many of img's opaque pixels fall outside a w x h canvas when img is drawn at x,y."""
+    alpha = img.getchannel("A").point(lambda v: 255 if v else 0)
+    total = alpha.histogram()[255]
+    box = (max(0, -x), max(0, -y), min(img.width, w - x), min(img.height, h - y))
+    inside = alpha.crop(box).histogram()[255] if box[0] < box[2] and box[1] < box[3] else 0
+    return total - inside
+
+
+SCENE_SIZE = (96, 64)  # scene without --size or --map: a small room of 16x16 tiles, 6 by 4
+
+
 def cmd_scene(a):
     tint = parse_tint(a.tint) if a.tint else None
     bg = parse_color(a.bg, "--bg")
@@ -2468,17 +2483,31 @@ def cmd_scene(a):
             placed, msize = read_map(a.map, tile, notes)
         for n in notes:
             print("note:", n)
-    W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else (96, 64))
+    W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else SCENE_SIZE)
     sc = Image.new("RGBA", (W, H), bg)
     with reading(f"--map ({a.map})"):
         tiles = load_legend(a.map, a.variant) if a.map else {}
+    cut, reach = [], [0, 0]  # cut: (what, px outside the canvas); reach: the size that holds every item
+
+    def lay(what, img, x, y):
+        draw_at(sc, img, x, y)
+        n = outside_px(img, x, y, W, H)
+        if n:
+            cut.append((what, n))
+        reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
     for arg, x, y in placed:
-        draw_at(sc, tiles[arg], *cell_spot(arg, tiles[arg], x, y, tile))
+        lay("the map", tiles[arg], *cell_spot(arg, tiles[arg], x, y, tile))
     for n, spec in enumerate(a.specs, 1):
         with reading(f"item {n} ({spec.rpartition('@')[0] or spec})"):
             path, x, y = split_at(spec)
             img = place_item(path, "scene item", a.variant).img
-        draw_at(sc, img, x, y)
+        lay(f"item {n} ({path})", img, x, y)
+    why = "--size" if a.size else "--map" if a.map else "the default"
+    for what, n in [(w, sum(n for x, n in cut if x == w)) for w in dict.fromkeys(w for w, _ in cut)]:
+        print(f"note: {n} px of {what} fall outside the {W}x{H} scene (size from {why}) and were cropped")
+    if cut and why == "the default":
+        print(f"note: {W}x{H} (six 16x16 tiles by four) is scene's size when nothing sizes it (no --size, no "
+              f"--map); --size {reach[0]}x{reach[1]} holds every item")
     if tint:
         sc = tinted(sc, tint)
     sc.resize((W * a.scale, H * a.scale), Image.NEAREST).save(outpath(a.o))
