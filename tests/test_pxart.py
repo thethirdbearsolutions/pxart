@@ -1,6 +1,9 @@
+import io
 import json
 import math
 import pathlib
+import re
+import shlex
 import sys
 
 import pytest
@@ -14814,9 +14817,73 @@ def test_palette_comment_variant_key_not_listed(tmp_path):
     assert "E_SELECT" in msg and "has no line for 'w'" in msg and "--variant night --add 'w=#rrggbb'" in msg
 
 
-def test_palette_comment_variant_target_with_variant_flag(tmp_path):
+def test_palette_comment_variant_target_with_another_variant_flag(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL.replace("@variant night", "@variant dusk\nk #000001\n@variant night"))
+    before = p.read_text()
+    msg = run_err("palette", p, "--variant", "dusk", "--comment", "@variant", "night", "x")
+    assert "E_BAD_ARG" in msg and "--comment @variant night names its variant, and --variant dusk another" in msg
+    assert p.read_text() == before
+
+
+def test_palette_comment_variant_target_with_the_same_variant_flag(tmp_path, capsys):
+    # The redundant form the help's own example uses: --variant night ... --comment @variant night.
     p = write(tmp_path, "p.px", CMT_PAL)
-    assert "E_BAD_ARG" in run_err("palette", p, "--variant", "night", "--comment", "@variant", "night", "x")
+    assert run("palette", p, "--variant", "night", "--comment", "@variant", "night", "x") == 0
+    lines = p.read_text().splitlines()
+    assert lines[lines.index("@variant night") - 1] == "# x"
+
+
+def test_palette_comment_help_example_runs(tmp_path, capsys):
+    p = write(tmp_path, "pal.px", "k #000000\nw #ffffff\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#120e22", "--comment", "@variant", "night",
+               "night: only lamps glow") == 0
+    assert "# night: only lamps glow\n@variant night\nk #120e22" in p.read_text()
+
+
+def test_palette_comment_pairs_in_one_flag(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink", "w", "paper") == 0
+    lines = p.read_text().splitlines()
+    assert lines[lines.index("k #000000") - 1] == "# ink" and lines[lines.index("w #ffffff") - 1] == "# paper"
+
+
+def test_palette_comment_pairs_and_variant_in_one_flag(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink", "@variant", "night", "dark", "w", "paper") == 0
+    text = p.read_text()
+    assert "# ink\nk #" in text and "# dark\n@variant night" in text and "# paper\nw #" in text
+
+
+def test_palette_comment_quoted_variant_form_in_pairs(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "@variant night", "dark", "k", "ink") == 0
+    assert "# dark\n@variant night" in p.read_text()
+
+
+def test_palette_comment_pairs_repeat_flag_too(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink", "--comment", "w", "paper") == 0
+    assert "# ink\nk #" in p.read_text() and "# paper\nw #" in p.read_text()
+
+
+def test_comment_args_pairs():
+    assert pxart.comment_args([["y", "a", "E", "b"]]) == [(("key", "y"), "a"), (("key", "E"), "b")]
+    assert pxart.comment_args([["@variant", "n", "t", "y", "a"]]) == [(("variant", "n"), "t"), (("key", "y"), "a")]
+    assert pxart.comment_args([["y", ""]]) == [(("key", "y"), "")]
+
+
+@pytest.mark.parametrize("args,why", [(["y", "a", "E"], "'E' has no text after it"),
+                                      (["y", "a", "Ex", "b"], "'Ex' isn't a key"),
+                                      (["@variant", "n"], "'@variant' has no text after it")])
+def test_comment_args_odd(args, why):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.comment_args([args])
+    assert why in str(e.value)
+
+
+def test_palette_comment_metavar(capsys):
+    out = cmd_help(capsys, "palette")
+    assert "--comment KEY TEXT [KEY TEXT ...]" in out
 
 
 @pytest.mark.parametrize("args", [["k"], ["kk", "text"], ["@variant", "night", "a", "b"], ["@variant"]])
@@ -14855,7 +14922,7 @@ def test_comment_lines_helper():
 
 def test_help_documents_palette_comment(capsys):
     out = " ".join(cmd_help(capsys, "palette").split())
-    assert "[--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']" in out
+    assert "[--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']" in out
     assert "--comment KEY 'text' sets the comment right above FILE's line for KEY" in out
     assert "--comment-header 'text' sets the comment at the top of FILE" in out
 
@@ -16315,3 +16382,113 @@ def test_help_documents_remove():
 def test_readme_documents_remove():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--remove k,n` takes out keys no frame draws with (`--to j` repaints their pixels as j first)" in readme
+
+
+# ---------------------------------------------------------------- every example command line in the help runs
+# The help's examples are what a newcomer copies. Each one quoted in pxart help all runs here, in a fresh copy of a
+# directory of fixture files, and must exit 0: an example can't drift from the tool.
+
+def help_examples(doc):
+    """The example command lines quoted in the reference: 'CMD ...' or 'pxart CMD ...' in single quotes, joined across
+    wrapped lines; quotes inside ('s>a') are kept."""
+    cmds = set(pxart.parser(describe=False)[1].choices)
+    flat = " ".join(l.strip() for l in doc.splitlines())
+    out = []
+    for m in re.finditer(r"(?<![\w'])'(pxart )?([a-z][a-z-]*) ", flat):
+        if m.group(2) not in cmds:
+            continue
+        i, inner = m.end(), False
+        while i < len(flat):
+            if flat[i] == "'":
+                if inner:
+                    inner = False
+                elif flat[i - 1] == " " and i + 1 < len(flat) and flat[i + 1] != " ":
+                    inner = True
+                else:
+                    break
+            i += 1
+        out.append(flat[m.start() + 1:i])
+    return out
+
+
+# Not runnable as written, on purpose: placeholders (FILE, DST, TOPIC...) and fragments of a sentence.
+EXAMPLE_SKIP = {
+    "extract FILE:SEL -o DST": "placeholders",
+    "new DST --empty --palette P.px": "placeholders",
+    "pxart recolor FILE ... -o rekeyed/FILE.px": "placeholders",
+    "shade --ramp": "a fragment ('a later 'shade --ramp' or recolor')",
+    "shade --ramp XxcCw": "a fragment (the ramp a cloak needs)",
+    "pxart help TOPIC": "placeholder",
+    "pxart help CMD": "placeholder",
+}
+
+
+def hero_frame(w, h, fill):
+    rows = [("k" + fill * (w - 2) + "k") if 0 < y < h - 1 else "k" * w for y in range(h)]
+    return "\n".join(rows) + "\n"
+
+
+def help_fixtures(d):
+    """The files the reference's examples name, each just enough for its example."""
+    (d / "crossover").mkdir()
+    hero_pal = "pxart 1\nk #1a1423\nX #202040\nx #404080\nc #6060c0\nC #8080e0\nw #c0c0ff\nW #ffffff\n"
+    hero = hero_pal + "@anim walk/down ms=100\n"
+    for fid in ("idle/0", "idle/1", "idle/2", "idle/3", "walk/down/0", "walk/down/1", "walk/left/0", "walk/left/1",
+                "attack/2"):
+        hero += f"@frame {fid}\n" + hero_frame(32, 32, "c")
+    (d / "hero.px").write_text(hero)
+    (d / "beast.px").write_text(hero_pal + "".join(f"@frame idle/{i}\n" + hero_frame(16, 16, "x") for i in range(4)))
+    (d / "w1.txt").write_text(hero_frame(32, 32, "C"))
+    (d / "palette.px").write_text("# shared\nj #2a1f33\nq #3d4f86\n@variant night\nj #0f0f22\n")
+    (d / "party.px").write_text("pxart 1\n@palette palette.px\nk #1a1423\nn #3d4f86\n@frame idle\nkjn\nqqj\n")
+    (d / "keeper.px").write_text("pxart 1\nk #2b1e2f\nr #c4473a\n@variant night\nr #83344e\n@anim walk ms=150\n"
+                                 "@frame walk/0\nkr\nrk\n@frame walk/1\nrk\nkr\n")
+    (d / "wick.px").write_text("pxart 1\nk #1a1423\no #f58b3c\n@frame walk/down/0\nko\n@frame walk/down/1\nok\n")
+    (d / "pal.px").write_text("k #1a1423\nw #efe6d2\ny #f3cf6b\nE #ffe07a\n")
+    (d / "rock.px").write_text("o #6a6a6a\n" + ("." * 16 + "\n") * 16)
+    (d / "field.px").write_text("s #00ff00\nt #008800\nst\nts\n")
+    (d / "crossover" / "dock.px").write_text("pxart 1\nk #1a1423\n@frame a\nkk\n")
+    (d / "harbor.px").write_text("pxart 1\ng #808080\nb #2040a0\n@frame cobble\n" + ("g" * 16 + "\n") * 16
+                                 + "".join(f"@frame water/{i}\n" + ("b" * 16 + "\n") * 16 for i in range(2))
+                                 + "@frame stall\n" + ("g" * 32 + "\n") * 32)
+    (d / "tiles.px").write_text("pxart 1\ng #808080\nb #2040a0\no #8b5a3c\n@frame cobble\n" + ("g" * 16 + "\n") * 16
+                                + "".join(f"@frame water/{i}\n" + ("b" * 16 + "\n") * 16 for i in range(2))
+                                + "@frame crate\n" + ("o" * 15 + ".\n") * 16)
+    (d / "stall.px").write_text("r #c4473a\n" + ("r" * 32 + "\n") * 32)
+    (d / "lamp.px").write_text("y #f3cf6b\n" + ("." * 7 + "yy" + "." * 7 + "\n") * 32)
+    (d / "market.map").write_text("# ground layer, then props\nc tiles.px:cobble\nw tiles.px:water/0\n"
+                                  "x tiles.px:crate+h\nS stall.px+b\nL lamp.px+b\nl lamp.px+hb\n\n"
+                                  "cccccc\ncccccc\nwwwwww\n---\n......\n.S.L.l\nx.....\n")
+    Image.new("RGBA", (96, 48), (40, 60, 80, 255)).save(d / "scene.png")
+
+
+def test_help_examples_are_found():
+    got = help_examples(pxart.__doc__)
+    assert len(got) >= 25
+    assert "palette pal.px --variant night --add k=#120e22 --comment @variant night \"night: only lamps glow\"" in got
+    assert "pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px" in got
+    assert set(EXAMPLE_SKIP) <= set(got)  # a skip that no longer matches an example goes too
+
+
+@pytest.mark.parametrize("example", [e for e in help_examples(pxart.__doc__) if e not in EXAMPLE_SKIP])
+def test_help_example_runs(tmp_path, capsys, monkeypatch, example):
+    help_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    argv = shlex.split(example)
+    if argv[0] == "pxart":
+        argv = argv[1:]
+    stdin = None
+    if "<" in argv:
+        at = argv.index("<")
+        stdin, argv = (tmp_path / argv[at + 1]).read_text(), argv[:at]
+    if argv[0] == "new" and "--empty" in argv:  # it starts the file the next example copies frames into
+        (tmp_path / argv[1]).unlink(missing_ok=True)
+    if stdin is not None:
+        monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    try:
+        pxart.main(argv)
+        code = 0
+    except SystemExit as e:
+        code = e.code
+    got = capsys.readouterr()
+    assert code in (0, None), (example, code, got.out, got.err)

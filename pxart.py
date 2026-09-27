@@ -473,7 +473,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
           [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
-          [--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']
+          [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
           [--remove KEYS [--to KEY]]
       No flags: lists the keys, their colors, where they come from and how often they're
@@ -505,9 +505,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       with --variant NAME, --comment KEY is KEY's line in that variant. A line of FILE's own:
       an imported key or variant is commented in its palette file. --comment-header 'text'
       sets the comment at the top of FILE. '' removes a comment; a newline in the text makes
-      two comment lines. Both repeat and go with --add in one call (the key added first):
-      'palette pal.px --variant night --add k=#120e22 --comment @variant night "night:
-      only lamps glow"'.
+      two comment lines. One --comment takes several in turn ('palette pal.px --comment y
+      "lamp" E "flame"'), and both repeat and go with --add in one call (the key added
+      first): 'palette pal.px --variant night --add k=#120e22 --comment @variant night "night:
+      only lamps glow"' (--variant night and @variant night may name the same variant; two
+      different ones are E_BAD_ARG).
       --remove k,n takes FILE's own keys out: their key lines, their lines in FILE's variants,
       and the comments above those. A key a frame still draws with is E_SELECT (naming the
       frames and how many px), unless --to j repaints those pixels as j first: 'palette
@@ -4843,19 +4845,26 @@ def derived(c, darken, tint):
 
 
 def comment_args(given):
-    """palette --comment's arguments, each 'KEY TEXT', '@variant NAME TEXT' or '"@variant NAME" TEXT':
-    [((kind, name), text)] with kind 'key' or 'variant'."""
+    """palette --comment's arguments: each --comment holds one or more of 'KEY TEXT', '@variant NAME TEXT' and
+    '"@variant NAME" TEXT', in turn (--comment y 'lamp' E 'flame'). [((kind, name), text)], kind 'key' or 'variant'."""
     out = []
     for g in given or []:
-        if len(g) == 3 and g[0] == "@variant":
-            out.append((("variant", g[1]), g[2]))
-        elif len(g) == 2 and g[0].startswith("@variant "):
-            out.append((("variant", g[0].split(None, 1)[1].strip()), g[1]))
-        elif len(g) == 2 and len(g[0]) == 1:
-            out.append((("key", g[0]), g[1]))
-        else:
-            fail("E_BAD_ARG", f"--comment {' '.join(map(shlex.quote, g))}: want --comment KEY 'text' or --comment "
-                 "@variant NAME 'text' ('' removes the comment)")
+        i = 0
+        while i < len(g):
+            if g[i] == "@variant" and i + 2 < len(g):
+                out.append((("variant", g[i + 1]), g[i + 2]))
+                i += 3
+            elif g[i].startswith("@variant ") and i + 1 < len(g):
+                out.append((("variant", g[i].split(None, 1)[1].strip()), g[i + 1]))
+                i += 2
+            elif len(g[i]) == 1 and g[i] != "@" and i + 1 < len(g):
+                out.append((("key", g[i]), g[i + 1]))
+                i += 2
+            else:
+                fail("E_BAD_ARG", f"--comment {' '.join(map(shlex.quote, g))}: want --comment KEY 'text' or --comment "
+                     f"@variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'); {g[i]!r} "
+                     + ("has no text after it" if len(g[i]) == 1 or g[i].startswith("@variant") else
+                        "isn't a key (one character) or @variant NAME") + " ('' removes a comment)")
     return out
 
 
@@ -4872,8 +4881,9 @@ def set_comments(doc, notes, variant=None, header=None):
     default = {anchor: gap for anchor, gap, _ in doc.lines()}
     for (kind, name), text in notes:
         if kind == "variant":
-            if variant:
-                fail("E_BAD_ARG", f"--comment @variant {name} names its variant; drop --variant {variant}")
+            if variant and variant != name:
+                fail("E_BAD_ARG", f"--comment @variant {name} names its variant, and --variant {variant} another; "
+                     f"comment @variant {variant} or drop --variant {variant}")
             if name not in doc.variants:
                 fail("E_SELECT", f"--comment @variant {name}: {doc.path} has no @variant line {name!r}" + (
                     f" (it imports that variant; comment it in the palette file: pxart palette "
@@ -5547,8 +5557,9 @@ def parser(describe=True):
     p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
     p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
     p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
-    p.add_argument("--comment", nargs="+", action="append", metavar="ARG",
-                   help="KEY 'text' or @variant NAME 'text': the comment line above that line ('' removes it)")
+    p.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
+                   help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
+                        "comment line above that line ('' removes it)")
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
