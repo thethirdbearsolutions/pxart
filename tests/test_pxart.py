@@ -25988,3 +25988,24 @@ def test_transpose_has_no_pivot_note(tmp_path, capsys):
     p = write(tmp_path, "b.px", "k #000000\n@frame a pivot=1,0\nk...\n....\n")
     assert run("transpose", p) == 0
     assert "mirrored" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- fill FILE:ID . clears a frame
+
+def test_fill_dot_clears_one_frame(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "k #000000\n@frame a\nkk\nk.\n@frame b\nkk\nkk\n")
+    assert run("fill", f"{p}:a", ".") == 0
+    assert grids(p) == {"a": ["..", ".."], "b": ["kk", "kk"]}
+    assert capsys.readouterr().out == f"wrote {p}\n"
+
+
+def test_fill_dot_clears_with_a_palette_that_lists_no_dot(tmp_path, capsys):
+    p = write(tmp_path, "c.px", "pxart 1\nk #000000\n@frame a\nkk\n")
+    assert run("fill", f"{p}:a", ".", "--region", "1,0,1,1") == 0
+    assert grids(p) == {"a": ["k."]}
+
+
+def test_help_says_fill_dot_clears():
+    assert "paint a rectangle (default: the frame; '.' clears)" in pxart.__doc__
+    assert "`fill hero.px:walk/2 .` clears a frame" in (pathlib.Path(__file__).resolve().parent.parent
+                                                         / "README.md").read_text()

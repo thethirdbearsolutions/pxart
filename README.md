@@ -228,7 +228,7 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   frame's grid with rows from stdin, with optional
   palette lines merged like `compose`'s; checked like a file, errors at stdin's lines,
   nothing written on an error, and only that frame's lines change), `fill` (a region or
-  the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`,
+  the whole frame with one key; `fill hero.px:walk/2 .` clears a frame), `flip`, `shift` (the pixels it leaves behind become `.`,
   or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds

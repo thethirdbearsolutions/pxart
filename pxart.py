@@ -331,7 +331,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       outside the region; its '.' pixels don't overwrite what they land on.
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
-  fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
+  fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame; '.' clears)
   new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]
   new OUT --empty [--palette P.px]
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
