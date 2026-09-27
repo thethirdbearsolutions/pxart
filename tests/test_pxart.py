@@ -18762,8 +18762,8 @@ def test_help_documents_match_and_hold():
 def test_readme_documents_match_and_hold():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--match mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted gain " \
-        "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened unless " \
-        "`--lift-darks`" in readme
+        "and offset: warm lights, blue shadows), and a key darker than a quarter is never brightened, by Rec. 709 " \
+        "luma (hue kept), unless `--lift-darks`" in readme
 
 
 # ---------------------------------------------------------------- check notes local keys that repeat an import's color
