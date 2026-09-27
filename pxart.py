@@ -55,7 +55,7 @@ LOOKING
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-        [--fit]
+        [--fit] [--align bottom|pivot]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
       PNGs in it are left out, a sheet rendered there too). A palette file (no frames) among
@@ -69,6 +69,11 @@ LOOKING
       different files are labeled with their file's stem in front (hero:idle/0,
       beast:idle/0; the path as given when the stems match too); render and anim label them
       the same way.
+      --align pivot lines up each animation group's frames by pivot, as anim and onion do:
+      the group's frames are drawn on one canvas, every pivot on the same pixel (a frame
+      without one uses its bottom-centre pixel), so a walk frame whose pivot says it stands
+      1px lower isn't shown 1px high. The label keeps the frame's own WxH. The default,
+      --align bottom, bottom-aligns each frame in its cell.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames,
@@ -1364,11 +1369,24 @@ def file_error(e):
     return msg
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False):
+def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom"):
     """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
-    frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right."""
+    frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right. align 'pivot':
+    the frames of one animation group (one file's) are drawn on one canvas each, lined up by pivot as anim does
+    (pivot_layout), so a frame whose pivot says its feet are 1px lower sits 1px lower; frames are bottom-aligned in
+    their cells either way."""
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    tiles = [(it, upscale(it.img, scale, grid, rulers)) for it in its]
+    shown = {id(it): it.img for it in its}  # what each cell draws: the frame, or it on its group's pivot canvas
+    if align == "pivot":
+        groups = {}
+        for it in its:
+            if it.doc and it.frame and it.frame.group:
+                groups.setdefault((it.doc.path.resolve(), it.frame.group), []).append(it)
+        for g in groups.values():
+            lay = pivot_layout(g)
+            for it, at in zip(g, lay[2] if lay else ()):
+                shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
+    tiles = [(it, upscale(shown[id(it)], scale, grid, rulers)) for it in its]
     lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
     lw = max(lws)
     iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
@@ -1906,7 +1924,8 @@ def cmd_render(a):
 def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
     files = frames_only(in_dirs(a.files), "sheet")
-    print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit))
+    print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
+                         align=a.align))
 
 
 def cmd_anim(a):
@@ -4811,6 +4830,8 @@ def parser(describe=True):
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
     p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
+    p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
+                   help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
     p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)

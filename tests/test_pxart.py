@@ -14480,3 +14480,108 @@ def test_already_helper():
 
 def test_help_documents_palette_add_already():
     assert "'k is already #0f0f22 in night; unchanged'" in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- sheet --align pivot
+
+# walk/1's art is 1px higher in its grid, and its pivot says so: its feet are on row 23, not 24. (25 rows tall: a
+# sheet draws no 1x copy beside the label of a frame that tall, so the only red is the cells'.)
+PIVOT_WALK = ("r #ff0000\n@anim walk pivot=1,24\n@frame walk/0\n" + "...\n" * 22 + ".r.\n.r.\n.r.\n"
+              "@frame walk/1 pivot=1,23\n" + "...\n" * 22 + ".r.\n.r.\n...\n@frame lone\n" + "r\n" * 25)
+
+
+def red_rows(png, scale=1):
+    """For each run of columns holding red pixels (one per cell), the lowest row that has red."""
+    img = Image.open(png).convert("RGBA")
+    cols = {}
+    for y in range(img.height):
+        for x in range(img.width):
+            if img.getpixel((x, y))[:3] == (255, 0, 0):
+                cols[x] = max(cols.get(x, -1), y)
+    runs, prev = [], None
+    for x in sorted(cols):
+        if prev is None or x != prev + 1:
+            runs.append([])
+        runs[-1].append(cols[x])
+        prev = x
+    return [max(r) for r in runs]
+
+
+def test_sheet_align_bottom_is_the_default(tmp_path):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", p, "-o", a) == 0 and run("sheet", p, "-o", b, "--align", "bottom") == 0
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_sheet_align_pivot_without_pivots_is_the_default(tmp_path):
+    p = write(tmp_path, "m.px", MULTI)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", p, "-o", a) == 0 and run("sheet", p, "-o", b, "--align", "pivot") == 0
+    assert a.read_bytes() == b.read_bytes()
+
+
+@pytest.mark.parametrize("fit", [[], ["--fit"]])
+def test_sheet_bottom_shows_the_float(tmp_path, fit):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    out = tmp_path / "s.png"
+    assert run("sheet", f"{p}:walk", "-o", out, "--scale", "1", *fit) == 0
+    low = red_rows(out)
+    assert len(low) == 2 and low[1] == low[0] - 1  # walk/1 looks 1px high
+
+
+@pytest.mark.parametrize("fit", [[], ["--fit"]])
+def test_sheet_align_pivot_lines_up_the_feet(tmp_path, fit):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    out = tmp_path / "s.png"
+    assert run("sheet", f"{p}:walk", "-o", out, "--scale", "1", "--align", "pivot", *fit) == 0
+    low = red_rows(out)
+    assert len(low) == 2 and low[0] == low[1]
+
+
+@pytest.mark.parametrize("scale", ["1", "4"])
+def test_sheet_align_pivot_at_any_scale(tmp_path, scale):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    out = tmp_path / "s.png"
+    assert run("sheet", f"{p}:walk", "-o", out, "--scale", scale, "--align", "pivot", "--fit") == 0
+    low = red_rows(out)
+    assert low[0] == low[1]
+
+
+def test_sheet_align_pivot_leaves_top_level_frames_alone(tmp_path):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", f"{p}:lone", "-o", a) == 0 and run("sheet", f"{p}:lone", "-o", b, "--align", "pivot") == 0
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_sheet_align_pivot_groups_are_per_file(tmp_path):
+    # The same group in two files: each file's frames line up among themselves only.
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    q = write(tmp_path, "v.px", "r #ff0000\n@frame walk/0\n" + "..\n" * 24 + "rr\n")
+    out = tmp_path / "s.png"
+    assert run("sheet", f"{p}:walk", f"{q}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
+    low = red_rows(out)
+    assert len(low) == 3 and low[0] == low[1]
+
+
+def test_sheet_align_pivot_frame_without_pivot_uses_bottom_centre(tmp_path):
+    # walk/0 has none (bottom-centre 1,24); walk/1's pivot 1,23: the same feet row as walk/0's bottom.
+    p = write(tmp_path, "w.px", PIVOT_WALK.replace("@anim walk pivot=1,24\n", ""))
+    out = tmp_path / "s.png"
+    assert run("sheet", f"{p}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
+    low = red_rows(out)
+    assert low[0] == low[1]
+
+
+def test_sheet_align_bad_choice(tmp_path, capsys):
+    p = write(tmp_path, "w.px", PIVOT_WALK)
+    assert run("sheet", p, "-o", tmp_path / "s.png", "--align", "top") == 2
+
+
+def test_help_documents_sheet_align(capsys):
+    out = " ".join(cmd_help(capsys, "sheet").split())
+    assert "[--fit] [--align bottom|pivot]" in out and "--align pivot lines up each animation group's frames by pivot" \
+        in out
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--align pivot` lines up each animation's frames by pivot" in readme
