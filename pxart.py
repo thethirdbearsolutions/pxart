@@ -2881,7 +2881,8 @@ def rename_frames(doc, renames):
         if n != g:
             said.append(f"@still {n}")
     doc.stills = stills
-    per = [f"{old} -> {new} ({sum(1 for i in ids if renamed_id(i, [(old, new)]) != i)} frame(s))" for old, new in renames]
+    per = [f"{old} -> {new} ({sum(1 for i in ids if renamed_id(i, [(old, new)]) != i)} frame(s))"
+           for old, new in renames]
     return [f"renamed {', '.join(per)}" + (f"; {', '.join(said)}" if said else "")]
 
 
@@ -4818,7 +4819,8 @@ def cmd_palette(a):
             + ([f"recolors (as bright) {' '.join(how['as bright'])}"] if "as bright" in how else []) \
             + ([f"brightens {' '.join(how['brighter'])}"] if "brighter" in how else [])
         print(f"  {name}: {'; '.join(parts) or 'recolors nothing'}"
-              + (f"; relists unchanged: {' '.join(same)}" if same else "") + f"; inherits: {' '.join(keeps) or 'nothing'}")
+              + (f"; relists unchanged: {' '.join(same)}" if same else "")
+              + f"; inherits: {' '.join(keeps) or 'nothing'}")
         for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
             print(f"    {l.strip()}")
         for k in pal:
@@ -5086,7 +5088,8 @@ def remove_keys(doc, keys, to=None):
     if uses and to is None:
         each = "; ".join(f"{k}: {sum(n for _, n in fs)} px in {listed(l for l, _ in fs)}" for k, fs in uses.items())
         fail("E_SELECT", f"--remove {''.join(keys)}: frames still draw with {' '.join(uses)} ({each}); repaint them "
-             f"first, or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} --to K",
+             f"first, or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} "
+             "--to K",
              path=doc.path)
     said = []
     if uses:

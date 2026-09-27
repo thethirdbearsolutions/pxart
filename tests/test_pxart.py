@@ -4834,8 +4834,8 @@ def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
 
 def test_help_documents_frames_copy_to():
     doc = pxart.__doc__
-    assert "[--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]\n          [--prefix P | --rename GROUP " \
-        "NEWGROUP]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+    assert "[--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]\n          [--prefix P | " \
+        "--rename GROUP NEWGROUP]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
 
 
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
@@ -11117,7 +11117,8 @@ def test_rekey_flags_on_the_commands():
 
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
-    assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] [--variant-map NAME=V1,V2] "
+    assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] "
+            "[--variant-map NAME=V1,V2] "
             "LAYER@x,y") in doc
     assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
             "written)") in doc
@@ -15867,7 +15868,8 @@ def test_rekey_spec_target_also_listed():
     (["frames", "a.px", "--rekey", "k"], ["frames", "a.px", "--rekey", "k"]),
     (["crop", "a.px:x", "--rekey", "0,0,2,2", "-o", "o.px"], ["crop", "a.px:x", "--rekey=", "0,0,2,2", "-o", "o.px"]),
     (["crop", "a.px:x", "--rekey", "-1,0,2,2", "-o", "o.px"], ["crop", "a.px:x", "--rekey=", "-1,0,2,2", "-o", "o.px"]),
-    (["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"], ["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"]),
+    (["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"],
+     ["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"]),
     (["frames", "a.px", "--rekey=o"], ["frames", "a.px", "--rekey=o"]),
 ])
 def test_rekey_args(argv, want):
@@ -16124,7 +16126,8 @@ def test_rekey_explicit_keep_on_purpose(tmp_path, capsys):
     out = capsys.readouterr().out
     assert pxart.parse(d).get("walk/0").grid[0] == "rk" and "--rekey gives" not in out
     warns = [l for l in out.splitlines() if l.startswith("WARNING:")]
-    assert len(warns) == 2 and warns[0].startswith("WARNING: --rekey k=k:") and warns[1].startswith("WARNING: --rekey r=r:")
+    assert len(warns) == 2 and warns[0].startswith("WARNING: --rekey k=k:")
+    assert warns[1].startswith("WARNING: --rekey r=r:")
 
 
 def test_rekey_explicit_not_drawn(tmp_path):
@@ -16895,7 +16898,8 @@ def test_check_one_line_per_file(tmp_path, capsys):
 
 def test_check_verbose_a_line_per_frame(tmp_path, capsys):
     code, p, out = chk(tmp_path, capsys, "-v")
-    assert out == [f"ok   {p}:walk/{i}: 2x2 2c" for i in range(4)] + [f"ok   {p}:big: 3x3 2c", f"     {p}: unused keys z"]
+    assert out == [f"ok   {p}:walk/{i}: 2x2 2c" for i in range(4)] + [f"ok   {p}:big: 3x3 2c",
+                                                                     f"     {p}: unused keys z"]
 
 
 def test_check_verbose_long_flag(tmp_path, capsys):
