@@ -4664,7 +4664,7 @@ def test_frames_copy_key_conflict_names_all_with_fix(tmp_path):
     d = write(tmp_path, "d.px", CDST.replace("k #000000\n", "k #000000\nw #eeeeee\n"))
     before = d.read_text()
     msg = run_err("frames", f"{s}:walk", "--copy-to", d)
-    assert msg.startswith(f"frames: FILE ({s}:walk): E_KEY_CONFLICT: 1 key of SRC is another color in {d}: 'w' #ffffff "
+    assert msg.startswith(f"frames: FILE ({s}:walk): E_KEY_CONFLICT: 1 key of FILE is another color in {d}: 'w' #ffffff "
                           "(#eeeeee there)")
     assert d.read_text() == before
     fix = fix_of(msg)
@@ -11048,3 +11048,65 @@ def test_help_documents_rekey():
     assert "with no -o renames them in field.px itself, in every frame" in doc
     assert "--rekey gives them free keys in DST, as compose's does" in doc
     assert "--rekey gives it a free key in DST as compose's does" in doc
+
+
+# ---------------------------------------------------------------- each command's E_KEY_CONFLICT in its own nouns
+
+def test_crop_conflict_in_crops_words(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("crop", f"{f}:grass_a", "0,0,1,1", "-o", f"{out}:c")
+    assert msg == (f"crop: FILE ({f}:grass_a): E_KEY_CONFLICT: 2 keys of FILE are other colors in {out}: 's' #00ff00 "
+                   "(#111111 there), 't' #008800 (#222222 there); to keep both colors (no pixel changes color), add "
+                   f"--rekey: crop then gives FILE's keys free ones in {out} ('s>a' 't>b') and leaves {f} as it is. Or "
+                   f"give them those keys in a copy and crop from that: pxart recolor {f} 's>a' 't>b' -o "
+                   f"{tmp_path / 'rekeyed' / 'field.px'}")
+
+
+def test_crop_conflict_never_says_layer_or_compose(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("crop", f"{f}:grass_c", "0,0,2,2", "-o", f"{out}:c")
+    assert "layer" not in msg and "compose" not in msg and msg.startswith("crop: FILE (")
+
+
+def test_crop_conflict_recipe_works(tmp_path):
+    f, out = field_scene(tmp_path)
+    fix = fix_of(run_err("crop", f"{f}:grass_a", "0,0,2,1", "-o", f"{out}:c"))
+    assert run(*fix) == 0
+    assert run("crop", f"{fix[-1]}:grass_a", "0,0,2,1", "-o", f"{out}:c") == 0
+    assert pixels_of(out, "c") == [pxart.hex2rgba("#00ff00"), pxart.hex2rgba("#008800")]
+
+
+def test_crop_of_a_png_is_a_clear_error(tmp_path):
+    Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(tmp_path / "a.png")
+    msg = run_err("crop", tmp_path / "a.png", "0,0,1,1", "-o", tmp_path / "c.px")
+    assert msg.startswith(f"crop: FILE ({tmp_path / 'a.png'}): E_BAD_ARG: crop cuts a .px frame")
+    assert "mask --keep" in msg and "Traceback" not in msg and not (tmp_path / "c.px").exists()
+
+
+def test_crop_error_inside_names_file_not_layer(tmp_path):
+    p = write(tmp_path, "a.px", "k #000000\n@frame a\nk\n@frame b\nk\n")
+    msg = run_err("crop", p, "0,0,1,1", "-o", tmp_path / "c.px")
+    assert msg.startswith(f"crop: FILE ({p}): E_SELECT") and "layer" not in msg
+
+
+def test_compose_conflict_still_says_layer_after_a_crop(tmp_path):
+    # crop's words ride on its own args; a compose in the same process keeps compose's.
+    f, out = field_scene(tmp_path)
+    run_err("crop", f"{f}:grass_a", "0,0,1,1", "-o", f"{out}:c")
+    msg = run_err("compose", "-o", f"{out}:y", f"{f}:grass_a@0,0")
+    assert msg.startswith(f"compose: layer 1 ({f}:grass_a): ") and "then gives this layer's keys" in msg
+    assert "compose from that" in msg
+
+
+def test_frames_copy_conflict_says_file(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("frames", f"{f}:grass_a", "--copy-to", out)
+    assert msg.startswith(f"frames: FILE ({f}:grass_a): E_KEY_CONFLICT: 2 keys of FILE are other colors in {out}")
+    assert "SRC" not in msg and "copy the frames from that" in msg and "frames --copy-to then gives FILE's" in msg
+
+
+def test_paste_conflict_says_src(tmp_path):
+    f, out = field_scene(tmp_path)
+    msg = run_err("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "0,0")
+    assert msg.startswith(f"paste: SRC ({f}:grass_a): E_KEY_CONFLICT: 2 keys of SRC")
+    assert "paste from that" in msg and "layer" not in msg and "compose" not in msg

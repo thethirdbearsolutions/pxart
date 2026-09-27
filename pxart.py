@@ -2121,7 +2121,7 @@ def frames_copy(a, doc, sel, picked):
             keys = set("".join(r for f in picked for r in f.grid))
             print(said_rekey(doc.path, dpath, moves))
     pal = doc.resolved()
-    clash = key_conflicts(dst, doc, keys, "SRC", dpath, "frames --copy-to", clear=True)
+    clash = key_conflicts(dst, doc, keys, "FILE", dpath, "frames --copy-to", clear=True)
     if clash:
         clash.ctx = f"FILE ({a.file})"
         raise PxError(clash)
@@ -2549,8 +2549,12 @@ def cmd_set(a):
 def cmd_crop(a):
     with reading(f"FILE ({a.src})"):
         src = one_frame(a.src, "crop source")
+        if not src.doc:
+            fail("E_BAD_ARG", f"crop cuts a .px frame, got {a.src}; for a PNG, 'mask --keep x,y,w,h' erases outside the "
+                 "rectangle, or from-png it first")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
+    a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     cmd_compose(a)
 
 
@@ -3256,6 +3260,7 @@ def compose_layers(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
         label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
+        label = getattr(a, "words", {}).get("label", label)
         with reading(label):
             p, x, y = split_at(spec)
             lay = place_item(p, "layer")
@@ -3324,9 +3329,10 @@ def compose(a, layers, dry=False, gone=None):
             src, ns = c["layers"][0][2], [n for n, *_ in c["layers"]]
             bad = sorted(c["keys"])
             moves = new_keys(bad, src.resolved(), have, taken)
-            issue = conflict_issue(bad, src, have, "this layer" if len(ns) == 1 else "these layers",
-                                   f"the new {opath}" if fresh else opath, "compose", moves, whose,
-                                   rekey_copy(src.path, opath, copies))
+            words = getattr(a, "words", {})
+            what = words.get("what") or ("this layer" if len(ns) == 1 else "these layers")
+            issue = conflict_issue(bad, src, have, what, f"the new {opath}" if fresh else opath,
+                                   words.get("redo", "compose"), moves, whose, rekey_copy(src.path, opath, copies))
             issue.ctx = c["layers"][0][1] if len(ns) == 1 else f"layers {spans(ns)} ({src.path})"
             issues.append(issue)
             if moves:
