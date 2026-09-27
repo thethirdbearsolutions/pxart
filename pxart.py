@@ -235,7 +235,9 @@ CHECKING
       hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
       takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
-      Removing a group's last frame removes its @anim and @still lines too.
+      Removing a group's last frame removes its @anim and @still lines too. A move puts the
+      @anim lines in the order of their groups' first frames (with their comments; lines of
+      groups with no frames after), so the file reads in play order, and says so.
       --copy-to DST copies FILE's frames (FILE:SEL's, or the ids after DST) into the existing
       DST as they play in FILE: each frame's ms and pivot (on its @frame line when DST's @anim
       would change them), the @anim line of a group DST lacks, and @still. They keep FILE's
@@ -3060,8 +3062,16 @@ def frames_edit(a, doc, sel, picked):
         doc.frames.remove(f)
         doc.frames.insert(doc.frames.index(anchor) + (1 if a.after else 0), f)
         where = f"{a.move} {'after' if a.after else 'before'} {anchor.id}"
-        did.append(f"already in place: {where}" if doc.frames == was else f"moved {where}")
+        did.append(f"already in place: {where}" if doc.frames == was else f"moved {where}" + anims_follow(doc))
     return did
+
+
+def anims_follow(doc):
+    """After frames move: the @anim lines go in the order of their groups' first frames (lines of groups with no
+    frames after, as they were), so the file reads in play order. What it says when they moved, else ''."""
+    was = list(doc.anims)
+    order_anims(doc, [f.group for f in doc.frames if f.group])
+    return "; @anim lines follow the frames" if list(doc.anims) != was else ""
 
 
 def frames_sel_edit(a, doc, sel, picked):
@@ -3097,7 +3107,7 @@ def frames_sel_edit(a, doc, sel, picked):
     at = doc.frames.index(anchor) + (1 if a.after else 0)
     doc.frames[at:at] = picked
     where = f"{sel} ({len(picked)} frame(s)) {'after' if a.after else 'before'} {anchor.id}"
-    return [f"already in place: {where}" if doc.frames == was else f"moved {where}"]
+    return [f"already in place: {where}" if doc.frames == was else f"moved {where}" + anims_follow(doc)]
 
 
 def move_pivot(doc, f, fn):
@@ -6045,7 +6055,7 @@ def overview():
     rows = [f"  {t:<11} {' '.join(cs)}" for t, cs in commands_by_topic().items()]
     return "\n".join([lines[0], "", "A sprite is a .px text file: a palette, then a grid of its keys.", *sample, "",
                       "Commands by topic ('pxart CMD -h' for one, 'pxart help TOPIC' for a topic's reference):",
-                      *rows, "",
+                      *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
                       "whole reference."])
@@ -6058,6 +6068,8 @@ def cmd_help(a):
         print(parser()[0].format_help().rstrip())
     elif want == "all":
         print(__doc__.rstrip())
+    elif want == "rename":
+        print(f"rename: {RENAME_HINT}")
     elif want in parser(describe=False)[1].choices:  # a command's name first: 'help help' is help's own -h
         print(parser()[1].choices[want].format_help().rstrip())
     elif want.upper() in TOPICS:
@@ -6306,8 +6318,13 @@ def rekey_args(args):
     return out
 
 
+RENAME_HINT = "no command of its own: frames FILE --rename GROUP NEWGROUP renames frames; recolor FILE 'a>b' a key"
+
+
 def main(argv=None):
     args = rekey_args(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["rename"]:
+        sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
     ap, _ = parser(describe="-h" in args or "--help" in args)
     a, extra = ap.parse_known_args(args)
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):

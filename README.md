@@ -162,7 +162,8 @@ rather than repeating them.
   [--after ID]` copies frames into another file, in order, with their ms, pivots and
   `@anim` line, under other ids with `--prefix wick/` or `--rename walk wick/walk`;
   `frames hero.px --rename walk hero/walk` renames a group in place, `@anim` and `@still`
-  lines too).
+  lines too, and is the rename there is no `rename` command for; a move puts the `@anim` lines
+  in play order).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file; `new party.px
   --empty --palette palette.px` starts a file with no frames that imports a palette, for
   `frames --copy-to` to fill), `put` (`put hero.px:walk/1 < rows.txt` replaces one

@@ -15164,7 +15164,8 @@ def test_top_help_long_flag_same(capsys):
 def test_top_help_lists_every_command_once(capsys):
     out = top_help(capsys, "-h")
     table = out[out.index("Commands by topic"):out.index("Topics:")]
-    words = " ".join(l.split(None, 1)[1] for l in table.splitlines()[1:] if l.strip()).split()
+    words = " ".join(l.split(None, 1)[1] for l in table.splitlines()[1:] if l.strip()
+                     and not l.startswith("  (rename)")).split()
     assert sorted(words) == sorted(COMMANDS) and len(words) == len(set(words))
 
 
@@ -18819,3 +18820,91 @@ def test_help_documents_the_repeat_note():
     assert "local keys (and local variant keys) override imported ones, and check notes the override, and a local " \
         "key that repeats an imported one's color (with the palette --remove that drops its line when nothing " \
         "changes)." in text
+
+
+# ---------------------------------------------------------------- help gaps: rename in the overview, from-png's
+# --palette, @anim lines follow a frames move
+
+def test_top_help_points_rename_at_frames_rename(capsys):
+    out = top_help(capsys, "-h")
+    table = out[out.index("Commands by topic"):out.index("Topics:")]
+    assert "  (rename)    no command of its own: frames FILE --rename GROUP NEWGROUP renames frames; recolor FILE " \
+        "'a>b' a key" in table
+
+
+def test_rename_command_points_at_frames_rename(capsys):
+    msg = run_err("rename", "hero.px", "walk", "hero/walk")
+    assert msg == "rename: E_BAD_ARG: no command of its own: frames FILE --rename GROUP NEWGROUP renames frames; " \
+        "recolor FILE 'a>b' a key"
+
+
+def test_help_rename_points_at_frames_rename(capsys):
+    assert run("help", "rename") == 0
+    assert "frames FILE --rename GROUP NEWGROUP" in capsys.readouterr().out
+
+
+def test_from_png_usage_line_has_palette(capsys):
+    assert "from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--palette P.px]" in pxart.__doc__
+    assert run("from-png", "-h") == 0
+    assert "--palette P.px]" in capsys.readouterr().out
+
+
+MOVE_ANIMS = ("pxart 1\nk #000000\n\n@anim walk ms=150\n# idle's timing\n@anim idle ms=500\n@anim attack ms=90\n\n"
+              "@frame walk/0\nk\n@frame walk/1\nk\n@frame idle/0\nk\n@frame attack/0\nk\n")
+
+
+def anims_of(p):
+    return list(pxart.parse(p).anims)
+
+
+def test_frames_move_reorders_anim_lines_to_follow(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS)
+    assert run("frames", p, "--move", "attack/0", "--before", "walk/0") == 0
+    assert capsys.readouterr().out == f"moved attack/0 before walk/0; @anim lines follow the frames; wrote {p}\n"
+    assert anims_of(p) == ["attack", "walk", "idle"]
+    assert "# idle's timing\n@anim idle ms=500" in p.read_text()
+
+
+def test_frames_sel_move_reorders_anim_lines(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS)
+    assert run("frames", f"{p}:walk", "--after", "attack/0") == 0
+    assert "; @anim lines follow the frames; wrote" in capsys.readouterr().out
+    assert anims_of(p) == ["idle", "attack", "walk"]
+
+
+def test_frames_move_within_a_group_keeps_anim_lines(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS)
+    assert run("frames", p, "--move", "walk/1", "--before", "walk/0") == 0
+    assert capsys.readouterr().out == f"moved walk/1 before walk/0; wrote {p}\n"
+    assert anims_of(p) == ["walk", "idle", "attack"]
+
+
+def test_frames_move_already_in_place_writes_nothing(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS.replace("@anim walk ms=150\n", "").replace("@anim attack ms=90\n",
+                                                                                     "@anim attack ms=90\n@anim walk ms=150\n"))
+    before = p.read_text()
+    assert run("frames", p, "--move", "walk/1", "--after", "walk/0") == 0
+    assert "already in place" in capsys.readouterr().out and p.read_text() == before
+
+
+def test_frames_move_anim_lines_of_empty_groups_stay_after(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS.replace("@anim attack ms=90\n", "@anim ghost ms=1\n@anim attack ms=90\n"))
+    assert run("frames", p, "--move", "attack/0", "--before", "walk/0") == 0
+    assert anims_of(p) == ["attack", "walk", "idle", "ghost"]
+
+
+def test_frames_move_render_and_timing_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "h.px", MOVE_ANIMS)
+    before = {g: dict(v) for g, v in pxart.parse(p).anims.items()}
+    assert run("frames", p, "--move", "attack/0", "--before", "walk/0") == 0
+    assert {g: dict(v) for g, v in pxart.parse(p).anims.items()} == before
+
+
+def test_help_documents_anim_lines_follow_a_move():
+    text = " ".join(pxart.__doc__.split())
+    assert "A move puts the @anim lines in the order of their groups' first frames" in text
+
+
+def test_readme_documents_rename_and_move_order():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "and is the rename there is no `rename` command for; a move puts the `@anim` lines in play order" in readme
