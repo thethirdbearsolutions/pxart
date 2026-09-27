@@ -11908,7 +11908,7 @@ def test_sheet_fit_mixed_files_and_pngs(tmp_path):
 
 def test_help_documents_sheet_fit():
     doc = " ".join(pxart.__doc__.split())
-    assert "[--bg #3a3a44] [--fit]" in doc
+    assert "[--bg COLOR] [--fit]" in doc
     assert "--fit makes each cell its own frame's width (or its label's, if wider)" in doc
 
 
@@ -26100,3 +26100,81 @@ def test_derive_a_variant_the_import_lacks_still_derives_imported_keys(tmp_path,
     s = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame a\nkw\n")
     assert run("palette", s, "--variant", "dusk", "--derive-from", "base", "--darken", "0.3") == 0
     assert "@variant dusk\nk #161616\nw #9d9d9d\n" in s.read_text()
+
+
+# ---------------------------------------------------------------- render/sheet: a checkerboard behind frames by default
+
+DARK = "o #1c1626\n@frame a\no..\n.o.\n"
+
+
+def test_render_default_bg_is_a_checkerboard_behind_the_frame(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    px = pxart.pixels(Image.open(tmp_path / "r.png").convert("RGBA"))
+    # 4 transparent pixels of 8x8 each, a square each: (1,0), (0,1), (2,1) of one grey, (2,0) of the other
+    assert px.count(pxart.CHECKER[0]) == 3 * 64 and px.count(pxart.CHECKER[1]) == 64
+
+
+def test_render_checker_squares_follow_the_pixels(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "o #1c1626\n@frame a\n....\n....\n")
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    img = Image.open(tmp_path / "r.png").convert("RGBA")
+    y0 = 10
+    x0 = next(x for x in range(img.width) if img.getpixel((x, y0 + 4)) in pxart.CHECKER)  # the frame's left edge
+    row = [img.getpixel((x0 + 8 * i + 4, y0 + 4))[:3] for i in range(4)]
+    assert img.getpixel((x0 + 32, y0 + 4)) not in pxart.CHECKER  # 4 px of 8: the checker ends with the frame
+    assert row[0] == row[2] != row[1] == row[3]
+    assert img.getpixel((x0 + 1, y0 + 1)) == img.getpixel((x0 + 6, y0 + 6))  # one square per pixel
+
+
+def test_render_dark_outline_contrasts_with_the_default(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--no-grid") == 0
+    img = Image.open(tmp_path / "r.png").convert("RGBA")
+    lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    for c in pxart.CHECKER:
+        assert lum(c) - lum((0x1c, 0x16, 0x26)) > 60 and lum((0x3a, 0x3a, 0x44)) - lum((0x1c, 0x16, 0x26)) < 40
+
+
+def test_render_bg_flat_is_as_before(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DARK)
+    assert run("render", p, "-o", tmp_path / "r.png", "--bg", "#3a3a44", "--no-grid") == 0
+    px = pxart.pixels(Image.open(tmp_path / "r.png").convert("RGBA"))
+    assert pxart.CHECKER[0] not in px and pxart.CHECKER[1] not in px and px.count((0x3a, 0x3a, 0x44, 255)) >= 6 * 64
+
+
+def test_sheet_default_bg_checker_only_behind_each_frame(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "o #1c1626\n@frame a\no.\n")
+    b = write(tmp_path, "b.px", "o #1c1626\n@frame b\no...\n....\n")
+    assert run("sheet", a, b, "-o", tmp_path / "s.png", "--scale", "4") == 0
+    px = pxart.pixels(Image.open(tmp_path / "s.png").convert("RGBA"))
+    # a's one transparent pixel and b's seven, 4x4 each at --scale 4: the checker covers those and nothing else of
+    # the cells (a's cell is b's size; the rest of it is the flat cell color)
+    assert px.count(pxart.CHECKER[0]) + px.count(pxart.CHECKER[1]) == 8 * 16
+    assert px.count((0x3a, 0x3a, 0x44, 255)) > 0
+
+
+def test_sheet_bg_given_is_flat(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "o #1c1626\n@frame a\n..\n")
+    assert run("sheet", a, "-o", tmp_path / "s.png", "--bg", "#102030") == 0
+    img = Image.open(tmp_path / "s.png").convert("RGBA")
+    assert img.getpixel((12, 12)) == (0x10, 0x20, 0x30, 255)
+
+
+def test_sheet_color_count_with_checker_counts_every_color(tmp_path, capsys):
+    s = Image.new("RGBA", (4, 4), (0x3a, 0x3a, 0x44, 255))
+    s.putpixel((1, 1), (255, 0, 0, 255))
+    s.save(tmp_path / "scene.png")
+    it = pxart.Item("scene", Image.open(tmp_path / "scene.png").convert("RGBA"), 100)
+    assert pxart.n_colors(it, None) == 2 and pxart.n_colors(it, (0x3a, 0x3a, 0x44, 255)) == 1
+
+
+def test_checker_is_two_greys_in_squares():
+    img = pxart.checker(8, 4, 2)
+    assert img.getpixel((0, 0)) == pxart.CHECKER[1] and img.getpixel((2, 0)) == pxart.CHECKER[0]
+    assert img.getpixel((0, 2)) == pxart.CHECKER[0] and img.getpixel((1, 1)) == pxart.CHECKER[1]
+
+
+def test_help_says_render_draws_a_checkerboard():
+    doc = " ".join(pxart.__doc__.split())
+    assert "render and sheet put a grey checkerboard behind frames; --bg (render, sheet, scene) takes a flat" in doc

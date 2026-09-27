@@ -149,7 +149,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
 (a new OUT imports the layers' shared `@palette`; variants merge by name; ...) and examples;
 `pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 
-- **Looking:** `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
+- **Looking:** `render` and `sheet` draw a grey checkerboard behind each frame, so a dark outline and
+  the transparent pixels both show (`--bg COLOR` for a flat backdrop instead). `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
   or in `--png DIR`, and prints the path; `--plain` writes one frame alone at its exact size, no grid,
   rulers or labels, to `diff` against a scene's PNG), `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`

@@ -74,7 +74,7 @@ LOOKING
       or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
       (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
       pads and labels).
-  sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
+  sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
         [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o
@@ -214,10 +214,11 @@ LOOKING
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
       IN is rewritten.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
-  pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene, and
-  takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
-  --tint, tint, palette --add k=transparent; the '#' may be left off, and in a script a
-  '#' color needs quotes, or the shell reads a comment).
+  pixel going left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
+  behind frames; --bg (render, sheet, scene) takes a flat #rrggbb, #rrggbbaa or 'transparent'
+  (as does every color typed on the command line: --tint, tint, palette --add
+  k=transparent; the '#' may be left off, and in a script a '#' color needs quotes, or the
+  shell reads a comment).
   --dry-run (render, sheet, anim, onion, scene) prints the readout and each output's size and
   layout, writes nothing and says '(dry run; nothing written)'. -o may then be left off. An
   image over 4096 px on a side or 16M px gets a WARNING, dry run or not.
@@ -787,8 +788,7 @@ CONVERTING
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
       (--aseprite x.json and --tiled x.tsj share one identical x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
-      order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' leaves the 32x32
-      props out of a 16x16 tileset.
+      order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
       Several files and directories export together, file by file in the order named; a
       directory stands for every .px under it (palette files skipped, --exclude as for
       sheet): 'export town/ --frames out/'. No two frames may get one name: an id two files
@@ -1896,7 +1896,21 @@ def sheet_rows(its, cols, rows="cols"):
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False, align="bottom", rows="cols",
+CHECKER = ((0x5c, 0x5c, 0x66, 255), (0x6a, 0x6a, 0x74, 255))  # render's and sheet's default behind a frame: greys a
+CELL_BG = "#3a3a44"  # dark outline shows on. CELL_BG: a sheet cell around its frame (and --bg's old default)
+
+
+def checker(w, h, sq):
+    """A w x h checkerboard of sq-px squares in CHECKER's greys: what shows through a frame's transparent pixels."""
+    img = Image.new("RGBA", (w, h), CHECKER[0])
+    d = ImageDraw.Draw(img)
+    for y in range(0, h, sq):
+        for x in range((y // sq) % 2 * sq, w, 2 * sq):
+            d.rectangle([x, y, x + sq - 1, y + sq - 1], fill=CHECKER[1])
+    return img
+
+
+def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=False, align="bottom", rows="cols",
           what="-o"):
     """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
     frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right. align 'pivot':
@@ -1915,6 +1929,7 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
             for it, at in zip(g, lay[2] if lay else ()):
                 shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
     tiles = [(it, upscale(shown[id(it)], scale, grid, rulers)) for it in its]
+    ruled = 16 if grid and rulers and scale >= 4 else 0  # where upscale's rulers put the frame in its tile
     lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
     lw = max(lws)
     iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
@@ -1953,8 +1968,12 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
     s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
     for (it, big), (x, y, cw, ch, lw) in zip(tiles, spots):
-        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg))
-        s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
+        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg if bg is not None else CELL_BG))
+        at = (x + (cw - big.width) // 2, y + ch - big.height)
+        if bg is None:  # no --bg: a checkerboard behind the frame itself, a square per pixel (4 px at least)
+            fw, fh = shown[id(it)].width * scale, shown[id(it)].height * scale
+            s.alpha_composite(checker(fw, fh, scale * max(1, -(-4 // scale))), (at[0] + ruled, at[1] + ruled))
+        s.alpha_composite(big, at)
         if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
@@ -1984,7 +2003,10 @@ def cell_size(its, tiles, cw, ch, scale):
 def n_colors(it, bg):
     """The sheet label's color count. A PNG (a scene rendered with this --bg) whose four corners are exactly the
     --bg color doesn't count that color: it's the backdrop, not the art's."""
-    cs, bg = colors(it.img), rgba(bg)
+    cs = colors(it.img)
+    if bg is None:  # the checkerboard: no backdrop color a PNG could have been rendered on
+        return len(cs)
+    bg = rgba(bg)
     w, h = it.img.size
     if it.doc is None and bg[3] and all(it.img.getpixel(c) == bg for c in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))):
         cs = [c for c in cs if c != bg]
@@ -2672,12 +2694,12 @@ def cmd_render(a):
                                about=f"{its[0].label} alone, {img.width}x{img.height} at --scale {s}",
                                smaller="a lower --scale makes it smaller")))
         return
-    bg = parse_color(a.bg or "#3a3a44", "--bg")
+    bg = parse_color(a.bg, "--bg") if a.bg else None
     print(wrote(sheet(its, a.o, a.scale or 8, bg=bg, grid=not a.no_grid, rulers=not a.no_grid)))
 
 
 def cmd_sheet(a):
-    a.bg = parse_color(a.bg, "--bg")
+    a.bg = parse_color(a.bg, "--bg") if a.bg else None
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     need_o(a, "sheet.png")
     its = all_items(files, a.variant)
@@ -7927,12 +7949,14 @@ def parser(describe=True):
     p.add_argument("--plain", action="store_true",
                    help="-o is the one frame alone: its exact size at --scale (default 1), no grid, rulers or labels")
     p.add_argument("--scale", type=int, help="default 8 (--plain: 1)")
-    p.add_argument("--bg", help="default #3a3a44 (--plain: none, transparent stays transparent)")
+    p.add_argument("--bg", help="a flat color (default: a grey checkerboard behind each frame; --plain: none, "
+                   "transparent stays transparent)")
     p.add_argument("--no-grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
-    p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
+    p.add_argument("--bg", help="a flat color behind each frame (default: a grey checkerboard)")
+    p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
