@@ -25274,3 +25274,79 @@ def test_render_dry_run_cell_counts_the_rulers(tmp_path, capsys):
     assert run("render", p, "--dry-run") == 0
     assert capsys.readouterr().out.splitlines()[0].endswith(
         "every cell 208x272: frame 192x256 at x8, 208x272 with its rulers")
+
+
+# ---------------------------------------------------------------- anim FILE:SEL over several groups says so
+
+DIRS = "k #000000\n" + "".join(f"@frame walk/{d}/{i}\n{'k.' if i else '.k'}\n" for d in ("down", "left", "right", "up")
+                                for i in range(2)) + "@frame idle/0\nkk\n@frame idle/1\nk.\n"
+
+
+def test_anim_selector_over_several_groups_notes_them(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == (f"note: {p}:walk is 4 groups: walk/down, walk/left, walk/right, walk/up; animating them as one; "
+                      f"pick one with {p}:walk/down")
+    assert len(out) == 9  # the note, then a line per frame as before
+
+
+def test_anim_plain_file_over_several_groups_notes_them(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", p, "-o", tmp_path / "a.gif") == 0
+    out = capsys.readouterr().out
+    assert f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating them as one; pick one " \
+        f"with {p}:walk/down" in out
+    assert (tmp_path / "a.gif").exists()
+
+
+def test_anim_one_group_has_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_two_files_one_group_each_have_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left", f"{p}:walk/right") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_notes_each_file_that_spans_groups(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk/left", f"{p}:idle", p) == 0
+    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith("note:")]
+    assert notes == [f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating them as one; "
+                     f"pick one with {p}:walk/down"]
+
+
+def test_anim_top_level_frames_and_a_group(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame run/0\n.k\n@frame run/1\nk.\n")
+    assert run("anim", p) == 0
+    assert capsys.readouterr().out.splitlines()[0] == (f"note: {p} is 2 groups: (top level), run; animating them as "
+                                                       f"one; pick one with {p}:run")
+
+
+def test_anim_top_level_frames_alone_have_no_note(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame b\n.k\n")
+    assert run("anim", p) == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_png_and_px_groups(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    Image.new("RGBA", (2, 1), (0, 0, 0, 255)).save(tmp_path / "x.png")
+    assert run("anim", tmp_path / "x.png", f"{p}:walk/left", tmp_path / "x.png", f"{p}:idle") == 0
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_anim_variant_selector_note_names_the_selector(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS.replace("@frame", "@variant n\nk #111111\n@frame", 1))
+    assert run("anim", f"{p}:walk%n") == 0
+    assert capsys.readouterr().out.startswith(f"note: {p}:walk is 4 groups")
+
+
+def test_anim_group_note_on_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", f"{p}:walk", "--dry-run") == 0
+    assert capsys.readouterr().out.startswith(f"note: {p}:walk is 4 groups")

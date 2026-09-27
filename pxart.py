@@ -2693,6 +2693,15 @@ def cmd_anim(a):
     its = all_items(a.files, a.variant)
     if a.o and pathlib.Path(a.o).suffix.lower() != ".gif":
         fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
+    docs = list(dict.fromkeys(id(it.doc) for it in its if it.doc))  # one per .px FILE, in order: each parsed apart
+    for arg, d in zip([f for f in a.files if not split_sel(f)[0].endswith((".png", ".gif"))], docs):
+        # one FILE:SEL over several groups (a walk's four directions) plays them as one animation
+        path = split_sel(arg)[0]
+        groups = list(dict.fromkeys(it.frame.group or "(top level)" for it in its if id(it.doc) == d))
+        if len(groups) > 1:
+            pick = next(g for g in groups if g != "(top level)")
+            print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(groups)}; animating them as one; "
+                  f"pick one with {path}:{pick}")
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered
