@@ -191,7 +191,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves a
-  sprite's own keys into the palette file it imports; `palette FILE` alone lists the keys,
+  sprite's own keys into the palette file it imports; `--comment k 'text'`, `--comment
+  @variant night 'text'` and `--comment-header 'text'` write the comment above a key line,
+  a variant or the file; `palette FILE` alone lists the keys,
   then what each variant recolors, relists in its base color and inherits: `night:
   recolors k w; relists unchanged: l g; inherits: e E q`). Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes

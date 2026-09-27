@@ -439,6 +439,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
       stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
+          [--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're
       used, then each variant's keys: 'dusk: recolors o x X c C; inherits: e E q' (the keys it
@@ -455,6 +456,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       from here. --add and --keep can share one call; the keys must be in the base palette.
       A key --add gives the color it already has is left as it is, and said so: 'k is already
       #0f0f22 in night; unchanged'.
+      --comment KEY 'text' sets the comment right above FILE's line for KEY (replacing the
+      comment lines there; blank lines stay); --comment @variant night 'text' the one above
+      '@variant night', which --extract-to and compose carry as the variant's section note;
+      with --variant NAME, --comment KEY is KEY's line in that variant. A line of FILE's own:
+      an imported key or variant is commented in its palette file. --comment-header 'text'
+      sets the comment at the top of FILE. '' removes a comment; a newline in the text makes
+      two comment lines. Both repeat and go with --add in one call (the key added first):
+      'palette pal.px --variant night --add k=#120e22 --comment @variant night "night:
+      only lamps glow"'.
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4328,22 +4338,29 @@ def key_color(m):
 def cmd_palette(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(a.file, palette_only=not _has_grid(a.file))
-    if (a.keep or a.variant) and not (a.variant and (a.add or a.keep)):
+    notes = comment_args(a.comment)
+    if (a.keep or a.variant) and not (a.variant and (a.add or a.keep or notes)):
         fail("E_BAD_ARG", "--keep KEYS goes with --variant NAME (the variant they inherit the base colors in)"
-             if a.keep else f"--variant {a.variant} goes with --add 'k=#rrggbb' (set k in it) or --keep KEYS (let "
-             "them inherit the base colors)")
-    if a.hoist and (a.add or a.variant or a.extract_to):
+             if a.keep else f"--variant {a.variant} goes with --add 'k=#rrggbb' (set k in it), --keep KEYS (let "
+             "them inherit the base colors) or --comment KEY 'text' (the comment above k's line in it)")
+    if a.hoist and (a.add or a.variant or a.extract_to or notes or a.comment_header is not None):
         fail("E_BAD_ARG", "--hoist moves keys into the imported palette file: give it alone")
-    if a.variant:
-        print(variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
-                           if a.keep else []))
-    else:
-        adds = [key_color(m) for m in a.add or []]
+    if (notes or a.comment_header is not None) and (a.extract_to or a.export):
+        fail("E_BAD_ARG", "--comment and --comment-header edit FILE; run --extract-to or --export after")
+    said = []
+    if a.variant and (a.add or a.keep):
+        said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
+                             if a.keep else [])
+    elif a.add:
+        adds = [key_color(m) for m in a.add]
         same = [(k, c) for k, c in adds if doc.resolved().get(k) == c and k in doc.palette]
         for k, c in adds:
             doc.add_key(k, c)
-        if a.add:
-            print("; ".join(([said_already(same)] if same else []) + [write_doc(doc)]))
+        said += [said_already(same)] if same else []
+    if notes or a.comment_header is not None:
+        said += set_comments(doc, notes, a.variant, a.comment_header)
+    if a.add or a.keep or notes or a.comment_header is not None:
+        print("; ".join(said + [write_doc(doc)]))
     if a.hoist:
         print(hoist(doc, key_list(a.hoist, "--hoist")))
         return
@@ -4370,7 +4387,7 @@ def cmd_palette(a):
         if any(v[3] < 255 for _, v in cols):
             print("note: .gpl/.hex carry no alpha; translucent colors were written opaque")
         print("wrote", a.export)
-    if a.add or a.keep or a.export or a.extract_to:
+    if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None:
         return
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
@@ -4444,7 +4461,76 @@ def variant_edit(doc, name, adds, keeps):
                     f"(the imported @variant {name} recolors {'it' if len(pinned) == 1 else 'them'})")
     if already:
         said.append(inherit(already, "already inherit"))
-    return "; ".join(said + [write_doc(doc)])
+    return said
+
+
+def comment_args(given):
+    """palette --comment's arguments, each 'KEY TEXT', '@variant NAME TEXT' or '"@variant NAME" TEXT':
+    [((kind, name), text)] with kind 'key' or 'variant'."""
+    out = []
+    for g in given or []:
+        if len(g) == 3 and g[0] == "@variant":
+            out.append((("variant", g[1]), g[2]))
+        elif len(g) == 2 and g[0].startswith("@variant "):
+            out.append((("variant", g[0].split(None, 1)[1].strip()), g[1]))
+        elif len(g) == 2 and len(g[0]) == 1:
+            out.append((("key", g[0]), g[1]))
+        else:
+            fail("E_BAD_ARG", f"--comment {' '.join(map(shlex.quote, g))}: want --comment KEY 'text' or --comment "
+                 "@variant NAME 'text' ('' removes the comment)")
+    return out
+
+
+def comment_lines(text):
+    """'text' as comment lines: one '# ' line per line of it (a leading '#' is kept, not doubled); '' is none."""
+    return [l if l.startswith("#") else f"# {l}".rstrip() for l in text.split("\n")] if text.strip() else []
+
+
+def set_comments(doc, notes, variant=None, header=None):
+    """palette --comment KEY|@variant NAME 'text' and --comment-header 'text': the comment lines right above that line
+    of FILE (with --variant NAME, KEY is its line in that variant), or above the file's first line, become the text
+    (one '# ' line per line of it); '' removes them. Blank lines above stay where they were. What it did."""
+    said = []
+    default = {anchor: gap for anchor, gap, _ in doc.lines()}
+    for (kind, name), text in notes:
+        if kind == "variant":
+            if variant:
+                fail("E_BAD_ARG", f"--comment @variant {name} names its variant; drop --variant {variant}")
+            if name not in doc.variants:
+                fail("E_SELECT", f"--comment @variant {name}: {doc.path} has no @variant line {name!r}" + (
+                    f" (it imports that variant; comment it in the palette file: pxart palette "
+                    f"{doc.palette_refs[0] if len(doc.palette_refs) == 1 else 'P.px'} --comment @variant {name} ...)"
+                    if name in doc.shared_variants else
+                    f" (it has: {', '.join(doc.variants) or 'none'})"), path=doc.path)
+            anchor, what = ("variant", name), f"@variant {name}"
+        elif variant:
+            if name not in doc.variants.get(variant, {}):
+                fail("E_SELECT", f"--variant {variant} --comment {name}: @variant {variant} of {doc.path} has no line "
+                     f"for {name!r} (give it one: palette {doc.path} --variant {variant} --add '{name}=#rrggbb')",
+                     path=doc.path)
+            anchor, what = ("vkey", variant, name), f"{name} in @variant {variant}"
+        else:
+            if name not in doc.palette:
+                fail("E_SELECT", f"--comment {name}: {name!r} isn't one of {doc.path}'s own key lines" + (
+                    f" (it comes from {doc.palette_refs[0] if len(doc.palette_refs) == 1 else 'an import'}; "
+                    f"comment it there)" if name in doc.shared else ""), path=doc.path)
+            anchor, what = ("key", name), name
+        was = doc.lead.get(anchor)
+        lead = list(was) if was is not None else [""] * default.get(anchor, 0)
+        new = [l for l in lead if not l.strip()] + comment_lines(text)
+        if new == lead:
+            said.append(f"the comment above {what} is already that; unchanged")
+            continue
+        doc.lead[anchor] = new
+        said.append(f"{'commented' if comment_lines(text) else 'uncommented'} {what}")
+    if header is not None:
+        new = comment_lines(header) + [l for l in doc.comments if not l.strip()]
+        if new == doc.comments:
+            said.append("the header is already that; unchanged")
+        else:
+            doc.comments = new
+            said.append("commented the header" if comment_lines(header) else "uncommented the header")
+    return said
 
 
 def hoist(doc, keys):
@@ -4946,6 +5032,9 @@ def parser(describe=True):
     p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
     p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")
+    p.add_argument("--comment", nargs="+", action="append", metavar="ARG",
+                   help="KEY 'text' or @variant NAME 'text': the comment line above that line ('' removes it)")
+    p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")

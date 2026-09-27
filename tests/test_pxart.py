@@ -12736,7 +12736,8 @@ def test_hoist_keeps_the_local_variant_when_the_palette_file_lacks_it_and_lines_
 
 def test_help_documents_variant_authoring(capsys):
     doc = " ".join(pxart.__doc__.split())
-    assert "palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]] [--hoist KEYS]" in doc
+    assert "palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]" in doc
+    assert "[--comment-header 'text'] [--hoist KEYS]" in doc
     assert "Authoring a variant: with --variant NAME, --add sets the keys in that variant instead" in doc
     assert "--variant NAME --keep l,g lets keys inherit the base colors" in doc
     assert "--hoist l,g moves FILE's own keys into the palette file it imports" in doc
@@ -14626,3 +14627,226 @@ def test_onion_fade_a_help(capsys):
 def test_readme_documents_onion_tint_default():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`onion` (B over A drawn as a red silhouette" in readme and "`--fade-a` draws A faded instead" in readme
+
+
+# ---------------------------------------------------------------- palette --comment / --comment-header
+
+CMT_PAL = "pxart 1\nk #000000\nw #ffffff\n\n@variant night\nk #000011\n"
+
+
+def test_palette_comment_key(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink") == 0
+    assert capsys.readouterr().out == f"commented k; wrote {p}\n"
+    assert p.read_text() == "pxart 1\n# ink\nk #000000\nw #ffffff\n\n@variant night\nk #000011\n"
+
+
+def test_palette_comment_replaces_the_comment_lines(tmp_path):
+    p = write(tmp_path, "p.px", "pxart 1\nk #000000\n\n# old one\n# old two\nw #ffffff\n")
+    assert run("palette", p, "--comment", "w", "new") == 0
+    assert p.read_text() == "pxart 1\nk #000000\n\n# new\nw #ffffff\n"
+
+
+def test_palette_comment_empty_removes_it_keeps_blank_lines(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\nk #000000\n\n# old\nw #ffffff\n")
+    assert run("palette", p, "--comment", "w", "") == 0
+    assert capsys.readouterr().out == f"uncommented w; wrote {p}\n"
+    assert p.read_text() == "pxart 1\nk #000000\n\nw #ffffff\n"
+
+
+def test_palette_comment_same_again_is_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\n# ink\nk #000000\n")
+    before = p.read_text()
+    assert run("palette", p, "--comment", "k", "ink") == 0
+    assert capsys.readouterr().out == f"the comment above k is already that; unchanged; no change: {p}\n"
+    assert p.read_text() == before
+
+
+def test_palette_comment_variant_line(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "@variant", "night", "night: only lamps glow") == 0
+    assert capsys.readouterr().out == f"commented @variant night; wrote {p}\n"
+    assert p.read_text() == "pxart 1\nk #000000\nw #ffffff\n\n# night: only lamps glow\n@variant night\nk #000011\n"
+
+
+def test_palette_comment_variant_as_one_argument(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "@variant night", "moonlit") == 0
+    assert "# moonlit\n@variant night" in p.read_text()
+
+
+def test_palette_comment_variant_without_a_blank_line_above_keeps_the_spacing(tmp_path):
+    # A @variant written by the tool (no lead of its own) keeps its blank line above the new comment.
+    p = write(tmp_path, "p.px", "pxart 1\nk #000000\n@frame a\nk\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#000011") == 0
+    assert run("palette", p, "--comment", "@variant", "night", "moonlit") == 0
+    assert "k #000000\n\n# moonlit\n@variant night\nk #000011\n" in p.read_text()
+
+
+def test_palette_comment_key_in_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--variant", "night", "--comment", "k", "ink, dimmed") == 0
+    assert capsys.readouterr().out == f"commented k in @variant night; wrote {p}\n"
+    assert p.read_text().endswith("@variant night\n# ink, dimmed\nk #000011\n")
+    assert pxart.parse(p, palette_only=True).variants == {"night": {"k": pxart.hex2rgba("#000011")}}
+
+
+def test_palette_comment_with_add_in_one_call(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--variant", "night", "--add", "w=#fff4b0", "--comment", "w", "lamp glass, kept lit") == 0
+    assert capsys.readouterr().out == f"@variant night; sets w #fff4b0; commented w in @variant night; wrote {p}\n"
+    assert p.read_text().endswith("k #000011\n# lamp glass, kept lit\nw #fff4b0\n")
+
+
+def test_palette_comment_base_key_added_in_the_same_call(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--add", "y=#ffff00", "--comment", "y", "the sun") == 0
+    assert "w #ffffff\n# the sun\ny #ffff00\n" in p.read_text()
+
+
+def test_palette_comment_repeats(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink", "--comment", "w", "paper") == 0
+    assert p.read_text().startswith("pxart 1\n# ink\nk #000000\n# paper\nw #ffffff\n")
+
+
+def test_palette_comment_two_lines(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "ink\nthe outline") == 0
+    assert p.read_text().startswith("pxart 1\n# ink\n# the outline\nk #000000\n")
+
+
+def test_palette_comment_text_with_its_own_hash_not_doubled(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment", "k", "# ink") == 0
+    assert p.read_text().startswith("pxart 1\n# ink\nk #000000\n")
+
+
+def test_palette_comment_header(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert run("palette", p, "--comment-header", "crossover palette") == 0
+    assert capsys.readouterr().out == f"commented the header; wrote {p}\n"
+    assert p.read_text().startswith("# crossover palette\npxart 1\n")
+
+
+def test_palette_comment_header_replaces_and_removes(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# old header\n# more\n\npxart 1\nk #000000\n")
+    assert run("palette", p, "--comment-header", "new") == 0
+    assert p.read_text() == "# new\n\npxart 1\nk #000000\n"
+    assert run("palette", p, "--comment-header", "") == 0
+    assert p.read_text() == "\npxart 1\nk #000000\n"
+
+
+def test_palette_comment_header_same_is_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# h\npxart 1\nk #000000\n")
+    assert run("palette", p, "--comment-header", "h") == 0
+    assert capsys.readouterr().out == f"the header is already that; unchanged; no change: {p}\n"
+
+
+def test_palette_comment_header_carried_by_extract_to(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    run("palette", p, "--comment-header", "crossover palette", "--comment", "@variant", "night", "moonlit")
+    out = tmp_path / "q.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text().startswith("# crossover palette\n") and "# moonlit\n@variant night" in out.read_text()
+
+
+def test_palette_comment_on_a_sprite(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n@frame a\nk\n")
+    assert run("palette", p, "--comment", "k", "ink") == 0
+    # (With no version line, a comment above the first line reads as the file's header when parsed again.)
+    assert p.read_text() == "# ink\nk #000000\n@frame a\nk\n"
+    assert pxart.parse(p).frames[0].grid == ["k"]
+
+
+def test_palette_comment_renders_the_same(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL + "@frame a\nkw\n")
+    doc = pxart.parse(p)
+    before = [list(pxart.pixels(doc.image(doc.frames[0], v))) for v in (None, "night")]
+    run("palette", p, "--comment", "k", "ink", "--comment", "@variant", "night", "moon", "--comment-header", "h")
+    doc = pxart.parse(p)
+    assert [list(pxart.pixels(doc.image(doc.frames[0], v))) for v in (None, "night")] == before
+
+
+def test_palette_comment_imported_key_says_where(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nk\n")
+    msg = run_err("palette", p, "--comment", "k", "ink")
+    assert "E_SELECT" in msg and "isn't one of" in msg and "it comes from pal.px; comment it there" in msg
+
+
+def test_palette_comment_unknown_key(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    msg = run_err("palette", p, "--comment", "q", "x")
+    assert "E_SELECT" in msg and "'q' isn't one of" in msg and p.read_text() == CMT_PAL
+
+
+def test_palette_comment_imported_variant_says_where(tmp_path):
+    write(tmp_path, "pal.px", "k #000000\n@variant night\nk #000011\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nk\n")
+    msg = run_err("palette", p, "--comment", "@variant", "night", "x")
+    assert "E_SELECT" in msg and "pxart palette pal.px --comment @variant night" in msg
+
+
+def test_palette_comment_unknown_variant(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    msg = run_err("palette", p, "--comment", "@variant", "dusk", "x")
+    assert "E_SELECT" in msg and "(it has: night)" in msg
+
+
+def test_palette_comment_variant_key_not_listed(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    msg = run_err("palette", p, "--variant", "night", "--comment", "w", "x")
+    assert "E_SELECT" in msg and "has no line for 'w'" in msg and "--variant night --add 'w=#rrggbb'" in msg
+
+
+def test_palette_comment_variant_target_with_variant_flag(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert "E_BAD_ARG" in run_err("palette", p, "--variant", "night", "--comment", "@variant", "night", "x")
+
+
+@pytest.mark.parametrize("args", [["k"], ["kk", "text"], ["@variant", "night", "a", "b"], ["@variant"]])
+def test_palette_comment_bad_shapes(tmp_path, args):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    msg = run_err("palette", p, "--comment", *args)
+    assert "E_BAD_ARG" in msg and "--comment KEY 'text'" in msg and p.read_text() == CMT_PAL
+
+
+@pytest.mark.parametrize("extra", [["--extract-to", "q.px"], ["--export", "q.gpl"]])
+def test_palette_comment_not_with_extract_or_export(tmp_path, extra):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    msg = run_err("palette", p, "--comment", "k", "ink", *[str(tmp_path / e) if e.endswith(("px", "gpl")) else e
+                                                          for e in extra])
+    assert "E_BAD_ARG" in msg and p.read_text() == CMT_PAL
+
+
+def test_palette_comment_not_with_hoist(tmp_path):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    assert "give it alone" in run_err("palette", p, "--comment", "k", "ink", "--hoist", "k")
+
+
+def test_palette_comment_prints_no_listing(tmp_path, capsys):
+    p = write(tmp_path, "p.px", CMT_PAL)
+    run("palette", p, "--comment", "k", "ink")
+    assert "variants:" not in capsys.readouterr().out
+
+
+def test_comment_lines_helper():
+    assert pxart.comment_lines("a") == ["# a"]
+    assert pxart.comment_lines("a\nb") == ["# a", "# b"]
+    assert pxart.comment_lines("#a") == ["#a"]
+    assert pxart.comment_lines("") == [] and pxart.comment_lines("  ") == []
+    assert pxart.comment_lines("a\n") == ["# a", "#"]
+
+
+def test_help_documents_palette_comment(capsys):
+    out = " ".join(cmd_help(capsys, "palette").split())
+    assert "[--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']" in out
+    assert "--comment KEY 'text' sets the comment right above FILE's line for KEY" in out
+    assert "--comment-header 'text' sets the comment at the top of FILE" in out
+
+
+def test_readme_documents_palette_comment():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--comment k 'text'`, `--comment @variant night 'text'` and `--comment-header 'text'` write the comment" \
+        in readme
