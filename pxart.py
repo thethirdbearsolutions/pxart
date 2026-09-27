@@ -271,8 +271,8 @@ CHECKING
       its rgb; any other pixel compares on all four channels. --strict-alpha compares all
       four everywhere. --variant V renders both sides with V, and a side's own %VARIANT
       wins. -o DIFF.png draws A, B and the differing pixels in magenta side by side
-      (top-left aligned); for several pairs, -o DIR gets one per pair that differs. A render
-      or scaled copy of a frame gets a note naming render --plain.
+      (top-left aligned) of the one pair that differs; -o DIR gets one per pair that differs.
+      A render or scaled copy of a frame gets a note naming render --plain.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -3419,11 +3419,8 @@ def cmd_diff(a):
     else:
         pairs = file_pairs(a)
     one = len(pairs) == 1 and pairs[0][0] is None  # one frame each: -o is a PNG; else a directory of them
-    if a.o and one and not isinstance(pairs[0][2], str):
+    if a.o and (one and not isinstance(pairs[0][2], str) or not one and pathlib.Path(a.o).suffix):
         save_image(Image.new("RGBA", (1, 1)), a.o, "-o", check_only=True)  # a bad -o fails before the readout
-    elif a.o and not one and pathlib.Path(a.o).suffix:
-        fail("E_BAD_ARG", f"-o {a.o}: diff compares {len(pairs)} pairs here, and -o names a directory for them (one "
-             "image per pair that differs): -o diffs/")
     same = differ = alone = 0
     shown = []  # (label, A, B): the pairs that differ, for -o
     for lab, x, y in pairs:
@@ -3444,7 +3441,16 @@ def cmd_diff(a):
     if len(pairs) > 1 or (pairs and pairs[0][0] is not None):
         print(f"{len(pairs)} frame(s): {same} same" + (f", {differ} differ" if differ else "")
               + (f", {alone} unpaired" if alone else ""))
-    if a.o:
+    if a.o and not one and pathlib.Path(a.o).suffix:  # an image -o over several pairs: fine when one pair differs
+        if len(shown) > 1:
+            fail("E_BAD_ARG", f"-o {a.o}: {len(shown)} of the {len(pairs)} pairs differ ({listed(l for l, *_ in shown)}), "
+                 "and -o names one image; name a directory for them (one image per pair that differs): -o diffs/")
+        if shown:
+            print(wrote(save_image(diff_picture(*shown[0][1:], a.strict_alpha, a.scale), a.o))
+                  + f" (the one pair that differs: {shown[0][0]})")
+        else:
+            print(f"note: -o {a.o} not written: no pair differs")
+    elif a.o:
         diff_pictures(a, shown, one)
     if differ or alone:
         sys.exit(1)

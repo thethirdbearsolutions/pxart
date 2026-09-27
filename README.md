@@ -206,7 +206,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `diff hero.px out/` against `out/<id>.png`, `diff town/ pack/ --labels pack/labels.csv` every frame of every
   `.px` under `town/` (`--exclude GLOB` leaves some out), and two other directories pair files by path; a transparent pixel
   matches any other unless `--strict-alpha`; `-o DIFF.png` draws A, B and the differing pixels in magenta
-  side by side, or for several pairs `-o DIR` one picture per pair that differs; a size mismatch against a
+  side by side (of several pairs, the one that differs, named), or for several pairs `-o DIR` one picture per
+  pair that differs; a size mismatch against a
   render or a scaled copy gets a note naming `render --plain`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists

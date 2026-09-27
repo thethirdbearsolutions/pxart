@@ -23514,11 +23514,38 @@ def test_diff_o_dir_gets_a_picture_per_pair_that_differs(tmp_path, monkeypatch, 
     assert listing(tmp_path / "diffs") == ["w_1.png"]
 
 
-def test_diff_o_png_for_several_pairs_is_e_bad_arg(tmp_path, monkeypatch, capsys):
+def test_diff_o_png_for_several_pairs_one_differing_writes_it(tmp_path, monkeypatch, capsys):
     diff_files(tmp_path, monkeypatch)
-    err = run_err("diff", "a.px", "b.px", "-o", "d.png")
-    assert "diff: E_BAD_ARG: -o d.png: diff compares 2 pairs here, and -o names a directory for them" in err
+    assert run("diff", "a.px", "b.px", "-o", "d.png", "--scale", "4") == 1  # still exits 1: a pair differs
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == "wrote d.png (the one pair that differs: w/1)"
+    one = tmp_path / "one.png"
+    assert run("diff", "a.px:w/1", "b.px:w/1", "-o", one, "--scale", "4") == 1
+    assert Image.open(tmp_path / "d.png").tobytes() == Image.open(one).tobytes()  # the same picture as that pair's
+
+
+def test_diff_o_png_for_several_pairs_differing_is_e_bad_arg(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    write(tmp_path, "c.px", DIFF_B.replace("@frame w/0\n..k", "@frame w/0\nk.k"))
+    err = run_err("diff", "a.px", "c.px", "-o", "d.png")
+    assert "diff: E_BAD_ARG: -o d.png: 2 of the 2 pairs differ (w/0, w/1), and -o names one image; name a directory " \
+        "for them (one image per pair that differs): -o diffs/" in err
     assert not (tmp_path / "d.png").exists()
+    assert "w/0: " in capsys.readouterr().out  # the readout still says which
+
+
+def test_diff_o_png_for_several_pairs_none_differing(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    assert run("diff", "a.px", "a.px", "-o", "d.png") == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "note: -o d.png not written: no pair differs"
+    assert not (tmp_path / "d.png").exists()
+
+
+def test_diff_o_png_for_several_pairs_bad_name_fails_first(tmp_path, monkeypatch, capsys):
+    diff_files(tmp_path, monkeypatch)
+    err = run_err("diff", "a.px", "b.px", "-o", "d.px")
+    assert "'.px' isn't an image type pxart can write; name it .png" in err
+    assert "px differ" not in capsys.readouterr().out
 
 
 def test_diff_o_bad_name_fails_before_the_readout(tmp_path, monkeypatch, capsys):
