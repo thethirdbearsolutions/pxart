@@ -130,7 +130,7 @@ note: that's 10 notes in short; -v prints each in full
 wrote dock.px
 ```
 
-Each note is one kind, counted:
+Each of the first four stands for one kind of note, counted:
 
 - **`--rekey gave ...`**: how many letters it rekeyed in each pack, 7 of the keeper's and
   5 of Wick's. `the files are unchanged`: only the new file uses the new letters.
@@ -160,7 +160,7 @@ pxart scene --size 80x48 -o dock-halfdusk.x4.png dock.px%dusk@0,0
 
 ![a dusk where the keeper and Wick stay in daylight](dock-halfdusk.x4.png)
 
-The harbor went dusky, but the keeper and Wick are still in daylight. The notes from
+The harbor went dusky, but the keeper and Wick are still in daylight. The third note from
 before said why:
 
 ```text
