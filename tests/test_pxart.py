@@ -1,3 +1,4 @@
+import difflib
 import io
 import json
 import math
@@ -24969,7 +24970,7 @@ def test_readme_describes_the_command_help_order():
 # ---------------------------------------------------------------- pixel coordinates address one frame; an edit of
 # several frames names them
 
-SEVERAL = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nkjjk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n" \
+SEVERAL = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nk.jk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n" \
     "@frame w/2\njjjj\njjjj\njjjj\njjjj\n"
 ONE = "k #000000\nj #ffffff\nkkkk\nkjjk\nkjjk\nkkkk\n"
 
@@ -25639,3 +25640,146 @@ def test_legend_variant_lines_still_collapse_with_a_guess(tmp_path):
     msg = run_err("scene", "--map", m, "--tile", "2x2", "--variant", "dsuk", "-o", tmp_path / "s.png")
     assert msg.splitlines() == [f"scene: --map ({m}): {m}: E_SELECT: no legend file has @variant 'dsuk'; the "
                                 "legend's variants: dusk (2 entries)"]
+
+
+# ---------------------------------------------------------------- --dry-run on every in-place edit; argparse's usage
+
+DRYSRC = "k #000000\nj #ffffff\n@anim w ms=90\n@frame w/0\nkkkk\nkjjk\nk.jk\nkkkk\n@frame w/1\nkkkk\nk..k\nk..k\nkkkk\n"
+
+DRY_CMDS = {  # argv with {p} for the file; every one of them changes it
+    "set": ["set", "{p}:w/0", "j", "0,0"],
+    "fill": ["fill", "{p}:w/1", "."],
+    "put": ["put", "{p}:w/0"],
+    "line": ["line", "{p}:w/0", "j", "0,0", "3,3"],
+    "rect": ["rect", "{p}:w/1", "j", "0,0,4,4"],
+    "poly": ["poly", "{p}:w/0", "j", "0,0", "3,0", "3,3", "--fill"],
+    "ellipse": ["ellipse", "{p}:w/1", "j", "1.5,1.5,1.5,1.5"],
+    "arc": ["arc", "{p}:w/1", "j", "2,2,2", "0,180"],
+    "flood": ["flood", "{p}:w/0", "j", "0,0"],
+    "shade": ["shade", "{p}:w/0", "--ramp", "kj", "--keys", "kj"],
+    "outline": ["outline", "{p}:w/1", "--key", "j", "--inside"],
+    "flip": ["flip", "{p}:w/0", "--v"],
+    "shift": ["shift", "{p}:w/0", "--dx", "1"],
+    "rotate": ["rotate", "{p}:w/0", "90"],
+    "transpose": ["transpose", "{p}:w/0"],
+    "mask": ["mask", "{p}:w/0", "--keep", "0,0,2,2"],
+    "recolor": ["recolor", "{p}", "k<>j"],
+    "crop": ["crop", "{p}:w/0", "0,0,2,2", "-o", "{p}:part"],
+    "paste": ["paste", "{p}:w/0", "--into", "{p}:w/1", "--at", "1,1"],
+    "dup": ["dup", "{p}:w/0", "w/2"],
+    "frames-rm": ["frames", "{p}", "--rm", "w/1"],
+    "frames-move": ["frames", "{p}", "--move", "w/0", "--after", "w/1"],
+    "frames-rename": ["frames", "{p}", "--rename", "w", "v"],
+    "anim-set": ["anim-set", "{p}:w", "ms=50"],
+    "anim-set-still": ["anim-set", "{p}:w", "--still"],
+}
+
+
+def dry_argv(p, name):
+    return [a.format(p=p) for a in DRY_CMDS[name]]
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_writes_nothing_and_prints_the_diff(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert p.read_text() == DRYSRC and sorted(x.name for x in tmp_path.iterdir()) == ["d.px"]
+    assert f"--- {p}\n+++ {p}\n" in out and "\n@@ " in out
+    assert out.endswith(f"would write {p}" + out.split(f"would write {p}", 1)[1].split("\n", 1)[0] +
+                        "\n(dry run; nothing written)\n")
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_diff_is_what_the_edit_writes(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    diff = [l for l in capsys.readouterr().out.splitlines() if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name)) == 0
+    got = [l for l in difflib.unified_diff(DRYSRC.splitlines(), p.read_text().splitlines(), lineterm="", n=0)
+           if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    assert diff == got
+    assert "dry run" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", sorted(DRY_CMDS))
+def test_edit_dry_run_says_what_the_edit_says(tmp_path, capsys, monkeypatch, name):
+    p = write(tmp_path, "d.px", DRYSRC)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name), "--dry-run") == 0
+    dry = [l for l in capsys.readouterr().out.splitlines() if not l.startswith(("---", "+++", "@@", "+", "-", "("))]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("jj\njj\n"))
+    assert run(*dry_argv(p, name)) == 0
+    real = capsys.readouterr().out.splitlines()
+    assert [l.replace("would write", "wrote") for l in dry] == real
+
+
+def test_edit_dry_run_with_o_in_a_new_directory_makes_nothing(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("flip", f"{p}:w/0", "-o", tmp_path / "sub" / "x.px", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert not (tmp_path / "sub").exists() and "created" not in out
+    assert f"would write {tmp_path / 'sub' / 'x.px'}\n(dry run; nothing written)\n" in out
+
+
+def test_edit_dry_run_no_change_still_says_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("set", f"{p}:w/0", "k", "0,0", "--dry-run") == 0
+    assert capsys.readouterr().out == f"no change: {p}\n(dry run; nothing written)\n"
+
+
+def test_edit_dry_run_on_a_png_mask(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("render", f"{p}:w/0", "--plain", "-o", tmp_path / "s.png") == 0
+    before = (tmp_path / "s.png").read_bytes()
+    capsys.readouterr()
+    assert run("mask", tmp_path / "s.png", "--keep", "0,0,2,2", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert (tmp_path / "s.png").read_bytes() == before
+    assert out.endswith("erased 11 px; would write " + str(tmp_path / "s.png") + " (dry run; nothing written)\n")
+    assert out.count("dry run") == 1
+
+
+def test_frames_copy_to_dry_run_shows_dst(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    dst = write(tmp_path, "e.px", "k #000000\n")
+    assert run("frames", f"{p}:w", "--copy-to", dst, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert dst.read_text() == "k #000000\n" and f"+++ {dst}" in out and "+@frame w/0" in out
+    assert out.endswith("(dry run; nothing written)\n")
+
+
+def test_frames_listing_with_dry_run_is_an_error(tmp_path):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert "E_BAD_ARG: --dry-run goes with an edit" in run_err("frames", p, "--dry-run")
+
+
+def test_palette_dry_run_still_says_it_once(tmp_path, capsys):
+    p = write(tmp_path, "d.px", DRYSRC)
+    assert run("palette", p, "--add", "z=#ff0000", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.count("(dry run; nothing written)") == 1 and out.endswith("(dry run; nothing written)\n")
+
+
+@pytest.mark.parametrize("name", sorted(pxart.EDIT_DRY))
+def test_every_edit_documents_dry_run_in_its_help(capsys, name):
+    assert "--dry-run" in cmd_help(capsys, name)
+
+
+@pytest.mark.parametrize("argv", [["rect", "x.px", "k", "0,0,1,1"], ["set", "x.px", "k", "0,0"], ["anim", "x.px"],
+                                  ["palette", "x.px"], ["frames", "x.px"], ["fill", "x.px", "."]])
+def test_unknown_option_shows_the_commands_usage(capsys, argv):
+    cmd = argv[0]
+    with pytest.raises(SystemExit) as e:
+        pxart.main(argv + ["--bogus"])
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and err.startswith(f"usage: pxart {cmd} ") and "{render,sheet" not in err
+    assert err.rstrip().endswith("error: unrecognized arguments: --bogus")
+
+
+def test_help_documents_dry_run_and_undo():
+    doc = " ".join(pxart.__doc__.split())
+    assert "--dry-run (any edit) prints its diff and writes nothing. There's no undo: use git." in doc

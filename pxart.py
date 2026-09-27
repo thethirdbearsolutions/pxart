@@ -311,13 +311,13 @@ CHECKING
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
   frames edited and every other frame as it was, and a note says so.
-  To get only some frames, extract them first (or after). An OUT in another directory gets
-  its @palette lines re-pointed from there (-o art/x.px of a file with '@palette pal.px'
-  writes '@palette ../pal.px'), so it imports the same palette file; an absolute path stays.
-  Edits rewrite only what changed: other lines keep their spelling and the blank lines and
-  comments above them, and new frames get the file's spacing between @frame blocks.
-  An edit changing nothing (set to the same key, flip of a symmetric frame) prints
+  To get only some frames, extract them. An OUT in another directory gets its @palette
+  lines re-pointed from there ('@palette ../pal.px' in -o art/x.px), so it imports the
+  same palette file. Edits rewrite only what changed: other lines keep their spelling and
+  the blank lines and comments above them, and new frames get the file's spacing between
+  @frame blocks. An edit changing nothing (set to the same key, flip of a symmetric frame) prints
   "no change: FILE" and writes nothing; one that edits several frames names them.
+  --dry-run (any edit) prints its diff and writes nothing. There's no undo: use git.
   Coordinates (x,y, --region, --at) need FILE:SEL on a file of several frames, saying which
   ('FILE:*': all).
   Limits: sections are written in a fixed order (palette, @variant, @anim/@still, frames,
@@ -3751,6 +3751,9 @@ def cmd_frames(a):
              f"{path} --rename GROUP NEWGROUP")
     if a.rename and a.prefix is not None:
         fail("E_BAD_ARG", "give --prefix P (every copied id gets P in front) or --rename GROUP NEWGROUP, not both")
+    if a.dry_run and not (a.copy_to or a.rename or a.rm is not None or a.move or a.after or a.before):
+        fail("E_BAD_ARG", "--dry-run goes with an edit (--rm, --move, --after/--before, --rename, --copy-to); the "
+             "listing writes nothing")
     if a.copy_to:
         if a.rm is not None or a.move:
             fail("E_BAD_ARG", "--copy-to copies frames; --rm and --move edit FILE: give one")
@@ -4294,7 +4297,7 @@ def cmd_mask(a):
             print(f"erased 0 px; no change: {out}")
             return
         save_image(img, out)
-        print(f"erased {erased} px; wrote {out}")
+        print(f"erased {erased} px; " + wrote(out))
         return
     doc, frames, out = edit_target(a.file, a.o, coords=(a.keep or a.keep_circle) and "--keep"
                                    + "-circle" * (not a.keep))
@@ -6267,8 +6270,6 @@ def cmd_palette(a):
     if a.o and a.export:
         fail("E_BAD_ARG", f"-o {a.o} writes an edited copy of FILE; --export writes its own file: give them apart")
     palette_edit(a)
-    if a.dry_run:
-        print("(dry run; nothing written)")
 
 
 def palette_edit(a):
@@ -7780,6 +7781,9 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
+EDIT_DRY = ("set", "fill", "put", "line", "rect", "poly", "ellipse", "arc", "flood", "shade", "outline", "flip", "shift",
+            "rotate", "transpose", "mask", "recolor", "crop", "paste", "dup", "frames", "anim-set", "palette")
+EDIT_DRY_HELP = "print what the edit says and a diff of the file it would change; write nothing"
 DRY_HELP = ("print the readout and each output's size and layout, write nothing ('(dry run; nothing written)'); -o "
             "may be left off")
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
@@ -8026,6 +8030,8 @@ def parser(describe=True):
     p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
     p.add_argument("--prefix-dir", action="store_true",
                    help="id each PNG FOLDER/STEM, FOLDER its directory's name (dungeon/tile_0002)")
+    for name in EDIT_DRY[:-1]:  # palette has its own, in its 'where an edit goes' group
+        sub.choices[name].add_argument("--dry-run", action="store_true", help=EDIT_DRY_HELP)
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': usage, summary, options, details
         (p.description, p.epilog), p.formatter_class = command_help(name), OneLine
     return ap, sub
@@ -8055,13 +8061,13 @@ def main(argv=None):
     args = rekey_args(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["rename"]:
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
-    ap, _ = parser(describe="-h" in args or "--help" in args)
+    ap, sub = parser(describe="-h" in args or "--help" in args)
     a, extra = ap.parse_known_args(args)
     a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
-    elif extra:
-        ap.parse_args(args)  # argparse's own error
+    elif extra:  # argparse's own error, with the command's usage (the top level's names no option of it)
+        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}")
     WARNED.clear()
     CREATED.clear()
     DRY["run"] = bool(getattr(a, "dry_run", False))
@@ -8078,6 +8084,8 @@ def main(argv=None):
     except BaseException:
         sys.stdout.write(told.getvalue())
         raise
+    if DRY["run"] and a.cmd in EDIT_DRY and "(dry run; nothing written)" not in told.getvalue():
+        print("(dry run; nothing written)", file=told)
     sys.stdout.write(told.getvalue())
 
 

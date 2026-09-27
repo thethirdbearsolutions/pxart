@@ -280,7 +280,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   comment: `night: recolors (darker) k w; brightens y; relists unchanged: l g; inherits: e E q`;
   `--in DIR` says how many files under DIR import a palette file and draw with each key; any
   edit takes `-o OUT` for an edited copy, and `--dry-run` prints the diff it would make and
-  writes nothing). Edits rewrite only the lines
+  writes nothing). Every edit, the drawing commands and `frames`, `dup` and `anim-set` too, takes `--dry-run`: it prints
+  what the edit says and the diff it would make, then `(dry run; nothing written)`. There is no undo: keep sprites in
+  git, or edit a copy with `-o`. Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and
