@@ -6561,9 +6561,11 @@ def palette_edit(a):
     elif a.add:
         adds = [key_color(m) for m in a.add]
         same = [(k, c) for k, c in adds if doc.resolved().get(k) == c and k in doc.palette]
+        new = [(k, c) for k, c in dict(adds).items() if k not in doc.resolved()]
         for k, c in adds:
             doc.add_key(k, c)
-        said += [said_already(same)] if same else []
+        said += ([f"added {', '.join(f'{k} {fmt_color(c)}' for k, c in new)}"] if new else []) \
+            + ([said_already(same)] if same else [])
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
     if a.add or a.keep or notes or a.comment_header is not None or derive:

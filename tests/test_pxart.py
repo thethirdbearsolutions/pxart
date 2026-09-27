@@ -14640,13 +14640,13 @@ def test_palette_variant_add_base_color_again_is_unchanged(tmp_path, capsys):
 def test_palette_add_same_and_new_base_keys(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nk\n")
     assert run("palette", p, "--add", "k=#000000", "w=#ffffff") == 0
-    assert capsys.readouterr().out == f"k is already #000000; unchanged; wrote {p}\n"
+    assert capsys.readouterr().out == f"added w #ffffff; k is already #000000; unchanged; wrote {p}\n"
 
 
-def test_palette_add_new_key_says_only_wrote(tmp_path, capsys):
+def test_palette_add_new_key_says_added(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nk\n")
     assert run("palette", p, "--add", "w=#ffffff") == 0
-    assert capsys.readouterr().out == f"wrote {p}\n"
+    assert capsys.readouterr().out == f"added w #ffffff; wrote {p}\n"
 
 
 def test_palette_add_same_as_an_imported_key_is_no_change_without_the_clause(tmp_path, capsys):
@@ -25516,7 +25516,7 @@ def test_palette_dry_run_with_o_diffs_against_file(tmp_path, capsys):
     assert run("palette", p, "--add", "q=#123456", "-o", out, "--dry-run") == 0
     got = capsys.readouterr().out
     assert got == (f"--- {p}\n+++ {out}\n@@ -3 +3 @@\n-@palette pal.px\n+@palette ../pal.px\n@@ -6,0 +7 @@\n"
-                   f"+q #123456\nwould write {out}\n(dry run; nothing written)\n")
+                   f"+q #123456\nadded q #123456; would write {out}\n(dry run; nothing written)\n")
     assert not (tmp_path / "sub").exists()
 
 
@@ -26890,3 +26890,48 @@ def test_px_changed_helper(tmp_path):
     assert pxart.px_changed(doc, frames, "painted") == "painted 1 px;"
     frames[1].grid = ["kk"]
     assert pxart.px_changed(doc, frames, "painted") == "painted 3 px (a 1, b 2);"
+
+
+# ---------------------------------------------------------------- palette --add says what it added
+# With --comment, 'palette FILE --add s=#2a2440 --comment s "band"' said only 'commented s'.
+
+def test_palette_add_with_comment_reports_both(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "s=#2a2440", "--comment", "s", "shell band") == 0
+    assert capsys.readouterr().out == f"added s #2a2440; commented s; wrote {p}\n"
+    assert "# shell band\ns #2a2440" in p.read_text()
+
+
+def test_palette_add_several_keys_names_each(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "s=#2a2440", "L=transparent", "v=#3a446680") == 0
+    assert capsys.readouterr().out == f"added s #2a2440, L transparent, v #3a446680; wrote {p}\n"
+
+
+def test_palette_add_same_key_twice_is_named_once(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "s=#2a2440", "s=#2a2440") == 0
+    assert capsys.readouterr().out == f"added s #2a2440; wrote {p}\n"
+
+
+def test_palette_add_imported_key_is_not_added(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nk\n")
+    assert run("palette", p, "--add", "k=#000000", "j=#ffffff") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("added j #ffffff;") and "k #" not in out.split(";")[0]
+
+
+def test_palette_add_variant_with_comment_still_reports_sets(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#000011", "--comment", "k", "dim") == 0
+    out = capsys.readouterr().out
+    assert "sets k #000011" in out and "commented k in @variant night" in out
+
+
+def test_palette_add_dry_run_reports_adds(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    before, m = snap(p)
+    assert run("palette", p, "--add", "s=#2a2440", "--comment", "s", "band", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "added s #2a2440; commented s; would write" in out and untouched(p, before, m)
