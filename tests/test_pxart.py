@@ -6186,7 +6186,7 @@ def test_frames_already_in_place_keeps_layout(tmp_path, capsys):
 
 
 def test_help_documents_already_in_place():
-    assert 'prints "already in\n      place" and writes nothing' in pxart.__doc__
+    assert 'prints "already in place" and writes nothing' in " ".join(pxart.__doc__.split())
 
 
 # ---------------------------------------------------------------- loop H: extract writes @anim in frame-group order

@@ -171,10 +171,10 @@ CHECKING
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--copy-to DST [ID...]]
-      List frames, sizes, durations (only for animation frames; 'still' for @still groups and
-      every frame under '@still *') and animations; or delete / reorder frames (prints what it removed or
-      moved, not the listing; a move to where the frames already are prints "already in
-      place" and writes nothing). FILE:SEL lists only those frames; 'frames
+      List frames, sizes, durations (only for animation frames; 'still' for @still groups
+      and every frame under '@still *') and animations; or delete / reorder frames (prints
+      what it removed or moved, not the listing; a move to where the frames already are
+      prints "already in place" and writes nothing). FILE:SEL lists only those frames; 'frames
       hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
       takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
@@ -262,7 +262,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
-      :SEL moves keys in every frame; moves over more than one frame print "applied to N frames".
+      :SEL moves keys in every frame; moves over more than one frame print "applied to N
+      frames".
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
@@ -276,8 +277,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       An existing OUT keeps its own palette and @palette; each layer's keys are added to it
       unless the key already exists with the same color. A key a layer uses in another color
       than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per layer naming all its
-      keys and both colors, with the recolor 'a>b' line that gives them free keys. A new OUT starts with the layers' whole palettes, used or not, so a
-      later 'shade --ramp' or recolor finds its keys: when every layer imports the same
+      keys and both colors, with the recolor 'a>b' line that gives them free keys. A new OUT
+      starts with the layers' whole palettes, used or not, so a later 'shade --ramp' or
+      recolor finds its keys: when every layer imports the same
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
       colors become OUT's key lines. Local keys follow, the keys the layers use first: a key
       layers have in different colors gets the color of the layer that uses it, else the
@@ -302,7 +304,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --still adds '@still GROUP' (the group is no animation: UI icons, parts), --no-still
       removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame). An
       @anim line stays, unused while the group is still.
-  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
+  palette FILE [--add k=#hex ...] [--export out.gpl|out.hex [--used]]
+          [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're used.
       --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
       FILE renders with (imported ones too, local ones winning) and every variant. --repoint
@@ -654,8 +657,8 @@ class Doc:
         if key in have:
             if have[key] != color and not (key == "." and color[3] == 0):
                 fail("E_KEY_CONFLICT", f"key {key!r} is already {fmt_color(have[key])} in {self.path}, not "
-                     f"{fmt_color(color)}: to change its color, 'recolor {self.path} {key}={fmt_color(color)}'; to keep "
-                     "both colors, add this one under a free key", path=self.path)
+                     f"{fmt_color(color)}: to change its color, 'recolor {self.path} {key}={fmt_color(color)}'; "
+                     "to keep both colors, add this one under a free key", path=self.path)
             return
         if key not in KEYS:
             fail("E_BAD_KEY", f"{key!r} can't be a palette key", path=self.path)
@@ -1456,10 +1459,10 @@ def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, whose=None, take
                "pxart recolor " + " ".join(shlex.quote(x) for x in [str(src_doc.path)] + [f"{k}>{f}" for k, f in
                                                                                         zip(bad, free)]))
     n = len(bad)
-    return Issue("E_KEY_CONFLICT", f"{n} key{'s' * (n > 1)} of {what} {'are other colors' if n > 1 else 'is another color'}"
-                 f" in {dst_name}: " + ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
-                                                 + (f", from {whose[k]}" if whose and k in whose else "") + ")"
-                                                 for k in bad) + fix)
+    each = ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
+                     + (f", from {whose[k]}" if whose and k in whose else "") + ")" for k in bad)
+    return Issue("E_KEY_CONFLICT", f"{n} key{'s' * (n > 1)} of {what} "
+                 f"{'are other colors' if n > 1 else 'is another color'} in {dst_name}: {each}{fix}")
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste"):
@@ -2600,8 +2603,9 @@ def cmd_put(a):
                 if have and have != src.palette[k]:
                     n = next(n for n, l in enumerate(text.splitlines(), 1)
                              if l.strip()[:1] == k and PAL_RE.match(l.strip()))
-                    clash.append(Issue("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in {path} "
-                                       f"it is {fmt_color(have)}; use another key, or the file's color", "stdin", n))
+                    clash.append(Issue("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in "
+                                       f"{path} it is {fmt_color(have)}; use another key, or the file's color",
+                                       "stdin", n))
                     continue
                 doc.add_key(k, src.palette[k])
         if clash:
@@ -3590,7 +3594,8 @@ def main(argv=None):
     p.add_argument("--keep-circle", action="append", help="cx,cy,r (repeatable)")
     p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside each circle's edge")
     p.add_argument("--invert", action="store_true", help="erase inside the shapes, keep the outside")
-    g = p.add_mutually_exclusive_group(); g.add_argument("--keep-keys", help="erase every pixel whose key isn't one of these")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--keep-keys", help="erase every pixel whose key isn't one of these")
     g.add_argument("--drop-keys", help="erase every pixel whose key is one of these")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
