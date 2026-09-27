@@ -16497,6 +16497,8 @@ def help_fixtures(d):
     for folder, color in (("dungeon", (120, 60, 50, 255)), ("creatures", (60, 150, 100, 255))):
         (d / folder).mkdir()
         Image.new("RGBA", (16, 16), color).save(d / folder / "tile_0002.png")
+    (d / "dungeon" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,wall-stone-top,cap\n")
+    (d / "creatures" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,skeleton,\n")
 
 
 def test_help_examples_are_found():
@@ -18417,7 +18419,8 @@ def test_from_png_grid_bad_by(tmp_path):
 
 def test_from_png_names_or_by_need_grid(tmp_path):
     s = sheet_png(tmp_path)
-    assert "--names goes with --grid WxH" in run_err("from-png", s, "--names", "a")
+    assert run("from-png", s, "--names", "a", "-o", tmp_path / "o.px") == 0  # a loose PNG's name, since loop R
+    assert [f.id for f in pxart.parse(tmp_path / "o.px").frames] == ["a"]
     assert "--by goes with --grid WxH" in run_err("from-png", s, "--by", "cols")
 
 
@@ -18493,7 +18496,8 @@ def test_help_documents_from_png_grid():
 
 def test_from_png_help_has_both_usage_lines(capsys):
     text = pxart.command_help("from-png")
-    assert "--palette P.px]" in text.splitlines()[0] and "--grid WxH" in text.splitlines()[1]
+    lines = text.splitlines()
+    assert "--palette P.px]" in lines[0] and "--labels FILE.csv" in lines[1] and "--grid WxH" in lines[2]
 
 
 def test_readme_documents_from_png_grid():
@@ -18955,7 +18959,8 @@ def test_from_png_same_stem_without_o_prints_nothing(tmp_path, capsys):
 def test_from_png_same_stem_error_suggests_prefix_dir(tmp_path):
     a, b = two_packs(tmp_path)
     msg = run_err("from-png", a, b, "-o", tmp_path / "all.px")
-    assert "--prefix-dir (ids FOLDER/STEM: dungeon/tile_0002)" in msg and "--id PREFIX" in msg
+    assert "--prefix-dir (ids FOLDER/STEM: dungeon/tile_0002)" in msg and "--names A,B,..." in msg
+    assert "--labels FILE.csv" in msg
 
 
 def test_from_png_same_png_twice_is_e_dup_frame(tmp_path):
@@ -19304,3 +19309,347 @@ def test_crop_onto_an_existing_frame_says_it_replaced_it(tmp_path, capsys):
 
 def test_help_documents_compose_replaced_line():
     assert "the 'wrote' line says when it replaced one" in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- loop R: naming loose PNGs (--names, --labels)
+# Packs ship loose PNGs with a labels.csv ('filename,proposed_name,...'); from-png could only name them by stem.
+
+def labeled_pack(tmp_path, folder="dungeon", rows=(("tile_0000.png", "floor-dirt"), ("tile_0002.png", "wall-top")),
+                 head="filename,proposed_name,kind_guess,notes", extra=",tile,"):
+    d = tmp_path / folder
+    d.mkdir(exist_ok=True)
+    for n, (fname, _) in enumerate(rows):
+        Image.new("RGBA", (2, 2), (10 * n + 5, 40, 90, 255)).save(d / fname)
+    (d / "labels.csv").write_text(head + "\n" + "".join(f"{f},{name}{extra}\n" for f, name in rows))
+    return d
+
+
+def ids(p):
+    return [f.id for f in pxart.parse(p).frames]
+
+
+def test_from_png_names_loose_pngs_in_order(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--names", "floor,wall", "-o", out) == 0
+    assert ids(out) == ["floor", "wall"]
+
+
+def test_from_png_names_order_follows_the_pngs(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0002.png", d / "tile_0000.png", "--names", "wall,floor", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert doc.image(doc.get("floor")).getpixel((0, 0)) == (5, 40, 90, 255)
+    assert doc.image(doc.get("wall")).getpixel((0, 0)) == (15, 40, 90, 255)
+
+
+def test_from_png_names_count_must_match(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", d / "tile_0002.png", "--names", "floor", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "--names has 1 name and there are 2 PNGs" in msg
+    msg = run_err("from-png", d / "tile_0000.png", "--names", "a,b,c", "-o", tmp_path / "o.px")
+    assert "--names has 3 names and there are 1 PNGs" in msg
+
+
+def test_from_png_names_can_be_paths(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--names", "floor/0,floor/1", "-o", out) == 0
+    assert ids(out) == ["floor/0", "floor/1"]
+
+
+def test_from_png_names_bad_id_is_e_bad_id(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", "--names", "a b", "-o", tmp_path / "o.px")
+    assert "E_BAD_ID" in msg and "'a b'" in msg
+
+
+def test_from_png_names_empty_skips_a_png(tmp_path, capsys):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--names", ",wall", "-o", out) == 0
+    assert ids(out) == ["wall"]
+    got = capsys.readouterr().out
+    assert f"note: {d / 'tile_0000.png'} skipped (its name is empty)" in got and "(1 frame(s))" in got
+
+
+def test_from_png_names_all_empty_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path)
+    assert "nothing to import" in run_err("from-png", d / "tile_0000.png", "--names", "", "-o", tmp_path / "o.px")
+
+
+def test_from_png_names_one_png_makes_a_named_frame(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--names", "floor", "-o", out) == 0
+    doc = pxart.parse(out)
+    assert not doc.implicit and ids(out) == ["floor"]
+
+
+def test_from_png_names_with_id_and_prefix_dir(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--names", "floor", "--prefix-dir", "--id", "set", "-o", out) == 0
+    assert ids(out) == ["set/dungeon/floor"]
+
+
+def test_from_png_names_that_collide_are_e_dup_frame(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", d / "tile_0002.png", "--names", "x,x", "-o", tmp_path / "o.px")
+    assert "E_DUP_FRAME" in msg and "--prefix-dir (ids FOLDER/NAME: dungeon/bat), or other names" in msg
+
+
+def test_from_png_labels_names_from_csv(tmp_path):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["floor-dirt", "wall-top"]
+
+
+def test_from_png_labels_row_order_does_not_matter(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0002.png", "wall-top"), ("tile_0000.png", "floor-dirt")))
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["floor-dirt", "wall-top"]
+
+
+def test_from_png_labels_extra_rows_are_fine(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0000.png", "floor-dirt"), ("tile_0002.png", "wall-top"),
+                                     ("tile_0009.png", "door")))
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0002.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["wall-top"]
+
+
+def test_from_png_labels_png_not_in_csv_is_e_select(tmp_path):
+    d = labeled_pack(tmp_path)
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(d / "stray.png")
+    msg = run_err("from-png", d / "tile_0000.png", d / "stray.png", "--labels", d / "labels.csv", "-o",
+                  tmp_path / "o.px")
+    assert "E_SELECT" in msg and f"--labels names no row for {d / 'stray.png'}" in msg
+    assert not (tmp_path / "o.px").exists()
+
+
+def test_from_png_labels_two_packs_one_run(tmp_path):
+    a = labeled_pack(tmp_path, "dungeon", (("tile_0002.png", "wall"),))
+    b = labeled_pack(tmp_path, "creatures", (("tile_0002.png", "skeleton"),))
+    out = tmp_path / "o.px"
+    assert run("from-png", a / "tile_0002.png", b / "tile_0002.png", "--labels", a / "labels.csv",
+               "--labels", b / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["wall", "skeleton"]
+
+
+def test_from_png_labels_each_csv_names_the_pngs_beside_it(tmp_path):
+    # both packs have tile_0002.png: each CSV names its own folder's, never the other's
+    a = labeled_pack(tmp_path, "dungeon", (("tile_0002.png", "wall"),))
+    b = labeled_pack(tmp_path, "creatures", (("tile_0002.png", "skeleton"),))
+    out = tmp_path / "o.px"
+    assert run("from-png", b / "tile_0002.png", a / "tile_0002.png", "--labels", a / "labels.csv",
+               "--labels", b / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["skeleton", "wall"]
+
+
+def test_from_png_labels_same_name_in_two_packs_needs_prefix_dir(tmp_path):
+    a = labeled_pack(tmp_path, "dungeon", (("tile_0120.png", "bat"),))
+    b = labeled_pack(tmp_path, "creatures", (("tile_0140.png", "bat"),))
+    args = [a / "tile_0120.png", b / "tile_0140.png", "--labels", a / "labels.csv", "--labels", b / "labels.csv"]
+    msg = run_err("from-png", *args, "-o", tmp_path / "o.px")
+    assert "E_DUP_FRAME" in msg and f"bat ({a / 'tile_0120.png'}, {b / 'tile_0140.png'})" in msg
+    assert run("from-png", *args, "--prefix-dir", "-o", tmp_path / "o.px") == 0
+    assert ids(tmp_path / "o.px") == ["dungeon/bat", "creatures/bat"]
+
+
+def test_from_png_labels_csv_elsewhere_matches_by_file_name(tmp_path):
+    d = labeled_pack(tmp_path)
+    (tmp_path / "meta").mkdir()
+    (tmp_path / "meta" / "names.csv").write_text((d / "labels.csv").read_text())
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--labels", tmp_path / "meta" / "names.csv", "-o", out) == 0
+    assert ids(out) == ["floor-dirt"]
+
+
+def test_from_png_labels_file_name_named_two_ways_elsewhere_is_e_select(tmp_path):
+    a = labeled_pack(tmp_path, "dungeon", (("tile_0002.png", "wall"),))
+    b = labeled_pack(tmp_path, "creatures", (("tile_0002.png", "skeleton"),))
+    (tmp_path / "loose").mkdir()
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(tmp_path / "loose" / "tile_0002.png")
+    msg = run_err("from-png", tmp_path / "loose" / "tile_0002.png", "--labels", a / "labels.csv",
+                  "--labels", b / "labels.csv", "-o", tmp_path / "o.px")
+    assert "E_SELECT" in msg and "several names: skeleton, wall" in msg
+
+
+def test_from_png_labels_csv_with_subdir_paths(tmp_path):
+    (tmp_path / "pack" / "tiles").mkdir(parents=True)
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(tmp_path / "pack" / "tiles" / "t.png")
+    (tmp_path / "pack" / "labels.csv").write_text("filename,proposed_name\ntiles/t.png,torch\n")
+    out = tmp_path / "o.px"
+    assert run("from-png", tmp_path / "pack" / "tiles" / "t.png", "--labels", tmp_path / "pack" / "labels.csv",
+               "-o", out) == 0
+    assert ids(out) == ["torch"]
+
+
+def test_from_png_labels_relative_to_cwd(tmp_path, monkeypatch):
+    d = labeled_pack(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("from-png", "dungeon/tile_0000.png", "--labels", "dungeon/labels.csv", "-o", "o.px") == 0
+    assert ids(tmp_path / "o.px") == ["floor-dirt"]
+
+
+def test_from_png_labels_other_columns(tmp_path):
+    d = labeled_pack(tmp_path, head="file,name,notes", rows=(("tile_0000.png", "floor"),), extra=",x")
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "--file-col", "file",
+               "--label-col", "name", "-o", out) == 0
+    assert ids(out) == ["floor"]
+
+
+def test_from_png_labels_missing_column_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "--label-col", "nope",
+                  "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "no column 'nope'" in msg and "filename, proposed_name, kind_guess, notes" in msg
+
+
+def test_from_png_labels_default_columns_missing(tmp_path):
+    d = labeled_pack(tmp_path, head="file,name,kind,notes")
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", tmp_path / "o.px")
+    assert "no column 'filename' or 'proposed_name'" in msg and "--file-col and --label-col" in msg
+
+
+def test_from_png_labels_empty_name_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0000.png", ""),))
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "tile_0000.png has no proposed_name" in msg and "labels.csv:2" in msg
+
+
+def test_from_png_labels_named_twice_differently_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0000.png", "a"), ("tile_0000.png", "b")))
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "tile_0000.png is named twice: 'a'" in msg and "'b'" in msg
+
+
+def test_from_png_labels_named_twice_the_same_is_fine(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0000.png", "a"), ("tile_0000.png", "a")))
+    assert run("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", tmp_path / "o.px") == 0
+
+
+def test_from_png_labels_name_with_spaces_is_sanitized(tmp_path):
+    d = labeled_pack(tmp_path, rows=(("tile_0000.png", "floor dirt (red)"),))
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["floor_dirt__red_"]
+
+
+def test_from_png_labels_quoted_csv_fields(tmp_path):
+    d = labeled_pack(tmp_path, rows=())
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(d / "t.png")
+    (d / "labels.csv").write_text('filename,proposed_name,notes\n"t.png","torch","lit, flickers"\n')
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "t.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["torch"]
+
+
+def test_from_png_labels_bom_and_crlf(tmp_path):
+    d = labeled_pack(tmp_path, rows=())
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(d / "t.png")
+    (d / "labels.csv").write_bytes("﻿filename,proposed_name\r\nt.png,torch\r\n".encode("utf-8"))
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "t.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["torch"]
+
+
+def test_from_png_labels_short_rows_are_skipped(tmp_path):
+    d = labeled_pack(tmp_path, rows=())
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(d / "t.png")
+    (d / "labels.csv").write_text("filename,proposed_name\n\nlonely\nt.png,torch\n")
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "t.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["torch"]
+
+
+def test_from_png_labels_missing_csv_is_e_file(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", tmp_path / "nope.csv", "-o", tmp_path / "o.px")
+    assert "E_FILE" in msg and "nope.csv" in msg
+
+
+def test_from_png_labels_with_names_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "--names", "x", "-o",
+                  tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "not both" in msg
+
+
+def test_from_png_label_col_without_labels_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path)
+    for flag in ("--label-col", "--file-col"):
+        msg = run_err("from-png", d / "tile_0000.png", flag, "x", "-o", tmp_path / "o.px")
+        assert "E_BAD_ARG" in msg and f"{flag} names a column of --labels FILE.csv" in msg
+
+
+def test_from_png_labels_with_grid_is_bad_arg(tmp_path):
+    d = labeled_pack(tmp_path)
+    msg = run_err("from-png", d / "tile_0000.png", "--grid", "1x1", "--labels", d / "labels.csv", "-o",
+                  tmp_path / "o.px")
+    assert "E_BAD_ARG" in msg and "--labels names loose PNGs" in msg
+
+
+def test_from_png_grid_names_unchanged(tmp_path):
+    img = Image.new("RGBA", (2, 2))
+    img.putpixel((0, 0), (1, 1, 1, 255)); img.putpixel((1, 1), (2, 2, 2, 255))
+    img.save(tmp_path / "s.png")
+    out = tmp_path / "o.px"
+    assert run("from-png", tmp_path / "s.png", "--grid", "1x1", "--names", "a,b", "-o", out) == 0
+    assert ids(out) == ["a/0", "b/0"]
+
+
+def test_from_png_labels_into_existing_out_replaces_by_name(tmp_path, capsys):
+    d = labeled_pack(tmp_path)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "-o", out) == 0
+    capsys.readouterr()
+    assert run("from-png", d / "tile_0000.png", d / "tile_0002.png", "--labels", d / "labels.csv", "-o", out) == 0
+    assert ids(out) == ["floor-dirt", "wall-top"]
+    assert "replaced floor-dirt, which" in capsys.readouterr().out
+
+
+def test_from_png_labels_shares_the_palette_and_keys(tmp_path):
+    d = labeled_pack(tmp_path)
+    write(tmp_path, "pal.px", "a #05285a\n")  # tile_0000's color, (5, 40, 90)
+    out = tmp_path / "o.px"
+    assert run("from-png", d / "tile_0000.png", "--labels", d / "labels.csv", "--palette", tmp_path / "pal.px",
+               "-o", out) == 0
+    doc = pxart.parse(out)
+    assert doc.palette_refs == ["pal.px"] and doc.get("floor-dirt").grid == ["aa", "aa"]
+
+
+def test_from_png_documented_labels_example(tmp_path, monkeypatch):
+    help_fixtures(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("from-png", "dungeon/tile_0002.png", "creatures/tile_0002.png", "--labels", "dungeon/labels.csv",
+               "--labels", "creatures/labels.csv", "--prefix-dir", "-o", "all.px") == 0
+    assert ids(tmp_path / "all.px") == ["dungeon/wall-stone-top", "creatures/skeleton"]
+
+
+def test_loose_names_unit(tmp_path):
+    d = labeled_pack(tmp_path)
+    a = type("A", (), {"names": None, "labels": [str(d / "labels.csv")], "label_col": None, "file_col": None})()
+    assert pxart.loose_names([d / "tile_0002.png", d / "tile_0000.png"], a) == ["wall-top", "floor-dirt"]
+    a.labels = None
+    assert pxart.loose_names([d / "tile_0002.png"], a) is None
+    a.names = "x"
+    assert pxart.loose_names([d / "tile_0002.png"], a) == ["x"]
+
+
+def test_help_documents_from_png_names_and_labels():
+    text = " ".join(pxart.__doc__.split())
+    assert "--names A,B,... gives one frame id per PNG, in order (as many names as PNGs; '' skips one)" in text
+    assert "--labels FILE.csv names them from a CSV, the way packs ship one ('filename,proposed_name,...')" in text
+    assert "[--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]" in text
+
+
+def test_from_png_help_lists_labels(capsys):
+    assert run("from-png", "-h") == 0
+    out = capsys.readouterr().out
+    assert "--labels FILE.csv" in out and "--label-col COL" in out and "--file-col COL" in out

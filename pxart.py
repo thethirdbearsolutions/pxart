@@ -704,6 +704,7 @@ CONVERTING
       badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others,
       and a Tiled map painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
+           [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
@@ -714,6 +715,15 @@ CONVERTING
       --prefix-dir -o all.px' writes dungeon/tile_0002 and creatures/tile_0002). Colors
       already in OUT keep their keys, so frames imported in separate runs share one
       palette. --palette P.px starts a new OUT that imports P and reuses its keys.
+      Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names
+      as PNGs; '' skips one). --labels FILE.csv names them from a CSV, the way packs ship
+      one ('filename,proposed_name,...'): each PNG takes the --label-col (default
+      proposed_name) of the row whose --file-col (default filename) names it, a path
+      relative to the CSV's directory, or else its file name alone. --labels repeats, one
+      CSV per pack: 'from-png dungeon/tile_0002.png creatures/tile_0002.png --labels
+      dungeon/labels.csv --labels creatures/labels.csv --prefix-dir -o all.px' writes
+      dungeon/wall-stone-top and creatures/skeleton. A PNG no row names is E_SELECT.
+      --prefix-dir and --id PREFIX go in front of either.
       --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
       pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
       to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
@@ -747,7 +757,7 @@ ERROR CODES
   about to make (a grid renamed, keys rekeyed), and nothing was written.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+import argparse, contextlib, csv, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
@@ -5877,17 +5887,23 @@ def cmd_export(a):
 def cmd_from_png(a):
     """PNG(s) -> .px. Colors already in OUT's palette keep their keys; new colors get free keys. --grid slices one
     sheet into frames (sheet_cells)."""
-    if (a.names or a.by) and not a.grid:
-        fail("E_BAD_ARG", f"{'--names' if a.names else '--by'} goes with --grid WxH (the sheet's cells)")
+    if a.by and not a.grid:
+        fail("E_BAD_ARG", "--by goes with --grid WxH (the sheet's cells)")
     if a.grid and len(a.pngs) > 1:
         fail("E_BAD_ARG", f"--grid slices one sheet; give one PNG (got {len(a.pngs)})")
-    if a.grid and a.prefix_dir:
-        fail("E_BAD_ARG", "--prefix-dir names loose PNGs by their folder; a --grid sheet's frames are named by --names "
-             "or its rows")
+    if a.grid and (a.prefix_dir or a.labels):
+        fail("E_BAD_ARG", f"{'--prefix-dir' if a.prefix_dir else '--labels'} names loose PNGs; a --grid sheet's frames "
+             "are named by --names or its rows")
+    if a.names is not None and a.labels:
+        fail("E_BAD_ARG", "give --names (one name per PNG) or --labels FILE.csv, not both")
+    for flag, v in (("--label-col", a.label_col), ("--file-col", a.file_col)):
+        if v is not None and not a.labels:
+            fail("E_BAD_ARG", f"{flag} names a column of --labels FILE.csv; give --labels too")
     imgs = []
     for p in a.pngs:
         with reading(f"PNG ({p})"):
             imgs.append((pathlib.Path(p), Image.open(p).convert("RGBA")))
+    names = None if a.grid else loose_names([p for p, _ in imgs], a)
     cells, notes = sheet_cells(imgs[0][0], imgs[0][1], a) if a.grid else (None, [])
     out = pathlib.Path(a.o) if a.o else None
     if out and out.exists():
@@ -5895,7 +5911,7 @@ def cmd_from_png(a):
             doc = parse(out, allow_empty=True)
     else:
         doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
-    named = bool(a.id) or a.prefix_dir or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
+    named = bool(a.id) or a.prefix_dir or names is not None or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):
             fail("E_MIXED_FRAMES", f"{out} holds one unnamed grid, and its name {doc.stem!r} can't be a frame id to "
@@ -5906,9 +5922,15 @@ def cmd_from_png(a):
         print(f"note: {n}")
     keyof = {c: k for k, c in doc.resolved().items() if c[3]}
     free = [k for k in KEYS if k not in doc.resolved()]
-    entries = cells if cells is not None else [(png_id(path, a), path, img) for path, img in imgs]
+    entries = cells if cells is not None else [(png_id(path, a, name), path, img) for (path, img), name
+                                               in zip(imgs, names or [None] * len(imgs)) if name != ""]
+    for (path, _), name in zip(imgs, names or ()):
+        if name == "":
+            print(f"note: {path} skipped (its name is empty)")
+    if not entries:
+        fail("E_BAD_ARG", "every PNG's name is empty: nothing to import")
     if named:
-        same_ids(entries)
+        same_ids(entries, names is not None)
     replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
     for fid, path, img in entries:
         for c in colors(img):
@@ -5935,19 +5957,82 @@ def cmd_from_png(a):
         print(doc.text(), end="")
 
 
-def png_id(path, a):
-    """A loose PNG's frame id: its stem, or with --prefix-dir its folder's name and stem (dungeon/tile_0002), with
-    --id PREFIX in front; a char an id can't have becomes '_'."""
-    fid = path.stem
+def png_id(path, a, name=None):
+    """A loose PNG's frame id: its name (--names, --labels) or stem, after its folder's name with --prefix-dir
+    (dungeon/tile_0002), with --id PREFIX in front. In a stem or a --labels name a char an id can't have becomes '_';
+    a --names name is the id as typed, so a bad one is E_BAD_ID."""
+    typed = name is not None and not a.labels
+    fid = path.stem if name is None else name
+    if not typed:
+        fid = re.sub(r"[^A-Za-z0-9_\-./]", "_", fid)
     if a.prefix_dir:
         folder = re.sub(r"[^A-Za-z0-9_\-.]", "_", path.resolve().parent.name)
         fid = f"{folder}/{fid}" if folder else fid
-    return re.sub(r"[^A-Za-z0-9_\-./]", "_", f"{a.id}/{fid}" if a.id else fid)
+    fid = f"{a.id}/{fid}" if a.id else fid
+    fid = fid if typed else re.sub(r"[^A-Za-z0-9_\-./]", "_", fid)
+    if not ID_RE.match(fid):
+        fail("E_BAD_ID", f"{path}: {fid!r} can't be a frame id (letters, digits, _ - . and / between parts)")
+    return fid
 
 
-def same_ids(entries):
+def loose_names(paths, a):
+    """from-png's loose PNGs' names, one per PNG in order, or None for their stems: --names A,B,... (one per PNG; ''
+    skips one), or --labels FILE.csv (repeatable), whose --file-col names each PNG relative to the CSV's own directory
+    (or by its file name alone) and whose --label-col gives its name. A PNG no CSV names is E_SELECT, as is one two rows
+    name differently."""
+    if a.names is not None:
+        names = a.names.split(",")
+        if len(names) != len(paths):
+            fail("E_BAD_ARG", f"--names has {len(names)} name{'s' * (len(names) != 1)} and there are {len(paths)} "
+                 f"PNGs; give one per PNG, in order ('' skips one)")
+        return names
+    if not a.labels:
+        return None
+    fcol, lcol = a.file_col or "filename", a.label_col or "proposed_name"
+    by_path, by_name = {}, {}  # resolved path -> (name, where); file name -> [(name, where)]
+    for csv_path in a.labels:
+        with open(csv_path, newline="", encoding="utf-8-sig") as fh:
+            rows = list(csv.reader(fh))
+        head = [h.strip() for h in rows[0]] if rows else []
+        missing = [c for c in (fcol, lcol) if c not in head]
+        if missing:
+            fail("E_BAD_ARG", f"--labels {csv_path}: no column {' or '.join(map(repr, missing))} (its columns: "
+                 f"{', '.join(head) or 'none'}); pick them with --file-col and --label-col")
+        fi, li = head.index(fcol), head.index(lcol)
+        for n, row in enumerate(rows[1:], 2):
+            if len(row) <= max(fi, li) or not row[fi].strip():
+                continue
+            file, name, where = row[fi].strip(), row[li].strip(), f"{csv_path}:{n}"
+            if not name:
+                fail("E_BAD_ARG", f"--labels {where}: {file} has no {lcol}")
+            key = (pathlib.Path(csv_path).parent / file).resolve()
+            if key in by_path and by_path[key][0] != name:
+                fail("E_BAD_ARG", f"--labels: {file} is named twice: {by_path[key][0]!r} ({by_path[key][1]}) and "
+                     f"{name!r} ({where})")
+            by_path[key] = (name, where)
+            by_name.setdefault(pathlib.PurePath(file).name, []).append((name, where))
+    names, unnamed = [], []
+    for p in paths:
+        got = by_path.get(p.resolve())
+        if got is None:
+            alike = {n for n, _ in by_name.get(p.name, [])}
+            if len(alike) > 1:
+                fail("E_SELECT", f"--labels: {p} is in no CSV's directory, and its file name {p.name} has several "
+                     f"names: {', '.join(sorted(alike))}; put the CSV beside the PNGs it names")
+            got = by_name[p.name][0] if alike else None
+        if got is None:
+            unnamed.append(str(p))
+        names.append(got[0] if got else None)
+    if unnamed:
+        fail("E_SELECT", f"--labels names no row for {listed(unnamed, 5)}; add them to the CSV (column "
+             f"{fcol}) or leave them out")
+    return names
+
+
+def same_ids(entries, named=False):
     """from-png's frames, [(id, path, image)], must have one id each: a second PNG under an id would replace the first
-    one in OUT (two packs' tile_0002.png). E_DUP_FRAME naming each id and its PNGs, and the ways to tell them apart."""
+    one in OUT (two packs' tile_0002.png). E_DUP_FRAME naming each id and its PNGs, and the ways to tell them apart
+    (named: the ids came from --names or --labels already)."""
     paths = {}
     for fid, path, _ in entries:
         paths.setdefault(fid, []).append(str(path))
@@ -5955,8 +6040,9 @@ def same_ids(entries):
     if twice:
         fail("E_DUP_FRAME", "PNGs that would get one frame id (the later would replace the earlier): "
              + "; ".join(f"{fid} ({', '.join(ps)})" for fid, ps in twice.items())
-             + "; tell them apart with --prefix-dir (ids FOLDER/STEM: dungeon/tile_0002), or import each folder in "
-               "a run of its own with --id PREFIX")
+             + ("; tell them apart with --prefix-dir (ids FOLDER/NAME: dungeon/bat), or other names" if named else
+                "; tell them apart with --prefix-dir (ids FOLDER/STEM: dungeon/tile_0002), --names A,B,... (one id "
+                "per PNG, in order) or --labels FILE.csv"))
 
 
 def sheet_cells(path, img, a):
@@ -6364,7 +6450,12 @@ def parser(describe=True):
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
-    p.add_argument("--names", metavar="A,B,...", help="with --grid: each row's (--by cols: column's) group name")
+    p.add_argument("--names", metavar="A,B,...",
+                   help="one frame id per PNG, in order; with --grid: each row's (--by cols: column's) group name")
+    p.add_argument("--labels", action="append", metavar="FILE.csv",
+                   help="name each PNG from a CSV beside it: its --file-col row's --label-col (repeatable)")
+    p.add_argument("--label-col", metavar="COL", help="with --labels: the column of names (default proposed_name)")
+    p.add_argument("--file-col", metavar="COL", help="with --labels: the column of PNG file names (default filename)")
     p.add_argument("--by", metavar="rows|cols", help="with --grid: a group per row (the default) or per column")
     p.add_argument("--prefix-dir", action="store_true",
                    help="id each PNG FOLDER/STEM, FOLDER its directory's name (dungeon/tile_0002)")
