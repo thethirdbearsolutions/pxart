@@ -4148,8 +4148,8 @@ def test_palette_extract_to_writes_the_whole_palette(tmp_path, capsys):
     p = xsetup(tmp_path)
     out = tmp_path / "p.px"
     assert run("palette", p, "--extract-to", out) == 0
-    assert out.read_text() == ("pxart 1\nw #ffffff\nq #00ff00\nk #000000\n\n@variant night\nw #101010\nk #000011\n"
-                               "\n@variant day\nk #222222\n")
+    assert out.read_text() == ("pxart 1\nw #ffffff\nq #00ff00\n# black\nk #000000\n\n@variant night\nw #101010\n"
+                               "k #000011\n\n@variant day\nk #222222\n")
     assert p.read_text() == XSRC
     assert capsys.readouterr().out == f"wrote {out} (3 key(s), variants night, day)\n"
 
@@ -11124,3 +11124,131 @@ def test_paste_adds_new_keys_in_sorted_order_every_run(tmp_path):
                        check=True, capture_output=True)
         orders.add(tuple(pxart.parse(d).palette))
     assert orders == {("k", "a", "b", "q", "z")}
+
+
+# ---------------------------------------------------------------- palette --extract-to keeps the palette's comments
+
+BEAST = ("# Beast: moss-backed guardian. 6 colors.\n"
+         "o #221a26\n# bark: shadow -> light\nx #3e2c34\nX #5e4038\n# spirit glow (eyes, runes)\ne #fff6b0\nE #6ae0cc\n"
+         "\n# dusk: the glow (e, E) is left out on purpose so it keeps its base color and reads as light.\n"
+         "@variant dusk\no #150f1c\n# bark sinks\nx #261a2a\nX #3a2834\n")
+
+
+def test_extract_to_carries_key_section_and_variant_comments(tmp_path):
+    p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
+    out = tmp_path / "pal.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == ("pxart 1\no #221a26\n# bark: shadow -> light\nx #3e2c34\nX #5e4038\n"
+                               "# spirit glow (eyes, runes)\ne #fff6b0\nE #6ae0cc\n"
+                               "\n# dusk: the glow (e, E) is left out on purpose so it keeps its base color and reads as "
+                               "light.\n@variant dusk\no #150f1c\n# bark sinks\nx #261a2a\nX #3a2834\n")
+
+
+def test_extract_to_leaves_a_sprites_header_with_the_sprite(tmp_path):
+    p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
+    out = tmp_path / "pal.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert "# Beast:" not in out.read_text()
+
+
+def test_extract_to_from_a_palette_file_keeps_its_header(tmp_path):
+    p = write(tmp_path, "beast.px", BEAST)
+    out = tmp_path / "copy.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    text = out.read_text()
+    assert text.startswith("# Beast: moss-backed guardian. 6 colors.\npxart 1\no #221a26\n# bark: shadow -> light\n")
+    assert "# dusk: the glow (e, E) is left out on purpose" in text and "# bark sinks\nx #261a2a" in text
+
+
+def test_extract_to_carries_an_imports_comments_and_header(tmp_path):
+    write(tmp_path, "hero_pal.px", "# Hero palette: keys are per-material.\npxart 1\n# skin\ns #f4c7a0\nk #c98468\n"
+                                   "\n# night: skin cools\n@variant night\ns #806070\n")
+    p = write(tmp_path, "hero.px", "@palette hero_pal.px\n# cape\nc #8e1f2e\n@frame a\nskc\n")
+    out = tmp_path / "all.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == ("# Hero palette: keys are per-material.\npxart 1\n# skin\ns #f4c7a0\nk #c98468\n# cape\n"
+                               "c #8e1f2e\n\n# night: skin cools\n@variant night\ns #806070\n")
+
+
+def test_extract_to_local_comment_wins_over_the_imports(tmp_path):
+    write(tmp_path, "base.px", "pxart 1\n# base's skin\ns #f4c7a0\n")
+    p = write(tmp_path, "hero.px", "@palette base.px\n# hero's own skin\ns #ffffff\n@frame a\ns\n")
+    out = tmp_path / "all.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert "# hero's own skin\ns #ffffff" in out.read_text() and "base's skin" not in out.read_text()
+
+
+def test_extract_to_uncommented_local_override_keeps_the_imports_comment(tmp_path):
+    write(tmp_path, "base.px", "pxart 1\n# skin\ns #f4c7a0\n")
+    p = write(tmp_path, "hero.px", "@palette base.px\ns #ffffff\n@frame a\ns\n")
+    out = tmp_path / "all.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "pxart 1\n# skin\ns #ffffff\n"
+
+
+def test_extract_to_nested_imports_and_their_headers(tmp_path):
+    write(tmp_path, "a.px", "# A header\n# a key\na #111111\n")
+    write(tmp_path, "b.px", "# B header\n@palette a.px\n# b key\nb #222222\n")
+    p = write(tmp_path, "s.px", "@palette b.px\n@frame f\nab\n")
+    out = tmp_path / "out.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    # With no version line, a palette file's comments above its first key are its header (the parser can't tell).
+    assert out.read_text() == "# A header\n# a key\n# B header\npxart 1\na #111111\n# b key\nb #222222\n"
+
+
+def test_extract_to_header_of_a_palette_without_version_line(tmp_path):
+    write(tmp_path, "base.px", "# base's skin\ns #f4c7a0\n")
+    p = write(tmp_path, "hero.px", "@palette base.px\n@frame a\ns\n")
+    assert run("palette", p, "--extract-to", tmp_path / "all.px") == 0
+    assert (tmp_path / "all.px").read_text() == "# base's skin\npxart 1\ns #f4c7a0\n"
+
+
+def test_extract_to_blank_only_leads_keep_default_spacing(tmp_path):
+    p = write(tmp_path, "s.px", "k #000000\n\n\n\nj #111111\n@variant x\nk #ffffff\n@frame f\nkj\n")
+    out = tmp_path / "out.px"
+    assert run("palette", p, "--extract-to", out) == 0
+    assert out.read_text() == "pxart 1\nk #000000\nj #111111\n\n@variant x\nk #ffffff\n"
+
+
+def test_extract_to_output_still_renders_like_the_source(tmp_path):
+    p = write(tmp_path, "beast.px", BEAST + "\n@frame idle\noxXeE\n")
+    before = renders(p)
+    assert run("palette", p, "--extract-to", tmp_path / "pal.px", "--repoint") == 0
+    assert renders(p) == before
+    assert run("check", tmp_path / "pal.px") == 0
+
+
+def test_extract_to_repoint_moves_comments_not_copies(tmp_path):
+    p = write(tmp_path, "beast.px", BEAST.replace("# Beast", "pxart 1\n# Beast") + "\n@frame idle\noxXeE\n")
+    assert run("palette", p, "--extract-to", tmp_path / "pal.px", "--repoint") == 0
+    text = p.read_text()
+    assert "# bark" not in text and "# dusk" not in text and "# spirit" not in text
+    assert "# bark: shadow -> light" in (tmp_path / "pal.px").read_text()
+
+
+def test_extract_to_repoint_first_key_comment_moves_blank_lines_stay(tmp_path):
+    p = write(tmp_path, "s.px", "pxart 1\n\n# the black\nk #000000\n@frame f\nk\n")
+    assert run("palette", p, "--extract-to", tmp_path / "pal.px", "--repoint") == 0
+    assert p.read_text() == "pxart 1\n\n@palette pal.px\n@frame f\nk\n"
+    assert (tmp_path / "pal.px").read_text() == "pxart 1\n\n# the black\nk #000000\n"  # its lead, blank line too
+
+
+def test_extract_to_repoint_keeps_the_import_lines_comment(tmp_path):
+    p = xsetup(tmp_path)
+    assert run("palette", p, "--extract-to", tmp_path / "p.px", "--repoint") == 0
+    assert p.read_text().startswith("pxart 1\n# my palette\n@palette p.px\n")
+
+
+def test_palette_notes_helper_cycle_is_safe(tmp_path):
+    a = write(tmp_path, "a.px", "@palette b.px\n# a\na #111111\n")
+    write(tmp_path, "b.px", "# b\nb #222222\n")
+    doc = pxart.parse(a, palette_only=True)
+    doc.palette_refs.append("a.px")  # a cycle back to itself, as a nested file might have
+    notes, head = pxart.palette_notes(doc)
+    assert notes == {("key", "a"): ["# a"]} and head == ["# b"]
+
+
+def test_help_documents_extract_to_comments():
+    doc = " ".join(pxart.__doc__.split())
+    assert "with the comments that document them: those above key and @variant lines" in doc
+    assert "a sprite's header is about the sprite and stays" in doc

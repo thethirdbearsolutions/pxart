@@ -325,7 +325,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
           [--extract-to P.px [--repoint]]
       No flags: lists the keys, their colors, where they come from and how often they're used.
       --extract-to P.px writes FILE's whole palette as a palette file for @palette: every key
-      FILE renders with (imported ones too, local ones winning) and every variant. --repoint
+      FILE renders with (imported ones too, local ones winning) and every variant, with the
+      comments that document them: those above key and @variant lines (a section comment,
+      '# glow: left out of dusk on purpose'), from FILE and the palette files it imports, and
+      a palette file's header comment (a sprite's header is about the sprite and stays). --repoint
       then replaces FILE's @palette, key and @variant lines with '@palette P.px' (re-pointed
       from FILE's directory): FILE renders the same, and other sprites can share P.px.
 
@@ -3540,18 +3543,49 @@ def extract_palette(doc, out, repoint=False):
     pal.palette = {k: c for k, c in doc.resolved().items() if k != "."}
     for name in list(doc.shared_variants) + [n for n in doc.variants if n not in doc.shared_variants]:
         pal.variants[name] = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
+    notes, pal.comments = palette_notes(doc)
+    pal.lead.update(notes)
     said = [write_doc(pal, out) + f" ({len(pal.palette)} key(s)" + (f", variants {', '.join(pal.variants)})"
                                                                      if pal.variants else ")")]
     if repoint:
         ref = pathlib.Path(os.path.relpath(out.resolve(), doc.path.resolve().parent)).as_posix()
         first = next((anchor for anchor, _, _ in doc.lines() if anchor[0] in ("palref", "key", "variant")), None)
         lead = doc.lead.get(first)
+        if first and first[0] != "palref" and lead:  # its comments went to OUT with its line; the blank lines stay
+            lead = [l for l in lead if not l.strip()]
         doc.palette_refs, doc.palette, doc.variants, doc.dot_at = [ref], {}, {}, None
         doc.shared, doc.shared_variants = dict(pal.palette), {n: dict(v) for n, v in pal.variants.items()}
         if lead is not None:
             doc.lead[("palref", ref)] = lead
         said.append(write_doc(doc) + f" (@palette {ref})")
     print("; ".join(said))
+
+
+def palette_notes(doc, seen=None):
+    """The comments that document doc's palette, for --extract-to: ({anchor: lead}, header). The leads are those of its
+    key, @variant and variant key lines that carry a comment (blank lines in them kept), its @palette imports' first,
+    so its own win; the header is each palette-only file's comments above its first line (doc's too when it is one: a
+    sprite's header is about the sprite, and stays with it). An import that can't be read adds nothing."""
+    seen = set() if seen is None else seen
+    notes, head = {}, []
+    if doc.path is not None:
+        seen.add(doc.path.resolve())
+    for ref in doc.palette_refs:
+        target = doc.path.parent / ref
+        if target.resolve() in seen:
+            continue
+        try:
+            sub = parse(target, palette_only=True)
+        except (OSError, PxError):
+            continue
+        n, h = palette_notes(sub, seen)
+        notes.update(n)
+        head += h
+    notes.update({a: list(lead) for a, lead in doc.lead.items()
+                  if a[0] in ("key", "variant", "vkey") and any(l.strip() for l in lead)})
+    if not doc.frames:
+        head += [l for l in doc.comments if l.strip()]
+    return notes, head
 
 
 def export_frames(args):
