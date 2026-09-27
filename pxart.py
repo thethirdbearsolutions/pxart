@@ -212,9 +212,9 @@ CHECKING
       failed' when one did; a warning is a note line). A directory checks every .px and .map
       under it, recursively, sorted by path ('check crossover/'); a palette file (no frames)
       is checked as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a
-      .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and @anim/@still
-      lines whose group has no frames (without --strict those are a note). Exit 1 on any
-      failure.
+      .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and
+      @anim/@still lines whose group has no frames (without --strict those are a note). Exit
+      1 on any failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
