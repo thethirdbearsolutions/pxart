@@ -2,7 +2,8 @@
 # Regenerate every output under examples/ from the .px sources, with pxart commands.
 #
 #   examples/build.sh           rebuild in place
-#   examples/build.sh DEST      write the whole tree (sources + outputs) to DEST instead
+#   examples/build.sh DEST      write every example's sources and outputs to DEST instead
+#                               (not the READMEs or this script)
 #
 # Each example copies only its sources into a scratch directory and runs there, so an
 # output left over from an earlier build never feeds a later command.
@@ -53,11 +54,11 @@ pxart render lamp.px -o lamp.preview.png --png
 # ---------------------------------------------------------------------------------------
 # 02-animation: @anim / @frame timing and pivots; anim's GIF, strip and readout; onion.
 stage 02-animation hero.px hero-palette.px
-pxart sheet hero.px --rows group --align pivot --scale 4 -o sheet.png
+pxart sheet hero.px --fit --rows group --align pivot --scale 4 -o sheet.png
 pxart anim hero.px:walk/down -o walk.gif --scale 6 > /dev/null
-pxart anim hero.px:idle/down -o idle.gif --scale 6 > /dev/null
+pxart anim hero.px:idle/right -o idle.gif --scale 4 > /dev/null
 txt anim-walk.txt anim hero.px:walk/down
-txt anim-idle.txt anim hero.px:idle/down
+txt anim-idle.txt anim hero.px:idle/right
 txt onion.txt onion hero.px:walk/down/0 hero.px:walk/down/1 -o onion.png
 txt onion-feet.txt onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o onion-feet.png
 
@@ -68,16 +69,18 @@ mkdir derived
 cp palette.px coast.px derived/
 txt derive.txt palette derived/palette.px --variant dusk --derive-from base \
   --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+txt add.txt palette derived/palette.px --variant dusk --add w=#f2c6a8
 txt palette.txt palette derived/palette.px
-panel() {  # panel VARIANT SKY: the coast in one variant, at 1x
-  local v=$1 f=derived/coast.px
-  pxart scene --size 48x64 --scale 1 --bg "$2" -o "$v.png" \
-    "$f:sand%$v@0,48" "$f:sand%$v@16,48" "$f:sand%$v@32,48" \
-    "$f:lighthouse%$v@2,6" "$f:keeper%$v@16,26"
-}
-panel base '#8ccfd6'
-panel dusk '#e0936a'
-panel night '#5a86b0'
+# one 48x64 panel per variant; the sky is each panel's --bg, not part of the palette
+F=derived/coast.px
+pxart scene --size 48x64 --scale 1 --bg '#8ccfd6' -o base.png \
+  "${F}:sand@0,48" "${F}:sand@16,48" "${F}:sand@32,48" "${F}:lighthouse@2,6" "${F}:keeper@16,26"
+pxart scene --size 48x64 --scale 1 --bg '#e0936a' -o dusk.png \
+  "${F}:sand%dusk@0,48" "${F}:sand%dusk@16,48" "${F}:sand%dusk@32,48" \
+  "${F}:lighthouse%dusk@2,6" "${F}:keeper%dusk@16,26"
+pxart scene --size 48x64 --scale 1 --bg '#5a86b0' -o night.png \
+  "${F}:sand%night@0,48" "${F}:sand%night@16,48" "${F}:sand%night@32,48" \
+  "${F}:lighthouse%night@2,6" "${F}:keeper%night@16,26"
 pxart scene --size 152x64 --scale 1 -o panels.png base.png@0,0 dusk.png@52,0 night.png@104,0
 pxart scene --size 152x64 --scale 4 -o panels.x4.png base.png@0,0 dusk.png@52,0 night.png@104,0
 
@@ -106,10 +109,10 @@ stage 05-compose harbor-market/harbor.px harbor-market/palette.px \
   lighthouse-keeper/keeper.px lighthouse-keeper/palette.px wick/player.px wick/pal.px
 H=harbor-market/harbor.px
 layers=(
-  $H:water/0@0,0 $H:water/0@16,0 $H:water/0@32,0 $H:water/0@48,0 $H:water/0@64,0
-  $H:cobble/a@0,16 $H:cobble/b@16,16 $H:cobble/c@32,16 $H:cobble/a@48,16 $H:cobble/b@64,16
-  $H:cobble/c@0,32 $H:cobble/a@16,32 $H:cobble/b@32,32 $H:cobble/c@48,32 $H:cobble/a@64,32
-  $H:stall@2,6 $H:lamp@36,8
+  ${H}:water/0@0,0 ${H}:water/0@16,0 ${H}:water/0@32,0 ${H}:water/0@48,0 ${H}:water/0@64,0
+  ${H}:cobble/a@0,16 ${H}:cobble/b@16,16 ${H}:cobble/c@32,16 ${H}:cobble/a@48,16 ${H}:cobble/b@64,16
+  ${H}:cobble/c@0,32 ${H}:cobble/a@16,32 ${H}:cobble/b@32,32 ${H}:cobble/c@48,32 ${H}:cobble/a@64,32
+  ${H}:stall@2,6 ${H}:lamp@36,8
   lighthouse-keeper/keeper.px:idle/down/0@42,14 wick/player.px:idle/0@62,28
 )
 txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}"
@@ -136,7 +139,7 @@ pxart scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png 
 stage 07-import beetle.px beetle_pal.px
 items=()
 for i in 0 1 2 3; do
-  items+=(beetle.px:walk/right/$i@$((16 * i)),0 beetle.px:walk_cave/right/$i@$((16 * i)),16)
+  items+=(beetle.px:walk/right/${i}@$((16 * i)),0 beetle.px:walk_cave/right/${i}@$((16 * i)),16)
 done
 pxart scene --size 64x32 --scale 1 --bg transparent -o sheet.png "${items[@]}"
 pxart scene --size 64x32 --scale 8 -o sheet.x8.png sheet.png@0,0
@@ -155,6 +158,7 @@ txt export-tiled.txt export harbor.px --tiled harbor.tsj
 txt export-frames.txt export alchemist.px --frames frames
 pxart scene --size 96x96 --scale 4 -o alchemist.x4.png alchemist.png@0,0
 pxart scene --size 48x32 --scale 8 -o harbor.x8.png harbor.png@0,0
+pxart sheet harbor.px --cols 6 --scale 6 -o harbor-tiles.png
 
 # ---------------------------------------------------------------------------------------
 # 09-check: check on a file with three mistakes and on its fixed version; stats.

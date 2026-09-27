@@ -1,23 +1,24 @@
 $ pxart palette derived/palette.px
 # Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline.
+# outline: plum-navy, not black
 . transparent built-in
 k #2a1f33     local
-w #f6f1e4     local
-s #f0c29a     local
-S #c98a6e     local
-y #f2c14e     local
-Y #c98a2e     local
-n #3d4f86     local
-N #252c52     local
-b #3a7ca5     local
-c #8ccfd6     local
-a #ecd49e     local
-A #c9a66b     local
-o #8b5a3c     local
-O #5a3829     local
-r #c4473a     local
-l #fff4b0     local
-g #ffc861     local
+w #f6f1e4     local  # whitewash, beard
+s #f0c29a     local  # skin
+S #c98a6e     local  # skin shadow
+y #f2c14e     local  # oilskin yellow
+Y #c98a2e     local  # oilskin shadow
+n #3d4f86     local  # trousers
+N #252c52     local  # trouser shadow, lamp-room roof
+b #3a7ca5     local  # sea
+c #8ccfd6     local  # sea foam; the shaded side of whitewash
+a #ecd49e     local  # sand
+A #c9a66b     local  # sand shadow
+o #8b5a3c     local  # wood
+O #5a3829     local  # dark wood; the shaded side of the red stripes
+r #c4473a     local  # red stripes, scarf
+l #fff4b0     local  # lamp light (stays lit at night)
+g #ffc861     local  # lamp glow (stays lit at night)
 variants: dusk, night
   dusk: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
   night: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing

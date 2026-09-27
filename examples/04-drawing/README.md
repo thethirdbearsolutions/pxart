@@ -6,7 +6,7 @@ block in the wood, `shade` re-lights it with a dark-to-light ramp, `line` and `r
 the iron bands, `flood` turns the connected iron gold, `ellipse` and `poly` make the lock
 and its gem, and `outline --lit` draws the outline, lighter on the lit edges.
 
-```
+```sh
 pxart new chest.px --size 24x20 --palette palette.px
 pxart rect chest.px b 2,9,20,10 --fill
 pxart poly chest.px b 3,9 5,3 18,3 20,9 --fill
@@ -29,4 +29,12 @@ The result, [`chest.px`](chest.px), and its 1x [`chest.png`](chest.png):
 ![chest](chest.preview.png) ![chest 1x](chest.png)
 
 Every command prints what it did ([`draw.txt`](draw.txt)):
-`painted 94 px`, `changed 100 px: 7->B, 57->h, 36->o`, `changed 66 px: 36->k, 30->B`.
+
+```text
+$ pxart poly chest.px b 3,9 5,3 18,3 20,9 --fill
+painted 94 px; wrote chest.px
+$ pxart shade chest.px --ramp Bhbo --keys b --light nw --strength 3
+changed 100 px: 7->B, 57->h, 36->o; wrote chest.px
+$ pxart outline chest.px --key k --lit B
+changed 66 px: 36->k, 30->B; wrote chest.px
+```

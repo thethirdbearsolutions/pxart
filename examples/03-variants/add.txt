@@ -1,0 +1,2 @@
+$ pxart palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
+@variant dusk; sets w #f2c6a8; wrote derived/palette.px

@@ -5,11 +5,16 @@ committed. [`build.sh`](build.sh) regenerates every output from the sources, and
 `tests/test_examples.py` rebuilds them and checks each is byte-identical, so these can't
 drift from the tool.
 
+To run an example's commands yourself, copy its folder somewhere, `cd` into the copy, and
+make `pxart` a command (`pip install git+https://github.com/thethirdbearsolutions/pxart`, or
+`alias pxart='python3 /path/to/pxart.py'`). Running them in the folder here overwrites the
+committed outputs.
+
 | | Feature | Shows |
 |---|---|---|
 | <img src="01-format/barrel.preview.png" width="96"> | [01 · Format basics](01-format) | palette keys, a grid, `@palette` import; `render` |
-| <img src="02-animation/walk.gif" width="160"> | [02 · Animation](02-animation) | `@anim`/`@frame`, ms, pivots; `anim` GIF, strip and readout; `onion --feet` |
-| <img src="03-variants/panels.x4.png" width="200"> | [03 · Palette variants](03-variants) | `@variant`, `%VARIANT`, `palette --derive-from --keep-lit`, the palette listing |
+| <img src="02-animation/walk.gif" width="160"> | [02 · Animation](02-animation) | `@anim`/`@frame`, ms, pivots; `anim` GIF, strip and readout (a walk's shift, an idle's rows still); `onion --feet` |
+| <img src="03-variants/panels.x4.png" width="200"> | [03 · Palette variants](03-variants) | `@variant`, `%VARIANT`, `palette --derive-from --keep-lit`, `--add`, `--comment`, the palette listing |
 | <img src="04-drawing/chest.preview.png" width="96"> | [04 · Drawing tools](04-drawing) | `rect` `poly` `shade` `line` `flood` `ellipse` `outline`, one step at a time |
 | <img src="05-compose/dock-dusk.x4.png" width="200"> | [05 · Compose across packs](05-compose) | `compose --rekey --variant-map`, and the `E_KEY_CONFLICT` it starts from |
 | <img src="06-scene/glade-dusk.x2.png" width="200"> | [06 · Scenes and maps](06-scene) | a layered `.map`, `scene --map`, base and `--variant dusk` |
@@ -19,7 +24,7 @@ drift from the tool.
 
 Rebuild after changing a source (or pxart itself), then commit what changed:
 
-```
+```sh
 examples/build.sh                 # in place
 examples/build.sh /tmp/ex         # or into another directory
 PYTHON=.venv/bin/python examples/build.sh

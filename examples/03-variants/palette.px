@@ -1,20 +1,38 @@
 # Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline.
+
+# outline: plum-navy, not black
 k #2a1f33
+# whitewash, beard
 w #f6f1e4
+# skin
 s #f0c29a
+# skin shadow
 S #c98a6e
+# oilskin yellow
 y #f2c14e
+# oilskin shadow
 Y #c98a2e
+# trousers
 n #3d4f86
+# trouser shadow, lamp-room roof
 N #252c52
+# sea
 b #3a7ca5
+# sea foam; the shaded side of whitewash
 c #8ccfd6
+# sand
 a #ecd49e
+# sand shadow
 A #c9a66b
+# wood
 o #8b5a3c
+# dark wood; the shaded side of the red stripes
 O #5a3829
+# red stripes, scarf
 r #c4473a
+# lamp light (stays lit at night)
 l #fff4b0
+# lamp glow (stays lit at night)
 g #ffc861
 
 # night: cool moonlight; lamp colors (l, g) stay lit

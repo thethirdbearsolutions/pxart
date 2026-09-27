@@ -7,11 +7,13 @@ round trip lossless: it compares two renders pixel by pixel and exits 1 when any
 differs. The sheet here is laid out from [`beetle.px`](beetle.px) with `scene`, so the
 whole round trip can be rebuilt.
 
-```
-# the sheet: walk/right on row 0, walk_cave/right on row 1
-pxart scene --size 64x32 --scale 1 --bg transparent -o sheet.png \
-  beetle.px:walk/right/0@0,0 beetle.px:walk_cave/right/0@0,16 \
-  beetle.px:walk/right/1@16,0 beetle.px:walk_cave/right/1@16,16 ...
+```sh
+# the sheet: walk/right on row 0, walk_cave/right on row 1, one 16x16 cell per frame
+items=()
+for i in 0 1 2 3; do
+  items+=(beetle.px:walk/right/${i}@$((16 * i)),0 beetle.px:walk_cave/right/${i}@$((16 * i)),16)
+done
+pxart scene --size 64x32 --scale 1 --bg transparent -o sheet.png "${items[@]}"
 
 pxart from-png sheet.png --grid 16x16 --names walk/right,walk_cave/right \
   --palette beetle_pal.px -o imported.px
@@ -27,18 +29,20 @@ What came back, [`imported.px`](imported.px):
 
 ![imported frames](imported.png)
 
-```
+```text
 $ pxart from-png sheet.png --grid 16x16 --names walk/right,walk_cave/right --palette beetle_pal.px -o imported.px
 wrote imported.px (8 frame(s): walk/right 4, walk_cave/right 4)
 $ pxart diff beetle.px:walk/right imported.px:walk/right
-4 frame(s): 4 same
-$ pxart diff beetle.px:walk_cave/right imported.px:walk_cave/right
+walk/right/0: same: 16x16, every pixel
+walk/right/1: same: 16x16, every pixel
+walk/right/2: same: 16x16, every pixel
+walk/right/3: same: 16x16, every pixel
 4 frame(s): 4 same
 ```
 
 And the check bites when frames do differ ([`diff-mismatch.txt`](diff-mismatch.txt)):
 
-```
+```text
 $ pxart diff beetle.px:walk/right imported.px:walk_cave/right
 walk/right/0 vs walk_cave/right/0: 57 px differ in 1,3,12,7 (x,y,w,h)
 ...
