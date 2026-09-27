@@ -4583,9 +4583,8 @@ def test_rotate_help_has_the_shared_turn_paragraph(capsys):
 
 def test_reference_sections_end_at_the_next_command():
     assert "flood FILE" not in pxart.reference("arc") and "rect FILE" not in pxart.reference("line")
-    assert pxart.reference("stats").splitlines() == [
-        "  stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and",
-        "                                    palette files as for sheet)"]
+    assert pxart.reference("stats").splitlines()[0] == "  stats FILE|DIR... [--exclude GLOB]"
+    assert "CHECKING" not in pxart.reference("check") and "frames FILE" not in pxart.reference("stats")
     assert "ERROR CODES" not in pxart.reference("from-png")
     assert "Centering:" not in pxart.reference("tint")
 
@@ -16499,6 +16498,10 @@ def help_fixtures(d):
         Image.new("RGBA", (16, 16), color).save(d / folder / "tile_0002.png")
     (d / "dungeon" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,wall-stone-top,cap\n")
     (d / "creatures" / "labels.csv").write_text("filename,proposed_name,notes\ntile_0002.png,skeleton,\n")
+    (d / "game" / "wip").mkdir(parents=True)
+    (d / "game" / "room.px").write_text("pxart 1\nk #1a1423\n@frame room\nkk\n")
+    (d / "game" / "tiles.px").write_text("pxart 1\nk #1a1423\n@frame floor\nk\n")
+    (d / "game" / "wip" / "broken.px").write_text("pxart 1\nk #1a1423\n@frame x\nkq\n")
 
 
 def test_help_examples_are_found():
@@ -19727,3 +19730,178 @@ def test_derive_add_alone_prints_no_hold(tmp_path, capsys):
     p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
     assert run("palette", p, "--variant", "night", "--add", "w=#101010") == 0
     assert "held" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- loop R: --exclude GLOB for directories
+# 'sheet game/' took room.px (a 160x128 room) into the set's sheet; there was no way to leave one file out.
+
+def excl_tree(tmp_path):
+    g = tmp_path / "game"
+    (g / "wip" / "old").mkdir(parents=True)
+    (g / "props").mkdir()
+    write(g, "tiles.px", "pxart 1\nk #101010\n@frame floor\nk\n")
+    write(g, "room.px", "pxart 1\nk #101010\n@frame room\nkk\nkk\n")
+    write(g, "_scratch.px", "pxart 1\nk #101010\n@frame s\nk\n")
+    write(g / "props", "lamp.px", "pxart 1\nk #101010\n@frame lamp\nk\n")
+    write(g / "props", "_draft.px", "pxart 1\nk #101010\n@frame d\nk\n")
+    write(g / "wip", "broken.px", "pxart 1\nk #101010\n@frame x\nkq\n")
+    write(g / "wip" / "old", "older.px", "pxart 1\nk #101010\n@frame y\nk\n")
+    write(g, "pal.px", "k #101010\n")
+    (g / "town.map").write_text("t tiles.px:floor\n\ntt\n")
+    return g
+
+
+def found(g, *globs, exts=(".px",)):
+    return [pathlib.Path(p).relative_to(g).as_posix() for p in pxart.in_dirs([str(g)], exts, globs)]
+
+
+def test_in_dirs_exclude_by_name(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "room.px")
+    assert "room.px" not in got and "tiles.px" in got and "props/lamp.px" in got
+
+
+def test_in_dirs_exclude_by_name_glob_anywhere(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "_*.px")
+    assert "_scratch.px" not in got and "props/_draft.px" not in got and "props/lamp.px" in got
+
+
+def test_in_dirs_exclude_a_directory(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "wip")
+    assert not any(p.startswith("wip/") for p in got) and "tiles.px" in got
+
+
+def test_in_dirs_exclude_a_nested_directory(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "wip/old")
+    assert "wip/old/older.px" not in got and "wip/broken.px" in got
+
+
+def test_in_dirs_exclude_a_path_glob(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "props/*.px")
+    assert not any(p.startswith("props/") for p in got) and "_scratch.px" in got
+
+
+def test_in_dirs_exclude_repeats(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "wip", "room.px", "_*")
+    assert got == ["pal.px", "props/lamp.px", "tiles.px"]
+
+
+def test_in_dirs_exclude_is_case_sensitive(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert "room.px" in found(g, "ROOM.px")
+    assert "note: --exclude ROOM.px matches no file" in capsys.readouterr().out
+
+
+def test_in_dirs_exclude_no_match_notes(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    all_ = found(g)
+    capsys.readouterr()
+    assert found(g, "nope*") == all_
+    assert capsys.readouterr().out == "note: --exclude nope* matches no file\n"
+
+
+def test_in_dirs_exclude_everything_is_e_file(tmp_path):
+    g = excl_tree(tmp_path)
+    with pytest.raises(pxart.PxError) as e:
+        pxart.in_dirs([str(g)], (".px",), ["*"])
+    assert codes(e) == ["E_FILE"] and "leaves out every file" in e.value.issues[0].msg
+
+
+def test_in_dirs_exclude_applies_to_named_files(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = pxart.in_dirs([str(g / "room.px"), str(g / "tiles.px")], (".px",), ["room.px"])
+    assert got == [str(g / "tiles.px")]
+
+
+def test_in_dirs_exclude_named_file_with_a_selector(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = pxart.in_dirs([f"{g / 'room.px'}:room", str(g / "tiles.px")], (".px",), ["room.px"])
+    assert got == [str(g / "tiles.px")]
+
+
+def test_in_dirs_without_exclude_unchanged(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert found(g) == ["_scratch.px", "pal.px", "props/_draft.px", "props/lamp.px", "room.px", "tiles.px",
+                        "wip/broken.px", "wip/old/older.px"]
+    assert capsys.readouterr().out == ""
+
+
+def test_in_dirs_exclude_maps_too(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    got = found(g, "*.map", exts=(".px", ".map"))
+    assert "town.map" not in got and "tiles.px" in got
+
+
+def test_sheet_exclude(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    out = tmp_path / "s.png"
+    assert run("sheet", g, "--exclude", "wip", "--exclude", "room.px", "-o", out) == 0
+    assert out.exists()
+    printed = capsys.readouterr().out
+    assert "room" not in printed.replace(str(tmp_path), "")
+
+
+def test_sheet_exclude_keeps_the_rest_in_the_sheet(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", g, "--exclude", "wip", "--exclude", "room.px", "-o", a) == 0
+    kept = [str(g / p) for p in ("_scratch.px", "props/_draft.px", "props/lamp.px", "tiles.px")]
+    assert run("sheet", *kept, "-o", b) == 0
+    assert Image.open(a).tobytes() == Image.open(b).tobytes()
+
+
+def test_sheet_without_exclude_fails_on_the_broken_file(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert "E_UNKNOWN_KEY" in run_err("sheet", g, "-o", tmp_path / "s.png")
+
+
+def test_check_exclude(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert run("check", g) == 1
+    capsys.readouterr()
+    assert run("check", g, "--exclude", "wip") == 0
+    out = capsys.readouterr().out
+    assert "broken.px" not in out and "older.px" not in out and "ok   " in out and "town.map" in out
+
+
+def test_check_exclude_counts_only_what_it_checked(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert run("check", g, "--exclude", "wip", "--exclude", "*.map", "--exclude", "_*") == 0
+    assert capsys.readouterr().out.splitlines()[-1].startswith("4 files, ")
+
+
+def test_check_exclude_no_match_note(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    run("check", g, "--exclude", "wip", "--exclude", "zzz")
+    assert "note: --exclude zzz matches no file" in capsys.readouterr().out
+
+
+def test_stats_exclude(tmp_path, capsys):
+    g = excl_tree(tmp_path)
+    assert run("stats", g, "--exclude", "wip", "--exclude", "room.px") == 0
+    out = capsys.readouterr().out
+    assert "room.px" not in out and "broken" not in out and "tiles.px:floor" in out
+
+
+def test_stats_exclude_everything_is_e_file(tmp_path):
+    g = excl_tree(tmp_path)
+    assert "E_FILE" in run_err("stats", g, "--exclude", "*")
+
+
+def test_exclude_help_in_each_command(capsys):
+    for cmd in ("check", "sheet", "stats"):
+        assert run(cmd, "-h") == 0
+        assert "--exclude GLOB" in capsys.readouterr().out, cmd
+
+
+def test_help_documents_exclude():
+    text = " ".join(pxart.__doc__.split())
+    assert "--exclude GLOB (repeatable) leaves files out: one whose name or path under the directory matches " \
+        "('_*.px', 'wip/*.px'), or every file under a directory that does ('wip')" in text
+    assert "--exclude GLOB leaves files out, as for sheet" in text
+    assert "stats FILE|DIR... [--exclude GLOB]" in text

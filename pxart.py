@@ -56,10 +56,14 @@ LOOKING
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-        [--fit] [--align bottom|pivot] [--rows cols|group]
+        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
-      PNGs in it are left out, a sheet rendered there too). A palette file (no frames) among
+      PNGs in it are left out, a sheet rendered there too). --exclude GLOB (repeatable) leaves
+      files out: one whose name or path under the directory matches ('_*.px', 'wip/*.px'), or
+      every file under a directory that does ('wip'): 'sheet game/ --exclude wip --exclude
+      room.px -o set.png'. A glob that matches nothing gets a note; one that leaves out every
+      file is E_FILE. It works the same in check and stats, and on files named directly. A palette file (no frames) among
       the inputs, a directory's or a glob's, is skipped with a note ('note: sheet skips
       palette.px: a palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is
       the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
@@ -206,7 +210,7 @@ LOOKING
   --tint, tint, palette --add k=transparent; the '#' may be left off).
 
 CHECKING
-  check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v]
+  check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
       Every format error with a code and location, then size / off-palette colors /
       color budget / unused keys. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
       3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames
@@ -218,13 +222,15 @@ CHECKING
       is checked as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a
       .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and
       @anim/@still lines whose group has no frames (without --strict those are a note). Exit
-      1 on any failure.
+      1 on any failure. --exclude GLOB leaves files out, as for sheet: 'check game/ --exclude
+      wip'.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
-  stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and
-                                    palette files as for sheet)
+  stats FILE|DIR... [--exclude GLOB]
+      Size, bbox, color count, colors per frame (a directory, palette files and --exclude as
+      for sheet).
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -758,7 +764,7 @@ ERROR CODES
   about to make (a grid renamed, keys rekeyed), and nothing was written.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, csv, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+import argparse, contextlib, csv, fnmatch, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
@@ -1410,19 +1416,34 @@ def all_items(args, variant=None):
     return out
 
 
-def in_dirs(args, exts=(".px",)):
+def in_dirs(args, exts=(".px",), exclude=()):
     """check/sheet/stats FILE...: a directory stands for every file under it with one of exts, recursively, sorted by
-    path. A directory with none is E_FILE."""
-    out = []
+    path. A directory with none is E_FILE. exclude (--exclude GLOB, repeatable) leaves out a file whose name, or path
+    under its directory (or as given), matches a glob, and everything under a directory of the tree that matches one;
+    a glob that leaves nothing out gets a note, and one that leaves out every file is E_FILE."""
+    out, hit = [], set()
+
+    def excluded(rel):
+        parts = pathlib.PurePosixPath(rel).parts
+        heads = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]  # 'wip', 'wip/old', 'wip/old/a.px'
+        got = [g for g in exclude if fnmatch.fnmatchcase(parts[-1], g) or any(fnmatch.fnmatchcase(h, g) for h in heads)]
+        hit.update(got)
+        return bool(got)
     for arg in args:
         if not os.path.isdir(arg):
-            out.append(arg)
+            if not excluded(split_sel(arg)[0].replace(os.sep, "/")):
+                out.append(arg)
             continue
         found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.suffix in exts and p.is_file()),
                        key=lambda p: p.parts)
         if not found:
             fail("E_FILE", f"{arg} is a directory with no {' or '.join('*' + e for e in exts)} files under it")
-        out += [str(p) for p in found]
+        out += [str(p) for p in found if not excluded(p.relative_to(arg).as_posix())]
+    if exclude and not out:
+        fail("E_FILE", f"--exclude {' --exclude '.join(exclude)} leaves out every file")
+    for g in exclude:
+        if g not in hit:
+            print(f"note: --exclude {g} matches no file")
     return out
 
 
@@ -2256,7 +2277,7 @@ def cmd_render(a):
 
 def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
-    files = frames_only(in_dirs(a.files), "sheet")
+    files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit,
                          align=a.align, rows=a.rows))
 
@@ -2697,7 +2718,7 @@ def cmd_check(a):
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
-    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map"))):
+    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map"), a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
         bad_before = failed
@@ -2814,7 +2835,7 @@ def cmd_check(a):
 
 
 def cmd_stats(a):
-    for n, arg in enumerate(frames_only(in_dirs(a.files), "stats"), 1):
+    for n, arg in enumerate(frames_only(in_dirs(a.files, exclude=a.exclude or ()), "stats"), 1):
         with reading(f"file {n} ({arg})"):
             its = items(arg)
         for it in its:
@@ -6310,6 +6331,9 @@ def parser(describe=True):
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
     p.add_argument("--rows", choices=["cols", "group"], default="cols",
                    help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
+                        "(repeatable)")
     p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)
@@ -6332,7 +6356,13 @@ def parser(describe=True):
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true", help="a line per frame, not per file")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
+                        "(repeatable)")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
+    p.add_argument("--exclude", action="append", metavar="GLOB",
+                   help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
+                        "(repeatable)")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")

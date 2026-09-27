@@ -117,7 +117,8 @@ the shared notes of the reference it relies on (EDITING, FORMAT: selecting frame
 rather than repeating them.
 
 - **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
-  path, and palette files are skipped with a note; frames with one id from several files
+  path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
+  or a folder `wip`, in `check` and `stats` too; frames with one id from several files
   are labeled `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or
   with `--fit` each frame's own, rows as tall as their tallest; `--align pivot` lines up
   each animation's frames by pivot, as `anim` does; `--rows group` puts each animation group
