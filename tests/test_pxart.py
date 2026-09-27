@@ -16159,3 +16159,159 @@ def test_cmd_help_rekey_keys(capsys):
 def test_readme_documents_rekey_keys():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and q" in readme
+
+
+# ---------------------------------------------------------------- palette --remove KEYS [--to KEY]
+
+RM = ("pxart 1\n@palette pal.px\n# the outline\nk #000000\nj #000000\n. transparent\nn #123456\nz #ffffff\n"
+      "@variant night\nk #000011\n# lit\nz #ffffff\n\n@frame a\nkj\nz.\n@frame b\njj\n..\n")
+RM_PAL = "p #445566\nk #999999\n@variant night\np #112233\n"
+
+
+def rm_file(tmp_path, text=RM):
+    write(tmp_path, "pal.px", RM_PAL)
+    return write(tmp_path, "s.px", text)
+
+
+def test_remove_unused_key(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    assert run("palette", s, "--remove", "n") == 0
+    assert capsys.readouterr().out == f"removed n; wrote {s}\n"
+    assert s.read_text() == RM.replace("n #123456\n", "")
+
+
+def test_remove_key_with_variant_line_and_comments(tmp_path, capsys):
+    s = rm_file(tmp_path, RM.replace("kj\n", "nj\n").replace("z.\n", "n.\n"))
+    assert run("palette", s, "--remove", "z") == 0
+    assert capsys.readouterr().out == f"removed z (and its line in @variant night); wrote {s}\n"
+    text = s.read_text()
+    assert "z #" not in text and "# lit" not in text and "@variant night\nk #000011\n" in text
+
+
+def test_remove_used_key_is_an_error(tmp_path):
+    s = rm_file(tmp_path)
+    before = s.read_text()
+    msg = run_err("palette", s, "--remove", "j")
+    assert "E_SELECT" in msg and "frames still draw with j (j: 3 px in a, b)" in msg
+    assert f"pxart palette {s} --remove j --to K" in msg and s.read_text() == before
+
+
+def test_remove_used_key_to_another(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    assert run("palette", s, "--remove", "j", "--to", "k") == 0
+    assert capsys.readouterr().out == f"repainted 3 px of j as k; removed j; wrote {s}\n"
+    doc = pxart.parse(s)
+    assert "j" not in doc.palette and doc.get("a").grid == ["kk", "z."] and doc.get("b").grid == ["kk", ".."]
+
+
+def test_remove_to_renders_the_same_when_colors_match(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    before = pxart.parse(s)
+    imgs = [list(pxart.pixels(before.image(f))) for f in before.frames]
+    run("palette", s, "--remove", "j", "--to", "k")
+    after = pxart.parse(s)
+    assert [list(pxart.pixels(after.image(f))) for f in after.frames] == imgs
+
+
+def test_remove_several_keys(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    assert run("palette", s, "--remove", "j,n", "--to", "k") == 0
+    doc = pxart.parse(s)
+    assert "j" not in doc.palette and "n" not in doc.palette
+    assert capsys.readouterr().out == f"repainted 3 px of j as k; removed j, n; wrote {s}\n"
+
+
+def test_remove_several_keys_compact_form(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    assert run("palette", s, "--remove", "jn", "--to", "k") == 0
+    assert "n" not in pxart.parse(s).palette
+
+
+def test_remove_keeps_the_dot_line_in_place(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    run("palette", s, "--remove", "j", "--to", "k")
+    assert "k #000000\n. transparent\nn #123456\n" in s.read_text()
+
+
+def test_remove_imported_key(tmp_path):
+    s = rm_file(tmp_path)
+    msg = run_err("palette", s, "--remove", "p")
+    assert "E_SELECT" in msg and "it comes from pal.px; remove it there" in msg and "--remove p" in msg
+
+
+def test_remove_local_override_gets_the_imported_color(tmp_path, capsys):
+    s = rm_file(tmp_path, RM.replace("kj\n", "jj\n"))
+    assert run("palette", s, "--remove", "k") == 0
+    assert "k now has the imported color (k #999999)" in capsys.readouterr().out
+    assert pxart.parse(s).resolved()["k"] == pxart.hex2rgba("#999999")
+
+
+def test_remove_missing_key(tmp_path):
+    s = rm_file(tmp_path)
+    assert f"{s} has no key 'q'" in run_err("palette", s, "--remove", "q")
+
+
+def test_remove_dot(tmp_path):
+    s = rm_file(tmp_path)
+    assert "E_BAD_ARG" in run_err("palette", s, "--remove", ".")
+
+
+def test_remove_to_bad(tmp_path):
+    s = rm_file(tmp_path)
+    assert "not a key of" in run_err("palette", s, "--remove", "j", "--to", "Q")
+    assert "it is being removed" in run_err("palette", s, "--remove", "j,k", "--to", "k")
+    assert "'.' erases" in run_err("palette", s, "--remove", "j", "--to", ".")
+
+
+def test_remove_to_imported_key(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    assert run("palette", s, "--remove", "j", "--to", "p") == 0
+    assert pxart.parse(s).get("b").grid == ["pp", ".."]
+
+
+def test_to_needs_remove(tmp_path):
+    s = rm_file(tmp_path)
+    msg = run_err("palette", s, "--to", "k")
+    assert "E_BAD_ARG" in msg and "--to k goes with --remove KEYS" in msg
+
+
+@pytest.mark.parametrize("more", [["--add", "q=#010101"], ["--hoist", "n"], ["--variant", "night", "--keep", "k"],
+                                  ["--comment", "n", "x"], ["--comment-header", ""], ["--export", "x.gpl"]])
+def test_remove_alone(tmp_path, more):
+    s = rm_file(tmp_path)
+    msg = run_err("palette", s, "--remove", "n", *more)
+    assert "E_BAD_ARG" in msg and "--remove takes keys out of FILE: give it alone" in msg
+
+
+def test_remove_from_a_palette_file(tmp_path, capsys):
+    rm_file(tmp_path)
+    p = tmp_path / "pal.px"
+    assert run("palette", p, "--remove", "p") == 0
+    out = capsys.readouterr().out
+    assert "removed p (and its line in @variant night)" in out
+    assert "sprites that import pal.px and draw with p no longer can (check them)" in out
+    assert pxart.parse(p, palette_only=True).variants == {"night": {}}
+
+
+def test_remove_twice_is_an_error_the_second_time(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    run("palette", s, "--remove", "n")
+    assert "has no key 'n'" in run_err("palette", s, "--remove", "n")
+
+
+def test_remove_file_still_parses_and_checks(tmp_path, capsys):
+    s = rm_file(tmp_path)
+    run("palette", s, "--remove", "j,n,z", "--to", "k")
+    doc = pxart.parse(s, strict=True)
+    assert set(doc.palette) == {"k"}
+
+
+def test_help_documents_remove():
+    text = " ".join(pxart.__doc__.split())
+    assert "[--remove KEYS [--to KEY]]" in text
+    assert "--remove k,n takes FILE's own keys out" in text and "'palette party.px --remove k,n --to j'" in text
+
+
+def test_readme_documents_remove():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--remove k,n` takes out keys no frame draws with (`--to j` repaints their pixels as j first)" in readme

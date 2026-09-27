@@ -201,7 +201,8 @@ rather than repeating them.
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
   from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g`
-  moves a sprite's own keys into the palette file it imports; `--comment k 'text'`,
+  moves a sprite's own keys into the palette file it imports; `--remove k,n` takes out keys
+  no frame draws with (`--to j` repaints their pixels as j first); `--comment k 'text'`,
   `--comment @variant night 'text'` and `--comment-header 'text'` write the comment above
   a key line, a variant or the file; `palette FILE` alone lists the keys, then what each
   variant recolors, relists in its base color and inherits: `night: recolors k w; relists

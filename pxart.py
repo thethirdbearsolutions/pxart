@@ -475,6 +475,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
           [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
           [--comment KEY|@variant NAME 'text' ...] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
+          [--remove KEYS [--to KEY]]
       No flags: lists the keys, their colors, where they come from and how often they're
       used, then each variant's keys: 'dusk: recolors o x X c C; inherits: e E q' (the keys it
       recolors, then the base keys it leaves alone, both in palette order). A key the variant
@@ -507,6 +508,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       two comment lines. Both repeat and go with --add in one call (the key added first):
       'palette pal.px --variant night --add k=#120e22 --comment @variant night "night:
       only lamps glow"'.
+      --remove k,n takes FILE's own keys out: their key lines, their lines in FILE's variants,
+      and the comments above those. A key a frame still draws with is E_SELECT (naming the
+      frames and how many px), unless --to j repaints those pixels as j first: 'palette
+      party.px --remove k,n --to j'. An imported key is removed in its palette file; removing
+      a key from a palette file can't see the sprites that import it, so check them after.
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4647,6 +4653,18 @@ def cmd_palette(a):
         fail("E_BAD_ARG", "--keep KEYS goes with --variant NAME (the variant they inherit the base colors in)"
              if a.keep else f"--variant {a.variant} goes with --add 'k=#rrggbb' (set k in it), --keep KEYS (let "
              "them inherit the base colors) or --comment KEY 'text' (the comment above k's line in it)")
+    if a.to is not None and not a.remove:
+        fail("E_BAD_ARG", f"--to {a.to} goes with --remove KEYS: their pixels become {a.to} before the keys go")
+    if a.remove:
+        given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
+                                ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
+                                ("--derive-from", a.derive_from)) if v] \
+            + (["--comment-header"] if a.comment_header is not None else [])
+        if given:
+            fail("E_BAD_ARG", f"--remove takes keys out of FILE: give it alone (or with --to KEY), not with "
+                 f"{', '.join(given)}")
+        print(remove_keys(doc, key_list(a.remove, "--remove"), a.to))
+        return
     if a.hoist and (a.add or a.variant or a.extract_to or notes or a.comment_header is not None):
         fail("E_BAD_ARG", "--hoist moves keys into the imported palette file: give it alone")
     if (notes or a.comment_header is not None) and (a.extract_to or a.export):
@@ -4891,6 +4909,66 @@ def set_comments(doc, notes, variant=None, header=None):
             doc.comments = new
             said.append("commented the header" if comment_lines(header) else "uncommented the header")
     return said
+
+
+def remove_keys(doc, keys, to=None):
+    """palette FILE --remove KEYS [--to KEY]: FILE's own key lines for KEYS go, with their lines in FILE's variants
+    (and the comments above them). A key a frame still draws with is E_SELECT, unless --to KEY repaints those pixels
+    as KEY first. What it did."""
+    pal = doc.resolved()
+    for k in keys:
+        if k == ".":
+            fail("E_BAD_ARG", "--remove '.': '.' is built in (always transparent), not a key line", path=doc.path)
+        if k not in doc.palette:
+            ref = doc.palette_refs[0] if len(doc.palette_refs) == 1 else "its palette file"
+            fail("E_SELECT", f"--remove {k!r}: " + (f"it comes from {ref}; remove it there: pxart palette "
+                                                   f"{doc.path.parent / ref if len(doc.palette_refs) == 1 else ref} "
+                                                   f"--remove {k}" if k in doc.shared else
+                                                   f"{doc.path} has no key {k!r}"), path=doc.path)
+    if to is not None and (to not in pal or to in keys or to == "."):
+        fail("E_SELECT", f"--to {to!r}: " + (f"it is being removed" if to in keys else
+                                              "'.' erases; repaint with fill or recolor first" if to == "." else
+                                              f"not a key of {doc.path}"), path=doc.path)
+    uses = {}
+    for f in doc.frames:
+        for k in keys:
+            n = sum(r.count(k) for r in f.grid)
+            if n:
+                uses.setdefault(k, []).append((doc.label(f), n))
+    if uses and to is None:
+        each = "; ".join(f"{k}: {sum(n for _, n in fs)} px in {listed(l for l, _ in fs)}" for k, fs in uses.items())
+        fail("E_SELECT", f"--remove {''.join(keys)}: frames still draw with {' '.join(uses)} ({each}); repaint them "
+             f"first, or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} --to K",
+             path=doc.path)
+    said = []
+    if uses:
+        moves = dict.fromkeys(keys, to)
+        for f in doc.frames:
+            f.grid = ["".join(moves.get(c, c) for c in r) for r in f.grid]
+        said.append("repainted " + ", ".join(f"{sum(n for _, n in fs)} px of {k}" for k, fs in uses.items())
+                    + f" as {to}")
+    order = list(doc.palette)
+    if doc.dot_at is not None:  # a '. transparent' line keeps its place among the keys that stay
+        doc.dot_at -= sum(1 for k in keys if order.index(k) < doc.dot_at)
+    lines = []
+    for k in keys:
+        del doc.palette[k]
+        for store in (doc.lead, doc.raw, doc.at):
+            store.pop(("key", k), None)
+        names = [n for n, over in doc.variants.items() if k in over]
+        for n in names:
+            del doc.variants[n][k]
+            for store in (doc.lead, doc.raw, doc.at):
+                store.pop(("vkey", n, k), None)
+        lines.append(k + (f" (and its line in @variant {', '.join(names)})" if names else ""))
+    said.insert(0 if not uses else 1, "removed " + ", ".join(lines))
+    back = [k for k in keys if k in doc.shared]
+    if back:
+        said.append(f"{' '.join(back)} now {'have' if len(back) > 1 else 'has'} the imported color"
+                    f"{'s' * (len(back) > 1)} ({', '.join(f'{k} {fmt_color(doc.shared[k])}' for k in back)})")
+    if not doc.frames:
+        said.append(f"sprites that import {doc.path.name} and draw with {' '.join(keys)} no longer can (check them)")
+    return "; ".join(said + [write_doc(doc)])
 
 
 def hoist(doc, keys):
@@ -5462,6 +5540,8 @@ def parser(describe=True):
     p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
     p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")
+    p.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
+    p.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
     p.add_argument("--derive-from", metavar="base|VARIANT",
                    help="with --variant NAME: set every key in NAME from its color here, --darken'ed and --tint'ed")
     p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
