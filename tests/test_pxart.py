@@ -4439,6 +4439,220 @@ def test_help_documents_still_flags():
     assert "new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: frames --copy-to
+
+CSRC = ("pxart 1\nk #000000\nw #ffffff\n\n@variant night\nw #888888\n\n@anim walk direction=pingpong ms=120 "
+        "pivot=0,1\n@still ui\n\n@frame walk/0\nkw\nk.\n@frame walk/1 ms=200\nwk\n.k\n@frame ui/a\nw\n@frame idle\nkk\n")
+CDST = "pxart 1\nk #000000\n\n@variant night\nk #000011\n\n@frame idle\nk\n@frame tail/0\nk\n"
+
+
+def ids(path):
+    return [f.id for f in pxart.parse(path).frames]
+
+
+def plays(path, fid):
+    """How a frame plays: its image (base palette), its duration and pivot. (DST's own variant colors win for keys
+    it had, so a variant render may differ: see test_frames_copy_adds_keys_and_their_variant_colors.)"""
+    doc = pxart.parse(path)
+    f = doc.get(fid)
+    return ({None: list(pxart.pixels(doc.image(f)))}, doc.ms(f), doc.pivot(f))
+
+
+def test_frames_copy_group_new_to_dst(tmp_path, capsys):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    assert capsys.readouterr().out == f"copied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n"
+    assert ids(d) == ["idle", "tail/0", "walk/0", "walk/1"]
+    doc = pxart.parse(d)
+    assert doc.anims["walk"] == {"direction": "pingpong", "repeat": None, "ms": 120, "pivot": (0, 1)}
+    assert doc.get("walk/0").ms is None and doc.get("walk/1").ms == 200  # the @anim came along: nothing to spell out
+    for fid in ("walk/0", "walk/1"):
+        assert plays(d, fid) == plays(s, fid)
+    assert s.read_text() == CSRC
+
+
+def test_frames_copy_keeps_timing_against_dst_anim(tmp_path, capsys):
+    # DST has its own @anim walk ms=90: copied frames spell out SRC's ms and pivot so they play as they did.
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", CDST.replace("\n@frame idle", "@anim walk ms=90\n\n@frame idle"))
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    doc = pxart.parse(d)
+    assert doc.anims["walk"] == {"repeat": None, "ms": 90}
+    assert (doc.get("walk/0").ms, doc.get("walk/0").pivot) == (120, (0, 1))
+    assert (doc.get("walk/1").ms, doc.get("walk/1").pivot) == (200, (0, 1))
+    for fid in ("walk/0", "walk/1"):
+        assert plays(d, fid) == plays(s, fid)
+    assert "note: " + f"{d}'s @anim walk stays (direction and repeat are the group's)" in capsys.readouterr().out
+
+
+def test_frames_copy_lands_after_its_group_in_dst(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", CDST.replace("@frame tail/0", "@frame walk/9\nk\n@frame tail/0"))
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    assert ids(d) == ["idle", "walk/9", "walk/0", "walk/1", "tail/0"]
+
+
+@pytest.mark.parametrize("flag, want", [
+    ("--after", ["idle", "walk/0", "walk/1", "tail/0"]),
+    ("--before", ["walk/0", "walk/1", "idle", "tail/0"]),
+])
+def test_frames_copy_after_before_a_dst_frame(tmp_path, capsys, flag, want):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert run("frames", f"{s}:walk", "--copy-to", d, flag, "idle") == 0
+    assert ids(d) == want
+    assert f"to {d} ({flag[2:]} idle)" in capsys.readouterr().out
+
+
+def test_frames_copy_by_ids_in_src_order(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST.replace("idle", "rest"))
+    assert run("frames", s, "--copy-to", d, "idle", "walk/1") == 0
+    assert ids(d) == ["rest", "tail/0", "walk/1", "idle"]  # walk/1 first: the order they have in SRC
+    assert plays(d, "walk/1") == plays(s, "walk/1") and plays(d, "idle")[0] == plays(s, "idle")[0]
+
+
+def test_frames_copy_ids_within_selection(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "walk/1") == 0
+    assert ids(d) == ["idle", "tail/0", "walk/1"]
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "ui/a")
+    assert "E_SELECT" in msg and "ui/a" in msg and "in 'walk'" in msg
+
+
+def test_frames_copy_whole_file(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", "pxart 1\nk #000000\n\n@frame x\nk\n")
+    assert run("frames", s, "--copy-to", d) == 0
+    assert ids(d) == ["x", "walk/0", "walk/1", "ui/a", "idle"]
+    assert pxart.parse(d).stills == ["ui"]
+
+
+def test_frames_copy_still_group(tmp_path, capsys):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert run("frames", f"{s}:ui", "--copy-to", d) == 0
+    assert pxart.parse(d).stills == ["ui"] and "added @still ui" in capsys.readouterr().out
+
+
+def test_frames_copy_adds_keys_and_their_variant_colors(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert run("frames", f"{s}:walk/0", "--copy-to", d) == 0
+    doc = pxart.parse(d)
+    assert doc.palette["w"] == (255, 255, 255, 255) and doc.variants["night"]["w"] == pxart.hex2rgba("#888888")
+    assert doc.variants["night"]["k"] == pxart.hex2rgba("#000011")  # DST's own variant color for k stays
+
+
+def test_frames_copy_key_conflict_names_all_with_fix(tmp_path):
+    import shlex
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", CDST.replace("k #000000\n", "k #000000\nw #eeeeee\n"))
+    before = d.read_text()
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d)
+    assert msg.startswith(f"frames: FILE ({s}:walk): E_KEY_CONFLICT: 1 key of SRC is another color in {d}: 'w' #ffffff "
+                          "(#eeeeee there)")
+    assert d.read_text() == before
+    assert run(*shlex.split(msg.split("again: pxart ", 1)[1])) == 0
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    assert plays(d, "walk/0")[0][None] == plays(s, "walk/0")[0][None]
+
+
+def test_frames_copy_transparent_key_conflicts_too(tmp_path):
+    s = write(tmp_path, "s.px", "k #000000\nz transparent\n@frame a\nkz\n")
+    d = write(tmp_path, "d.px", "k #000000\nz #ff0000\n@frame b\nk\n")
+    assert "E_KEY_CONFLICT" in run_err("frames", s, "--copy-to", d)
+
+
+def test_frames_copy_dup_ids(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    before = d.read_text()
+    msg = run_err("frames", s, "--copy-to", d)
+    assert "E_DUP_FRAME" in msg and f"already has idle" in msg and f"frames {d} --rm idle" in msg
+    assert d.read_text() == before
+
+
+def test_frames_copy_missing_dst_suggests_extract(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", tmp_path / "no.px")
+    assert "E_FILE" in msg and f"pxart extract {s}:walk -o {tmp_path / 'no.px'}" in msg
+    assert not (tmp_path / "no.px").exists()
+
+
+@pytest.mark.parametrize("extra, bit", [
+    (["--rm", "idle"], "give one"),
+    (["--move", "idle"], "give one"),
+    (["--after", "idle", "--before", "idle"], "not both"),
+])
+def test_frames_copy_bad_combinations(tmp_path, extra, bit):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, *extra)
+    assert "E_BAD_ARG" in msg and bit in msg and d.read_text() == CDST and s.read_text() == CSRC
+
+
+def test_frames_copy_anchor_not_in_dst(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--after", "walk/0")
+    assert "E_SELECT" in msg and f"no such frame in {d}" in msg
+
+
+def test_frames_copy_dst_selector_is_bad_arg(tmp_path):
+    s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
+    assert "E_BAD_ARG" in run_err("frames", f"{s}:walk", "--copy-to", f"{d}:x")
+
+
+def test_frames_copy_from_unnamed_grid_is_mixed_frames(tmp_path):
+    s = write(tmp_path, "s.px", "k #000000\nk\n")
+    d = write(tmp_path, "d.px", CDST)
+    assert "E_MIXED_FRAMES" in run_err("frames", s, "--copy-to", d)
+
+
+def test_frames_copy_into_unnamed_grid_names_it(tmp_path, capsys):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", "k #000000\nk\n")
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    assert ids(d) == ["d", "walk/0", "walk/1"] and "is now '@frame d'" in capsys.readouterr().out
+
+
+def test_frames_copy_into_palette_file(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", "k #000000\n")
+    assert run("frames", f"{s}:idle", "--copy-to", d) == 0
+    assert ids(d) == ["idle"] and plays(d, "idle")[0][None] == plays(s, "idle")[0][None]
+
+
+def test_frames_copy_dst_anim_pivot_note_when_src_has_none(tmp_path, capsys):
+    s = write(tmp_path, "s.px", "k #000000\n@frame walk/0\nk\n")
+    d = write(tmp_path, "d.px", "k #000000\n@anim walk pivot=0,0\n@frame walk/9\nk\n")
+    assert run("frames", s, "--copy-to", d) == 0
+    assert "note: walk/0 has no pivot in" in capsys.readouterr().out
+
+
+def test_frames_copy_puts_back_a_removed_frame_in_place(tmp_path):
+    # A frame removed by mistake: copy it back from a copy of the file, after its neighbor, timing and all.
+    s = write(tmp_path, "s.px", CSRC)
+    backup = write(tmp_path, "backup.px", CSRC)
+    assert run("frames", s, "--rm", "walk/1") == 0
+    assert run("frames", f"{backup}:walk/1", "--copy-to", s, "--after", "walk/0") == 0
+    assert s.read_text() == CSRC
+
+
+def test_frames_copy_into_the_same_file_is_dup(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    assert "E_DUP_FRAME" in run_err("frames", f"{s}:walk", "--copy-to", s)
+
+
+def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
+    (tmp_path / "d").mkdir()
+    write(tmp_path / "d", "pal.px", "k #000000\n")
+    d = write(tmp_path / "d", "d.px", "@palette pal.px\n@frame x\nk\n")
+    s = write(tmp_path, "s.px", CSRC)
+    assert run("frames", f"{s}:idle", "--copy-to", d) == 0
+    doc = pxart.parse(d)
+    assert doc.palette_refs == ["pal.px"] and ids(d) == ["x", "idle"]
+
+
+def test_help_documents_frames_copy_to():
+    doc = pxart.__doc__
+    assert "[--copy-to DST [ID...]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+
+
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
 
 MASKK = "W #ffffff\nT #00ff00\nt #008800\nk #000000\n@frame a\nWTtk\nkWTt\n@frame b\nkkkk\nWWWW\n"

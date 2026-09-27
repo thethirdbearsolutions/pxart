@@ -138,7 +138,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector,
   `frames hero.px:walk/left` lists those frames, `--rm` removes them and `--after ID` moves them;
-  removing a group's last frame removes its `@anim`/`@still` line).
+  removing a group's last frame removes its `@anim`/`@still` line; `frames hero.px:walk
+  --copy-to beast.px [--after ID]` copies frames into another file, in order, with their
+  ms, pivots and `@anim` line).
 - **Editing:** `new` (a blank or filled frame, in a new or existing file), `put`
   (`put hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with
   optional palette lines merged like `compose`'s; checked like a file, errors at stdin's

@@ -170,7 +170,7 @@ CHECKING
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
-  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
+  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--copy-to DST [ID...]]
       List frames, sizes, durations (only for animation frames; 'still' for @still groups and
       every frame under '@still *') and animations; or delete / reorder frames (prints what it removed or
       moved, not the listing; a move to where the frames already are prints "already in
@@ -179,6 +179,14 @@ CHECKING
       hero.px:walk/left --after idle/3' moves them there as a block, in order. --move ID
       takes a plain FILE and one frame id (a group moves with FILE:GROUP --after ID).
       Removing a group's last frame removes its @anim and @still lines too.
+      --copy-to DST copies FILE's frames (FILE:SEL's, or the ids after DST) into the existing
+      DST as they play in FILE: each frame's ms and pivot (on its @frame line when DST's @anim
+      would change them), the @anim line of a group DST lacks, and @still. They keep FILE's
+      order and land after their group's last frame in DST, at the end for a new group, or
+      at --after/--before a DST frame: 'frames hero.px:walk --copy-to beast.px --after idle/3'.
+      Their keys join DST's palette (in DST's variants too); a key DST has in another color
+      is E_KEY_CONFLICT, as for compose. A frame id DST already has is E_DUP_FRAME. To put
+      back a frame removed by mistake, copy it from a copy of the file, --after its neighbor.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -1429,13 +1437,13 @@ def edit_target(arg, out, label="FILE"):
     return doc, frames, out
 
 
-def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, whose=None, taken=None):
+def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, whose=None, taken=None, clear=False):
     """The keys src uses (non-transparent ones) that dst_doc has in other colors, as one E_KEY_CONFLICT Issue naming
     them all, both colors, and a fix that works: recolor 'k>K' gives src's keys free ones (no pixel changes color),
     then `redo` again. whose: key -> where dst's color came from; taken: keys the fix mustn't use (it adds the ones it
-    picks). None when there's no conflict."""
+    picks); clear: transparent keys count too (a whole grid is copied, not stamped). None when there's no conflict."""
     src_pal, have = src_doc.resolved(), dst_doc.resolved()
-    bad = [k for k in sorted(keys) if src_pal[k][3] and k in have and have[k] != src_pal[k]]
+    bad = [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
     if not bad:
         return None
     taken = set() if taken is None else taken
@@ -1935,6 +1943,13 @@ def cmd_frames(a):
     with reading(f"FILE ({a.file})"):
         doc = parse(path, allow_empty=True)
         picked = doc.select(sel) if sel else doc.frames
+    if a.copy_to:
+        if a.rm is not None or a.move:
+            fail("E_BAD_ARG", "--copy-to copies frames; --rm and --move edit FILE: give one")
+        if a.after and a.before:
+            fail("E_BAD_ARG", "give --after or --before, not both")
+        print(frames_copy(a, doc, sel, picked))
+        return
     if a.rm is not None or a.move or a.after or a.before:
         if doc.implicit:
             fail("E_MIXED_FRAMES", "this file has one unnamed grid; nothing to move or remove")
@@ -1959,6 +1974,81 @@ def cmd_frames(a):
                                    if x))
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
+
+
+def frames_copy(a, doc, sel, picked):
+    """frames SRC[:SEL] --copy-to DST [ID ...] [--after|--before ID]: copy frames into DST as they play in SRC: their
+    ids and grids, each frame's ms and pivot (written on its @frame line when DST's @anim would change them), the
+    @anim line of a group DST hasn't got, and @still. They land in SRC's order: at --after/--before a DST frame, else
+    after the last frame of their group in DST, or at the end. The keys they use join DST's palette."""
+    dpath, ids = a.copy_to[0], a.copy_to[1:]
+    if doc.implicit:
+        fail("E_MIXED_FRAMES", f"{doc.path} has one unnamed grid; name it first (frames need ids to copy): "
+             f"pxart put {doc.path}:{doc.stem} -o X.px, or compose -o DST:ID {doc.path}@0,0")
+    if split_sel(dpath)[1] is not None:
+        fail("E_BAD_ARG", f"--copy-to takes a file ({split_sel(dpath)[0]}): copied frames keep their ids")
+    if ids:
+        have = {f.id for f in picked}
+        missing = [i for i in ids if i not in have]
+        if missing:
+            fail("E_SELECT", f"--copy-to {', '.join(missing)}: no such frame" + (f" in {sel!r}" if sel else ""))
+        picked = [f for f in picked if f.id in ids]
+    if not pathlib.Path(dpath).exists():
+        fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames: pxart extract "
+             f"{doc.path}{':' + sel if sel else ''} -o {dpath}")
+    with reading(f"--copy-to ({dpath})"):
+        dst = parse(dpath, allow_empty=True)
+    if dst.implicit:
+        if not ID_RE.match(dst.stem):
+            fail("E_MIXED_FRAMES", f"{dpath} has one unnamed grid, and its name {dst.stem!r} can't be a frame id")
+        dst.promote()
+        print(f"note: {dpath}'s unnamed grid is now '@frame {dst.stem}' (the id it went by)")
+    dups = [f.id for f in picked if dst.get(f.id)]
+    if dups:
+        fail("E_DUP_FRAME", f"{dpath} already has {', '.join(dups)}; remove them first (pxart frames {dpath} --rm "
+             f"{' '.join(dups)}) or copy the others")
+    anchor = dst.get(a.after or a.before or "")
+    if (a.after or a.before) and not anchor:
+        fail("E_SELECT", f"--{'after' if a.after else 'before'} {a.after or a.before!r}: no such frame in {dpath}")
+    pal, keys = doc.resolved(), set("".join(r for f in picked for r in f.grid))
+    clash = key_conflicts(dst, doc, keys, "SRC", dpath, "frames --copy-to", clear=True)
+    if clash:
+        clash.ctx = f"FILE ({a.file})"
+        raise PxError(clash)
+    names = set(dst.variants) | set(dst.shared_variants)
+    for k in sorted(keys - set(dst.resolved())):
+        dst.palette[k] = pal[k]
+        for n in names & (set(doc.variants) | set(doc.shared_variants)):
+            if doc.resolved(n)[k] != pal[k]:
+                dst.variants.setdefault(n, {})[k] = doc.resolved(n)[k]
+    said = []
+    for g in dict.fromkeys(f.group for f in picked if f.group):
+        if g in doc.anims and g not in dst.anims:
+            dst.anims[g] = dict(doc.anims[g])
+            said.append(f"added @anim {g}")
+        elif g in doc.anims and any(doc.anims[g].get(k) != dst.anims[g].get(k) for k in ("direction", "repeat")):
+            print(f"note: {dpath}'s @anim {g} stays (direction and repeat are the group's)")
+        if doc.still(g) and not dst.still(g):
+            dst.stills.append(g)
+            said.append(f"added @still {g}")
+    at = dst.frames.index(anchor) + (1 if a.after else 0) if anchor else None
+    for f in picked:
+        new = Frame(f.id, list(f.grid), f.ms, pivot=f.pivot)
+        if at is not None:
+            dst.frames.insert(at, new)
+            at += 1
+        else:
+            same = [x for x in dst.frames if x.group == new.group] if new.group else []
+            dst.frames.insert(dst.frames.index(same[-1]) + 1 if same else len(dst.frames), new)
+        if dst.ms(new) != doc.ms(f):
+            new.ms = doc.ms(f)
+        if dst.pivot(new) != doc.pivot(f):
+            if doc.pivot(f) is None:
+                print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {f.group} pivot there")
+            else:
+                new.pivot = doc.pivot(f)
+    where = f" ({'after' if a.after else 'before'} {anchor.id})" if anchor else ""
+    return "; ".join([f"copied {', '.join(f.id for f in picked)} to {dpath}{where}"] + said + [write_doc(dst)])
 
 
 def drop_orphans(doc, emptied):
@@ -3485,6 +3575,7 @@ def main(argv=None):
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
+    p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
