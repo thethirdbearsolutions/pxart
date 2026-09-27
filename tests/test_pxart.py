@@ -11362,7 +11362,7 @@ def test_rekey_flags_on_the_commands():
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
     assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] "
-            "[--variant-map NAME=V1,V2] [--replace] "
+            "[--variant-map NAME=V1,V2] [--replace] [--dry-run] "
             "LAYER@x,y") in doc
     assert "--rekey: compose gives those keys the free ones in OUT as it goes, and a note says which" in doc
     assert "The layers' files are read, never written." in doc
@@ -18309,7 +18309,7 @@ def test_compose_plain_note_names_imports(tmp_path, capsys):
 
 def test_help_documents_compose_replace():
     text = " ".join(pxart.__doc__.split())
-    assert "[--variant-map NAME=V1,V2] [--replace] LAYER@x,y ..." in text
+    assert "[--variant-map NAME=V1,V2] [--replace] [--dry-run] LAYER@x,y ..." in text
     assert "A plain OUT that exists (no :frame) keeps its palette too, keys from an earlier run included, and a note " \
         "says so" in text
     assert "--replace starts it as if new: the layers' palettes, nothing of the old file (not with OUT:frame, whose " \
@@ -25956,6 +25956,8 @@ DRY_CMDS = {  # argv with {p} for the file; every one of them changes it
     "frames-rename": ["frames", "{p}", "--rename", "w", "v"],
     "anim-set": ["anim-set", "{p}:w", "ms=50"],
     "anim-set-still": ["anim-set", "{p}:w", "--still"],
+    "compose": ["compose", "-o", "{p}:w/2", "{p}:w/0@0,0"],
+    "compose-replace": ["compose", "-o", "{p}:w/1", "{p}:w/0@1,1"],
 }
 
 
@@ -26007,6 +26009,209 @@ def test_edit_dry_run_with_o_in_a_new_directory_makes_nothing(tmp_path, capsys):
     out = capsys.readouterr().out
     assert not (tmp_path / "sub").exists() and "created" not in out
     assert f"would write {tmp_path / 'sub' / 'x.px'}\n(dry run; nothing written)\n" in out
+
+
+# ---------------------------------------------------------------- compose --dry-run
+
+DRY_A = "# a's colors\nk #000000\nr #ff0000\n@variant night\nr #800000\n@frame a\nkr\nrk\n"
+DRY_B = "k #111111\ng #00ff00\n@frame b\n.g\ngk\n"  # k: another color than a.px's
+
+
+def dry_layers(tmp_path):
+    a, b = write(tmp_path, "a.px", DRY_A), write(tmp_path, "b.px", DRY_B)
+    return a, b, [f"{a}:a@0,0", f"{b}:b@2,0"]
+
+
+def files_under(d):
+    return {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in sorted(d.rglob("*")) if p.is_file()}
+
+
+def test_compose_dry_run_new_out_writes_nothing(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    before = files_under(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert not out.exists() and files_under(tmp_path) == before
+    assert printed.endswith(f"would write {out}\n(dry run; nothing written)\n")
+
+
+def test_compose_dry_run_into_a_new_directory_makes_nothing(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "rooms" / "deep" / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert not (tmp_path / "rooms").exists() and "created" not in printed
+    assert printed.endswith(f"would write {out}\n(dry run; nothing written)\n")
+
+
+def test_compose_dry_run_new_out_prints_every_line_it_would_write(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert f"--- /dev/null" in printed and f"+++ {out}" in printed
+    added = [l[1:] for l in printed if l.startswith("+") and not l.startswith("+++")]
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers) == 0
+    assert added == out.read_text().splitlines()  # the whole new file, header to last row
+
+
+def test_compose_dry_run_header_is_the_run_that_writes(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    header = [l for l in capsys.readouterr().out.splitlines() if l.startswith("+# composed by:")]
+    assert len(header) == 1 and "--dry-run" not in header[0] and "--rekey" in header[0]
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers) == 0
+    assert "+" + out.read_text().splitlines()[0] == header[0]
+
+
+def test_compose_dry_run_says_what_compose_says(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    dry = [l for l in capsys.readouterr().out.splitlines() if not l.startswith(("---", "+++", "@@", "+", "-", "("))]
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers) == 0
+    real = capsys.readouterr().out.splitlines()
+    assert [l.replace("would write", "wrote") for l in dry] == real
+    assert any("--rekey gives" in l and "'k>" in l for l in dry)  # the rekey mapping
+    assert any(l.startswith("note:") and "night" in l for l in dry)  # the variant note: b.px has no night
+
+
+def test_compose_dry_run_keeps_the_comments_it_carries(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert "+# a's colors (from a.px)\n" in printed or "+# a's colors" in printed
+
+
+def test_compose_dry_run_key_conflict_is_the_same_error(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    before = files_under(tmp_path)
+    dry = run_err("compose", "-o", out, "--size", "4x2", *layers, "--dry-run")
+    dry_out = capsys.readouterr().out
+    assert files_under(tmp_path) == before and not out.exists()
+    real = run_err("compose", "-o", out, "--size", "4x2", *layers)
+    assert dry == real and "E_KEY_CONFLICT" in dry and dry.startswith(f"compose: layer 2 ({b}:b): E_KEY_CONFLICT")
+    assert dry_out == capsys.readouterr().out and "dry run" not in dry_out
+    assert not out.exists()
+
+
+def test_compose_dry_run_key_conflict_exit_code(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    assert run("compose", "-o", tmp_path / "room.px", "--size", "4x2", *layers, "--dry-run") == 1
+
+
+def test_compose_dry_run_existing_out_prints_its_diff(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers) == 0
+    was = out.read_text()
+    capsys.readouterr()
+    before = files_under(tmp_path)
+    moved = [f"{a}:a@2,0", f"{b}:b@0,0"]
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *moved, "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert files_under(tmp_path) == before and out.read_text() == was
+    assert f"note: {out} exists: keeping its palette" in printed
+    assert f"--- {out}\n+++ {out}\n" in printed and "\n@@ " in printed
+    assert printed.endswith(f"would write {out}\n(dry run; nothing written)\n")
+    diff = [l for l in printed.splitlines() if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *moved) == 0
+    got = [l for l in difflib.unified_diff(was.splitlines(), out.read_text().splitlines(), lineterm="", n=0)
+           if l[:1] in "+-" and l[:3] not in ("---", "+++")]
+    assert diff == got
+
+
+def test_compose_dry_run_same_compose_again_is_no_change(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers) == 0
+    capsys.readouterr()
+    before = files_under(tmp_path)
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    assert capsys.readouterr().out.endswith(f"no change: {out}\n(dry run; nothing written)\n")
+    assert files_under(tmp_path) == before
+
+
+def test_compose_dry_run_into_a_frame_says_which(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    party = write(tmp_path, "party.px", "k #000000\nr #ff0000\n@frame x\nkk\n")
+    before = files_under(tmp_path)
+    assert run("compose", "-o", f"{party}:room", "--size", "2x2", f"{a}:a@0,0", "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert files_under(tmp_path) == before
+    assert printed.endswith(f"would write {party} frame room\n(dry run; nothing written)\n")
+    assert "+@frame room\n+kr\n+rk\n" in printed
+
+
+def test_compose_dry_run_over_a_frame_says_it_would_replace_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    party = write(tmp_path, "party.px", "k #000000\nr #ff0000\n@frame x\nkk\nkk\n")
+    assert run("compose", "-o", f"{party}:x", f"{a}:a@0,0", "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert printed.endswith(f"would write {party} frame x (replaced the frame it had)\n(dry run; nothing written)\n")
+    assert "-kk\n-kk\n+kr\n+rk\n" in printed and grids(party) == {"x": ["kk", "kk"]}
+
+
+def test_compose_dry_run_replace_leaves_the_old_out(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    out = write(tmp_path, "room.px", "q #123456\nqq\n")
+    assert run("compose", "-o", out, "--size", "4x2", "--rekey", *layers, "--replace", "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert out.read_text() == "q #123456\nqq\n" and "-q #123456\n" in printed
+    assert printed.endswith(f"would write {out}\n(dry run; nothing written)\n")
+
+
+def test_compose_dry_run_from_a_map(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    d = map_world(tmp_path)
+    write(d, "market.map", MAP_MARKET)
+    before = files_under(tmp_path)
+    out = tmp_path / "market.px"
+    assert run("compose", "--map", d / "market.map", "-o", out, "--dry-run") == 0
+    printed = capsys.readouterr().out
+    assert not out.exists() and files_under(tmp_path) == before
+    assert "+++ " + str(out) in printed and printed.endswith(f"would write {out}\n(dry run; nothing written)\n")
+
+
+def test_compose_dry_run_leaves_the_sources_alone(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)
+    a, b, layers = dry_layers(tmp_path)
+    assert run("compose", "-o", tmp_path / "room.px", "--size", "4x2", "--rekey", *layers, "--dry-run") == 0
+    assert a.read_text() == DRY_A and b.read_text() == DRY_B
+
+
+def test_compose_help_names_dry_run(capsys):
+    out = cmd_help(capsys, "compose")
+    assert "[--replace] [--dry-run] LAYER@x,y ..." in out and "--dry-run" in out.split("options:")[1]
+    flat = " ".join(out.split())
+    assert "--dry-run prints what compose says (notes, conflicts, --rekey's moves) and OUT's diff (a new OUT: every " \
+        "line); nothing is written." in flat
+
+
+def test_compose_dry_run_is_in_help_all_and_readme():
+    doc = " ".join(pxart.__doc__.split())
+    assert "[--variant-map NAME=V1,V2] [--replace] [--dry-run] LAYER@x,y ..." in doc
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--dry-run` prints all it says, notes, conflicts and `--rekey`'s moves, and the diff of OUT it would " \
+        "write, a new OUT's every line, and writes nothing" in readme
+    assert "`new`, `frames`, `dup`, `anim-set` and `compose` too, takes `--dry-run`" in readme
 
 
 def test_edit_dry_run_no_change_still_says_dry_run(tmp_path, capsys):

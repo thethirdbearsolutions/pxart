@@ -414,7 +414,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       variant WARNINGs, --rekey [KEYS] and --variant-map work alike. --align: one paste
       follows a bob across frames.
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
-          [--variant-map NAME=V1,V2] [--replace] LAYER@x,y ...
+          [--variant-map NAME=V1,V2] [--replace] [--dry-run] LAYER@x,y ...
   compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       Rules ('pxart help compose-rules' prints only these):
@@ -429,9 +429,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
         - A key a layer has in another color than OUT's is E_KEY_CONFLICT; --rekey gives it a
           free key in OUT. The layers' files are read, never written.
         - OUT:frame adds that frame to OUT, or replaces it; a plain OUT is one unnamed grid.
-      Examples: 'compose -o room.px tiles.px:cobble@0,0 hero.px:idle/0@4,2' (the canvas is the
-      first layer's 16x16), 'compose -o party.px:keeper/walk keeper.px:walk/0@0,0 --rekey'
-      (keeper.px's k is another color in party.px, so it gets a free key there).
+      Examples: 'compose -o room.px tiles.px:cobble@0,0 hero.px:idle/0@4,2', 'compose -o
+      party.px:keeper/walk keeper.px:walk/0@0,0 --rekey' (keeper.px's k is another color in
+      party.px, so it gets a free key there). --dry-run prints what compose says (notes,
+      conflicts, --rekey's moves) and OUT's diff (a new OUT: every line); nothing is written.
 
       A new OUT (rule 1; a shared import re-pointed from OUT's directory): local keys follow
       the import, the keys the layers use first: a key layers have in different colors gets
@@ -470,8 +471,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       for a color that looks the same in every variant (two packs' one outline share one key,
       and the note says so), then letters and digits, then % + - / : ^ _, and only when those
       run out the keys a shell reads (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (,
-      and =). A key any layer's file has isn't free, used here or not. Two ways to use them,
-      both leaving the layers' files as they are:
+      and =). A key any layer's file has isn't free, used here or not. Two ways to use them:
         --rekey: compose gives those keys the free ones in OUT as it goes, and a note says
           which: 'note: --rekey gives field.px's keys free ones in scene.px: 's>a' 't>b'
           (field.px is unchanged)'.
@@ -546,10 +546,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       and the 'wrote' line says when it replaced one. A new frame goes after the last frame of
       its animation (like dup), or at the end when the animation is new. Canvas size: --size,
       else --map's, else the frame being replaced, else the other frames of its animation,
-      else the first layer. Pixels that land outside the canvas
-      are cropped, with a note saying how many. --under keeps OUT's frame and draws the layers
-      behind it: they fill only its empty pixels (a floor or a shadow under a finished
-      sprite). The frame must exist.
+      else the first layer. Pixels that land outside the canvas are cropped, with a note saying
+      how many. --under keeps OUT's frame and draws the layers behind it: they fill only its
+      empty pixels (a floor or a shadow under a finished sprite). The frame must exist.
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
@@ -729,7 +728,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       swoosh ('arc hero.px:attack/2 W 16,20,14 20,160 --width 3').
   flood FILE[:frame] KEY x,y [--diagonal]
       Bucket fill: repaint the region of x,y's key that touches x,y through sides (4-connected),
-      or corners too with --diagonal. A hole of another key stops it.
+      or corners too with --diagonal.
   rotate FILE[:SEL] 90|180|270 [-o OUT]    turn frames clockwise (a WxH frame becomes HxW)
   transpose FILE[:SEL] [-o OUT]            mirror across the top-left/bottom-right diagonal
       For deriving path edges and corners from one tile. -o FILE:NEWGROUP turns a copy, as
@@ -6314,8 +6313,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     if getattr(a, "cmd", None) == "compose" and getattr(a, "argv", None) and (fresh or not osel):
         stamp_composed(doc, a.argv, opath, fresh)
     did = write_doc(doc, opath)
-    print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and did.startswith("wrote") else "")
-                 if osel else ""))
+    wrote = did.startswith(("wrote", "would write"))  # 'no change' replaced nothing
+    print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and wrote else "") if osel else ""))
 
 
 COMPOSED_RE = re.compile(r"^#\s*composed by:\s*(.*?)\s*$")  # compose's provenance line, in a file's header
@@ -6340,7 +6339,8 @@ def stamp_composed(doc, argv, opath, fresh):
     """A compose OUT's header says how it was made: '# composed by: pxart compose ...', its paths re-pointed from
     OUT's directory (as a path inside a file is), so the line runs from there. A new OUT gets it; an existing one
     composed whole again has its line updated (and one without keeps its header as it is)."""
-    line = "# composed by: pxart " + shlex.join(["compose"] + repointed(argv[1:], ".", pathlib.Path(opath).parent))
+    argv = [x for x in argv[1:] if x != "--dry-run"]  # the line is the run that writes OUT
+    line = "# composed by: pxart " + shlex.join(["compose"] + repointed(argv, ".", pathlib.Path(opath).parent))
     at = next((i for i, l in enumerate(doc.comments) if COMPOSED_RE.match(l)), None)
     if at is not None:
         doc.comments[at] = line
@@ -8282,7 +8282,8 @@ def said(cmd, issue):
 
 
 EDIT_DRY = ("set", "fill", "put", "line", "rect", "poly", "ellipse", "arc", "flood", "shade", "outline", "flip", "shift",
-            "rotate", "transpose", "mask", "recolor", "crop", "paste", "dup", "frames", "anim-set", "new", "palette")
+            "rotate", "transpose", "mask", "recolor", "crop", "paste", "compose", "dup", "frames", "anim-set", "new",
+            "palette")
 EDIT_DRY_HELP = "print what the edit says and a diff of the file it would change; write nothing"
 DRY_HELP = ("print the readout and each output's size and layout, write nothing ('(dry run; nothing written)'); -o "
             "may be left off")

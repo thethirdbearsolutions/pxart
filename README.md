@@ -245,6 +245,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in
   `compose`; `--under` fills only the empty pixels; into an animation, `--align shift` moves the paste with the body's
   bob, frame by frame, as `anim`'s best shifts add up, where `--align bbox` would follow wings that stick out), `compose` (stack layers into a frame;
+  `--dry-run` prints all it says, notes, conflicts and `--rekey`'s moves, and the diff of OUT it
+  would write, a new OUT's every line, and writes nothing;
   a new frame lands after its animation; a new file gets the layers' whole palette, their
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
@@ -293,7 +295,7 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   comment: `night: recolors (darker) k w; brightens y; relists unchanged: l g; inherits: e E q`;
   `--in DIR` says how many files under DIR import a palette file and draw with each key; any
   edit takes `-o OUT` for an edited copy, and `--dry-run` prints the diff it would make and
-  writes nothing). Every edit, the drawing commands and `new`, `frames`, `dup` and `anim-set` too, takes `--dry-run`: it prints
+  writes nothing). Every edit, the drawing commands and `new`, `frames`, `dup`, `anim-set` and `compose` too, takes `--dry-run`: it prints
   what the edit says and the diff it would make, then `(dry run; nothing written)`. There is no undo: keep sprites in
   git, or edit a copy with `-o`. Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
