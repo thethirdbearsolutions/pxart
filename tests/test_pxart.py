@@ -26632,3 +26632,86 @@ def test_new_dry_run_says_it_once(tmp_path, capsys):
 
 def test_new_is_an_edit_with_dry_run():
     assert "new" in pxart.EDIT_DRY
+
+
+# ---------------------------------------------------------------- anim: a repeat=N group plays once, no wrap-around
+# anim compared frame 0 against the last frame, the loop's wrap-around; a repeat=1 landing never plays that pair.
+
+ONCE = "k #000000\n\n@anim land repeat=1 ms=110\n@anim fly ms=100\n\n" \
+    "@frame land/0\nkk..\n....\n@frame land/1\n.kk.\n....\n@frame land/2\n..kk\n....\n" \
+    "@frame fly/0\nkk..\n....\n@frame fly/1\n..kk\n....\n"
+
+
+def test_anim_repeat_group_skips_the_wrap_around(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", f"{p}:land") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split() == ["land/0", "110ms", "plays", "once", "(repeat=1);", "no", "wrap-around"]
+    assert "vs land/0:" in lines[1] and "vs land/1:" in lines[2] and "vs land/2" not in "\n".join(lines)
+
+
+def test_anim_loop_still_compares_the_wrap_around(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", f"{p}:fly") == 0
+    out = capsys.readouterr().out
+    assert "fly/0" in out and "vs fly/1:" in out.splitlines()[0] and "plays once" not in out
+
+
+def test_anim_repeat_zero_is_a_loop(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "repeat=0"))
+    assert run("anim", f"{p}:land") == 0
+    out = capsys.readouterr().out
+    assert "plays once" not in out and "vs land/2:" in out.splitlines()[0]
+
+
+def test_anim_repeat_three_plays_the_wrap_around_between_passes(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "repeat=3"))
+    assert run("anim", f"{p}:land") == 0
+    out = capsys.readouterr().out
+    assert "plays once" not in out and "vs land/2:" in out.splitlines()[0]
+
+
+def test_anim_pingpong_repeat_one_plays_once_too(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "direction=pingpong repeat=1"))
+    assert run("anim", f"{p}:land") == 0
+    assert "plays once (repeat=1); no wrap-around" in capsys.readouterr().out
+
+
+def test_anim_whole_file_says_plays_once_per_group(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", p) == 0
+    out = capsys.readouterr().out
+    assert out.count("plays once") == 1 and "vs fly/1:" in out and "vs land/2:" not in out
+
+
+def test_anim_repeat_group_writes_gif_and_strip(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", f"{p}:land", "-o", tmp_path / "land.gif") == 0
+    assert (tmp_path / "land.gif").exists() and (tmp_path / "land.strip.png").exists()
+    assert Image.open(tmp_path / "land.gif").n_frames == 3
+
+
+def test_anim_repeat_group_dry_run(tmp_path, capsys):
+    p = write(tmp_path, "b.px", ONCE)
+    assert run("anim", f"{p}:land", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "plays once" in out and out.endswith("(dry run; nothing written)\n")
+
+
+def test_anim_frames_of_two_files_joined_still_wrap(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n@anim land repeat=1\n@frame land/0\nk.\n")
+    b = write(tmp_path, "b.px", "k #000000\n@anim land repeat=1\n@frame land/0\n.k\n")
+    assert run("anim", a, b) == 0
+    assert "plays once" not in capsys.readouterr().out
+
+
+def test_plays_once_helper(tmp_path):
+    p = write(tmp_path, "b.px", ONCE)
+    its = pxart.items(f"{p}:land")
+    assert pxart.plays_once(its) is True
+    assert pxart.plays_once(pxart.items(f"{p}:fly")) is False
+    assert pxart.plays_once(pxart.items(str(p))) is False
+
+
+def test_anim_help_says_repeat_plays_once():
+    assert "A group with repeat=1 plays once: frame 0 gets no wrap-around diff." in " ".join(pxart.__doc__.split())

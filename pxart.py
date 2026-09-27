@@ -33,9 +33,8 @@ FORMAT (.px)
   'anim-set hero.px:walk/down ms=125' writes these, pivot=8,23 too (FILE:GROUP/ID: a frame's).
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
-  ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
-  also lists them as 'still' in frames. A frame copied as a still (a top-level id, or a @still
-  group) drops its ms and keeps its pivot, with a note.
+  ids with no '/' included (a parts file; frames then lists them as 'still'). A frame copied
+  as a still (a top-level id, or a @still group) drops its ms and keeps its pivot, with a note.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override, and a local key that repeats an
@@ -108,7 +107,7 @@ LOOKING
       groups: a block each, animated alone; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps is given.
+      unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
       shows the unshifted diff: "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)".
@@ -149,7 +148,7 @@ LOOKING
       draws A itself at 35% opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
-      Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
+      Default --scale 4 (not render's 8); --scale 1 for 1x.
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
@@ -2789,6 +2788,15 @@ def cmd_anim(a):
         animate(a, got, out)
 
 
+def plays_once(its):
+    """Whether the one group all of its frames are in has repeat=1: it plays through once, so the last frame never
+    loops back to the first. repeat=0 loops; repeat=2 and up play the wrap-around between passes."""
+    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
+    if len(keys) != 1 or None in keys:
+        return False
+    return its[0].doc.anims.get(its[0].frame.group, {}).get("repeat") == 1
+
+
 def anim_path(d, its):
     """Where anim -o DIR writes one group's GIF: DIR/walk/down.gif, or DIR/<file stem>.gif for top-level frames."""
     first = its[0]
@@ -2824,17 +2832,23 @@ def animate(a, its, out):
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
              for i in range(len(frames))]
-    moves = [motion(p, c, wrap=t) for p, c, t in pairs]
+    once = plays_once(its)  # repeat=1: the last frame never loops back to the first, so frame 0 has nothing to diff
+    moves = [None if once and i == 0 else motion(p, c, wrap=t) for i, (p, c, t) in enumerate(pairs)]
     legs = still_rows(clear)
     if still_rows(clear, shape=True) is None:  # the legs move somewhere in the animation (a walk): a frame whose legs
-        moves = [m[:4] + (None,) + m[5:] for m in moves]  # happen to stay put bobbed, and the shift says so
-    elif legs is not None and any(m[4] is not None for m in moves):  # one frame showed the legs still; so does every
-        # frame whose shift would light them
-        moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m[4] is None and m[:2] != (0, 0) and not m[5]
-                 else m for i, m in enumerate(moves)]
+        moves = [m and m[:4] + (None,) + m[5:] for m in moves]  # happen to stay put bobbed, and the shift says so
+    elif legs is not None and any(m and m[4] is not None for m in moves):  # one frame showed the legs still; so does
+        # every frame whose shift would light them
+        moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m and m[4] is None and m[:2] != (0, 0)
+                 and not m[5] else m for i, m in enumerate(moves)]
     cells = []  # per frame: (framed, what changed, its label, head, alt), for the strip
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
+        if moves[i] is None:
+            head = "plays once (repeat=1); no wrap-around"
+            print(f"  {its[i].label:24} {durs[i]:5}ms  {head}")
+            cells.append((fr, diff_frame(cur, cur), f"{its[i].label} {durs[i]}ms", head, ""))
+            continue
         dx, dy, n_shift, n_none, still, wrapped = moves[i]
         opaque = sum(cur.getchannel("A").histogram()[1:])
 
