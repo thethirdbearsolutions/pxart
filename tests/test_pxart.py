@@ -12370,7 +12370,7 @@ def test_help_documents_directories_and_palette_files(capsys):
 
 # ---------------------------------------------------------------- palette --variant NAME --add / --keep, --hoist
 
-def renders(doc):
+def looks(doc):
     """Every frame's pixels in the base palette and every variant: what an edit that 'renders as before' keeps."""
     names = [None] + sorted(set(doc.variants) | set(doc.shared_variants))
     return {(f.id, n): pxart.pixels(doc.image(f, n)) for f in doc.frames for n in names}
@@ -12506,9 +12506,9 @@ def test_palette_keep_two_keys_both_forms(tmp_path, capsys):
 
 def test_palette_keep_a_relist_goes_and_renders_the_same(tmp_path):
     p = write(tmp_path, "s.px", "k #000000\nl #fff4b0\n\n@variant night\nk #101010\nl #fff4b0\n\n@frame a\nkl\n")
-    before = renders(pxart.parse(p))
+    before = looks(pxart.parse(p))
     run("palette", p, "--variant", "night", "--keep", "l")
-    assert renders(pxart.parse(p)) == before and "l" not in pxart.parse(p).variants["night"]
+    assert looks(pxart.parse(p)) == before and "l" not in pxart.parse(p).variants["night"]
 
 
 def test_palette_keep_pins_a_key_an_import_recolors(tmp_path, capsys):
@@ -12599,9 +12599,9 @@ def test_hoist_moves_keys_and_comments(tmp_path, capsys):
 def test_hoist_renders_as_before(tmp_path):
     write(tmp_path, "pal.px", HOIST_PAL)
     hero = write(tmp_path, "hero.px", HOIST_HERO)
-    before = renders(pxart.parse(hero))
+    before = looks(pxart.parse(hero))
     run("palette", hero, "--hoist", "lg")
-    assert renders(pxart.parse(hero)) == before
+    assert looks(pxart.parse(hero)) == before
 
 
 def test_hoist_other_importers_get_the_keys(tmp_path):
@@ -12616,30 +12616,30 @@ def test_hoist_other_importers_get_the_keys(tmp_path):
 def test_hoist_one_key_leaves_the_other(tmp_path):
     pal = write(tmp_path, "pal.px", HOIST_PAL)
     hero = write(tmp_path, "hero.px", HOIST_HERO)
-    before = renders(pxart.parse(hero))
+    before = looks(pxart.parse(hero))
     assert run("palette", hero, "--hoist", "l") == 0
     doc = pxart.parse(hero)
     assert list(doc.palette) == ["g"] and doc.variants == {"night": {"g": (0xff, 0xc8, 0x61, 255)}}
-    assert "l #fff4b0" in pal.read_text() and renders(doc) == before
+    assert "l #fff4b0" in pal.read_text() and looks(doc) == before
 
 
 def test_hoist_makes_the_variant_in_the_palette_file(tmp_path):
     pal = write(tmp_path, "pal.px", "k #000000\n")
     hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n@variant dusk\nl #806040\n\n@frame a\nkl\n")
-    before = renders(pxart.parse(hero))
+    before = looks(pxart.parse(hero))
     assert run("palette", hero, "--hoist", "l") == 0
     assert pxart.parse(pal, palette_only=True).variants == {"dusk": {"l": (0x80, 0x60, 0x40, 255)}}
-    assert renders(pxart.parse(hero)) == before and "@variant" not in hero.read_text()
+    assert looks(pxart.parse(hero)) == before and "@variant" not in hero.read_text()
 
 
 def test_hoist_keeps_a_variant_line_the_palette_file_has_otherwise(tmp_path, capsys):
     pal = write(tmp_path, "pal.px", "k #000000\nl #fff4b0\n@variant night\nl #333333\n")
     hero = write(tmp_path, "hero.px", "@palette pal.px\nl #fff4b0\n@variant night\nl #444444\n\n@frame a\nkl\n")
-    before = renders(pxart.parse(hero))
+    before = looks(pxart.parse(hero))
     assert run("palette", hero, "--hoist", "l") == 0
     out = capsys.readouterr().out
     assert "l in @variant night stays in" in out and "(pal.px has its own color for it)" in out
-    assert renders(pxart.parse(hero)) == before and "l #444444" in hero.read_text() and "l #333333" in pal.read_text()
+    assert looks(pxart.parse(hero)) == before and "l #444444" in hero.read_text() and "l #333333" in pal.read_text()
 
 
 def test_hoist_same_color_key_already_in_the_palette_file(tmp_path, capsys):
@@ -12697,9 +12697,9 @@ def test_hoist_from_a_subdirectory(tmp_path):
     pal = write(tmp_path, "pal.px", HOIST_PAL)
     (tmp_path / "sprites").mkdir()
     hero = write(tmp_path / "sprites", "hero.px", HOIST_HERO.replace("@palette pal.px", "@palette ../pal.px"))
-    before = renders(pxart.parse(hero))
+    before = looks(pxart.parse(hero))
     assert run("palette", hero, "--hoist", "lg") == 0
-    assert "l #fff4b0" in pal.read_text() and renders(pxart.parse(hero)) == before
+    assert "l #fff4b0" in pal.read_text() and looks(pxart.parse(hero)) == before
     assert hero.read_text().startswith("@palette ../pal.px\n")
 
 
