@@ -354,7 +354,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       color everywhere. '.' works as a source key.
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
-      to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
+      to a, and a=b b=a is a swap too. The renames apply together as well: a key another
+      'a>b' of the call renames away is free for a new key, so 'g>r' 'd>g' renames g to r and
+      d to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look). A key the
+      call keeps (pixels outside --region or the selection draw with it, it is imported, or
+      c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
       :SEL moves keys in every frame; moves over more than one frame print "applied to N
       frames".
@@ -3167,8 +3171,10 @@ def cmd_mask(a):
 
 
 def cmd_recolor(a):
-    """Key moves (a=b, 'a<>b') apply together: each pixel is repainted by the move of the key it had before the
-    call, so they can't feed each other. Color changes (c=#hex) set the palette and are independent of moves."""
+    """Key moves (a=b, 'a<>b', 'a>b') apply together: each pixel is repainted by the move of the key it had before the
+    call, so they can't feed each other, and a key 'a>b' frees ('b>c' in the same call) can be a new key's name: 'a>b'
+    'b>a' swaps two keys' names, pixels and colors staying as they look. Color changes (c=#hex) set the palette and
+    are independent of moves."""
     doc, frames, out = edit_target(a.file, a.o)
     pal = doc.resolved()
     moves, said, renames = {}, {}, {}
@@ -3178,10 +3184,11 @@ def cmd_recolor(a):
             if k not in pal or k == ".":
                 fail("E_SELECT", f"recolor: {m!r}: key {k!r} not in palette" if k != "." else
                      f"recolor: {m!r}: '.' is transparent, not a color to give a new key")
-            if v in pal or v in renames.values():
-                fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one"
-                     + (f" ({fmt_color(pal[v])}); to repaint {k}'s pixels as {v} write {k}={v}" if v in pal else ""))
-            if v not in KEYS:
+            if v in renames.values():
+                first = next(said[j] for j, w in renames.items() if w == v)
+                fail("E_BAD_ARG", f"recolor: {m!r} and {first!r} both give pixels the new key {v!r}; each new key "
+                     "takes one key's pixels")
+            if v not in KEYS and v != ".":
                 fail("E_BAD_KEY", f"recolor: {m!r}: {v!r} can't be a palette key")
             if k in moves:
                 fail("E_BAD_ARG", f"recolor: key {k!r} is moved twice ({said[k]} and {m}); key moves apply "
@@ -3220,39 +3227,83 @@ def cmd_recolor(a):
                 fail("E_BAD_ARG", f"recolor: key {k!r} is moved twice ({said[k]} and {m}); key moves apply "
                      "together, so each key can go one place")
             moves[k], said[k] = v, m
+    painted = {v for k, v in moves.items() if k not in renames}  # a=b paints pixels b: b stays
+    rects = {id(f): parse_rect(a.region, f.size) for f in frames}
+    chosen = {id(f) for f in frames}
+
+    def outside(f, x, y):
+        if id(f) not in chosen:
+            return True
+        x0, y0, w, h = rects[id(f)]
+        return not (x0 <= x < x0 + w and y0 <= y < y0 + h)
+    left = {k for k in renames if k in painted or any(
+        c == k and outside(f, x, y) for f in doc.frames for y, row in enumerate(f.grid) for x, c in enumerate(row))}
+    freed = {k for k in renames if k in doc.palette and k not in left}  # its lines become the new key's
+    for k, v in renames.items():
+        m = said[k]
+        if v == k:
+            fail("E_BAD_ARG", f"recolor: {m!r} gives {k}'s pixels the key they have; name a new key")
+        if v not in pal or v in freed:
+            continue
+        free = [c for c in FREE_ORDER if c not in pal and c not in renames.values()][:3]
+        if v in renames:
+            why = ("it comes from an imported palette file" if v not in doc.palette else
+                   f"{next(said[j] for j, w in moves.items() if w == v and j not in renames)!r} paints pixels {v}"
+                   if v in painted else
+                   "pixels outside the recolor still draw with it")
+            fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} stays one: {said[v]!r} leaves it in the "
+                 f"palette ({why}); name a free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: "
+                 f"{' '.join(free) or 'none'})")
+        fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one ({fmt_color(pal[v])}): name a free "
+             f"key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: {' '.join(free) or 'none'})"
+             + (f", or free {v!r} in the same call: '{v}>{free[0]}' {m!r}" if free and v in doc.palette else ""))
     for f in frames:
-        x0, y0, w, h = parse_rect(a.region, f.size)
+        x0, y0, w, h = rects[id(f)]
         f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
-    for k, v in renames.items():
-        rename_key(doc, k, v)
+    rename_keys(doc, renames, left)
     many = f"applied to {len(frames)} frames; " if moves and len(frames) > 1 else ""  # a whole file is easy to miss
     print(many + write_doc(doc, out))
 
 
 def rename_key(doc, k, v):
-    """recolor 'k>v': the new key v gets k's color, in every variant too. When no frame uses k any more and it is
-    this file's own key, its lines become v's in place (a rename); otherwise v is added and k stays."""
+    """recolor 'k>v' for one key (rename_keys)."""
+    rename_keys(doc, {k: v})
+
+
+def rename_keys(doc, renames, left=None):
+    """recolor 'k>v' ...: each new key v gets k's color, in every variant too, all at once (so 'a>b' 'b>a' swaps
+    names). When no pixel keeps k (left: the keys some pixel keeps; by default, those a frame still draws with) and it
+    is this file's own key, its lines become v's in place (a rename); otherwise v is added and k stays."""
     names = sorted(set(doc.variants) | set(doc.shared_variants))
-    want = {n: doc.resolved(n)[k] for n in names}
-    left = any(k in row for f in doc.frames for row in f.grid)
-    if k in doc.palette and not left:
-        doc.palette = {v if key == k else key: c for key, c in doc.palette.items()}
+    want = {(n, k): doc.resolved(n)[k] for n in names for k in renames}
+    listed = {(n, k) for n in names for k in renames
+              if k in doc.variants.get(n, {}) or k in doc.shared_variants.get(n, {})}
+    base = doc.resolved()
+    if left is None:
+        left = {k for k in renames if any(k in row for f in doc.frames for row in f.grid)}
+    full = {k: v for k, v in renames.items() if k in doc.palette and k not in left}
+    if full:
+        doc.palette = {full.get(key, key): c for key, c in doc.palette.items()}
         for store in (doc.lead, doc.at):
-            if ("key", k) in store:
-                store[("key", v)] = store.pop(("key", k))
+            got = {k: store.pop(("key", k)) for k in full if ("key", k) in store}
+            store.update({("key", full[k]): x for k, x in got.items()})
         for name, over in doc.variants.items():
-            if k in over:
-                doc.variants[name] = {v if key == k else key: c for key, c in over.items()}
-                if ("vkey", name, k) in doc.lead:
-                    doc.lead[("vkey", name, v)] = doc.lead.pop(("vkey", name, k))
-    else:
-        doc.palette[v] = doc.resolved()[k]
-        if left:
+            if any(k in over for k in full):
+                doc.variants[name] = {full.get(key, key): c for key, c in over.items()}
+                got = {k: doc.lead.pop(("vkey", name, k)) for k in full if ("vkey", name, k) in doc.lead}
+                doc.lead.update({("vkey", name, full[k]): x for k, x in got.items()})
+    for k, v in renames.items():
+        if k in full:
+            continue
+        doc.palette[v] = base[k]
+        if k in left:
             print(f"note: {k!r} stays in the palette: pixels outside the recolor still use it")
-    for n, c in want.items():  # a variant that lists k (a relist too: a lamp kept lit) lists v
-        if doc.resolved(n)[v] != c or k in doc.variants.get(n, {}) or k in doc.shared_variants.get(n, {}):
-            doc.variants.setdefault(n, {})[v] = c
+    for k, v in renames.items():
+        for n in names:  # a variant that lists k (a relist too: a lamp kept lit) lists v
+            c = want[(n, k)]
+            if doc.resolved(n)[v] != c or ((n, k) in listed and v not in doc.variants.get(n, {})):
+                doc.variants.setdefault(n, {})[v] = c
 
 
 def cmd_set(a):

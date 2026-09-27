@@ -5238,8 +5238,9 @@ def test_recolor_rename_with_output_leaves_source(tmp_path):
 
 
 @pytest.mark.parametrize("arg, code, bit", [
-    ("w>k", "E_BAD_ARG", "to repaint w's pixels as k write w=k"),
-    ("w>w", "E_BAD_ARG", "'w' is already one"),
+    ("w>k", "E_BAD_ARG", "'k' is already one (#000000): name a free key ('w>a'; free: a b c), or free 'k' in the "
+     "same call: 'k>a' 'w>k'"),
+    ("w>w", "E_BAD_ARG", "gives w's pixels the key they have"),
     ("q>Z", "E_SELECT", "key 'q' not in palette"),
     (".>Z", "E_SELECT", "'.' is transparent"),
     ("w>.", "E_BAD_ARG", "'.' is already one"),
@@ -5255,7 +5256,7 @@ def test_recolor_rename_errors(tmp_path, arg, code, bit):
 def test_recolor_rename_to_the_same_new_key_twice(tmp_path):
     p = write(tmp_path, "r.px", RENAME)
     msg = run_err("recolor", p, "w>Z", "k>Z")
-    assert "E_BAD_ARG" in msg and "'Z' is already one" in msg and p.read_text() == RENAME
+    assert "E_BAD_ARG" in msg and "'k>Z' and 'w>Z' both give pixels the new key 'Z'" in msg and p.read_text() == RENAME
 
 
 def test_recolor_rename_and_move_of_one_key(tmp_path):
@@ -17011,3 +17012,203 @@ def test_readme_documents_check_per_file():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "one line per file, the failing frames under it, and a summary like `6 files, 150 frames, 3 warnings`" \
         in readme and "`-v` for a line per frame" in readme
+
+
+# ---------------------------------------------------------------- recolor: renames apply together (a key renamed away
+# is free for another; 'a>b' 'b>a' swaps names)
+
+CHAIN = ("pxart 1\n# the grass\ng #56864c\n# the dirt\nd #965340\nr #d14b34\n\n@variant dusk\ng #546d45\nd #83473b\n\n"
+         "@frame a\ngdr\n@frame b\nddg\n")
+
+
+def test_recolor_rename_into_a_key_renamed_away(tmp_path, capsys):
+    # The reported call's shape: 'g>G' frees g in the same call, so 'd>g' gives d's pixels g's old name, in d's colors.
+    p = write(tmp_path, "c.px", CHAIN)
+    before = renders(p)
+    assert run("recolor", p, "g>G", "d>g") == 0
+    doc = pxart.parse(p)
+    assert grids(p) == {"a": ["Ggr"], "b": ["ggG"]}
+    assert doc.palette == {"G": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
+    assert doc.variants["dusk"] == {"G": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
+    assert renders(p) == before
+    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+
+
+def test_recolor_rename_into_a_freed_key_any_order(tmp_path):
+    a = write(tmp_path, "a.px", CHAIN)
+    b = write(tmp_path, "b.px", CHAIN)
+    assert run("recolor", a, "g>G", "d>g") == 0
+    assert run("recolor", b, "d>g", "g>G") == 0
+    assert a.read_text() == b.read_text()
+
+
+def test_recolor_rename_into_a_freed_key_keeps_the_comments_with_the_colors(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    assert run("recolor", p, "g>G", "d>g") == 0
+    text = p.read_text()
+    assert "# the grass\nG #56864c\n# the dirt\ng #965340\n" in text
+
+
+def test_recolor_rename_swap_of_names(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    before = renders(p)
+    assert run("recolor", p, "g>d", "d>g") == 0
+    doc = pxart.parse(p)
+    assert grids(p) == {"a": ["dgr"], "b": ["ggd"]}
+    assert doc.palette == {"d": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
+    assert list(doc.palette) == ["d", "g", "r"]
+    assert doc.variants["dusk"] == {"d": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
+    assert renders(p) == before
+
+
+def test_recolor_rename_swap_twice_is_the_original(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    assert run("recolor", p, "g>d", "d>g") == 0
+    assert run("recolor", p, "g>d", "d>g") == 0
+    assert p.read_text() == CHAIN
+
+
+def test_recolor_rename_rotation_of_three(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    before = renders(p)
+    assert run("recolor", p, "g>d", "d>r", "r>g") == 0
+    assert grids(p) == {"a": ["drg"], "b": ["rrd"]}
+    doc = pxart.parse(p)
+    assert doc.palette == {"d": pxart.hex2rgba("#56864c"), "r": pxart.hex2rgba("#965340"), "g": pxart.hex2rgba("#d14b34")}
+    assert renders(p) == before
+
+
+def test_recolor_rename_chain_into_a_new_key(tmp_path):
+    # g>d d>Q: d's pixels take the new Q, g's take d's old name; nothing collides.
+    p = write(tmp_path, "c.px", CHAIN)
+    before = renders(p)
+    assert run("recolor", p, "g>d", "d>Q") == 0
+    assert grids(p) == {"a": ["dQr"], "b": ["QQd"]}
+    assert renders(p) == before
+
+
+def test_recolor_rename_swap_with_output_leaves_source(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    o = tmp_path / "o.px"
+    assert run("recolor", p, "g>d", "d>g", "-o", o) == 0
+    assert p.read_text() == CHAIN and grids(o) == {"a": ["dgr"], "b": ["ggd"]}
+    assert renders(o) == renders(p)
+
+
+def test_recolor_rename_swap_with_a_move(tmp_path):
+    # r=g paints r's pixels with g as the file has it before the call: g then stays, so d>g can't take its name.
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", p, "g>G", "d>g", "r=g")
+    assert "E_BAD_ARG" in msg and "'d>g' needs a new key, and 'g' stays one: 'g>G' leaves it in the palette " \
+        "('r=g' paints pixels g)" in msg
+    assert p.read_text() == CHAIN
+
+
+def test_recolor_rename_into_a_key_kept_by_the_region(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", p, "g>G", "d>g", "--region", "0,0,1,1")
+    assert "E_BAD_ARG" in msg and "'g' stays one: 'g>G' leaves it in the palette (pixels outside the recolor " \
+        "still draw with it)" in msg
+    assert p.read_text() == CHAIN
+
+
+def test_recolor_rename_into_a_key_kept_by_other_frames(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", f"{p}:a", "g>G", "d>g")
+    assert "'g' stays one" in msg and "pixels outside the recolor still draw with it" in msg
+    assert p.read_text() == CHAIN
+
+
+def test_recolor_rename_into_a_key_kept_by_its_import(tmp_path):
+    write(tmp_path, "pal.px", "g #56864c\n")
+    p = write(tmp_path, "c.px", "@palette pal.px\nd #965340\n\ngd\n")
+    msg = run_err("recolor", p, "g>G", "d>g")
+    assert "'g' stays one: 'g>G' leaves it in the palette (it comes from an imported palette file)" in msg
+
+
+def test_recolor_rename_into_a_taken_key_names_free_keys_not_a_repaint(tmp_path):
+    # The old message said 'write d=g', which repaints d's pixels in g's color: not what 'd>g' asks for.
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", p, "d>g")
+    assert "'d>g' needs a new key, and 'g' is already one (#56864c): name a free key ('d>a'; free: a b c), or " \
+        "free 'g' in the same call: 'g>a' 'd>g'" in msg
+    assert "d=g" not in msg and p.read_text() == CHAIN
+
+
+def test_recolor_rename_into_a_taken_imported_key_offers_no_freeing(tmp_path):
+    write(tmp_path, "pal.px", "g #56864c\n")
+    p = write(tmp_path, "c.px", "@palette pal.px\nd #965340\n\ngd\n")
+    msg = run_err("recolor", p, "d>g")
+    assert "'g' is already one (#56864c): name a free key ('d>a'; free: a b c)" in msg and "same call" not in msg
+
+
+def test_recolor_rename_the_suggested_fix_works(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    before = renders(p)
+    msg = run_err("recolor", p, "d>g")
+    fix = msg.split("in the same call: ")[1]
+    assert run("recolor", p, *shlex.split(fix)) == 0
+    assert grids(p) == {"a": ["agr"], "b": ["gga"]} and renders(p) == before
+
+
+def test_recolor_rename_swap_with_a_shared_variant(tmp_path):
+    # pal.px's dusk recolors key d; after the swap local d is the old g, which dusk must not recolor: a line of its own.
+    write(tmp_path, "pal.px", "q #000000\n\n@variant dusk\nd #010203\n")
+    p = write(tmp_path, "c.px", "@palette pal.px\ng #56864c\nd #965340\n\ngdq\n")
+    before = renders(p)
+    assert run("recolor", p, "g>d", "d>g") == 0
+    assert pxart.parse(p).frames[0].grid == ["dgq"]
+    assert renders(p) == before
+
+
+def test_recolor_rename_swap_keeps_relists(tmp_path):
+    # night lists l in its base color (kept lit): after the swap its new name is listed the same way.
+    p = write(tmp_path, "c.px", "l #fff4b0\nk #000000\n\n@variant night\nk #000011\nl #fff4b0\n\nkl\n")
+    before = renders(p)
+    assert run("recolor", p, "l>k", "k>l") == 0
+    doc = pxart.parse(p)
+    assert doc.variants["night"] == {"l": (0, 0, 0x11, 255), "k": (0xff, 0xf4, 0xb0, 255)}
+    assert doc.frames[0].grid == ["lk"] and renders(p) == before
+
+
+def test_recolor_rename_swap_adds_no_relist(tmp_path):
+    # g has no dusk line (it inherits) and d has one: after the swap the key that inherits still has none.
+    p = write(tmp_path, "c.px", "g #56864c\nd #965340\n\n@variant dusk\nd #83473b\n\ngd\n")
+    assert run("recolor", p, "g>d", "d>g") == 0
+    assert pxart.parse(p).variants["dusk"] == {"g": pxart.hex2rgba("#83473b")}
+
+
+def test_recolor_rename_new_key_twice_names_both_moves(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", p, "g>Q", "d>Q")
+    assert "'d>Q' and 'g>Q' both give pixels the new key 'Q'" in msg and p.read_text() == CHAIN
+
+
+def test_recolor_rename_to_itself_is_bad_arg(tmp_path):
+    p = write(tmp_path, "c.px", CHAIN)
+    msg = run_err("recolor", p, "g>g")
+    assert "E_BAD_ARG" in msg and "'g>g' gives g's pixels the key they have" in msg
+
+
+def test_recolor_rename_chain_through_a_real_shell(tmp_path):
+    import shutil, subprocess
+    script = pathlib.Path(pxart.__file__)
+    shell = ["zsh", "-f", "-c"] if shutil.which("zsh") else ["bash", "-c"] if shutil.which("bash") else None
+    if not shell:
+        pytest.skip("no zsh or bash")
+    p = write(tmp_path, "c.px", CHAIN)
+    r = subprocess.run(shell + [f'"{sys.executable}" "{script}" recolor "{p}" \'g>d\' \'d>g\''], capture_output=True,
+                       text=True, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert grids(p) == {"a": ["dgr"], "b": ["ggd"]}
+
+
+def test_help_documents_recolor_renames_together():
+    text = " ".join(pxart.__doc__.split())
+    assert "a key another 'a>b' of the call renames away is free for a new key, so 'g>r' 'd>g' renames g to r and d " \
+        "to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look)" in text
+
+
+def test_readme_documents_recolor_swap_of_names():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "a key renamed away is free for another: `'a>b' 'b>a'` swaps two names" in readme
