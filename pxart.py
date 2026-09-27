@@ -4519,7 +4519,20 @@ def cmd_recolor(a):
         f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     rename_keys(doc, renames, left)
-    print(write_doc(doc, out))
+    print(*recolor_counts(doc, frames, moves, [k for k in said if isinstance(k, tuple)]), write_doc(doc, out))
+
+
+def recolor_counts(doc, frames, moves, recolored):
+    """What recolor did, as fill and paste say it: 'repainted 12 px;' for the key moves (per frame when several), and
+    'recolored o #112233: 40 px;' for each color change, counting the pixels drawn with that key in every frame (a
+    color is the whole file's)."""
+    out = [px_changed(doc, frames, "repainted")] if moves else []
+    for _, k in recolored:
+        counts = [(doc.label(f), sum(row.count(k) for row in f.grid)) for f in doc.frames]
+        hit = [f"{label} {n}" for label, n in counts if n]
+        out.append(f"recolored {k} {fmt_color(doc.resolved()[k])}: {sum(n for _, n in counts)} px"
+                   + (f" ({listed(hit, 5)})" if len(hit) > 1 else "") + ";")
+    return out
 
 
 def rename_key(doc, k, v):

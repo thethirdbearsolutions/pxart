@@ -5079,12 +5079,13 @@ def test_help_documents_mask_keys():
 # (now the edit path's "edited N frames": the frames whose pixels changed, named)
 
 @pytest.mark.parametrize("target, maps, want", [
-    ("{p}", ["k=j"], "edited 2 frames: a, b\nwrote {p}"),              # no selector: every frame; c has no k
-    ("{p}:a", ["k=j"], "wrote {p}"),                                     # one frame: no count
-    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nwrote {p}"),
-    ("{p}", ["k=#123456"], "wrote {p}"),                                 # a color change moves no pixels
-    ("{p}", ["k=#123456", "j=r"], "edited 2 frames: a, c\nwrote {p}"),
-    ("{p}", ["q=r"], "no change: {p}"),                                  # q is in no frame: nothing changes
+    ("{p}", ["k=j"], "edited 2 frames: a, b\nrepainted 2 px (a 1, b 1); wrote {p}"),  # every frame; c has no k
+    ("{p}:a", ["k=j"], "repainted 1 px; wrote {p}"),                     # one frame: no per-frame list
+    ("{p}", ["k<>j"], "edited 3 frames: a, b, c\nrepainted 5 px (a 2, b 1, c 2); wrote {p}"),
+    ("{p}", ["k=#123456"], "recolored k #123456: 2 px (a 1, b 1); wrote {p}"),  # moves no pixels; counts k's
+    ("{p}", ["k=#123456", "j=r"], "edited 2 frames: a, c\nrepainted 3 px (a 1, c 2); recolored k #123456: 2 px "
+     "(a 1, b 1); wrote {p}"),
+    ("{p}", ["q=r"], "repainted 0 px; no change: {p}"),                  # q is in no frame: nothing changes
 ])
 def test_recolor_says_applied_to_n_frames(tmp_path, capsys, target, maps, want):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\nr #ff0000\nq #00ff00\n@frame a\nkj\n@frame b\nkr\n"
@@ -5096,14 +5097,33 @@ def test_recolor_says_applied_to_n_frames(tmp_path, capsys, target, maps, want):
 def test_recolor_group_selector_counts_its_frames(tmp_path, capsys):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame w/0\nk\n@frame w/1\nk\n@frame x\nk\n")
     assert run("recolor", f"{p}:w", "k=j") == 0
-    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nrepainted 2 px (w/0 1, w/1 1); wrote {p}\n"
     assert grids(p) == {"w/0": ["j"], "w/1": ["j"], "x": ["k"]}
+
+
+def test_recolor_region_counts_only_inside(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame a\nkkkk\nkkkk\n@frame b\nkkkk\nkkjj\n")
+    assert run("recolor", f"{p}:*", "k=j", "--region", "0,0,2,2") == 0
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nrepainted 8 px (a 4, b 4); wrote {p}\n"
+
+
+def test_recolor_color_change_counts_every_frame_even_under_a_selector(tmp_path, capsys):
+    # a color is the whole file's: the count is every frame's pixels of that key, not only the selection's
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame a\nkk\n@frame b\nkj\n@frame c\njj\n")
+    assert run("recolor", f"{p}:a", "k=#222222") == 0
+    assert capsys.readouterr().out == f"recolored k #222222: 3 px (a 2, b 1); wrote {p}\n"
+
+
+def test_recolor_two_color_changes_each_counted(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\n\nkkj\n")
+    assert run("recolor", p, "k=#222222", "j=transparent") == 0
+    assert capsys.readouterr().out == f"recolored k #222222: 2 px; recolored j transparent: 1 px; wrote {p}\n"
 
 
 def test_recolor_single_grid_file_no_count(tmp_path, capsys):
     p = write(tmp_path, "s.px", "k #000000\nj #111111\n\nkj\n")
     assert run("recolor", p, "k=j") == 0
-    assert capsys.readouterr().out == f"wrote {p}\n"
+    assert capsys.readouterr().out == f"repainted 1 px; wrote {p}\n"
 
 
 # ---------------------------------------------------------------- GAMES-295: E_KEY_CONFLICT names every key
@@ -5292,7 +5312,7 @@ def test_recolor_rename_whole_file_renames_the_lines_in_place(tmp_path, capsys):
     assert run("recolor", p, "w>Z") == 0
     assert p.read_text() == RENAME.replace("w #", "Z #").replace("kw\n", "kZ\n").replace("ww\n", "ZZ\n")
     assert renders(p) == before
-    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nrepainted 3 px (a 1, b 2); wrote {p}\n"
 
 
 def test_recolor_rename_part_keeps_the_old_key(tmp_path, capsys):
@@ -17232,7 +17252,7 @@ def test_recolor_rename_into_a_key_renamed_away(tmp_path, capsys):
     assert doc.palette == {"G": pxart.hex2rgba("#56864c"), "g": pxart.hex2rgba("#965340"), "r": pxart.hex2rgba("#d14b34")}
     assert doc.variants["dusk"] == {"G": pxart.hex2rgba("#546d45"), "g": pxart.hex2rgba("#83473b")}
     assert renders(p) == before
-    assert capsys.readouterr().out == f"edited 2 frames: a, b\nwrote {p}\n"
+    assert capsys.readouterr().out == f"edited 2 frames: a, b\nrepainted 5 px (a 2, b 3); wrote {p}\n"
 
 
 def test_recolor_rename_into_a_freed_key_any_order(tmp_path):
@@ -25157,7 +25177,7 @@ def test_edited_note_with_output_elsewhere(tmp_path, capsys):
     p = write(tmp_path, "m.px", SEVERAL)
     out = tmp_path / "o.px"
     assert run("recolor", p, "k<>j", "-o", out) == 0
-    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nwrote {out}\n"
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nrepainted 43 px (w/0 15, w/1 12, w/2 16); wrote {out}\n"
     assert p.read_text() == SEVERAL
 
 
