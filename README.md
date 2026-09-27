@@ -110,7 +110,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 (`pxart poly -h`), with the format notes it relies on.
 
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
-  `hero:idle/0`, `beast:idle/0`), `anim` (one GIF, each frame at `--scale` with its 1x and
+  `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or with `--fit`
+  each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at `--scale` with its 1x and
   2x copies beside it in the same picture, plus a motion strip; without `-o` it prints only
   the per-frame numbers, like `shift +0,-1 then 72px (20%)`, and writes nothing; "rows Y+
   still" only when those rows are pixel-identical, and for the rise and the fall of one

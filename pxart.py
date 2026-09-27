@@ -54,8 +54,11 @@ LOOKING
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
-  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
-      Compare any mix of .px/.png frames, labeled with id, WxH and color count. A PNG whose
+  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44] [--fit]
+      Compare any mix of .px/.png frames, labeled with id, WxH and color count. Every cell is
+      the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell; --fit
+      makes each cell its own frame's width (or its label's, if wider) and each row as tall as
+      its tallest frame, --cols cells to a row, frames bottom-aligned in their row. A PNG whose
       four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
       count that color: it's the backdrop. Frames with the same id from different files are
       labeled with their file's stem in front (hero:idle/0, beast:idle/0; the path as given
@@ -1219,20 +1222,37 @@ def file_error(e):
     return msg
 
 
-def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
+def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit=False):
+    """Frames in a grid of --cols cells, each labeled. Every cell is the largest frame's size; fit: each cell is its own
+    frame's (and label's) width, and each row as tall as its tallest frame, rows packed left to right."""
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     tiles = [(it, upscale(it.img, scale, grid, rulers)) for it in its]
-    lw = max(max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its)
+    lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
+    lw = max(lws)
     iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
     cols = max(1, min(cols, len(tiles)))
     rows = (len(tiles) + cols - 1) // cols
-    s = Image.new("RGBA", (pad + cols * (cw + pad), pad + rows * (ch + lab + pad)), (30, 30, 36, 255))
+    if fit:
+        cws = [max(t.width, l + (it.img.width if it.img.height <= 22 else 0) + 8) for (it, t), l in zip(tiles, lws)]
+        chs = [max(t.height for _, t in tiles[r * cols:(r + 1) * cols]) for r in range(rows)]
+        spots, y = [], pad
+        for r in range(rows):
+            x = pad
+            for n in range(r * cols, min((r + 1) * cols, len(tiles))):
+                spots.append((x, y, cws[n], chs[r], lws[n]))
+                x += cws[n] + pad
+            y += chs[r] + lab + pad
+        size = (max(x + w + pad for x, _, w, _, _ in spots), y)
+    else:
+        spots = [(pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad), cw, ch, lw)
+                 for n in range(len(tiles))]
+        size = (pad + cols * (cw + pad), pad + rows * (ch + lab + pad))
+    s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
-    for n, (it, big) in enumerate(tiles):
-        x, y = pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad)
+    for (it, big), (x, y, cw, ch, lw) in zip(tiles, spots):
         d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=rgba(bg))
         s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
         if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
@@ -1623,7 +1643,7 @@ def cmd_render(a):
 
 def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
-    print("wrote", sheet(all_items(a.files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid))
+    print("wrote", sheet(all_items(a.files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit))
 
 
 def cmd_anim(a):
@@ -3908,6 +3928,7 @@ def parser(describe=True):
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
     p.add_argument("--bg", default="#3a3a44"); p.add_argument("--grid", action="store_true"); p.add_argument("--variant")
+    p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o", required=True)

@@ -11558,3 +11558,124 @@ def test_help_documents_onion_bands_fade_and_edges():
     assert "limit the edges and the best shift to that band" in doc
     assert "--tint-a draws A as a flat silhouette in one color (default #ff4060a0" in doc
     assert "Without these flags the PNG is as it always was." in doc
+
+
+# ---------------------------------------------------------------- sheet --fit: cells at their own size
+
+def old_sheet(its, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
+    """sheet as it was before --fit, for the byte-identical default."""
+    from PIL import ImageDraw
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    tiles = [(it, pxart.upscale(it.img, scale, grid, rulers)) for it in its]
+    lw = max(max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its)
+    iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
+    cw = max(max(t.width for _, t in tiles), lw + iw + 8)
+    ch = max(t.height for _, t in tiles)
+    pad, lab = 10, 26
+    cols = max(1, min(cols, len(tiles)))
+    rows = (len(tiles) + cols - 1) // cols
+    s = Image.new("RGBA", (pad + cols * (cw + pad), pad + rows * (ch + lab + pad)), (30, 30, 36, 255))
+    d = ImageDraw.Draw(s)
+    for n, (it, big) in enumerate(tiles):
+        x, y = pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad)
+        d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=pxart.rgba(bg))
+        s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
+        if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
+            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))
+        d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
+        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {pxart.n_colors(it, bg)}c", fill=(150, 150, 160, 255))
+    return s
+
+
+MIXED = ("k #000000\ng #00ff00\n@frame tile\n" + "g" * 4 + "\n" + ("gkkg\n" * 3) +
+         "@frame beast\n" + ("k" * 12 + "\n") * 10 + "@frame dot\nk\n@frame wide\n" + "g" * 20 + "\n")
+
+
+@pytest.mark.parametrize("cols, scale, grid", [(8, 8, False), (2, 4, True), (1, 1, False), (3, 2, False)])
+def test_sheet_default_is_byte_identical(tmp_path, cols, scale, grid):
+    p = write(tmp_path, "m.px", MIXED)
+    argv = ["sheet", p, "-o", tmp_path / "s.png", "--cols", cols, "--scale", scale] + (["--grid"] if grid else [])
+    assert run(*argv) == 0
+    want = old_sheet(pxart.all_items([str(p)]), scale, cols, grid=grid)
+    assert Image.open(tmp_path / "s.png").convert("RGBA").tobytes() == want.tobytes()
+
+
+def fit_sheet(tmp_path, *more, text=MIXED):
+    p = write(tmp_path, "m.px", text)
+    assert run("sheet", p, "-o", tmp_path / "s.png", "--fit", *more) == 0
+    return Image.open(tmp_path / "s.png").convert("RGBA")
+
+
+def test_sheet_fit_is_smaller_than_max_cells(tmp_path):
+    p = write(tmp_path, "m.px", MIXED)
+    assert run("sheet", p, "-o", tmp_path / "a.png") == 0
+    big = Image.open(tmp_path / "a.png")
+    small = fit_sheet(tmp_path)
+    assert small.width < big.width and small.height == big.height  # one row: its tallest frame, the beast
+
+
+def test_sheet_fit_cells_are_their_own_width(tmp_path):
+    from PIL import ImageDraw
+    img = fit_sheet(tmp_path, "--scale", "4", "--cols", "4")
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    its = pxart.all_items([str(tmp_path / "m.px")])
+    lws = [max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
+    cws = [max(it.img.width * 4, l + (it.img.width if it.img.height <= 22 else 0) + 8) for it, l in zip(its, lws)]
+    assert img.width == 10 + sum(w + 10 for w in cws)
+    assert img.height == 10 + 40 + 26 + 10  # the beast is 10 tall at scale 4
+
+
+def test_sheet_fit_rows_are_as_tall_as_their_tallest(tmp_path):
+    img = fit_sheet(tmp_path, "--scale", "4", "--cols", "2")
+    # row 1: tile (4 tall) and beast (10): 40; row 2: dot (1) and wide (1): 4
+    assert img.height == 10 + (40 + 26 + 10) + (4 + 26 + 10)
+
+
+def test_sheet_fit_frames_bottom_aligned_in_their_row(tmp_path):
+    img = fit_sheet(tmp_path, "--scale", "1", "--cols", "4")
+    bg, fill = pxart.rgba("#3a3a44"), (0, 255, 0, 255)
+    # tile is 4x4 in a 10-tall row: rows 0-5 of its cell are backdrop, its top row (all g) is at y 10+6.
+    from PIL import ImageDraw
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    cw = max(4, max(pxart.text_w(probe, "tile"), pxart.text_w(probe, "4x4 99c")) + 4 + 8)
+    x0 = 10 + (cw - 4) // 2  # centered across its cell
+    assert img.getpixel((10, 10)) == bg
+    col = [img.getpixel((x0, 10 + y)) for y in range(10)]
+    assert col[:6] == [bg] * 6 and col[6] == fill
+
+
+def test_sheet_fit_one_cell_a_row_is_each_frames_width(tmp_path):
+    img = fit_sheet(tmp_path, "--scale", "8", "--cols", "1")
+    assert img.height == 10 + sum(h * 8 + 26 + 10 for h in (4, 10, 1, 1))
+
+
+def test_sheet_fit_one_frame_is_the_default(tmp_path):
+    p = write(tmp_path, "one.px", "k #000000\n\nkk\n")
+    assert run("sheet", p, "-o", tmp_path / "a.png") == 0
+    assert run("sheet", p, "-o", tmp_path / "b.png", "--fit") == 0
+    assert Image.open(tmp_path / "a.png").tobytes() == Image.open(tmp_path / "b.png").tobytes()
+
+
+def test_sheet_fit_keeps_labels_and_1x_copy(tmp_path):
+    img = fit_sheet(tmp_path, "--scale", "4", "--cols", "4")
+    # the 1x copy of 'tile' (4x4, under 22 tall) sits right of its label, below the cell.
+    x_tile = 10
+    from PIL import ImageDraw
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    lw = max(pxart.text_w(probe, "tile"), pxart.text_w(probe, "4x4 99c"))
+    cw = max(16, lw + 4 + 8)
+    y = 10 + 40 + 4
+    assert img.getpixel((x_tile + cw - 4 - 2, y)) == (0, 255, 0, 255)
+
+
+def test_sheet_fit_mixed_files_and_pngs(tmp_path):
+    p = write(tmp_path, "m.px", MIXED)
+    Image.new("RGBA", (30, 2), (9, 9, 9, 255)).save(tmp_path / "x.png")
+    assert run("sheet", p, tmp_path / "x.png", "-o", tmp_path / "s.png", "--fit", "--scale", "1") == 0
+    assert Image.open(tmp_path / "s.png").height == 10 + 10 + 26 + 10
+
+
+def test_help_documents_sheet_fit():
+    doc = " ".join(pxart.__doc__.split())
+    assert "[--bg #3a3a44] [--fit]" in doc
+    assert "--fit makes each cell its own frame's width (or its label's, if wider)" in doc
