@@ -159,7 +159,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   frame lands after its animation; a new file gets the layers' whole palette, their shared
   `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
   its keys; `--under` draws the layers behind the frame that's there, in its empty
-  pixels), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
+  pixels; a key a layer has in another color than OUT's is `E_KEY_CONFLICT`, one line per
+  source file with free keys for it, and `--rekey` gives it those keys in OUT and leaves
+  the source file alone, as it does for `crop`, `paste` and `frames --copy-to`), `dup` (copy a frame), `anim-set` (timing), `palette --add`. Edits
   rewrite only the lines that changed, keeping the file's blank lines and comments, and
   an edit that changes nothing says `no change` and leaves the file alone. `-o OUT`
   always writes the whole file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px

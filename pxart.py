@@ -170,7 +170,8 @@ CHECKING
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
-  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--copy-to DST [ID...]]
+  frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
+         [--copy-to DST [ID...] [--rekey]]
       List frames, sizes, durations (only for animation frames; 'still' for @still groups
       and every frame under '@still *') and animations; or delete / reorder frames (prints
       what it removed or moved, not the listing; a move to where the frames already are
@@ -185,7 +186,8 @@ CHECKING
       order and land after their group's last frame in DST, at the end for a new group, or
       at --after/--before a DST frame: 'frames hero.px:walk --copy-to beast.px --after idle/3'.
       Their keys join DST's palette (in DST's variants too); a key DST has in another color
-      is E_KEY_CONFLICT, as for compose. A frame id DST already has is E_DUP_FRAME. To put
+      is E_KEY_CONFLICT, as for compose, and --rekey gives it a free key in DST as compose's
+      does. A frame id DST already has is E_DUP_FRAME. To put
       back a frame removed by mistake, copy it from a copy of the file, --after its neighbor.
 
 EDITING (writes .px; -o defaults to editing the input in place)
@@ -264,12 +266,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
       :SEL moves keys in every frame; moves over more than one frame print "applied to N
       frames".
-  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [-o OUT]
+  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey]
+        [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
-      Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose.
-  compose -o OUT[:frame] [--size WxH] [--under] LAYER@x,y [LAYER@x,y ...]
+      Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
+      --rekey gives them free keys in DST, as compose's does.
+  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] LAYER@x,y [LAYER@x,y ...]
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
       pixels (a floor or a shadow under a finished sprite). The frame must exist.
@@ -277,12 +281,20 @@ EDITING (writes .px; -o defaults to editing the input in place)
       An existing OUT keeps its own palette and @palette; each layer's keys are added to it
       unless the key already exists with the same color. A key a layer uses in another color
       than OUT's (or an earlier layer's) is E_KEY_CONFLICT, one line per source file (all its
-      layers: 'layers 1-4, 7 (field.px)') naming every key and both colors, with the one
-      recolor 'a>b' line that gives them free keys. The free keys are chosen once for the
-      whole compose, so the lines' fixes don't collide and can be run in any order: letters
-      and digits first, then % + - / : ^ _, and only when those run out the keys a shell
-      reads (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (, and =); a key OUT already
-      has in that color is suggested first. A new OUT
+      layers: 'layers 1-4, 7 (field.px)') naming every key and both colors, and free keys
+      for them ('s>a' 't>b'). The free keys are chosen once for the whole compose, so no two
+      lines' suggestions collide: a key OUT already has in that color first, then letters
+      and digits, then % + - / : ^ _, and only when those run out the keys a shell reads
+      (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (, and =). Two ways to use them,
+      both leaving the layers' files as they are:
+        --rekey: compose gives those keys the free ones in OUT as it goes (the files are
+          read, never written) and a note says which: 'note: --rekey gives field.px's keys
+          free ones in scene.px: 's>a' 't>b' (field.px is unchanged)'. Composing from the
+          same file into OUT again reuses them (OUT has them in those colors by then).
+        a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside
+          OUT), then compose from rekeyed/field.px; the line prints it ready to run.
+      (recolor field.px 's>a' 't>b' with no -o renames them in field.px itself, in every
+      frame: right when the file itself should change.) A new OUT
       starts with the layers' whole palettes, used or not, so a later 'shade --ramp' or
       recolor finds its keys: when every layer imports the same
       @palette files, OUT imports them too (re-pointed from OUT's directory); otherwise their
@@ -437,7 +449,7 @@ ERROR CODES
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, json, math, os, pathlib, re, shlex, string, sys, unicodedata
+import argparse, contextlib, io, json, math, os, pathlib, re, shlex, string, sys, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
@@ -1473,17 +1485,25 @@ def new_keys(bad, src_pal, have, taken):
     return moves
 
 
-def conflict_issue(bad, src_doc, have, what, dst_name, redo, moves, whose=None):
+def conflict_issue(bad, src_doc, have, what, dst_name, redo, moves, whose=None, copy=None):
     """One E_KEY_CONFLICT naming every clashing key of src, both colors (and whose dst's is: whose, key -> label), and
-    a fix that works: recolor 'k>K' gives src's keys free ones (no pixel changes color), then `redo` again."""
+    two fixes that keep both colors and leave src as it is: `redo` --rekey, which gives src's keys `moves` in dst only,
+    or recolor 'k>K' into `copy` (a path under dst's directory) and `redo` from that. A copy that is src itself (it
+    already is one) is recolored in place."""
     src_pal = src_doc.resolved()
     if moves is None:
         fix = "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
     else:
         whose_keys = what + ("'" if what.endswith("s") else "'s")  # this layer's, these layers'
-        fix = (f"; to keep both colors, give {whose_keys} keys free ones (no pixel changes color), then {redo} again: "
-               "pxart recolor " + " ".join(shlex.quote(x) for x in [str(src_doc.path)] + [f"{k}>{v}" for k, v in
-                                                                                        moves.items()]))
+        mv = " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items())
+        src = str(src_doc.path)
+        copy = pathlib.Path(copy) if copy else None
+        same = copy is None or copy.resolve() == src_doc.path.resolve()
+        recipe = " ".join(["pxart recolor", shlex.quote(src), mv] + ([] if same else ["-o", shlex.quote(str(copy))]))
+        fix = (f"; to keep both colors (no pixel changes color), add --rekey: {redo} then gives {whose_keys} keys "
+               f"free ones in {dst_name} ({mv}) and leaves {src} as it is. Or "
+               + (f"give them those keys in {src} itself: {recipe}" if same else
+                  f"give them those keys in a copy and {REDO_FROM.get(redo, redo)} from that: {recipe}"))
     n = len(bad)
     each = ", ".join(f"{k!r} {fmt_color(src_pal[k])} ({fmt_color(have[k])} there"
                      + (f", from {whose[k]}" if whose and whose.get(k) else "") + ")" for k in bad)
@@ -1491,14 +1511,46 @@ def conflict_issue(bad, src_doc, have, what, dst_name, redo, moves, whose=None):
                  f"{'are other colors' if n > 1 else 'is another color'} in {dst_name}: {each}{fix}")
 
 
-def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, clear=False):
+REDO_FROM = {"frames --copy-to": "copy the frames"}  # '... and copy the frames from that'
+
+
+def rekey_copy(src, dst, taken=None):
+    """Where E_KEY_CONFLICT's recolor writes src's copy: 'rekeyed/' beside dst (its directory as typed), under src's
+    name; `taken` (copies already suggested, which it adds to) gets NAME-2.px and so on, so two sources never share one."""
+    src = pathlib.Path(src)
+    base = pathlib.Path(dst).parent / "rekeyed"
+    copy, n = base / src.name, 1
+    while taken is not None and copy.resolve() in taken:
+        n += 1
+        copy = base / f"{src.stem}-{n}{src.suffix}"
+    if taken is not None:
+        taken.add(copy.resolve())
+    return copy
+
+
+def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, clear=False, dst_path=None):
     """One source's clashes with dst as an E_KEY_CONFLICT Issue (conflict_issue), or None when there are none."""
     bad = clashes(dst_doc, src_doc, keys, clear)
     if not bad:
         return None
     have = dst_doc.resolved()
     moves = new_keys(bad, src_doc.resolved(), have, set(have) | set(src_doc.resolved()))
-    return conflict_issue(bad, src_doc, have, what, dst_name, redo, moves)
+    return conflict_issue(bad, src_doc, have, what, dst_name, redo, moves,
+                          copy=rekey_copy(src_doc.path, dst_path or dst_name))
+
+
+def rekey(doc, moves, frames=()):
+    """--rekey: doc's keys move in memory only (doc is never saved): each k's pixels become v in every frame (and in
+    `frames`, copies such as a mirrored layer), and k's palette and variant lines become v's (rename_key)."""
+    for f in {id(f): f for f in list(doc.frames) + list(frames)}.values():
+        f.grid = ["".join(moves.get(c, c) for c in r) for r in f.grid]
+    for k, v in moves.items():
+        rename_key(doc, k, v)
+
+
+def said_rekey(src, dst, moves):
+    return (f"note: --rekey gives {src}'s keys free ones in {dst}: "
+            + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items()) + f" ({src} is unchanged)")
 
 
 def spans(ns):
@@ -1512,11 +1564,11 @@ def spans(ns):
     return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
-def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste"):
+def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None):
     """Copy src frame (or a region of it) onto dst frame at `at`; '.'/transparent keys don't overwrite. under: only
     onto dst's empty (transparent) pixels, so src goes behind what dst has."""
     src_pal = src_doc.resolved()
-    clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, dst_doc.path, redo)
+    clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
     for k in set("".join(src.grid)):
@@ -2060,7 +2112,15 @@ def frames_copy(a, doc, sel, picked):
     anchor = dst.get(a.after or a.before or "")
     if (a.after or a.before) and not anchor:
         fail("E_SELECT", f"--{'after' if a.after else 'before'} {a.after or a.before!r}: no such frame in {dpath}")
-    pal, keys = doc.resolved(), set("".join(r for f in picked for r in f.grid))
+    keys = set("".join(r for f in picked for r in f.grid))
+    if a.rekey:
+        moves = new_keys(clashes(dst, doc, keys, clear=True), doc.resolved(), dst.resolved(),
+                         set(dst.resolved()) | set(doc.resolved()))
+        if moves:
+            rekey(doc, moves)
+            keys = set("".join(r for f in picked for r in f.grid))
+            print(said_rekey(doc.path, dpath, moves))
+    pal = doc.resolved()
     clash = key_conflicts(dst, doc, keys, "SRC", dpath, "frames --copy-to", clear=True)
     if clash:
         clash.ctx = f"FILE ({a.file})"
@@ -2501,9 +2561,15 @@ def cmd_paste(a):
             fail("E_BAD_ARG", f"paste copies a .px frame, got {src.label}")
     ddoc, dframes, out = edit_target(a.into, a.o, "--into")
     ax, ay = map(int, a.at.split(","))
+    if a.rekey:
+        moves = new_keys(clashes(ddoc, src.doc, set("".join(src.frame.grid))), src.doc.resolved(), ddoc.resolved(),
+                         set(ddoc.resolved()) | set(src.doc.resolved()))
+        if moves:
+            rekey(src.doc, moves, [src.frame])
+            print(said_rekey(src.doc.path, out, moves))
     for f in dframes:
         with reading(f"SRC ({a.src})"):
-            stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region, a.under)
+            stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region, a.under, out=out)
     print(write_doc(ddoc, out))
 
 
@@ -3122,7 +3188,7 @@ def cmd_shade(a):
     print(f"{changes(by)};", write_doc(doc, out))
 
 
-def seed_palette(doc, layers):
+def seed_palette(doc, layers, gone=None):
     """A new compose OUT starts with its layers' whole palettes, not only the keys they use, so a later shade ramp
     or recolor finds its keys. When every layer imports the same @palette files, OUT imports them too (re-pointed
     from OUT); otherwise their colors become key lines. Then each layer's keys join in layer order, the keys the
@@ -3130,7 +3196,8 @@ def seed_palette(doc, layers):
     layer) stays an override, and an unused key whose char another layer has in another color is left out (a used
     one is E_KEY_CONFLICT when stamped). Variants come along for the keys OUT has in the same base color, the
     first layer's winning. Returns what was left out, [(key, the layer it's left out of, the layer whose color OUT
-    has, whether that layer uses it)], and {key: (the layer whose color OUT has, whether it uses it)}."""
+    has, whether that layer uses it)], and {key: (the layer whose color OUT has, whether it uses it)}. gone: {id(layer
+    doc): keys --rekey moved away}, which a shared import may still hold: never seeded."""
     docs = list({id(lay.doc): lay.doc for lay, *_ in layers}.values())
     names = {}
     for lay, _, _, label in layers:
@@ -3146,7 +3213,8 @@ def seed_palette(doc, layers):
     for want_used in (True, False):
         for d in docs:
             for k, c in d.resolved().items():
-                if k == "." or (k in used[id(d)]) != want_used or (keep and k in d.shared and k not in d.palette):
+                if k == "." or (k in used[id(d)]) != want_used or (keep and k in d.shared and k not in d.palette) \
+                        or k in (gone or {}).get(id(d), ()):
                     continue
                 have = doc.resolved()
                 if k not in have or (have[k] != c and k not in doc.palette):
@@ -3165,6 +3233,26 @@ def seed_palette(doc, layers):
 
 
 def cmd_compose(a):
+    """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash and where they can go; those
+    move in the layers' docs (in memory, the files stay as they are) and the compose runs for real."""
+    layers = compose_layers(a)
+    gone = {}
+    if getattr(a, "rekey", False):
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):  # its notes are the real run's
+                compose(a, layers, dry=True)
+        except PxError as e:
+            for path, moves in getattr(e, "moves", {}).items():
+                for lay, *_ in layers:
+                    if lay.doc.path.resolve() == path:
+                        rekey(lay.doc, moves, [lay.frame])
+                        gone[id(lay.doc)] = set(moves)
+                src = next(lay.doc.path for lay, *_ in layers if lay.doc.path.resolve() == path)
+                print(said_rekey(src, split_sel(a.o)[0], moves))
+    compose(a, layers, gone=gone)
+
+
+def compose_layers(a):
     layers = []
     for n, spec in enumerate(a.layers, 1):
         label = f"layer {n} ({spec.rpartition('@')[0] or spec})"  # the layer, without its @x,y
@@ -3174,6 +3262,12 @@ def cmd_compose(a):
             if not lay.doc:
                 fail("E_BAD_ARG", f"compose layers must be .px frames, got {lay.label}")
         layers.append((lay, x, y, label))
+    return layers
+
+
+def compose(a, layers, dry=False, gone=None):
+    """compose's run over loaded layers; dry: stop before writing (conflicts are raised all the same, with the keys they
+    can move to as e.moves). gone: {id(layer doc): keys --rekey moved away}, left out of a new OUT's palette."""
     opath, osel = split_sel(a.o)
     note_suffix(opath)
     fresh, under = not pathlib.Path(opath).exists(), None  # under: the frame the layers go behind
@@ -3193,7 +3287,7 @@ def cmd_compose(a):
         target.grid = under
     whose = {}  # key -> the layer whose color OUT has
     if fresh:
-        left_out, seeded = seed_palette(doc, layers)
+        left_out, seeded = seed_palette(doc, layers, gone)
         whose = {k: w[0] for k, w in seeded.items()}
         left = {}
         for k, lost, kept, uses in left_out:
@@ -3224,17 +3318,24 @@ def cmd_compose(a):
                 doc.add_key(k, pal[k])
                 whose[k] = label
     if clashed:  # one recolor per file, covering every layer of it; free keys chosen once, so no two collide
-        have, issues = doc.resolved(), []
+        have, issues, found, copies = doc.resolved(), [], {}, set()
         taken = set(have) | {k for lay, *_ in layers for k in lay.doc.resolved()}
-        for c in clashed.values():
+        for path, c in clashed.items():
             src, ns = c["layers"][0][2], [n for n, *_ in c["layers"]]
             bad = sorted(c["keys"])
+            moves = new_keys(bad, src.resolved(), have, taken)
             issue = conflict_issue(bad, src, have, "this layer" if len(ns) == 1 else "these layers",
-                                   f"the new {opath}" if fresh else opath, "compose",
-                                   new_keys(bad, src.resolved(), have, taken), whose)
+                                   f"the new {opath}" if fresh else opath, "compose", moves, whose,
+                                   rekey_copy(src.path, opath, copies))
             issue.ctx = c["layers"][0][1] if len(ns) == 1 else f"layers {spans(ns)} ({src.path})"
             issues.append(issue)
-        raise PxError(issues)
+            if moves:
+                found[path] = moves
+        err = PxError(issues)
+        err.moves = found
+        raise err
+    if dry:
+        return
     for lay, x, y, label in layers:
         w, h = lay.frame.size
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
@@ -3679,6 +3780,9 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
+REKEY_HELP = "give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are"
+
+
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
     ap = argparse.ArgumentParser(prog="pxart", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -3708,6 +3812,7 @@ def parser(describe=True):
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
+    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p = sub.add_parser("flip"); p.add_argument("file"); p.add_argument("-o"); p.add_argument("--v", action="store_true")
     p = sub.add_parser("rotate"); p.add_argument("file"); p.add_argument("angle", choices=["90", "180", "270"])
     p.add_argument("-o")
@@ -3729,9 +3834,11 @@ def parser(describe=True):
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
     p.add_argument("-o")
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
+    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
+    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
     p.add_argument("--still", action="store_true", help="mark the frame's group '@still GROUP'")
@@ -3770,6 +3877,7 @@ def parser(describe=True):
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
+    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

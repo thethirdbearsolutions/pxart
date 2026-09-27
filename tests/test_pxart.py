@@ -4667,8 +4667,11 @@ def test_frames_copy_key_conflict_names_all_with_fix(tmp_path):
     assert msg.startswith(f"frames: FILE ({s}:walk): E_KEY_CONFLICT: 1 key of SRC is another color in {d}: 'w' #ffffff "
                           "(#eeeeee there)")
     assert d.read_text() == before
-    assert run(*shlex.split(msg.split("again: pxart ", 1)[1])) == 0
-    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    fix = fix_of(msg)
+    assert fix == ["recolor", str(s), "w>a", "-o", str(tmp_path / "rekeyed" / "s.px")]
+    src = s.read_text()
+    assert run(*fix) == 0 and s.read_text() == src
+    assert run("frames", f"{fix[-1]}:walk", "--copy-to", d) == 0
     assert plays(d, "walk/0")[0][None] == plays(s, "walk/0")[0][None]
 
 
@@ -4768,7 +4771,7 @@ def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
 
 def test_help_documents_frames_copy_to():
     doc = pxart.__doc__
-    assert "[--copy-to DST [ID...]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+    assert "[--copy-to DST [ID...] [--rekey]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
 
 
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
@@ -4916,14 +4919,38 @@ def conflict_layers(tmp_path):
     return a, b, c
 
 
+def fix_of(msg):
+    """The recolor an E_KEY_CONFLICT line suggests, as argv: the words after its last ': pxart '."""
+    import shlex
+    return shlex.split(msg.rsplit(": pxart ", 1)[1])
+
+
+def from_copies(argv, fixes):
+    """argv with every input a fix copied (recolor SRC ... -o COPY) read from its copy instead."""
+    swap = {f[1]: f[-1] for f in fixes if "-o" in f}
+    out = []
+    for x in map(str, argv):
+        for src, copy in swap.items():
+            if x == src or x.startswith(src + ":") or x.startswith(src + "@") or x.startswith(src + "+"):
+                x = copy + x[len(src):]
+        out.append(x)
+    return out
+
+
+def rekeyed(tmp_path, name):
+    return tmp_path / "rekeyed" / name
+
+
 def test_compose_conflict_new_out_lists_every_key_both_colors_and_origin(tmp_path):
     a, b, c = conflict_layers(tmp_path)
     out = tmp_path / "o.px"
     msg = run_err("compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1")
     assert msg == (f"compose: layer 2 ({b}): E_KEY_CONFLICT: 3 keys of this layer are other colors in the new {out}: "
                    f"'h' #aaaaaa (#111111 there, from layer 1 ({a})), 'n' #bbbbbb (#222222 there, from layer 1 ({a})), "
-                   f"'w' #f6ecd2 (#eee0b8 there, from layer 1 ({a})); to keep both colors, give this layer's keys free "
-                   f"ones (no pixel changes color), then compose again: pxart recolor {b} 'h>a' 'n>b' 'w>c'")
+                   f"'w' #f6ecd2 (#eee0b8 there, from layer 1 ({a})); to keep both colors (no pixel changes color), "
+                   f"add --rekey: compose then gives this layer's keys free ones in the new {out} ('h>a' 'n>b' 'w>c') "
+                   f"and leaves {b} as it is. Or give them those keys in a copy and compose from that: pxart recolor {b} "
+                   f"'h>a' 'n>b' 'w>c' -o {tmp_path / 'rekeyed' / 'b.px'}")
     assert not out.exists()
     assert " here" not in msg and "recolor one side" not in msg
 
@@ -4935,8 +4962,10 @@ def test_compose_conflict_every_layer_at_once(tmp_path):
     assert len(lines) == 2
     assert lines[0].startswith(f"compose: layer 2 ({b}): E_KEY_CONFLICT: 3 keys")
     assert lines[1] == (f"compose: layer 3 ({c}): E_KEY_CONFLICT: 1 key of this layer is another color in the new "
-                        f"{out}: 'q' #654321 (#123456 there, from layer 2 ({b})); to keep both colors, give this layer's "
-                        f"keys free ones (no pixel changes color), then compose again: pxart recolor {c} 'q>d'")
+                        f"{out}: 'q' #654321 (#123456 there, from layer 2 ({b})); to keep both colors (no pixel changes "
+                        f"color), add --rekey: compose then gives this layer's keys free ones in the new {out} ('q>d') "
+                        f"and leaves {c} as it is. Or give them those keys in a copy and compose from that: pxart "
+                        f"recolor {c} 'q>d' -o {tmp_path / 'rekeyed' / 'c.px'}")
 
 
 def test_compose_conflict_recipe_works(tmp_path, capsys):
@@ -4945,10 +4974,10 @@ def test_compose_conflict_recipe_works(tmp_path, capsys):
     a, b, c = conflict_layers(tmp_path)
     out = tmp_path / "o.px"
     argv = ["compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1"]
-    for line in run_err(*argv).splitlines():
-        fix = shlex.split(line.split("again: pxart ", 1)[1])
+    fixes = [fix_of(line) for line in run_err(*argv).splitlines()]
+    for fix in fixes:
         assert run(*fix) == 0
-    assert run(*argv) == 0
+    assert run(*from_copies(argv, fixes)) == 0
     img = pxart.parse(out).image(pxart.parse(out).frames[0])
     want = {(0, 0): "#111111", (1, 0): "#222222", (2, 0): "#eee0b8", (0, 1): "#aaaaaa", (1, 1): "#654321",
             (2, 1): "#f6ecd2", (3, 1): "#123456"}
@@ -4962,8 +4991,10 @@ def test_compose_conflict_existing_out(tmp_path):
     before = out.read_text()
     msg = run_err("compose", "-o", f"{out}:y", f"{b}@0,0")
     assert msg == (f"compose: layer 1 ({b}): E_KEY_CONFLICT: 2 keys of this layer are other colors in {out}: "
-                   "'h' #aaaaaa (#111111 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors, give this layer's "
-                   f"keys free ones (no pixel changes color), then compose again: pxart recolor {b} 'h>a' 'w>b'")
+                   "'h' #aaaaaa (#111111 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors (no pixel changes "
+                   f"color), add --rekey: compose then gives this layer's keys free ones in {out} ('h>a' 'w>b') and "
+                   f"leaves {b} as it is. Or give them those keys in a copy and compose from that: pxart recolor {b} "
+                   f"'h>a' 'w>b' -o {tmp_path / 'rekeyed' / 'b.px'}")
     assert out.read_text() == before
 
 
@@ -4980,7 +5011,7 @@ def test_compose_conflict_free_keys_avoid_every_layer_and_out(tmp_path):
     b = write(tmp_path, "b.px", "k #ffffff\nc #00ff00\n\nk\n")
     out = write(tmp_path, "o.px", "a #ff0000\n@frame x\na\n")
     msg = run_err("compose", "-o", f"{out}:y", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
-    assert msg.endswith(f"pxart recolor {b} 'k>d'")
+    assert fix_of(msg)[:3] == ["recolor", str(b), "k>d"]
 
 
 def test_compose_conflict_quotes_paths_and_keys_for_the_shell(tmp_path):
@@ -4990,9 +5021,9 @@ def test_compose_conflict_quotes_paths_and_keys_for_the_shell(tmp_path):
     a = write(d, "a.px", "' #000000\n\n'\n")
     b = write(d, "b.px", "' #ffffff\n\n'\n")
     msg = run_err("compose", "-o", tmp_path / "o.px", "--size", "2x1", f"{a}@0,0", f"{b}@1,0")
-    fix = shlex.split(msg.split("again: pxart ", 1)[1])
-    assert fix == ["recolor", str(b), "'>a"]
-    assert run(*fix) == 0 and pxart.parse(b).frames[0].grid == ["a"]
+    fix = fix_of(msg)
+    assert fix == ["recolor", str(b), "'>a", "-o", str(tmp_path / "rekeyed" / "b.px")]
+    assert run(*fix) == 0 and pxart.parse(fix[-1]).frames[0].grid == ["a"]
 
 
 def test_compose_conflict_transparent_keys_never_conflict(tmp_path):
@@ -5014,17 +5045,19 @@ def test_paste_conflict_lists_every_key_with_fix(tmp_path):
     before = a.read_text()
     msg = run_err("paste", b, "--into", a, "--at", "0,0")
     assert msg == (f"paste: SRC ({b}): E_KEY_CONFLICT: 3 keys of SRC are other colors in {a}: 'h' #aaaaaa (#111111 "
-                   "there), 'n' #bbbbbb (#222222 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors, give SRC's "
-                   f"keys free ones (no pixel changes color), then paste again: pxart recolor {b} 'h>a' 'n>b' 'w>c'")
+                   "there), 'n' #bbbbbb (#222222 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors (no pixel "
+                   f"changes color), add --rekey: paste then gives SRC's keys free ones in {a} ('h>a' 'n>b' 'w>c') and "
+                   f"leaves {b} as it is. Or give them those keys in a copy and paste from that: pxart recolor {b} "
+                   f"'h>a' 'n>b' 'w>c' -o {tmp_path / 'rekeyed' / 'b.px'}")
     assert a.read_text() == before
 
 
 def test_paste_conflict_recipe_works(tmp_path):
     import shlex
     a, b, c = conflict_layers(tmp_path)
-    fix = shlex.split(run_err("paste", b, "--into", a, "--at", "0,0").split("again: pxart ", 1)[1])
+    fix = fix_of(run_err("paste", b, "--into", a, "--at", "0,0"))
     assert run(*fix) == 0
-    assert run("paste", b, "--into", a, "--at", "0,0") == 0
+    assert run("paste", fix[-1], "--into", a, "--at", "0,0") == 0
     doc = pxart.parse(a)
     assert doc.image(doc.frames[0]).getpixel((2, 0)) == pxart.hex2rgba("#f6ecd2")
 
@@ -10557,8 +10590,10 @@ def test_conflict_one_line_for_a_file_used_as_many_layers(tmp_path):
     lines = run_err(*floor_argv(f, out)).splitlines()
     assert lines == [f"compose: layers 1-4 ({f}): E_KEY_CONFLICT: 4 keys of these layers are other colors in {out}: "
                      "'s' #00ff00 (#111111 there), 't' #008800 (#222222 there), 'u' #88ff88 (#333333 there), "
-                     "'v' #ff00ff (#444444 there); to keep both colors, give these layers' keys free ones (no pixel "
-                     f"changes color), then compose again: pxart recolor {f} 's>a' 't>b' 'u>c' 'v>d'"]
+                     "'v' #ff00ff (#444444 there); to keep both colors (no pixel changes color), add --rekey: compose "
+                     f"then gives these layers' keys free ones in {out} ('s>a' 't>b' 'u>c' 'v>d') and leaves {f} as it "
+                     "is. Or give them those keys in a copy and compose from that: pxart recolor "
+                     f"{f} 's>a' 't>b' 'u>c' 'v>d' -o {tmp_path / 'rekeyed' / 'field.px'}"]
 
 
 def test_conflict_covers_every_frame_the_compose_uses_from_the_file(tmp_path):
@@ -10579,16 +10614,17 @@ def test_conflict_only_the_used_frames_keys(tmp_path):
 def test_conflict_same_key_twice_in_a_file_is_named_once(tmp_path):
     f, out = field_scene(tmp_path)
     msg = run_err(*floor_argv(f, out, 7))
-    assert msg.count("'s' #00ff00") == 1 and msg.count("'s>") == 1 and "layers 1-7" in msg
+    assert msg.count("'s' #00ff00") == 1 and msg.count("'s>") == 2 and "layers 1-7" in msg  # --rekey's and the copy's
 
 
 def test_conflict_recipe_runs_once_and_the_compose_goes_through(tmp_path):
     import shlex
     f, out = field_scene(tmp_path)
     argv = floor_argv(f, out, 7)
-    fix = shlex.split(run_err(*argv).split("again: pxart ", 1)[1])
-    assert run(*fix) == 0
-    assert run(*argv) == 0
+    fix = fix_of(run_err(*argv))
+    before = f.read_text()
+    assert run(*fix) == 0 and f.read_text() == before
+    assert run(*from_copies(argv, [fix])) == 0
     doc = pxart.parse(out)
     img = doc.image(doc.get("floor"))
     assert img.getpixel((0, 0)) == pxart.hex2rgba("#00ff00") and img.getpixel((1, 0)) == pxart.hex2rgba("#008800")
@@ -10611,7 +10647,7 @@ def test_conflict_single_layer_keeps_its_label(tmp_path):
     f, out = field_scene(tmp_path)
     msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
     assert msg.startswith(f"compose: layer 1 ({f}:grass_a): E_KEY_CONFLICT: 2 keys of this layer are other colors")
-    assert "give this layer's keys free ones" in msg
+    assert "gives this layer's keys free ones" in msg
 
 
 def test_conflict_suggestions_of_several_files_never_collide(tmp_path):
@@ -10623,12 +10659,12 @@ def test_conflict_suggestions_of_several_files_never_collide(tmp_path):
             f"{f}:grass_c@4,1"]
     lines = run_err(*argv).splitlines()
     assert len(lines) == 3
-    fixes = [shlex.split(l.split("again: pxart ", 1)[1]) for l in lines]
-    new = [m.split(">")[1] for fix in fixes for m in fix[2:]]
+    fixes = [fix_of(l) for l in lines]
+    new = [m.split(">")[1] for fix in fixes for m in fix[2:-2]]
     assert len(new) == len(set(new)), new
     for fix in reversed(fixes):  # any order works
         assert run(*fix) == 0
-    assert run(*argv) == 0
+    assert run(*from_copies(argv, fixes)) == 0
 
 
 def test_conflict_fixes_run_in_order_too(tmp_path):
@@ -10636,23 +10672,24 @@ def test_conflict_fixes_run_in_order_too(tmp_path):
     f, out = field_scene(tmp_path)
     g = write(tmp_path, "g.px", "s #0000aa\n\ns\n")
     argv = ["compose", "-o", f"{out}:floor", "--size", "4x2", f"{f}:grass_a@0,0", f"{g}@2,0", f"{f}:flowers@2,0"]
-    for line in run_err(*argv).splitlines():
-        assert run(*shlex.split(line.split("again: pxart ", 1)[1])) == 0
-    assert run(*argv) == 0
+    fixes = [fix_of(line) for line in run_err(*argv).splitlines()]
+    for fix in fixes:
+        assert run(*fix) == 0
+    assert run(*from_copies(argv, fixes)) == 0
 
 
 def test_conflict_reuses_a_key_out_has_in_the_same_color(tmp_path):
     f = write(tmp_path, "field.px", FIELD)
     out = write(tmp_path, "scene.px", SCENE.replace("v #444444\n", "v #444444\nJ #00ff00\n"))
     msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
-    assert msg.endswith(f"pxart recolor {f} 's>J' 't>a'")
+    assert fix_of(msg)[2:4] == ["s>J", "t>a"]
 
 
 def test_conflict_reuse_is_not_a_key_the_source_has(tmp_path):
     f = write(tmp_path, "field.px", FIELD.replace("v #ff00ff\n", "v #ff00ff\nJ #999999\n"))
     out = write(tmp_path, "scene.px", SCENE.replace("v #444444\n", "v #444444\nJ #00ff00\n"))
     msg = run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0")
-    assert "'s>J'" not in msg and msg.endswith(f"pxart recolor {f} 's>a' 't>b'")
+    assert "'s>J'" not in msg and fix_of(msg)[2:4] == ["s>a", "t>b"]
 
 
 def test_conflict_reuse_never_twice_in_one_recolor(tmp_path):
@@ -10661,9 +10698,9 @@ def test_conflict_reuse_never_twice_in_one_recolor(tmp_path):
     f = write(tmp_path, "f.px", "s #00ff00\nt #00ff00\n\nst\n")
     out = write(tmp_path, "o.px", "s #111111\nt #222222\nJ #00ff00\n@frame x\nstJ\n")
     msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
-    assert msg.endswith(f"pxart recolor {f} 's>J' 't>a'")
-    assert run(*shlex.split(msg.split("again: pxart ", 1)[1])) == 0
-    assert run("compose", "-o", f"{out}:y", f"{f}@0,0") == 0
+    assert fix_of(msg)[2:4] == ["s>J", "t>a"]
+    assert run(*fix_of(msg)) == 0
+    assert run("compose", "-o", f"{out}:y", f"{fix_of(msg)[-1]}@0,0") == 0
 
 
 def test_free_order_is_every_key_shell_safe_first():
@@ -10684,7 +10721,7 @@ def test_conflict_suggests_digits_then_safe_punctuation_before_awkward(tmp_path)
     out = write(tmp_path, "o.px", pal + "@frame x\na\n")
     f = write(tmp_path, "f.px", "a #fefefe\nb #fdfdfd\nc #fcfcfc\n\nabc\n")
     msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
-    assert msg.endswith(f"pxart recolor {f} 'a>9' 'b>%' 'c>+'")
+    assert fix_of(msg)[2:5] == ["a>9", "b>%", "c>+"]
 
 
 def test_conflict_awkward_keys_only_when_nothing_else_is_free(tmp_path):
@@ -10694,9 +10731,9 @@ def test_conflict_awkward_keys_only_when_nothing_else_is_free(tmp_path):
     out = write(tmp_path, "o.px", pal + "@frame x\na\n")
     f = write(tmp_path, "f.px", "a #fefefe\n\na\n")
     msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
-    fix = shlex.split(msg.split("again: pxart ", 1)[1])
+    fix = fix_of(msg)
     assert fix[2][2] == pxart.FREE_ORDER[len(safe)] and fix[2][2] in pxart.AWKWARD
-    assert run(*fix) == 0 and run("compose", "-o", f"{out}:y", f"{f}@0,0") == 0
+    assert run(*fix) == 0 and run("compose", "-o", f"{out}:y", f"{fix[-1]}@0,0") == 0
 
 
 def test_new_keys_helper():
@@ -10731,13 +10768,283 @@ def test_paste_and_frames_copy_suggest_shell_safe_keys_too(tmp_path):
     pal = "".join(f"{k} #{i:06x}\n" for i, k in enumerate(pxart.string.ascii_letters + pxart.string.digits, 1))
     d = write(tmp_path, "d.px", pal + "@frame x\na\n")
     s = write(tmp_path, "s.px", "a #fefefe\n@frame y\na\n")
-    assert run_err("paste", s, "--into", f"{d}:x", "--at", "0,0").endswith(f"pxart recolor {s} 'a>%'")
-    assert run_err("frames", s, "--copy-to", d).endswith(f"pxart recolor {s} 'a>%'")
+    assert fix_of(run_err("paste", s, "--into", f"{d}:x", "--at", "0,0"))[2] == "a>%"
+    assert fix_of(run_err("frames", s, "--copy-to", d))[2] == "a>%"
     assert safe[62] == "%"
 
 
 def test_help_documents_conflicts_per_file_and_safe_keys():
     doc = " ".join(pxart.__doc__.split())
     assert "one line per source file (all its layers: 'layers 1-4, 7 (field.px)')" in doc
-    assert "chosen once for the whole compose, so the lines' fixes don't collide" in doc
-    assert "letters and digits first, then % + - / : ^ _" in doc
+    assert "chosen once for the whole compose, so no two lines' suggestions collide" in doc
+    assert "then letters and digits, then % + - / : ^ _, and only when those run out" in doc
+
+
+# ---------------------------------------------------------------- --rekey: free keys in OUT, sources untouched
+
+def pixels_of(path, fid):
+    doc = pxart.parse(path)
+    img = doc.image(doc.get(fid) if fid else doc.frames[0])
+    return pxart.pixels(img)
+
+
+def test_compose_rekey_existing_out(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    before = f.read_text()
+    assert run(*floor_argv(f, out, 7), "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got == (f"note: --rekey gives {f}'s keys free ones in {out}: 's>a' 't>b' 'u>c' 'v>d' ({f} is unchanged)\n"
+                   f"wrote {out} frame floor\n")
+    assert f.read_text() == before
+    doc = pxart.parse(out)
+    assert doc.palette == {**pxart.parse(write(tmp_path, "s2.px", SCENE)).palette,
+                           "a": pxart.hex2rgba("#00ff00"), "b": pxart.hex2rgba("#008800"),
+                           "c": pxart.hex2rgba("#88ff88"), "d": pxart.hex2rgba("#ff00ff")}
+    assert doc.get("floor").grid == ["abacdaabacdaab", "bacaadbacaadba"]
+    assert doc.get("x").grid == ["stuv"]
+
+
+def test_compose_rekey_renders_like_the_copy_recipe(tmp_path):
+    f, out = field_scene(tmp_path)
+    out2 = write(tmp_path, "scene2.px", SCENE)
+    argv = floor_argv(f, out, 7)
+    fix = fix_of(run_err(*argv))
+    assert run(*fix) == 0 and run(*from_copies(argv, [fix])) == 0
+    assert run(*floor_argv(f, out2, 7), "--rekey") == 0
+    assert pixels_of(out, "floor") == pixels_of(out2, "floor")
+    assert pxart.parse(out).text().replace("scene", "") == pxart.parse(out2).text().replace("scene", "")
+
+
+def test_compose_rekey_again_reuses_the_keys(tmp_path):
+    f, out = field_scene(tmp_path)
+    assert run(*floor_argv(f, out, 3), "--rekey") == 0
+    pal = dict(pxart.parse(out).palette)
+    assert run("compose", "-o", f"{out}:more", "--size", "2x2", f"{f}:flowers@0,0", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.palette == pal and doc.get("more").grid == ["da", "ad"]
+
+
+def test_compose_rekey_new_out(tmp_path, capsys):
+    a, b, c = conflict_layers(tmp_path)
+    out = tmp_path / "o.px"
+    srcs = [x.read_text() for x in (a, b, c)]
+    assert run("compose", "-o", out, "--size", "4x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"note: --rekey gives {b}'s keys free ones in {out}: 'h>a' 'n>b' 'w>c' ({b} is unchanged)" in got
+    assert f"note: --rekey gives {c}'s keys free ones in {out}: 'q>d' ({c} is unchanged)" in got
+    assert "leaves out" not in got
+    assert [x.read_text() for x in (a, b, c)] == srcs
+    img = pxart.parse(out).image(pxart.parse(out).frames[0])
+    want = {(0, 0): "#111111", (1, 0): "#222222", (2, 0): "#eee0b8", (0, 1): "#aaaaaa", (1, 1): "#654321",
+            (2, 1): "#f6ecd2", (3, 1): "#123456"}
+    for xy, col in want.items():
+        assert img.getpixel(xy) == pxart.hex2rgba(col), xy
+
+
+def test_compose_rekey_prints_each_note_once(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    assert run("compose", "-o", f"{out}:floor", "--size", "1x1", f"{f}:grass_a@0,0", "--rekey") == 0
+    got = capsys.readouterr().out.splitlines()
+    assert len(got) == 3 and got[0].startswith("note: --rekey") and "were cropped" in got[1]
+    assert got[2] == f"wrote {out} frame floor"
+
+
+def test_compose_rekey_without_conflicts_is_a_plain_compose(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "k #000000\n\nk\n")
+    o1, o2 = tmp_path / "o1.px", tmp_path / "o2.px"
+    assert run("compose", "-o", o1, f"{a}@0,0") == 0
+    plain = capsys.readouterr().out.replace("o1", "o2")
+    assert run("compose", "-o", o2, f"{a}@0,0", "--rekey") == 0
+    assert capsys.readouterr().out == plain and o1.read_text() == o2.read_text()
+
+
+def test_compose_rekey_mirrored_layer(tmp_path):
+    f, out = field_scene(tmp_path)
+    assert run("compose", "-o", f"{out}:floor", "--size", "2x2", f"{f}:flowers+h@0,0", "--rekey") == 0
+    assert pxart.parse(out).get("floor").grid == ["ab", "ba"]  # flowers is v s / s v; s>a v>b, mirrored
+
+
+def test_compose_rekey_carries_variant_colors_into_a_new_out(tmp_path):
+    f = write(tmp_path, "f.px", "s #00ff00\n@variant night\ns #003300\n@frame a\ns\n")
+    g = write(tmp_path, "g.px", "s #111111\n@variant night\ns #010101\n@frame x\ns\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{g}:x@0,0", f"{f}:a@1,0", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid == ["sa"]
+    night = doc.image(doc.frames[0], "night")
+    assert night.getpixel((0, 0)) == pxart.hex2rgba("#010101") and night.getpixel((1, 0)) == pxart.hex2rgba("#003300")
+
+
+def test_compose_rekey_existing_out_variants_as_a_plain_compose(tmp_path):
+    # An existing OUT takes a new key's base color only (compose's rule); a rekeyed key is no different.
+    f = write(tmp_path, "f.px", "s #00ff00\n@variant night\ns #003300\n@frame a\ns\n")
+    out = write(tmp_path, "o.px", "s #111111\n@variant night\ns #010101\n@frame x\ns\n")
+    assert run("compose", "-o", f"{out}:y", f"{f}:a@0,0", "--rekey") == 0
+    doc = pxart.parse(out)
+    assert doc.get("y").grid == ["a"] and doc.palette["a"] == pxart.hex2rgba("#00ff00")
+    assert doc.image(doc.get("x"), "night").getpixel((0, 0)) == pxart.hex2rgba("#010101")
+
+
+def test_compose_rekey_shared_palette_key(tmp_path, capsys):
+    # The clashing key comes from the layer's @palette import: OUT gets it under a free key, nothing left out.
+    write(tmp_path, "pal.px", "s #00ff00\n")
+    f = write(tmp_path, "f.px", "@palette pal.px\n@frame a\ns\n")
+    g = write(tmp_path, "g.px", "s #111111\n\ns\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{g}@0,0", f"{f}:a@1,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert "leaves out" not in got and "'s>a'" in got
+    doc = pxart.parse(out)
+    assert doc.frames[0].grid == ["sa"] and doc.palette == {"s": pxart.hex2rgba("#111111"),
+                                                            "a": pxart.hex2rgba("#00ff00")}
+
+
+def test_compose_rekey_out_of_keys_still_fails(tmp_path):
+    keys = pxart.KEYS
+    a = write(tmp_path, "a.px", "".join(f"{k} #000000\n" for k in keys) + "\n" + keys[0] + "\n")
+    b = write(tmp_path, "b.px", f"{keys[0]} #ffffff\n\n{keys[0]}\n")
+    out = tmp_path / "o.px"
+    msg = run_err("compose", "-o", out, "--size", "2x1", f"{a}@0,0", f"{b}@1,0", "--rekey")
+    assert "aren't enough free keys" in msg and not out.exists()
+
+
+def test_compose_rekey_other_errors_as_without(tmp_path):
+    a = write(tmp_path, "a.px", "k #000000\n\nk\n")
+    argv = ["compose", "-o", tmp_path / "o.px", f"{a}:nope@0,0"]
+    assert run_err(*argv, "--rekey") == run_err(*argv)
+
+
+def test_compose_rekey_only_the_clashing_file(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    g = write(tmp_path, "g.px", "z #abcdef\n\nz\n")
+    assert run("compose", "-o", f"{out}:floor", "--size", "3x2", f"{f}:grass_a@0,0", f"{g}@2,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert f"{g}'s" not in got and pxart.parse(out).get("floor").grid == ["abz", "ba."]
+
+
+def test_crop_rekey(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    before = f.read_text()
+    assert run("crop", f"{f}:grass_c", "0,0,2,1", "-o", f"{out}:c", "--rekey") == 0
+    assert "note: --rekey" in capsys.readouterr().out and f.read_text() == before
+    assert pxart.parse(out).get("c").grid == ["ab"]
+
+
+def test_paste_rekey(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    before = f.read_text()
+    assert run("paste", f"{f}:grass_a", "--into", f"{out}:x", "--at", "1,0", "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got == f"note: --rekey gives {f}'s keys free ones in {out}: 's>a' 't>b' ({f} is unchanged)\nwrote {out}\n"
+    assert f.read_text() == before
+    doc = pxart.parse(out)
+    assert doc.get("x").grid == ["sabv"] and list(doc.palette)[-2:] == ["a", "b"]
+
+
+def test_paste_rekey_mirrored_and_no_conflict(tmp_path, capsys):
+    f, out = field_scene(tmp_path)
+    assert run("paste", f"{f}:grass_a+h", "--into", f"{out}:x", "--at", "0,0", "--rekey") == 0
+    assert pxart.parse(out).get("x").grid == ["bauv"]
+    capsys.readouterr()
+    k = write(tmp_path, "k.px", "z #abcdef\n\nz\n")
+    assert run("paste", k, "--into", f"{out}:x", "--at", "3,0", "--rekey") == 0
+    assert "--rekey" not in capsys.readouterr().out and pxart.parse(out).get("x").grid == ["bauz"]
+
+
+def test_frames_copy_rekey(tmp_path, capsys):
+    s = write(tmp_path, "s.px", CSRC)
+    d = write(tmp_path, "d.px", CDST.replace("k #000000\n", "k #000000\nw #eeeeee\n"))
+    before = s.read_text()
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    got = capsys.readouterr().out
+    assert got.startswith(f"note: --rekey gives {s}'s keys free ones in {d}: 'w>a' ({s} is unchanged)\n")
+    assert s.read_text() == before
+    doc = pxart.parse(d)
+    assert doc.get("walk/0").grid == ["ka", "k."] and doc.palette["a"] == pxart.hex2rgba("#ffffff")
+    assert doc.variants["night"]["a"] == pxart.hex2rgba("#888888")
+    assert plays(d, "walk/0")[0][None] == plays(s, "walk/0")[0][None]
+
+
+def test_frames_copy_rekey_transparent_key(tmp_path):
+    s = write(tmp_path, "s.px", "k #000000\nz transparent\n@frame a\nkz\n")
+    d = write(tmp_path, "d.px", "k #000000\nz #ff0000\n@frame b\nk\n")
+    assert run("frames", s, "--copy-to", d, "--rekey") == 0
+    doc = pxart.parse(d)
+    assert doc.get("a").grid == ["ka"] and doc.palette["a"] == pxart.CLEAR
+
+
+def test_rekey_copy_helper(tmp_path):
+    taken = set()
+    assert pxart.rekey_copy("art/field.px", "out/scene.px", taken) == pathlib.Path("out/rekeyed/field.px")
+    assert pxart.rekey_copy("other/field.px", "out/scene.px", taken) == pathlib.Path("out/rekeyed/field-2.px")
+    assert pxart.rekey_copy("x/field.px", "out/scene.px", taken) == pathlib.Path("out/rekeyed/field-3.px")
+    assert pxart.rekey_copy("art/field.px", "scene.px") == pathlib.Path("rekeyed/field.px")
+
+
+def test_conflict_two_sources_of_one_name_get_two_copies(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    f1 = write(tmp_path / "a", "t.px", "s #00ff00\n\ns\n")
+    f2 = write(tmp_path / "b", "t.px", "s #0000ff\n\ns\n")
+    out = write(tmp_path, "o.px", "s #111111\n@frame x\ns\n")
+    argv = ["compose", "-o", f"{out}:y", "--size", "2x1", f"{f1}@0,0", f"{f2}@1,0"]
+    fixes = [fix_of(l) for l in run_err(*argv).splitlines()]
+    assert [f[-1] for f in fixes] == [str(tmp_path / "rekeyed" / "t.px"), str(tmp_path / "rekeyed" / "t-2.px")]
+    for fix in fixes:
+        assert run(*fix) == 0
+    assert run(*from_copies(argv, fixes)) == 0
+
+
+def test_conflict_from_a_copy_suggests_renaming_it_in_place(tmp_path):
+    # Composing from rekeyed/field.px and hitting new keys: the copy is the one to rename, no copy of a copy.
+    f, out = field_scene(tmp_path)
+    fix = fix_of(run_err("compose", "-o", f"{out}:floor", f"{f}:grass_a@0,0"))
+    assert run(*fix) == 0
+    copy = fix[-1]
+    msg = run_err("compose", "-o", f"{out}:more", f"{copy}:grass_c@0,0")
+    assert f"Or give them those keys in {copy} itself: pxart recolor {copy} 'u>" in msg and " -o " not in msg
+
+
+def test_conflict_copy_goes_beside_out_as_typed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "art").mkdir()
+    write(tmp_path / "art", "field.px", FIELD)
+    write(tmp_path / "art", "scene.px", SCENE)
+    msg = run_err("compose", "-o", "art/scene.px:floor", "art/field.px:grass_a@0,0")
+    assert fix_of(msg) == ["recolor", "art/field.px", "s>a", "t>b", "-o", "art/rekeyed/field.px"]
+
+
+def test_conflict_copy_repoints_its_palette(tmp_path):
+    write(tmp_path, "pal.px", "s #00ff00\n")
+    f = write(tmp_path, "f.px", "@palette pal.px\n@frame a\ns\n")
+    out = write(tmp_path, "o.px", "s #111111\n@frame x\ns\n")
+    fix = fix_of(run_err("compose", "-o", f"{out}:y", f"{f}:a@0,0"))
+    assert run(*fix) == 0
+    assert "@palette ../pal.px" in pathlib.Path(fix[-1]).read_text()
+    assert run("compose", "-o", f"{out}:y", f"{fix[-1]}:a@0,0") == 0
+    assert pixels_of(out, "y") == [pxart.hex2rgba("#00ff00")]
+
+
+def test_rekey_helper_moves_every_frame_and_lines(tmp_path):
+    doc = pxart.parse(write(tmp_path, "f.px", "s #00ff00\nt #000000\n@variant night\ns #003300\n"
+                                            "@frame a\nst\n@frame b\nts\n"))
+    extra = pxart.Frame("m", ["ss"])
+    pxart.rekey(doc, {"s": "Q"}, [extra])
+    assert doc.get("a").grid == ["Qt"] and doc.get("b").grid == ["tQ"] and extra.grid == ["QQ"]
+    assert "s" not in doc.palette and doc.palette["Q"] == pxart.hex2rgba("#00ff00")
+    assert doc.variants["night"] == {"Q": pxart.hex2rgba("#003300")}
+
+
+def test_rekey_flags_on_the_commands():
+    for cmd in ("compose", "crop", "paste", "frames"):
+        assert "--rekey" in pxart.parser()[1].choices[cmd].format_help(), cmd
+
+
+def test_help_documents_rekey():
+    doc = " ".join(pxart.__doc__.split())
+    assert "compose -o OUT[:frame] [--size WxH] [--under] [--rekey] LAYER@x,y" in doc
+    assert "--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never written)" in doc
+    assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
+    assert "with no -o renames them in field.px itself, in every frame" in doc
+    assert "--rekey gives them free keys in DST, as compose's does" in doc
+    assert "--rekey gives it a free key in DST as compose's does" in doc
