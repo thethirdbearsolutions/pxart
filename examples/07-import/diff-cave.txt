@@ -1,2 +1,6 @@
 $ pxart diff beetle.px:walk_cave/right imported.px:walk_cave/right
+walk_cave/right/0: same: 16x16, every pixel
+walk_cave/right/1: same: 16x16, every pixel
+walk_cave/right/2: same: 16x16, every pixel
+walk_cave/right/3: same: 16x16, every pixel
 4 frame(s): 4 same
