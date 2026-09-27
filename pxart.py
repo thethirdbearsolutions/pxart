@@ -150,7 +150,7 @@ LOOKING
       opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
-      Default --scale 4 (not render's 8); --scale 1 for 1x.
+      Default --scale 4 (not render's 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
@@ -334,6 +334,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       outside the region; its '.' pixels don't overwrite what they land on.
       --wrap scrolls pixels around the edges (for animating tiles) instead of dropping them.
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
+      Prints "painted N px" ("erased" for '.').
   fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame; '.' clears)
   new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]
   new OUT --empty [--palette P.px]
@@ -611,10 +612,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       relists unchanged: l g; inherits: nothing'. The palette's comments come along: the
       palette files' header on top, a key's comment after its line ('E #ffe07a local #
       light-emitting keys'), each variant's comment under its line, and the comments on its
-      key lines as 'y: # lit in rain: harbor lamp'. A palette file has no frames, so no
-      'used' column; --in DIR counts the .px files under DIR that import it ('imported by 3
-      of the .px files under crossover/') and, per key, how many of them draw with it ('used
-      by 2 files').
+      key lines as 'y: # lit in rain: harbor lamp'. A palette file has no 'used' column; --in
+      DIR counts the .px files under DIR that import it ('imported by 3 of the .px files under
+      crossover/') and, per key, how many of them draw with it ('used by 2 files').
 
       Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
 
@@ -734,7 +734,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
   transpose FILE[:SEL] [-o OUT]            mirror across the top-left/bottom-right diagonal
       For deriving path edges and corners from one tile. -o FILE:NEWGROUP turns a copy, as
       flip's. The shading turns with the pixels (a note says where the light went), so
-      re-light with shade and outline --selective after. A frame's pivot turns with it.
+      re-light with shade and outline --selective after.
   shade FILE[:frame] --ramp d2,d1,base,l1[,l2] [--keys k1,k2] [--base K] [--light nw]
         [--strength N] [--region x,y,w,h] [--dither] [--preview P.png]
       Re-shade a material: the pixels whose key is in --keys (default: the ramp's keys, so a
@@ -4690,7 +4690,7 @@ def cmd_set(a):
                 fail("E_BAD_ARG", f"set: {x},{y} is outside {doc.label(f)} ({f.size[0]}x{f.size[1]})")
             g[y][x] = a.key
         f.grid = ["".join(r) for r in g]
-    print(write_doc(doc, out))
+    print(px_changed(doc, frames, "erased" if a.key == "." else "painted"), write_doc(doc, out))
 
 
 def cmd_crop(a):
@@ -8417,7 +8417,7 @@ def parser(describe=True):
     p.add_argument("--variant", metavar="V", help="c=#hex sets c's color in variant V (it must exist), not the base, and "
                    "'b>t' t=#hex gives the new key t a V color of its own; key moves repaint pixels, the same in "
                    "every variant")
-    p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
+    p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("points", nargs="+")
     p.add_argument("-o")
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)

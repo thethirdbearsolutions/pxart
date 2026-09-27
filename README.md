@@ -234,7 +234,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   palette lines merged like `compose`'s; checked like a file, errors at stdin's lines,
   nothing written on an error, and only that frame's lines change), `fill` (a region or
   the whole frame with one key; `fill hero.px:walk/2 .` clears a frame), `flip`, `shift` (the pixels it leaves behind become `.`,
-  or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
+  or `--fill KEY`), `set` (`set hero.px:idle/0 . 16,10` erases one stray pixel and says `erased 1 px`; it and `fill`
+  count what they paint, as the drawing commands do), `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
   another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names; `'b>t' 't=#1e4548'` gives the new key

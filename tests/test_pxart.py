@@ -1524,7 +1524,7 @@ def test_set_same_key_says_no_change(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
     before, m = snap(p)
     assert run("set", f"{p}:f", "k", "0,0") == 0
-    assert capsys.readouterr().out == f"no change: {p}\n" and untouched(p, before, m)
+    assert capsys.readouterr().out == f"painted 0 px; no change: {p}\n" and untouched(p, before, m)
 
 
 def test_set_several_points_all_same_is_no_change(tmp_path, capsys):
@@ -1537,13 +1537,13 @@ def test_set_several_points_all_same_is_no_change(tmp_path, capsys):
 def test_set_that_changes_still_writes(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
     assert run("set", f"{p}:f", "j", "0,0") == 0
-    assert capsys.readouterr().out == f"wrote {p}\n" and pxart.parse(p).get("f").grid == ["jj"]
+    assert capsys.readouterr().out == f"painted 1 px; wrote {p}\n" and pxart.parse(p).get("f").grid == ["jj"]
 
 
 def test_set_one_same_one_different_writes(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
     assert run("set", f"{p}:f", "j", "0,0", "1,0") == 0
-    assert capsys.readouterr().out.startswith("wrote")
+    assert capsys.readouterr().out == f"painted 1 px; wrote {p}\n"  # 1,0 is already j
 
 
 def test_set_erase_already_empty_is_no_change(tmp_path, capsys):
@@ -1551,6 +1551,93 @@ def test_set_erase_already_empty_is_no_change(tmp_path, capsys):
     before, m = snap(p)
     assert run("set", p, ".", "1,0") == 0
     assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_set_erase_already_empty_says_erased_0_px(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk.\n")
+    before, m = snap(p)
+    assert run("set", p, ".", "1,0") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_set_erasing_one_stray_pixel_says_erased_1_px(tmp_path, capsys):
+    # the fresh user's case: 'set F:frame . 16,10' said only 'wrote F', and needed --dry-run to be trusted
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkjk\njjj\n@frame g\nkkk\nkkk\n")
+    assert run("set", f"{p}:f", ".", "0,0") == 0
+    assert capsys.readouterr().out == f"erased 1 px; wrote {p}\n"
+    assert grids(p) == {"f": [".jk", "jjj"], "g": ["kkk", "kkk"]}
+
+
+def test_set_counts_only_pixels_that_changed(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkjk\njjj\n")
+    assert run("set", f"{p}:f", "j", "0,0", "0,0", "1,0", "2,0", "1,1") == 0  # 0,0 twice; 1,0 and 1,1 are j already
+    assert capsys.readouterr().out == f"painted 2 px; wrote {p}\n"
+    assert grids(p) == {"f": ["jjj", "jjj"]}
+
+
+def test_set_counts_every_point_it_paints(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkkkk\nkkkk\n")
+    assert run("set", f"{p}:f", "j", "0,0", "1,0", "2,1", "3,1") == 0
+    assert capsys.readouterr().out == f"painted 4 px; wrote {p}\n"
+
+
+def test_set_erase_several_points_says_erased(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkjk\njjj\n")
+    assert run("set", f"{p}:f", ".", "0,0", "1,1", "2,1") == 0
+    assert capsys.readouterr().out == f"erased 3 px; wrote {p}\n"
+    assert grids(p) == {"f": [".jk", "j.."]}
+
+
+def test_set_mixed_change_and_no_change_counts_the_change(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n.k\n")
+    assert run("set", p, ".", "0,0", "1,0") == 0  # 0,0 is empty already
+    assert capsys.readouterr().out == f"erased 1 px; wrote {p}\n"
+
+
+def test_set_several_frames_counts_each(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    assert run("set", f"{p}:*", ".", "0,0", "1,1") == 0
+    # w/0: 0,0 k and 1,1 j; w/1: 0,0 k (1,1 is empty already); w/2: both j
+    assert capsys.readouterr().out == f"edited 3 frames: w/0, w/1, w/2\nerased 5 px (w/0 2, w/1 1, w/2 2); wrote {p}\n"
+
+
+def test_set_several_frames_none_changed(tmp_path, capsys):
+    p = write(tmp_path, "m.px", SEVERAL)
+    before, m = snap(p)
+    assert run("set", f"{p}:w/1", ".", "1,1", "2,2") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and untouched(p, before, m)
+
+
+def test_set_to_o_counts_the_copy(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
+    o = tmp_path / "o.px"
+    assert run("set", f"{p}:f", "j", "0,0", "-o", o) == 0
+    out = capsys.readouterr().out
+    assert out.endswith(f"painted 1 px; wrote {o}\n") and grids(o) == {"f": ["jj"]} and grids(p) == {"f": ["kj"]}
+
+
+def test_set_dry_run_says_the_count_and_writes_nothing(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(pxart.DRY, "run", False)  # put back after: write_doc's tests call it directly
+    p = write(tmp_path, "a.px", "k #000000\nj #ffffff\n@frame f\nkj\n")
+    before, m = snap(p)
+    assert run("set", f"{p}:f", ".", "1,0", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"--- {p}\n+++ {p}\n") and "\n-kj\n+k.\n" in out
+    assert out.endswith(f"erased 1 px; would write {p}\n(dry run; nothing written)\n") and untouched(p, before, m)
+
+
+def test_set_help_says_it_counts(capsys):
+    out = " ".join(cmd_help(capsys, "set").split())
+    assert '"painted N px"' in out and "\"erased\" for '.'" in out
+
+
+def test_set_count_is_in_help_all_and_readme():
+    assert "set FILE[:frame] KEY x,y [x,y ...] [-o OUT]" in pxart.__doc__
+    doc = " ".join(pxart.__doc__.split())
+    assert "set FILE[:frame] KEY x,y [x,y ...] [-o OUT] paint single pixels ('.' erases) Prints \"painted N px\" " \
+        "(\"erased\" for '.')." in doc
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`set hero.px:idle/0 . 16,10` erases one stray pixel and says `erased 1 px`" in readme
 
 
 def test_flip_symmetric_frame_is_no_change(tmp_path, capsys):
@@ -1691,14 +1778,14 @@ def test_no_change_to_other_output_file_that_matches(tmp_path, capsys):
     o = write(tmp_path, "o.px", "k #000000\nk.\n")
     before, m = snap(o)
     assert run("set", p, "k", "0,0", "-o", o) == 0
-    assert capsys.readouterr().out == f"no change: {o}\n" and untouched(o, before, m)
+    assert capsys.readouterr().out == f"painted 0 px; no change: {o}\n" and untouched(o, before, m)
 
 
 def test_no_op_to_new_output_file_still_writes_it(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nk.\n")
     o = tmp_path / "new.px"
     assert run("set", p, "k", "0,0", "-o", o) == 0
-    assert capsys.readouterr().out == f"wrote {o}\n" and o.read_text() == p.read_text()
+    assert capsys.readouterr().out == f"painted 0 px; wrote {o}\n" and o.read_text() == p.read_text()
 
 
 def test_no_op_to_different_output_file_overwrites_it(tmp_path, capsys):
@@ -13783,7 +13870,7 @@ def test_successful_command_output_is_in_order(tmp_path, capsys):
     capsys.readouterr()
     assert run("set", f"{p}:idle", "g", "0,0", "-o", tmp_path / "q.px") == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("note:") and lines[-1] == f"wrote {tmp_path / 'q.px'}"
+    assert lines[0].startswith("note:") and lines[-1] == f"painted 1 px; wrote {tmp_path / 'q.px'}"
 
 
 def test_help_and_readme_say_a_failed_command_prints_no_notes():
@@ -25243,7 +25330,7 @@ def test_coordinates_error_output_to_another_file_writes_nothing(tmp_path):
 def test_set_every_frame_reports_them(tmp_path, capsys):
     p = write(tmp_path, "m.px", SEVERAL)
     assert run("set", f"{p}:*", "j", "0,0") == 0
-    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\nwrote {p}\n"  # w/2's 0,0 is already j
+    assert capsys.readouterr().out == f"edited 2 frames: w/0, w/1\npainted 2 px (w/0 1, w/1 1); wrote {p}\n"  # w/2's 0,0 is already j
     assert [g[0][0] for g in grids(p).values()] == ["j", "j", "j"]
 
 
@@ -25925,7 +26012,7 @@ def test_edit_dry_run_with_o_in_a_new_directory_makes_nothing(tmp_path, capsys):
 def test_edit_dry_run_no_change_still_says_dry_run(tmp_path, capsys):
     p = write(tmp_path, "d.px", DRYSRC)
     assert run("set", f"{p}:w/0", "k", "0,0", "--dry-run") == 0
-    assert capsys.readouterr().out == f"no change: {p}\n(dry run; nothing written)\n"
+    assert capsys.readouterr().out == f"painted 0 px; no change: {p}\n(dry run; nothing written)\n"
 
 
 def test_edit_dry_run_on_a_png_mask(tmp_path, capsys):
