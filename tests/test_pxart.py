@@ -14960,7 +14960,7 @@ def test_derive_darken_from_base(tmp_path, capsys):
     p = write(tmp_path, "p.px", DPAL)
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
     assert capsys.readouterr().out == (f"new @variant night; derived from base (darkened 50%): recolors 3 key(s); "
-                                       f"wrote {p}\n")
+                                       f"held: none (no key darker than a quarter came out brighter); wrote {p}\n")
     assert dv(p, "night", "w") == (100, 100, 100, 255) and dv(p, "night", "y") == (128, 104, 32, 255)
     assert dv(p, "night", "h") == (64, 32, 16, 255)
     assert "k" not in pxart.parse(p, palette_only=True).variants["night"]  # black stays black: no line
@@ -18652,7 +18652,9 @@ def test_derive_never_brightens_a_near_black(tmp_path, capsys):
 def test_derive_lift_darks_lets_them_brighten(tmp_path, capsys):
     p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
     assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#c0c0c0a0", "--lift-darks") == 0
-    assert "held" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "--lift-darks: o brightened (darker than a quarter; the hold would have kept it dark)" in out
+    assert "held" not in out.replace("the hold would", "")
     want = pxart.derived(pxart.hex2rgba("#141b1b"), 0, pxart.hex2rgba("#c0c0c0a0"))
     assert dv(p, "fog", "o") == want and pxart.brightness(want) > pxart.brightness(pxart.hex2rgba("#141b1b"))
 
@@ -18670,14 +18672,16 @@ def test_derive_hold_with_match_offset(tmp_path, capsys):
 def test_derive_darker_result_is_not_held(tmp_path, capsys):
     p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
     assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--darken", "0.5") == 0
-    assert "held" not in capsys.readouterr().out and dv(p, "dusk", "o") == (10, 14, 14, 255)
+    out = capsys.readouterr().out
+    assert "held: none" in out and "o held" not in out and dv(p, "dusk", "o") == (10, 14, 14, 255)
 
 
 def test_derive_bright_key_may_brighten(tmp_path, capsys):
     # Only dark keys are held: a mid grey under a light tint gets lighter, as asked.
     p = write(tmp_path, "p.px", "pxart 1\nm #707070\n")
     assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#ffffff80") == 0
-    assert "held" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "held: none" in out and "m held" not in out
     assert pxart.brightness(dv(p, "fog", "m")) > pxart.brightness(pxart.hex2rgba("#707070"))
 
 
@@ -18716,7 +18720,9 @@ def test_help_documents_match_and_hold():
         "that variant recolors" in text
     assert "A key darker than a quarter (Rec. 709 luma under 64) never comes out brighter than its --derive-from " \
         "color" in text
-    assert "--lift-darks lets the derive brighten them (a fog); --add sets one anyway." in text
+    assert "--lift-darks lets the derive brighten them (a fog), and names the ones it did; --add sets one anyway." \
+        in text
+    assert "when none is, the output says 'held: none'" in text
 
 
 def test_readme_documents_match_and_hold():
@@ -19653,3 +19659,71 @@ def test_from_png_help_lists_labels(capsys):
     assert run("from-png", "-h") == 0
     out = capsys.readouterr().out
     assert "--labels FILE.csv" in out and "--label-col COL" in out and "--file-col COL" in out
+
+
+# ---------------------------------------------------------------- loop R: the derive says whether it held anything
+
+def test_derive_says_held_none_when_the_hold_ran_and_held_nothing(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\nk #000000\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.4") == 0
+    assert "; held: none (no key darker than a quarter came out brighter); wrote" in capsys.readouterr().out
+
+
+def test_derive_held_none_with_no_dark_keys_at_all(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#ffffff80") == 0
+    assert "held: none" in capsys.readouterr().out
+
+
+def test_derive_held_keys_are_named_not_none(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
+    out = capsys.readouterr().out
+    assert "o held no brighter" in out and "held: none" not in out
+
+
+def test_derive_held_several_keys(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nq #101010\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "dusk", "--derive-from", "base", "--tint", "#2040c0a0") == 0
+    assert "o q held no brighter than their base colors" in capsys.readouterr().out
+
+
+def test_derive_lift_darks_with_nothing_to_lift(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lift-darks") == 0
+    out = capsys.readouterr().out
+    assert "--lift-darks: no dark key brightened" in out and "held: none" not in out
+
+
+def test_derive_lift_darks_names_several(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\nq #101010\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#c0c0c0a0", "--lift-darks") == 0
+    assert "--lift-darks: o q brightened (darker than a quarter; the hold would have kept them dark)" \
+        in capsys.readouterr().out
+
+
+def test_derive_lift_darks_colors_unchanged_by_the_report(tmp_path):
+    # naming the lifted keys doesn't change what they get
+    p = write(tmp_path, "p.px", "pxart 1\no #141b1b\n")
+    assert run("palette", p, "--variant", "fog", "--derive-from", "base", "--tint", "#c0c0c0a0", "--lift-darks") == 0
+    assert dv(p, "fog", "o") == pxart.derived(pxart.hex2rgba("#141b1b"), 0, pxart.hex2rgba("#c0c0c0a0"))
+
+
+def test_derive_held_none_from_another_variant(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n@variant dusk\nw #a0a0a0\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--darken", "0.3") == 0
+    assert "held: none" in capsys.readouterr().out
+
+
+def test_derive_held_none_with_match(tmp_path, capsys):
+    m = write(tmp_path, "m.px", "pxart 1\na #808080\nb #e0e0e0\n@variant d\na #606060\nb #b0b0b0\n")
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "d", "--derive-from", "base", "--match", f"{m}%d") == 0
+    assert "held: none" in capsys.readouterr().out
+
+
+def test_derive_add_alone_prints_no_hold(tmp_path, capsys):
+    # the hold is the derive's; a plain --variant --add doesn't run it
+    p = write(tmp_path, "p.px", "pxart 1\nw #c8c8c8\n")
+    assert run("palette", p, "--variant", "night", "--add", "w=#101010") == 0
+    assert "held" not in capsys.readouterr().out

@@ -554,7 +554,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       -11, b x0.78 +10'. A key darker than a quarter (Rec. 709 luma under 64) never comes out
       brighter than its --derive-from color: it is scaled back to that brightness, its hue
       kept, and listed as held, so a near-black outline stays dark under a blue tint or
-      offset. --lift-darks lets the derive brighten them (a fog); --add sets one anyway.
+      offset; when none is, the output says 'held: none'. --lift-darks lets the derive
+      brighten them (a fog), and names the ones it did; --add sets one anyway.
       --comment KEY 'text' sets the comment right above FILE's line for KEY (replacing the
       comment lines there; blank lines stay); --comment @variant night 'text' the one above
       '@variant night', which --extract-to and compose carry as the variant's section note;
@@ -5252,8 +5253,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
             got = from_[k]
         else:
             got = derived(matched(from_[k], match[1]) if match else from_[k], darken, color)
-            if not lift and brightness(from_[k]) < DARK * from_[k][3] / 255 and brightness(got) > brightness(from_[k]):
-                got, _ = no_brighter(got, from_[k]), held.append(k)
+            if brightness(from_[k]) < DARK * from_[k][3] / 255 and brightness(got) > brightness(from_[k]):
+                held.append(k)  # with lift: brightened, as asked
+                got = got if lift else no_brighter(got, from_[k])
         if got == c and k not in lit:
             if k in over:
                 del over[k]
@@ -5270,10 +5272,15 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
-    if held:
+    if lift:  # the hold is off: say which dark keys it would have held
+        said.append(f"--lift-darks: {' '.join(held)} brightened (darker than a quarter; the hold would have kept "
+                    f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened")
+    elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
                     f"color{'s' * (len(held) > 1)} (darker than a quarter: an outline stays dark; --lift-darks lets "
                     "the derive brighten them)")
+    else:
+        said.append("held: none (no key darker than a quarter came out brighter)")
     return said
 
 
