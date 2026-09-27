@@ -115,8 +115,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at
   `--scale` with its 1x and 2x copies beside it in the same picture, plus a motion strip;
   without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`,
-  and writes nothing; "rows Y+ still" only when those rows are pixel-identical, and for
-  the rise and the fall of one breath alike when the legs are identical in every frame; a
+  and writes nothing; "rows Y+ still" only when those rows are pixel-identical and the legs
+  keep their shape in every frame (an idle; a walk frame whose legs happen to stay put reads as
+  its bob, `shift +0,+1 then 23px`), and for the rise and the fall of one breath alike; a
   ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
   `shift -1,+4 (wrap)`), `onion` (B over a faded A, and a printed readout of how B's edges
   moved from A's, like `top -1, bottom +0`, for a 1px jump too faint to see; `--feet N` or

@@ -9018,13 +9018,15 @@ def test_breath_pingpong_where_neither_passes_alone_is_symmetric_too(tmp_path, c
     assert all(" then " in l and "still" not in l and "shift +0," in l for l in lines), lines
 
 
-def test_breath_with_moving_legs_keeps_the_fall_shifted(tmp_path, capsys):
-    # One frame changes the leg pose: the legs aren't identical in every frame, so only the frame that passes on its
-    # own is still, as before.
+def test_breath_with_moving_legs_keeps_every_shift(tmp_path, capsys):
+    # One frame changes the leg pose: the legs move in the animation (a walk), so even the frame that passes on its own
+    # (its legs happen to stay put) reads as the bob it is: the smaller, truthful number.
     walky = WAVE + [WAVE[-1]] + LEGS_WIDE
     lines = anim_lines(tmp_path, capsys, IDLE_4[0], IDLE_4[1], walky, IDLE_4[3])
-    assert "(rows 9+ still;" in lines[1]
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, IDLE_4[0], IDLE_4[1])
+    assert lines[1].endswith(f"vs idle/0: shift +0,-1 then {pc(n_shift, IDLE_4[1])} (no shift: {n_none}px)")
     assert "vs idle/2: shift +0,+1 then" in lines[3]
+    assert not any("still" in l for l in lines), lines
 
 
 def test_breath_feet_row_identical_everywhere_counts_as_legs(tmp_path, capsys):
@@ -11904,3 +11906,136 @@ def test_command_help_is_much_shorter_than_before(capsys):
     # crop -h was 86 lines with EDITING, FORMAT and compose pasted in.
     assert len(cmd_help(capsys, "crop").splitlines()) < 50
     assert len(cmd_help(capsys, "line").splitlines()) < 30
+
+
+# ---------------------------------------------------------------- anim: a walk frame whose legs stay put reads as its bob
+
+# A walk: 0 legs together, 1 the body dips with the legs where they were (the keeper's walk/down/1), 2 the legs step.
+# The legs move in the animation, so frame 1's still legs are a bob, not an idle's breath.
+DIP_WALK = ([EMPTY] + BODY + LEGS, BODY + [BODY[-1]] + LEGS, BODY + LEGS_WIDE + [EMPTY])
+GLOW = [r.replace("k", "y").replace("b", "y").replace("s", "y") for r in IDLE_4[1]]  # the breath's top, recolored whole
+SHADOW_BIG, SHADOW_SMALL = "..kkkkkk..", "...kkkk..."
+
+
+def test_dip_walk_fixture():
+    assert all(len(f) == 14 and all(len(r) == 10 for r in f) for f in DIP_WALK)
+    assert DIP_WALK[0][10:] == DIP_WALK[1][10:] == LEGS and DIP_WALK[2][10:] != LEGS
+
+
+def test_dip_walk_frame_passes_the_single_frame_rule(tmp_path):
+    # On its own (motion, no animation around it) the dip looks like a breath: that is what hid the bob.
+    dx, dy, n_shift, n_none, still = motion_of(tmp_path, DIP_WALK[0], DIP_WALK[1])
+    assert (dx, dy) == (0, -1) and still == 9 and n_shift < n_none
+
+
+def test_dip_walk_legs_move_in_the_animation(tmp_path):
+    doc = pxart.parse(anim_file(tmp_path, *DIP_WALK, name="dw.px"))
+    imgs = [doc.image(f) for f in doc.frames]
+    assert pxart.still_rows(imgs) is None and pxart.still_rows(imgs, shape=True) is None
+
+
+def test_dip_walk_frame_reads_as_its_bob(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *DIP_WALK)
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, DIP_WALK[0], DIP_WALK[1])
+    assert lines[1].endswith(f"vs idle/0: shift +0,-1 then {pc(n_shift, DIP_WALK[1])} (no shift: {n_none}px)")
+
+
+def test_dip_walk_no_frame_says_rows_still(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *DIP_WALK)
+    assert len(lines) == 3 and not any("still" in l or "no shift then" in l for l in lines), lines
+
+
+def test_dip_walk_headline_is_the_smaller_number(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *DIP_WALK)
+    _, _, n_shift, n_none, _ = motion_of(tmp_path, DIP_WALK[0], DIP_WALK[1])
+    head = lines[1].split(": ", 1)[1]
+    assert head.startswith(f"shift +0,-1 then {n_shift}px") and n_shift < n_none
+
+
+def test_dip_walk_other_frames_as_before(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *DIP_WALK)
+    for i, (a, b) in ((0, (DIP_WALK[2], DIP_WALK[0])), (2, (DIP_WALK[1], DIP_WALK[2]))):
+        dx, dy, n_shift, n_none, _ = motion_of(tmp_path, a, b)
+        assert f"shift {dx:+d},{dy:+d} then {pc(n_shift, b)}" in lines[i], lines[i]
+
+
+def test_dip_walk_strip_lights_the_still_legs(tmp_path, capsys):
+    # The strip shows what the bob leaves changed: the legs that stayed put while the body dipped.
+    anim_lines(tmp_path, capsys, *DIP_WALK)
+    assert magenta_rows(tmp_path, 1) & {10, 11, 12, 13}
+
+
+def test_dip_walk_order_does_not_matter(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, DIP_WALK[2], DIP_WALK[0], DIP_WALK[1])
+    assert not any("still" in l for l in lines), lines
+
+
+def test_dip_without_the_step_is_an_idle(tmp_path, capsys):
+    # The same two frames without the stepping one: the legs never move, so the breath reading stays.
+    lines = anim_lines(tmp_path, capsys, DIP_WALK[0], DIP_WALK[1])
+    assert all("(rows 9+ still;" in l for l in lines), lines
+
+
+def test_breath_idle_unchanged_by_the_walk_rule(tmp_path, capsys):
+    lines = anim_lines(tmp_path, capsys, *IDLE_4)
+    assert sum("(rows 9+ still;" in l for l in lines) == 2
+
+
+def test_still_rows_shape_ignores_color():
+    imgs = [Image.new("RGBA", (2, 3)) for _ in range(2)]
+    imgs[0].putpixel((0, 2), (9, 9, 9, 255))
+    imgs[1].putpixel((0, 2), (200, 9, 9, 255))  # same pixel, another color
+    assert pxart.still_rows(imgs) is None and pxart.still_rows(imgs, shape=True) == 0  # the empty rows above too
+
+
+def test_still_rows_shape_sees_a_moved_pixel():
+    imgs = [Image.new("RGBA", (2, 3)) for _ in range(2)]
+    imgs[0].putpixel((0, 2), (9, 9, 9, 255))
+    imgs[1].putpixel((1, 2), (9, 9, 9, 255))
+    assert pxart.still_rows(imgs, shape=True) is None
+
+
+def test_still_rows_shape_same_as_exact_for_identical_frames():
+    imgs = [Image.new("RGBA", (2, 3)) for _ in range(3)]
+    for im in imgs:
+        im.putpixel((1, 1), (5, 5, 5, 255))
+    assert pxart.still_rows(imgs, shape=True) == pxart.still_rows(imgs) == 0
+
+
+def test_glow_frame_is_not_the_legs_moving(tmp_path, capsys):
+    # An idle with a frame recolored whole (a flash): the legs keep their shape, so the breath still reads still.
+    lines = anim_lines(tmp_path, capsys, IDLE_4[0], IDLE_4[1], GLOW)
+    assert "(rows 9+ still;" in lines[1], lines
+
+
+def test_glow_fixture_same_shape_as_the_breath():
+    assert [[c != "." for c in r] for r in GLOW] == [[c != "." for c in r] for r in IDLE_4[1]] and GLOW != IDLE_4[1]
+
+
+def test_bob_over_a_shadow_that_changes_shape_keeps_its_shift(tmp_path, capsys):
+    # A floating drop bobbing over its shadow; the shadow shrinks at the top of the bob, so the rows under the drop
+    # aren't still in the animation, and the dip's frame reads as a shift.
+    low, high = [EMPTY] + BODY + [EMPTY, SHADOW_BIG, EMPTY], BODY + [EMPTY, EMPTY, SHADOW_BIG, EMPTY]
+    top = BODY + [EMPTY, EMPTY, SHADOW_SMALL, EMPTY]
+    lines = anim_lines(tmp_path, capsys, low, high, top)
+    assert not any("still" in l for l in lines), lines
+    assert lines[1].split(": ", 1)[1].startswith("shift +0,-1 then ")
+
+
+def test_bob_over_a_steady_shadow_still_reads_still(tmp_path, capsys):
+    # The same drop over a shadow that never changes: rows still in every frame, as before.
+    low, high = [EMPTY] + BODY + [EMPTY, SHADOW_BIG, EMPTY], BODY + [EMPTY, EMPTY, SHADOW_BIG, EMPTY]
+    lines = anim_lines(tmp_path, capsys, low, high)
+    assert all("(rows 10+ still;" in l for l in lines), lines
+
+
+def test_help_documents_the_walk_rule():
+    doc = " ".join(pxart.__doc__.split())
+    assert "whose legs keep their shape in every frame of the animation" in doc
+    assert "a frame whose legs happen to stay put is the body's bob" in doc
+    assert "A frame recolored whole (a glow) doesn't count as the legs moving" in doc
+
+
+def test_readme_documents_the_walk_rule():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "a walk frame whose legs happen to stay put reads as its bob" in readme

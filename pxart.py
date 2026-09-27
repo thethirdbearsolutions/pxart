@@ -76,6 +76,11 @@ LOOKING
       whole sprite would light up the legs, so the strip shows the unshifted diff instead:
       "no shift then M px (P%) (rows Y+ still; shift dx,dy: N px)"; Y is the first identical
       row. A walk whose leg moved even 1px keeps the shift. Both counts are always shown.
+      That reading is for an idle, whose legs keep their shape in every frame of the
+      animation. In a walk the legs move in other frames, so a frame whose legs happen to
+      stay put is the body's bob and keeps the smaller, truthful number: "shift +0,+1 then
+      23px (6%) (no shift: 201px)". A frame recolored whole (a glow) doesn't count as the
+      legs moving; a shadow that changes shape does.
       So the rise and the fall of a breath read alike (the fall may carry an arm move that
       a frame alone would call a shift): once one frame shows rows still, and rows Y down are
       identical in every frame of the animation (legs that never move), every frame whose
@@ -1401,10 +1406,12 @@ def motion(prev, cur, wrap=False, legs=None):
     return dx, dy, n_shift, n_none, still, wrapped
 
 
-def still_rows(imgs):
-    """The first row from which down every image is identical (and not empty), or None: legs that never move."""
+def still_rows(imgs, shape=False):
+    """The first row from which down every image is identical (and not empty), or None: legs that never move. shape:
+    compare only which pixels are opaque, so a frame recolored whole (a glow) doesn't count as the legs moving."""
     w, h = imgs[0].size
-    rows = [[tuple(px[y * w:y * w + w]) for y in range(h)] for px in map(pixels, imgs)]
+    rows = [[tuple((0, 0, 0, p[3] > 0) if shape else p for p in px[y * w:y * w + w]) for y in range(h)]
+            for px in map(pixels, imgs)]
     return next((y for y in range(h) if all(r[y:] == rows[0][y:] for r in rows)
                  and any(p[3] for row in rows[0][y:] for p in row)), None)
 
@@ -1702,8 +1709,11 @@ def cmd_anim(a):
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
              for i in range(len(frames))]
     moves = [motion(p, c, wrap=t) for p, c, t in pairs]
-    legs = still_rows(clear) if any(m[4] is not None for m in moves) else None
-    if legs is not None:  # one frame showed the legs still; every frame whose shift would light them keeps them so
+    legs = still_rows(clear)
+    if still_rows(clear, shape=True) is None:  # the legs move somewhere in the animation (a walk): a frame whose legs
+        moves = [m[:4] + (None,) + m[5:] for m in moves]  # happen to stay put bobbed, and the shift says so
+    elif legs is not None and any(m[4] is not None for m in moves):  # one frame showed the legs still; so does every
+        # frame whose shift would light them
         moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m[4] is None and m[:2] != (0, 0) and not m[5]
                  else m for i, m in enumerate(moves)]
     for i, fr in enumerate(framed):
