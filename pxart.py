@@ -1774,7 +1774,8 @@ def key_conflicts(dst_doc, src_doc, keys, what, dst_name, redo, clear=False, dst
     if not bad:
         return None
     have = dst_doc.resolved()
-    moves = new_keys(bad, src_doc.resolved(), have, set(have) | set(src_doc.resolved()), fits_in(dst_doc, src_doc, vmap))
+    moves = new_keys(bad, src_doc.resolved(), have, set(have) | set(src_doc.resolved()),
+                     fits_in(dst_doc, src_doc, vmap))
     return conflict_issue(bad, src_doc, have, what, dst_name, redo, moves,
                           copy=rekey_copy(src_doc.path, dst_path or dst_name))
 
@@ -3122,8 +3123,8 @@ def new_empty(a, opath, osel):
     """new OUT --empty [--palette P.px]: a file with no frames (and no palette lines), only the version line and P's
     @palette import, for frames --copy-to or compose -o OUT:ID to fill."""
     if osel:
-        fail("E_BAD_ARG", f"--empty starts a file with no frames; drop :{osel} (then add frames with frames --copy-to or "
-             f"compose -o {opath}:{osel})")
+        fail("E_BAD_ARG", f"--empty starts a file with no frames; drop :{osel} (then add frames with frames "
+             f"--copy-to or compose -o {opath}:{osel})")
     given = [f for f, v in (("--size", a.size), ("--key", a.key), ("--still", a.still)) if v]
     if given:
         fail("E_BAD_ARG", f"--empty makes no frame, so {', '.join(given)} has nothing to apply to")
@@ -3968,10 +3969,10 @@ def said_left_out(opath, doc, d, label, entries, rekey_said):
                      + (f"; {d.path.name} needs it: {', '.join(why[k])}" if why.get(k) else "") + ")"
                      for k, kept, uses in entries)
     many = label.startswith("layers ")
+    who, pl = "those layers don't" if many else "that layer doesn't", len(entries) > 1
     return bool(loud), (f"{opath} leaves out {label}'s colors for {' '.join(k for k, *_ in entries)}, "
-                        f"{'keys' if len(entries) > 1 else 'a key'} {'those layers don' if many else 'that layer doesn'}"
-                        f"'t draw with (so {'they don' if len(entries) > 1 else 'it doesn'}'t conflict), and has other "
-                        f"layers' colors for {'them' if len(entries) > 1 else 'it'}: {text}"
+                        f"{'keys' if pl else 'a key'} {who} draw with (so {'they don' if pl else 'it doesn'}'t "
+                        f"conflict), and has other layers' colors for {'them' if pl else 'it'}: {text}"
                         + (f"; {rekey_said} keeps {' '.join(loud)} under free keys in {opath}" if loud else ""))
 
 
@@ -3988,8 +3989,8 @@ def said_moves(src, opath, moves, why, d):
         return said
     parts = []
     if "color" in kinds:
-        parts.append(f"{' '.join(kinds['color'])} {'are other colors' if len(kinds['color']) > 1 else 'is another color'} "
-                     "there")
+        one = len(kinds["color"]) == 1
+        parts.append(f"{' '.join(kinds['color'])} {'is another color' if one else 'are other colors'} there")
     if "variant" in kinds:
         ks = kinds["variant"]
         parts.append(f"{' '.join(ks)} {'have' if len(ks) > 1 else 'has'} {opath}'s base color but other variant colors")
@@ -4141,8 +4142,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             words = getattr(a, "words", {})
             what = words.get("what") or ("this layer" if len(ns) == 1 else "these layers")
             issue = conflict_issue(sorted(c["keys"]), src, have, what, f"the new {opath}" if fresh else opath,
-                                   words.get("redo", "compose"), found[path], whose, rekey_copy(src.path, opath, copies),
-                                   whys.get(path))
+                                   words.get("redo", "compose"), found[path], whose,
+                                   rekey_copy(src.path, opath, copies), whys.get(path))
             issue.ctx = c["layers"][0][1] if len(ns) == 1 else f"layers {spans(ns)} ({src.path})"
             issues.append(issue)
         err = PxError(issues)
@@ -5007,7 +5008,8 @@ def reference(cmd):
     start = section_start(cmd)
     if start is None:
         return None
-    end = next((i for i in range(start + 1, len(lines))  # a second usage line of CMD (new OUT --empty) is its section too
+    # a second usage line of CMD (new OUT --empty) is its section too
+    end = next((i for i in range(start + 1, len(lines))
                 if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 2 and not usage.match(lines[i])),
                len(lines))
     return "\n".join(lines[start:end]).rstrip()
@@ -5184,7 +5186,8 @@ def parser(describe=True):
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
-    p = sub.add_parser("help"); p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
+    p = sub.add_parser("help")
+    p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
