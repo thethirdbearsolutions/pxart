@@ -24545,10 +24545,12 @@ SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 
 
 @pytest.mark.parametrize("argv,said", [
     (["render", "a.px", "--dry-run"],
-     "preview.png: 124x78 px, 2 frames in one row, every cell 47x32 (the largest frame, 3x2), at --scale 8"),
+     "preview.png: 124x78 px, 2 frames in one row, every cell 47x32: the largest frame 24x16 at x8, 40x32 with its "
+     "rulers, widened to fit the widest label"),
     (["render", "a.px:w/0", "--plain", "--scale", "3", "--dry-run"], "preview.png: 9x6 px, w/0 alone, 3x2 at --scale 3"),
     (["sheet", "a.px", "--cols", "1", "--dry-run", "-o", "s.png"],
-     "s.png: 67x114 px, 2 frames in 2 rows of up to 1, every cell 47x16 (the largest frame, 3x2), at --scale 8"),
+     "s.png: 67x114 px, 2 frames in 2 rows of up to 1, every cell 47x16: the largest frame 24x16 at x8, widened to fit "
+     "the widest label"),
     (["sheet", "a.px", "--fit", "--rows", "group", "--dry-run"],
      "the sheet (no -o): 124x62 px, 2 frames in one row (--fit: each cell its own frame's size), at --scale 8 "
      "(--rows group: a row per animation group)"),
@@ -25225,3 +25227,50 @@ def test_legend_different_errors_keep_their_lines(tmp_path):
     msg = run_err("scene", "--map", m, "--tile", "1x1", "-o", tmp_path / "s.png")
     assert len(msg.splitlines()) == 2
     assert "legend 'a': 't.px:nope'" in msg and "legend 'b': 't.px:gone'" in msg
+
+
+# ---------------------------------------------------------------- sheet --dry-run says where the cell size comes from
+
+def dry_sheet(tmp_path, capsys, text, *extra):
+    p = write(tmp_path, "d.px", text)
+    assert run("sheet", p, "--dry-run", *extra) == 0
+    return capsys.readouterr().out.splitlines()[0]
+
+
+def test_sheet_dry_run_cell_widened_to_its_label(tmp_path, capsys):
+    rows = "".join("k" * 16 + "\n" for _ in range(16))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a_really_long_frame_name/0\n{rows}", "--scale", "3")
+    assert got.endswith("1 frame in one row, every cell 159x48: frame 48x48 at x3, widened to fit its label")
+    assert "at --scale" not in got and "(the largest frame" not in got
+
+
+def test_sheet_dry_run_cell_is_the_frame(tmp_path, capsys):
+    rows = "".join("k" * 24 + "\n" for _ in range(32))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{rows}", "--scale", "3")
+    assert got.endswith("every cell 72x96: frame 72x96 at x3")
+
+
+def test_sheet_dry_run_cell_as_tall_as_the_tallest_frame(tmp_path, capsys):
+    wide = "".join("k" * 40 + "\n" for _ in range(24))
+    tall = "".join("k" * 8 + "\n" for _ in range(60))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{wide}@frame b\n{tall}", "--scale", "3")
+    assert got.endswith("every cell 120x180: the largest frame 120x72 at x3, as tall as the tallest frame")
+
+
+def test_sheet_dry_run_cell_widened_to_the_widest_frame(tmp_path, capsys):
+    big = "".join("k" * 30 + "\n" for _ in range(30))
+    wide = "".join("k" * 38 + "\n" for _ in range(23))
+    got = dry_sheet(tmp_path, capsys, f"k #000000\n@frame a\n{big}@frame b\n{wide}", "--scale", "3")
+    assert got.endswith("every cell 114x90: the largest frame 90x90 at x3, widened to fit the widest frame")
+
+
+def test_sheet_dry_run_fit_keeps_its_wording(tmp_path, capsys):
+    got = dry_sheet(tmp_path, capsys, "k #000000\n@frame a\nk\n", "--fit")
+    assert got.endswith("1 frame in one row (--fit: each cell its own frame's size), at --scale 8")
+
+
+def test_render_dry_run_cell_counts_the_rulers(tmp_path, capsys):
+    p = write(tmp_path, "d.px", "k #000000\n@frame a\n" + "".join("k" * 24 + "\n" for _ in range(32)))
+    assert run("render", p, "--dry-run") == 0
+    assert capsys.readouterr().out.splitlines()[0].endswith(
+        "every cell 208x272: frame 192x256 at x8, 208x272 with its rulers")

@@ -1929,9 +1929,9 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
     if fit:
         about += " (--fit: each cell its own frame's size)"
     else:
-        big = max(its, key=lambda it: it.img.width * it.img.height)
-        about += f", every cell {cw}x{ch} (the largest frame, {big.img.width}x{big.img.height})"
-    about += f", at --scale {scale}" + (" (--rows group: a row per animation group)" if rows == "group" else "")
+        about += ", every cell " + cell_size(its, tiles, cw, ch, scale)
+    about += (f", at --scale {scale}" if fit else "") + (" (--rows group: a row per animation group)" if rows == "group"
+                                                          else "")
     tiles, spots = [tiles[n] for n in order], [spots[n] for n in order]
     s = Image.new("RGBA", size, (30, 30, 36, 255))
     d = ImageDraw.Draw(s)
@@ -1945,6 +1945,23 @@ def sheet(its, out, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False, fit
     save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
                smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
     return out
+
+
+def cell_size(its, tiles, cw, ch, scale):
+    """The dry run's 'every cell WxH: ...': the largest frame at --scale (and with its rulers), and what made the cell
+    bigger than it: a label wider than every frame, or a wider or taller frame."""
+    big, tile = max(tiles, key=lambda t: t[0].img.width * t[0].img.height)
+    one = len(its) == 1
+    said = f"{cw}x{ch}: {'frame' if one else 'the largest frame'} {big.img.width * scale}x{big.img.height * scale} " \
+        f"at x{scale}" + (f", {tile.width}x{tile.height} with its rulers" if tile.size != (big.img.width * scale,
+                                                                                            big.img.height * scale) else "")
+    if cw > max(t.width for _, t in tiles):
+        said += f", widened to fit {'its label' if one else 'the widest label'}"
+    elif cw > tile.width:
+        said += ", widened to fit the widest frame"
+    if ch > tile.height:
+        said += ", as tall as the tallest frame"
+    return said
 
 
 def n_colors(it, bg):
