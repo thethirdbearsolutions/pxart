@@ -78,7 +78,7 @@ pxart scene --size 48x64 --bg '#8ccfd6' -o base.x4.png \
 pxart scene --size 48x64 --bg '#5a86b0' -o night.x4.png \
   coast.px:sand%night@0,48 coast.px:sand%night@16,48 coast.px:sand%night@32,48 \
   coast.px:lighthouse%night@2,6 coast.px:keeper%night@16,26
-mkdir derived
+mkdir -p derived
 cp palette.px coast.px derived/
 txt derive.txt palette derived/palette.px --variant dusk --derive-from base \
   --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g

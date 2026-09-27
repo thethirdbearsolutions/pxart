@@ -123,7 +123,7 @@ This changes `palette.px`, so first put copies of both files in a new folder cal
 `derived`. The originals stay as they were, and you can start over any time:
 
 ```sh
-mkdir derived
+mkdir -p derived
 cp palette.px coast.px derived/
 ```
 
