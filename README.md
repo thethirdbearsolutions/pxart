@@ -200,7 +200,7 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
   frame removes its `@anim`/`@still` line; `frames hero.px:walk --copy-to beast.px
   [--after ID]` copies frames into another file, in order, with their ms, pivots and
-  `@anim` line, under other ids with `--prefix wick/` or `--rename walk wick/walk`;
+  `@anim` line (a copy that lands as a still, a top-level id, drops its ms and keeps its pivot), under other ids with `--prefix wick/` or `--rename walk wick/walk`;
   `frames hero.px --rename walk hero/walk` renames a group in place, `@anim` and `@still`
   lines too, and is the rename there is no `rename` command for; a move puts the `@anim` lines
   in play order).

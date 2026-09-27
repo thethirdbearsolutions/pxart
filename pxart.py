@@ -34,7 +34,8 @@ FORMAT (.px)
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
   ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
-  also lists them as 'still' in frames.
+  also lists them as 'still' in frames. A frame copied as a still (a top-level id, or a @still
+  group) drops its ms and keeps its pivot, with a note.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
   override imported ones, and check notes the override, and a local key that repeats an
@@ -3539,6 +3540,7 @@ def frames_copy(a, doc, sel, picked):
             dst.stills.append(n)
             said.append(f"added @still {n}")
     at = dst.frames.index(anchor) + (1 if a.after else 0) if anchor else None
+    stilled = []
     for f in picked:
         new = Frame(new_id[id(f)], list(f.grid), f.ms, pivot=f.pivot)
         if at is not None:
@@ -3547,6 +3549,9 @@ def frames_copy(a, doc, sel, picked):
         else:
             same = [x for x in dst.frames if x.group == new.group] if new.group else []
             dst.frames.insert(dst.frames.index(same[-1]) + 1 if same else len(dst.frames), new)
+        if doc.animated(f.group) and not dst.animated(new.group):  # an animation frame lands as a still
+            stilled.append(as_still(new, doc, f, dst))
+            continue
         if dst.ms(new) != doc.ms(f):
             new.ms = doc.ms(f)
         if dst.pivot(new) != doc.pivot(f):
@@ -3554,11 +3559,35 @@ def frames_copy(a, doc, sel, picked):
                 print(f"note: {f.id} has no pivot in {doc.path}, and takes {dpath}'s @anim {new.group} pivot there")
             else:
                 new.pivot = doc.pivot(f)
+    if stilled:
+        print(said_stilled(stilled, dpath))
     where = f" ({'after' if a.after else 'before'} {anchor.id})" if anchor else ""
     names = [f"{o} as {n}" for o, n in renames if any(new_id[id(f)] != f.id and renamed_id(f.id, [(o, n)]) != f.id
                                                        for f in picked)]
     return "; ".join([f"copied {', '.join(f.id for f in picked)} to {dpath}{where}"
                       + (f", {', '.join(names)}" if names else "")] + said + [write_doc(dst)])
+
+
+def as_still(new, doc, f, dst):
+    """An animation frame f of doc copied as new into dst, where its id is a still (a top-level id, or a @still group):
+    stills have no timing, so its ms goes, and it keeps its pivot (its @anim's written on its own line). For the note:
+    (new id, the ms it had, the pivot it keeps, why it's a still)."""
+    new.ms, new.pivot = None, doc.pivot(f)
+    why = "a top-level id" if not new.group else f"@still {new.group}" if new.group in dst.stills else "@still *"
+    return new.id, doc.ms(f), new.pivot, why
+
+
+def said_stilled(stilled, dpath):
+    """The note for the frames as_still made stills: 'note: hero lands in beast.px as a still (a top-level id): its
+    ms=140 goes (stills have no timing); pivot 8,15 kept'."""
+    many = len(stilled) > 1
+    whys = list(dict.fromkeys(w for *_, w in stilled))
+    pivots = [f"{fmt_setting(p)}" for _, _, p, _ in stilled if p]
+    return (f"note: {', '.join(i for i, *_ in stilled)} land{'' if many else 's'} in {dpath} as "
+            f"{'stills' if many else 'a still'} "
+            f"({', '.join(whys)}): {'their' if many else 'its'} ms="
+            + ",".join(dict.fromkeys(str(ms) for _, ms, _, _ in stilled)) + " dropped (stills have no timing)"
+            + (f"; pivot{'s' * (len(pivots) > 1)} {' '.join(pivots)} kept" if pivots else ""))
 
 
 def renamed_id(fid, renames):
@@ -5749,6 +5778,7 @@ def cmd_dup(a):
     if doc.get(a.new) or not ID_RE.match(a.new):
         fail("E_DUP_FRAME" if doc.get(a.new) else "E_BAD_ID", f"can't use {a.new!r} as the new frame id")
     new = Frame(a.new, list(src.grid), src.ms, pivot=src.pivot)
+    stilled = [as_still(new, doc, src, doc)] if doc.animated(src.group) and not doc.animated(new.group) else []
     if a.after:
         anchor = doc.get(a.after)
         if not anchor:
@@ -5761,6 +5791,8 @@ def cmd_dup(a):
     if new.group and new.group not in doc.anims and src.group in doc.anims:
         doc.anims[new.group] = dict(doc.anims[src.group])
     note_suffix(a.o or doc.path)
+    if stilled:
+        print(said_stilled(stilled, a.o or doc.path))
     print(write_doc(doc, a.o), "frame", a.new)
 
 

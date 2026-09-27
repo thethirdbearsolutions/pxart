@@ -23398,12 +23398,15 @@ def test_copy_one_frame_renamed_top_level_adds_no_anim(tmp_path, monkeypatch, ca
     assert "names a group with no frames" not in capsys.readouterr().out
 
 
-def test_copy_one_frame_renamed_top_level_keeps_its_timing(tmp_path, monkeypatch, capsys):
+def test_copy_one_frame_renamed_top_level_drops_its_timing(tmp_path, monkeypatch, capsys):
+    # it was kept (ms=200 on its @frame line); a top-level id is a still, and stills have no timing (loop V)
     write(tmp_path, "keeper.px", KEEPER_IDLE)
     write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
     monkeypatch.chdir(tmp_path)
     assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
-    assert pxart.parse(tmp_path / "coast.px").get("keeper").ms == 200
+    assert pxart.parse(tmp_path / "coast.px").get("keeper").ms is None
+    assert "note: keeper lands in coast.px as a still (a top-level id): its ms=200 dropped (stills have no timing)\n" \
+        in capsys.readouterr().out
 
 
 def test_copy_one_frame_renamed_into_another_group_adds_no_source_anim(tmp_path, monkeypatch, capsys):
@@ -24327,3 +24330,138 @@ def test_help_and_readme_say_a_missing_directory_is_made_and_said():
     assert "An output's missing directory is made, and said: 'created out/'." in doc
     readme = " ".join((pathlib.Path(pxart.__file__).parent / "README.md").read_text().split())
     assert "A command that writes into a directory that doesn't exist makes it and says so: `created out/`." in readme
+
+
+# ---------------------------------------------------------------- a frame copied as a still drops its ms, keeps its pivot
+
+STILL_SRC = ("pxart 1\nk #000000\n@anim walk/right ms=140 pivot=8,15\n@still ui\n"
+             "@frame walk/right/0\nk.\n@frame walk/right/1 ms=90 pivot=1,1\n.k\n@frame ui/life\nkk\n")
+
+
+def still_setup(tmp_path, monkeypatch, dst="pxart 1\nk #000000\n@frame lighthouse\nkk\n"):
+    write(tmp_path, "src.px", STILL_SRC)
+    write(tmp_path, "dst.px", dst)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_copy_to_top_level_drops_anim_ms_keeps_anim_pivot(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    out = capsys.readouterr().out
+    assert "note: hero lands in dst.px as a still (a top-level id): its ms=140 dropped (stills have no timing); " \
+        "pivot 8,15 kept\n" in out
+    assert "@frame hero pivot=8,15\n" in (tmp_path / "dst.px").read_text()
+    f = pxart.parse(tmp_path / "dst.px").get("hero")
+    assert f.ms is None and f.pivot == (8, 15)
+
+
+def test_copy_to_top_level_drops_own_ms_keeps_own_pivot(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/1", "--copy-to", "dst.px", "--rename", "walk/right/1", "hero") == 0
+    assert "its ms=90 dropped (stills have no timing); pivot 1,1 kept" in capsys.readouterr().out
+    assert "@frame hero pivot=1,1\n" in (tmp_path / "dst.px").read_text()
+
+
+def test_copy_two_frames_to_top_level_one_note(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right", "--copy-to", "dst.px", "--rename", "walk/right/0", "a",
+               "--rename", "walk/right/1", "b") == 0
+    out = capsys.readouterr().out
+    assert "note: a, b land in dst.px as stills (a top-level id): their ms=140,90 dropped (stills have no timing); " \
+        "pivots 8,15 1,1 kept\n" in out
+    doc = pxart.parse(tmp_path / "dst.px")
+    assert [doc.get(i).ms for i in "ab"] == [None, None] and "walk/right" not in doc.anims
+
+
+def test_copy_into_a_still_group_of_dst_drops_ms(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch, "pxart 1\nk #000000\n@still props\n@frame props/lamp\nkk\n")
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "props/hero") == 0
+    assert "note: props/hero lands in dst.px as a still (@still props): its ms=140 dropped (stills have no " \
+        "timing); pivot 8,15 kept" in capsys.readouterr().out
+    f = pxart.parse(tmp_path / "dst.px").get("props/hero")
+    assert f.ms is None and f.pivot == (8, 15)
+
+
+def test_copy_into_a_star_still_file_drops_ms(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch, "pxart 1\nk #000000\n@still *\n@frame lamp\nkk\n")
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--prefix", "p/") == 0
+    assert "note: p/walk/right/0 lands in dst.px as a still (@still *)" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "dst.px").get("p/walk/right/0").ms is None
+
+
+def test_copy_animation_keeps_timing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right", "--copy-to", "dst.px") == 0
+    assert "as a still" not in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "dst.px")
+    assert doc.ms(doc.get("walk/right/0")) == 140 and doc.get("walk/right/1").ms == 90
+
+
+def test_copy_a_still_as_a_still_says_nothing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:ui/life", "--copy-to", "dst.px", "--rename", "ui/life", "life") == 0
+    assert "as a still" not in capsys.readouterr().out
+
+
+def test_copied_still_renders_the_same(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    assert run("diff", "dst.px:hero", "src.px:walk/right/0") == 0
+
+
+def test_frames_lists_the_copied_still_without_timing(tmp_path, monkeypatch, capsys):
+    still_setup(tmp_path, monkeypatch)
+    assert run("frames", "src.px:walk/right/0", "--copy-to", "dst.px", "--rename", "walk/right/0", "hero") == 0
+    capsys.readouterr()
+    assert run("frames", "dst.px") == 0
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.strip().startswith("hero"))
+    assert "ms" not in line and "pivot 8,15" in line
+
+
+def test_dup_to_top_level_drops_ms_keeps_pivot(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "hero") == 0
+    out = capsys.readouterr().out
+    assert out == "note: hero lands in src.px as a still (a top-level id): its ms=90 dropped (stills have no " \
+                  "timing); pivot 1,1 kept\nwrote src.px frame hero\n"
+    f = pxart.parse(tmp_path / "src.px").get("hero")
+    assert f.ms is None and f.pivot == (1, 1)
+
+
+def test_dup_to_top_level_keeps_the_anims_pivot(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/0", "hero") == 0
+    assert "its ms=140 dropped (stills have no timing); pivot 8,15 kept" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("hero").pivot == (8, 15)
+
+
+def test_dup_into_a_still_group(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "ui/hero") == 0
+    assert "(@still ui)" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("ui/hero").ms is None
+
+
+def test_dup_within_the_animation_keeps_its_ms(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/1", "walk/right/2") == 0
+    assert "as a still" not in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "src.px").get("walk/right/2").ms == 90
+
+
+def test_dup_to_top_level_with_o(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "src.px", STILL_SRC)
+    monkeypatch.chdir(tmp_path)
+    assert run("dup", "src.px:walk/right/0", "hero", "-o", "out.px") == 0
+    assert "lands in out.px as a still" in capsys.readouterr().out
+    assert (tmp_path / "src.px").read_text() == STILL_SRC
+
+
+def test_help_says_a_copied_still_drops_its_ms():
+    doc = " ".join(pxart.__doc__.split())
+    assert "A frame copied as a still (a top-level id, or a @still group) drops its ms and keeps its pivot, with a " \
+        "note." in doc
