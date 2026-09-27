@@ -54,17 +54,21 @@ LOOKING
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion default to 8 too). --png also writes a 1x PNG beside each
       single-frame .px.
-  sheet FILE... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
+  sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg #3a3a44]
         [--fit]
-      Compare any mix of .px/.png frames, labeled with id, WxH and color count. Every cell is
+      Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
+      stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o s.png';
+      PNGs in it are left out, a sheet rendered there too). A palette file (no frames) among
+      the inputs, a directory's or a glob's, is skipped with a note ('note: sheet skips
+      palette.px: a palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is
       the largest frame's size, so a 16x16 tile beside a 64x64 beast gets a 64x64 cell;
       --fit makes each cell its own frame's width (or its label's, if wider) and each row
       as tall as its tallest frame, --cols cells to a row, frames bottom-aligned in their
-      row. A PNG whose
-      four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
-      count that color: it's the backdrop. Frames with the same id from different files are
-      labeled with their file's stem in front (hero:idle/0, beast:idle/0; the path as given
-      when the stems match too); render and anim label them the same way.
+      row. A PNG whose four corners are exactly the --bg color (a scene rendered with the
+      same --bg) doesn't count that color: it's the backdrop. Frames with the same id from
+      different files are labeled with their file's stem in front (hero:idle/0,
+      beast:idle/0; the path as given when the stems match too); render and anim label them
+      the same way.
   anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames,
@@ -187,16 +191,20 @@ LOOKING
   --tint, tint, palette --add k=transparent; the '#' may be left off).
 
 CHECKING
-  check FILE... [--palette P] [--size WxH] [--max-colors N] [--strict]
+  check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict]
       Every format error with a code and location, then size / off-palette colors /
-      color budget / unused keys per frame. P is a .px, .gpl, .hex, or text of
-      #rrggbb. --strict also rejects unknown @sections and @anim/@still lines whose group has
-      no frames (without --strict those are a note). Exit 1 on any failure.
+      color budget / unused keys per frame. A directory checks every .px and .map under it,
+      recursively, sorted by path ('check crossover/'); a palette file (no frames) is checked
+      as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a .px, .gpl,
+      .hex, or text of #rrggbb. --strict also rejects unknown @sections and @anim/@still
+      lines whose group has no frames (without --strict those are a note). Exit 1 on any
+      failure.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
-  stats FILE...                     size, bbox, color count, colors per frame
+  stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and
+                                    palette files as for sheet)
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
          [--copy-to DST [ID...] [--rekey]]
       List frames, sizes, durations (only for animation frames; 'still' for @still groups
@@ -1159,6 +1167,32 @@ def all_items(args, variant=None):
     return out
 
 
+def in_dirs(args, exts=(".px",)):
+    """check/sheet/stats FILE...: a directory stands for every file under it with one of exts, recursively, sorted by
+    path. A directory with none is E_FILE."""
+    out = []
+    for arg in args:
+        if not os.path.isdir(arg):
+            out.append(arg)
+            continue
+        found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.suffix in exts and p.is_file()), key=lambda p: p.parts)
+        if not found:
+            fail("E_FILE", f"{arg} is a directory with no {' or '.join('*' + e for e in exts)} files under it")
+        out += [str(p) for p in found]
+    return out
+
+
+def frames_only(args, cmd):
+    """sheet/stats: palette-only .px files (no frames: nothing to show) are skipped with a note, unless nothing else is
+    left; then they stay, for E_NO_FRAMES."""
+    pal = [a for a in args if split_sel(a)[1] is None and a.endswith(".px") and os.path.isfile(a) and not _has_grid(a)]
+    if len(pal) == len(args):
+        return args
+    for a in pal:
+        print(f"note: {cmd} skips {a}: a palette file, no frames")
+    return [a for a in args if a not in pal]
+
+
 def tell_apart(its, paths):
     """Frames with one label from different files (idle/0 of hero.px and of beast.px) are labeled 'hero:idle/0' and
     'beast:idle/0'; files whose stems are the same too go by their path as given ('a/hero.px:idle/0')."""
@@ -1683,7 +1717,8 @@ def cmd_render(a):
 
 def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg")
-    print("wrote", sheet(all_items(a.files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit))
+    files = frames_only(in_dirs(a.files), "sheet")
+    print("wrote", sheet(all_items(files, a.variant), a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit))
 
 
 def cmd_anim(a):
@@ -2092,7 +2127,7 @@ def cmd_check(a):
         allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
-    for arg in dict.fromkeys(a.files):
+    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map"))):
         path, sel = split_sel(arg)
         try:
             if path.endswith(".map"):
@@ -2173,7 +2208,7 @@ def cmd_check(a):
 
 
 def cmd_stats(a):
-    for n, arg in enumerate(a.files, 1):
+    for n, arg in enumerate(frames_only(in_dirs(a.files), "stats"), 1):
         with reading(f"file {n} ({arg})"):
             its = items(arg)
         for it in its:

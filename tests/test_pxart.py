@@ -4578,7 +4578,8 @@ def test_rotate_help_has_the_shared_turn_paragraph(capsys):
 def test_reference_sections_end_at_the_next_command():
     assert "flood FILE" not in pxart.reference("arc") and "rect FILE" not in pxart.reference("line")
     assert pxart.reference("stats").splitlines() == [
-        "  stats FILE...                     size, bbox, color count, colors per frame"]
+        "  stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and",
+        "                                    palette files as for sheet)"]
     assert "ERROR CODES" not in pxart.reference("from-png")
     assert "Centering:" not in pxart.reference("tint")
 
@@ -12194,3 +12195,174 @@ def test_help_documents_relists():
     assert "'night: recolors k w; relists unchanged: l g; inherits: nothing'" in doc
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`night: recolors k w; relists unchanged: l g; inherits: e E q`" in readme
+
+
+# ---------------------------------------------------------------- check / sheet / stats DIR; palette files in sheet
+
+def pack_dir(tmp_path):
+    """A pack folder: a palette file, two sprites (one in a subfolder), a map, and a PNG render."""
+    d = tmp_path / "pack"
+    (d / "rooms").mkdir(parents=True)
+    write(d, "palette.px", "# pack palette\nk #000000\ny #ffff00\n@variant night\ny #202000\n")
+    write(d, "hero.px", "@palette palette.px\n@frame idle\nky\n")
+    write(d / "rooms", "hall.px", "@palette ../palette.px\n@frame floor\nkk\nyy\n")
+    write(d, "room.map", "h hero.px:idle\n\nh.\n")
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(d / "_render.png")
+    return d
+
+
+def test_in_dirs_expands_sorted_by_path(tmp_path):
+    d = pack_dir(tmp_path)
+    assert pxart.in_dirs([str(d)]) == [str(d / "hero.px"), str(d / "palette.px"), str(d / "rooms" / "hall.px")]
+
+
+def test_in_dirs_with_maps(tmp_path):
+    d = pack_dir(tmp_path)
+    assert pxart.in_dirs([str(d)], (".px", ".map")) == [str(d / "hero.px"), str(d / "palette.px"),
+                                                        str(d / "room.map"), str(d / "rooms" / "hall.px")]
+
+
+def test_in_dirs_keeps_files_and_order(tmp_path):
+    d = pack_dir(tmp_path)
+    got = pxart.in_dirs([str(d / "rooms" / "hall.px"), str(d / "rooms"), "x.px:a"])
+    assert got == [str(d / "rooms" / "hall.px"), str(d / "rooms" / "hall.px"), "x.px:a"]
+
+
+def test_in_dirs_empty_directory_is_e_file(tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(pxart.PxError) as e:
+        pxart.in_dirs([str(tmp_path / "empty")])
+    assert codes(e) == ["E_FILE"] and "no *.px files under it" in str(e.value.issues[0])
+
+
+def test_check_dir_checks_every_px_and_map(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    assert run("check", d) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"ok   {d / 'hero.px'}:idle: 2x1 2c"
+    assert out[1] == f"ok   {d / 'palette.px'}: palette file, 2 key(s), variants night"
+    assert out[2].startswith(f"ok   {d / 'room.map'}")
+    assert out[3] == f"ok   {d / 'rooms' / 'hall.px'}:floor: 2x2 2c" and len(out) == 4
+
+
+def test_check_dir_is_no_longer_a_directory_error(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    run("check", d)
+    out = capsys.readouterr()
+    assert "Is a directory" not in out.out + out.err
+
+
+def test_check_dir_fails_on_a_broken_file_inside(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    write(d / "rooms", "bad.px", "k #000000\nkk\nk\n")
+    assert run("check", d) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {d / 'rooms' / 'bad.px'}: 1 error(s)" in out and "E_ROW_WIDTH" in out
+
+
+def test_check_dir_and_file_checked_once(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    run("check", d / "hero.px", d)
+    out = capsys.readouterr().out
+    assert out.count(f"{d / 'hero.px'}:idle: 2x1") == 1
+
+
+def test_check_empty_dir_is_e_file(tmp_path):
+    (tmp_path / "e").mkdir()
+    msg = run_err("check", tmp_path / "e")
+    assert msg.startswith("check: E_FILE: ") and "no *.px or *.map files under it" in msg
+
+
+def test_sheet_dir_skips_the_palette_file_with_a_note(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    assert run("sheet", d, "-o", tmp_path / "s.png", "--scale", "1") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == [f"note: sheet skips {d / 'palette.px'}: a palette file, no frames", f"wrote {tmp_path / 's.png'}"]
+
+
+def test_sheet_dir_same_as_listing_the_files(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    run("sheet", d, "-o", tmp_path / "a.png")
+    run("sheet", d / "hero.px", d / "rooms" / "hall.px", "-o", tmp_path / "b.png")
+    a, b = (Image.open(tmp_path / n).convert("RGBA") for n in ("a.png", "b.png"))
+    assert a.size == b.size and a.tobytes() == b.tobytes()
+
+
+def test_sheet_dir_leaves_pngs_out(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    run("sheet", d, "-o", d / "_sheet.png")
+    run("sheet", d, "-o", tmp_path / "again.png")  # the sheet rendered into the folder isn't picked up
+    a, b = (Image.open(p).convert("RGBA") for p in (d / "_sheet.png", tmp_path / "again.png"))
+    assert a.tobytes() == b.tobytes()
+
+
+def test_sheet_palette_file_among_files_skipped(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    assert run("sheet", d / "palette.px", d / "hero.px", "-o", tmp_path / "s.png") == 0
+    assert capsys.readouterr().out.splitlines()[0] == f"note: sheet skips {d / 'palette.px'}: a palette file, no frames"
+
+
+def test_sheet_palette_file_alone_is_still_e_no_frames(tmp_path):
+    d = pack_dir(tmp_path)
+    msg = run_err("sheet", d / "palette.px", "-o", tmp_path / "s.png")
+    assert "E_NO_FRAMES" in msg and not (tmp_path / "s.png").exists()
+
+
+def test_sheet_two_palette_files_alone_still_error(tmp_path):
+    d = pack_dir(tmp_path)
+    write(d, "other.px", "q #123456\n")
+    assert "E_NO_FRAMES" in run_err("sheet", d / "palette.px", d / "other.px", "-o", tmp_path / "s.png")
+
+
+def test_sheet_dir_of_only_a_palette_file_is_e_no_frames(tmp_path):
+    (tmp_path / "p").mkdir()
+    write(tmp_path / "p", "palette.px", "k #000000\n")
+    assert "E_NO_FRAMES" in run_err("sheet", tmp_path / "p", "-o", tmp_path / "s.png")
+
+
+def test_sheet_broken_palette_file_is_an_error_not_skipped(tmp_path):
+    # A palette file with an error has no clean parse as one: it is read as a sprite and fails loudly.
+    d = pack_dir(tmp_path)
+    write(d, "bad.px", "k #zzzzzz\n")
+    msg = run_err("sheet", d, "-o", tmp_path / "s.png")
+    assert "E_BAD_COLOR" in msg
+
+
+def test_sheet_palette_file_with_a_selector_is_not_skipped(tmp_path):
+    # FILE:SEL asks for frames: an error, not a skip.
+    d = pack_dir(tmp_path)
+    assert "E_NO_FRAMES" in run_err("sheet", f"{d / 'palette.px'}:idle", d / "hero.px", "-o", tmp_path / "s.png")
+
+
+def test_stats_dir(tmp_path, capsys):
+    d = pack_dir(tmp_path)
+    assert run("stats", d) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"note: stats skips {d / 'palette.px'}: a palette file, no frames"
+    assert out[1].startswith(f"{d / 'hero.px'}:idle: 2x1 ") and out[2].startswith(f"{d / 'rooms' / 'hall.px'}:floor: 2x2 ")
+    assert len(out) == 3
+
+
+def test_stats_palette_file_alone_still_errors(tmp_path):
+    d = pack_dir(tmp_path)
+    assert "E_NO_FRAMES" in run_err("stats", d / "palette.px")
+
+
+def test_render_dir_is_still_a_file_error(tmp_path):
+    # Only check, sheet and stats take directories.
+    d = pack_dir(tmp_path)
+    assert "E_FILE" in run_err("render", d, "-o", tmp_path / "r.png")
+
+
+def test_help_documents_directories_and_palette_files(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "check FILE|DIR..." in doc and "A directory checks every .px and .map under it, recursively, sorted by path" in doc
+    assert "sheet FILE|DIR..." in doc and "A directory stands for every .px under it, recursively, sorted by path" in doc
+    assert "'note: sheet skips palette.px: a palette file, no frames'); given alone it is E_NO_FRAMES" in doc
+    assert "stats FILE|DIR..." in doc
+    for cmd in ("check", "sheet"):
+        out = " ".join(cmd_help(capsys, cmd).split())
+        assert "directory" in out and "palette file" in out, cmd
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`check crossover/` checks every `.px` and `.map` under it" in readme
+    assert "a directory stands for every `.px` under it, sorted by path, and palette files are skipped" in readme

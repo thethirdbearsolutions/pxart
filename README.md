@@ -110,7 +110,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 (`pxart poly -h`), then a see-also line naming the shared notes in `pxart -h` it relies on
 (EDITING, FORMAT: selecting frames, ...) rather than repeating them.
 
-- **Looking:** `render`, `sheet` (frames with one id from several files are labeled
+- **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
+  path, and palette files are skipped with a note; frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or with `--fit`
   each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at
   `--scale` with its 1x and 2x copies beside it in the same picture, plus a motion strip;
@@ -140,8 +141,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   legend entry ending in `+b` (`+hb` with a flip) stands it on its cell instead,
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart -h` has a worked map.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; notes Cyrillic/Greek/fullwidth letters posing as ASCII and
-  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats`,
+  keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it; notes Cyrillic/Greek/fullwidth letters posing as ASCII and
+  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats` (a
+  directory too, as for `sheet`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
