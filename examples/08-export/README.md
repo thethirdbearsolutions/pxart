@@ -56,5 +56,6 @@ Tile 4 carries the water animation:
 From [`export-frames.txt`](export-frames.txt):
 
 ```text
+created frames/
 wrote 11 PNGs under frames (frames/walk/right/0.png ... frames/attack/right/4.png) frames/pivots.json
 ```
