@@ -180,7 +180,8 @@ txt diff.txt diff beetle.px imported.px
 txt diff-mismatch.txt diff beetle.px:walk/right/0 imported.px:walk_cave/right/0 -o diff.png
 
 # ---------------------------------------------------------------------------------------
-# 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame.
+# 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame; then the
+# README's pictures of them (its "The pictures" section).
 stage 08-export alchemist.px hero_pal.px harbor.px harbor-palette.px
 txt export-aseprite.txt export alchemist.px --aseprite alchemist.json
 txt export-tiled.txt export harbor.px --tiled harbor.tsj
@@ -188,6 +189,7 @@ txt export-frames.txt export alchemist.px --frames frames
 pxart scene --size 96x96 --scale 4 -o alchemist.x4.png alchemist.png@0,0
 pxart scene --size 48x32 --scale 8 -o harbor.x8.png harbor.png@0,0
 pxart sheet harbor.px --cols 6 --scale 6 -o harbor-tiles.png
+pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/attack/right/3.png@32,0
 
 # ---------------------------------------------------------------------------------------
 # 09-check: check on a file with three mistakes and on its fixed version; stats.
