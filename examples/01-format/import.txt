@@ -1,0 +1,2 @@
+$ pxart palette gem.px --import palette.px -o gem-shared.px
+imported palette.px (@palette palette.px); dropped k w p r (their key lines: the same colors in palette.px); gem.px now has palette.px's @variant dusk; wrote gem-shared.px

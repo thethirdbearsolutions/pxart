@@ -1,0 +1,3 @@
+$ pxart check glade.px
+ok   glade.px: 256x224 51c
+     glade.px: unused keys befy (no frame draws with them: 'pxart palette glade.px --remove b,e,f,y' drops them; compose and crop give a new OUT their sources' whole palettes unless --used-keys-only)

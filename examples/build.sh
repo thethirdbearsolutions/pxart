@@ -46,46 +46,56 @@ txt() {
 }
 
 # ---------------------------------------------------------------------------------------
-# 01-format: one sprite with its own keys, one that imports a shared palette file.
-stage 01-format barrel.px lamp.px palette.px
+# 01-format: one sprite with its own keys, one drawn by hand, one that imports a shared
+# palette file; the hand-drawn one then imports it too, and both go dusk together.
+# The README walks these in order, one image per step.
+stage 01-format barrel.px gem.px lamp.px palette.px
 pxart render barrel.px -o barrel.preview.png --png
+pxart render gem.px --scale 16 -o gem.preview.png
 pxart render lamp.px -o lamp.preview.png --png
+txt import.txt palette gem.px --import palette.px -o gem-shared.px
+pxart render lamp.px gem-shared.px --variant dusk -o dusk.preview.png
+pxart scene --size 96x40 --bg '#dfe8e6' -o shelf.x4.png \
+  barrel.px@4,20 lamp.px@24,4 gem-shared.px@42,28 lamp.px%dusk@62,4 gem-shared.px%dusk@80,28
 
 # ---------------------------------------------------------------------------------------
 # 02-animation: @anim / @frame timing and pivots; anim's GIF, strip and readout; onion.
+# The README walks these in order.
 stage 02-animation hero.px hero-palette.px
 pxart sheet hero.px --fit --rows group --align pivot --scale 4 -o sheet.png
-pxart anim hero.px:walk/down -o walk.gif --scale 6 > /dev/null
-pxart anim hero.px:idle/right -o idle.gif --scale 4 > /dev/null
-txt anim-walk.txt anim hero.px:walk/down
-txt anim-idle.txt anim hero.px:idle/right
+txt anim-walk.txt anim hero.px:walk/down -o walk.gif --scale 6
+txt anim-idle.txt anim hero.px:idle/right -o idle.gif --scale 4
 txt onion.txt onion hero.px:walk/down/0 hero.px:walk/down/1 -o onion.png
 txt onion-feet.txt onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o onion-feet.png
 
 # ---------------------------------------------------------------------------------------
 # 03-variants: a @variant in a shared palette file, a derived one, and %VARIANT renders.
+# The README walks these in order, one image per step; each scene is 4x (scene's default).
 stage 03-variants coast.px palette.px
-mkdir derived
+pxart scene --size 48x64 --bg '#8ccfd6' -o base.x4.png \
+  coast.px:sand@0,48 coast.px:sand@16,48 coast.px:sand@32,48 \
+  coast.px:lighthouse@2,6 coast.px:keeper@16,26
+pxart scene --size 48x64 --bg '#5a86b0' -o night.x4.png \
+  coast.px:sand%night@0,48 coast.px:sand%night@16,48 coast.px:sand%night@32,48 \
+  coast.px:lighthouse%night@2,6 coast.px:keeper%night@16,26
+mkdir -p derived
 cp palette.px coast.px derived/
 txt derive.txt palette derived/palette.px --variant dusk --derive-from base \
   --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
-txt add.txt palette derived/palette.px --variant dusk --add w=#f2c6a8
+pxart scene --size 48x64 --bg '#e0936a' -o dusk-derived.x4.png \
+  derived/coast.px:sand%dusk@0,48 derived/coast.px:sand%dusk@16,48 derived/coast.px:sand%dusk@32,48 \
+  derived/coast.px:lighthouse%dusk@2,6 derived/coast.px:keeper%dusk@16,26
+txt add.txt palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
+pxart scene --size 48x64 --bg '#e0936a' -o dusk.x4.png \
+  derived/coast.px:sand%dusk@0,48 derived/coast.px:sand%dusk@16,48 derived/coast.px:sand%dusk@32,48 \
+  derived/coast.px:lighthouse%dusk@2,6 derived/coast.px:keeper%dusk@16,26
 txt palette.txt palette derived/palette.px
-# one 48x64 panel per variant; the sky is each panel's --bg, not part of the palette
-F=derived/coast.px
-pxart scene --size 48x64 --scale 1 --bg '#8ccfd6' -o base.png \
-  "${F}:sand@0,48" "${F}:sand@16,48" "${F}:sand@32,48" "${F}:lighthouse@2,6" "${F}:keeper@16,26"
-pxart scene --size 48x64 --scale 1 --bg '#e0936a' -o dusk.png \
-  "${F}:sand%dusk@0,48" "${F}:sand%dusk@16,48" "${F}:sand%dusk@32,48" \
-  "${F}:lighthouse%dusk@2,6" "${F}:keeper%dusk@16,26"
-pxart scene --size 48x64 --scale 1 --bg '#5a86b0' -o night.png \
-  "${F}:sand%night@0,48" "${F}:sand%night@16,48" "${F}:sand%night@32,48" \
-  "${F}:lighthouse%night@2,6" "${F}:keeper%night@16,26"
-pxart scene --size 152x64 --scale 1 -o panels.png base.png@0,0 dusk.png@52,0 night.png@104,0
-pxart scene --size 152x64 --scale 4 -o panels.x4.png base.png@0,0 dusk.png@52,0 night.png@104,0
+pxart scene --size 608x256 --scale 1 -o panels.x4.png \
+  base.x4.png@0,0 dusk.x4.png@208,0 night.x4.png@416,0
 
 # ---------------------------------------------------------------------------------------
-# 04-drawing: run draw.sh a line at a time, keeping a copy of chest.px after each step.
+# 04-drawing: run draw.sh a line at a time, keeping a copy of chest.px after each step and
+# a picture of it (the README shows one per step), then all the steps on one sheet.
 stage 04-drawing draw.sh palette.px
 mkdir steps
 n=0
@@ -96,17 +106,23 @@ while IFS= read -r line; do
   read -r -a args <<< "${line#pxart }"
   txt step.txt "${args[@]}"
   cat step.txt >> draw.txt && rm step.txt
+  step=steps/$(printf %02d $n)-${args[0]}
+  pxart render chest.px --scale 10 -o "$step.png" > /dev/null
   # the copy imports the same palette.px, from one directory down
-  sed 's|^@palette palette.px$|@palette ../palette.px|' chest.px > "steps/$(printf %02d $n)-${args[0]}.px"
+  sed 's|^@palette palette.px$|@palette ../palette.px|' chest.px > "$step.px"
 done < draw.sh
 if grep -q '^(exit' draw.txt; then cat draw.txt >&2; exit 1; fi
 pxart sheet steps/ --cols 6 --scale 4 -o steps.png
-pxart render chest.px -o chest.preview.png --png
+pxart render chest.px --scale 10 -o chest.preview.png --png
+rm chest.px   # so Step 1's 'pxart new chest.px' works in a copy of the folder (steps/ has it)
 
 # ---------------------------------------------------------------------------------------
 # 05-compose: three packs, three palettes, three night-ish variants, one dusk dock.
+# The README walks these in order: the conflict, --rekey alone (a dusk that misses two
+# layers), then --variant-map; each scene is 4x (scene's default).
 stage 05-compose harbor-market/harbor.px harbor-market/palette.px \
   lighthouse-keeper/keeper.px lighthouse-keeper/palette.px wick/player.px wick/pal.px
+pxart sheet harbor-market/harbor.px lighthouse-keeper/keeper.px wick/player.px --fit --scale 4 -o packs.png
 H=harbor-market/harbor.px
 layers=(
   ${H}:water/0@0,0 ${H}:water/0@16,0 ${H}:water/0@32,0 ${H}:water/0@48,0 ${H}:water/0@64,0
@@ -115,27 +131,41 @@ layers=(
   ${H}:stall@2,6 ${H}:lamp@36,8
   lighthouse-keeper/keeper.px:idle/down/0@42,14 wick/player.px:idle/0@62,28
 )
-txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}"
-txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}"
-pxart scene --size 80x48 --scale 1 -o dock.png dock.px@0,0
-pxart scene --size 80x48 --scale 4 -o dock.x4.png dock.px@0,0
-pxart scene --size 80x48 --scale 1 -o dock-dusk.png dock.px%dusk@0,0
-pxart scene --size 80x48 --scale 4 -o dock-dusk.x4.png dock.px%dusk@0,0
+txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}" --replace
+txt rekey.txt compose -o dock.px --size 80x48 --rekey "${layers[@]}" --replace
+pxart scene --size 80x48 -o dock-halfdusk.x4.png dock.px%dusk@0,0
+txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}" --replace
+pxart scene --size 80x48 -o dock-dusk.x4.png dock.px%dusk@0,0
+pxart scene --size 80x48 -o dock.x4.png dock.px@0,0
+pxart scene --size 656x192 --scale 1 -o panels.x4.png dock.x4.png@0,0 dock-dusk.x4.png@336,0
 
 # ---------------------------------------------------------------------------------------
 # 06-scene: a four-layer .map (sky, tree line, field tiles, trees) with the hero on it.
+# The README walks these in order; each render is 2x.
 stage 06-scene rooms/glade.map pal/far.px pal/mid.px pal/field.px pal/hero.px \
   layers/far.px layers/mid.px tiles/field.px tiles/tree.px sprites/hero.px
 txt check.txt check rooms/glade.map
-hero=(tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127)
-txt scene.txt scene --map rooms/glade.map --scale 1 -o glade.png "${hero[@]}"
-pxart scene --map rooms/glade.map --scale 2 -o glade.x2.png "${hero[@]}" 2> /dev/null
-pxart scene --map rooms/glade.map --scale 1 --variant dusk -o glade-dusk.png "${hero[@]}" 2> /dev/null
-pxart scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png "${hero[@]}" 2> /dev/null
+# the README's layers picture: the map's first 1, 2, 3 and 4 layers, 1x, in a 2x2 grid
+for n in 1 2 3 4; do
+  awk -v n=$n '/^---$/ { k++ } k < n' rooms/glade.map > rooms/_first$n.map
+  pxart scene --map rooms/_first$n.map --size 256x224 --scale 1 -o _layers$n.png > /dev/null 2>&1
+done
+pxart scene --size 528x464 --scale 1 -o layers.png \
+  _layers1.png@0,0 _layers2.png@272,0 _layers3.png@0,240 _layers4.png@272,240
+rm rooms/_first?.map _layers?.png
+txt scene.txt scene --map rooms/glade.map --scale 2 -o glade.x2.png \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127
+txt scene-dusk.txt scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127
+txt compose.txt compose --map rooms/glade.map -o glade.px --rekey \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127 --replace
+txt check-glade.txt check glade.px
+pxart scene --size 1040x448 --scale 1 -o panels.x2.png glade.x2.png@0,0 glade-dusk.x2.png@528,0
 
 # ---------------------------------------------------------------------------------------
 # 07-import: lay the beetle's frames out as a PNG sheet, slice it back with from-png --grid,
-# and prove with diff that every frame came back pixel for pixel.
+# and prove with diff that every frame came back pixel for pixel. The README walks these
+# in order; the sheet and its 8x view are its "Where the sheet comes from" section.
 stage 07-import beetle.px beetle_pal.px
 items=()
 for i in 0 1 2 3; do
@@ -146,12 +176,12 @@ pxart scene --size 64x32 --scale 8 -o sheet.x8.png sheet.png@0,0
 txt from-png.txt from-png sheet.png --grid 16x16 --names walk/right,walk_cave/right \
   --palette beetle_pal.px -o imported.px
 pxart sheet imported.px --rows group --scale 4 -o imported.png
-txt diff.txt diff beetle.px:walk/right imported.px:walk/right
-txt diff-cave.txt diff beetle.px:walk_cave/right imported.px:walk_cave/right
-txt diff-mismatch.txt diff beetle.px:walk/right imported.px:walk_cave/right
+txt diff.txt diff beetle.px imported.px
+txt diff-mismatch.txt diff beetle.px:walk/right/0 imported.px:walk_cave/right/0 -o diff.png
 
 # ---------------------------------------------------------------------------------------
-# 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame.
+# 08-export: an Aseprite sheet + JSON, a Tiled tileset, and one PNG per frame; then the
+# README's pictures of them (its "The pictures" section).
 stage 08-export alchemist.px hero_pal.px harbor.px harbor-palette.px
 txt export-aseprite.txt export alchemist.px --aseprite alchemist.json
 txt export-tiled.txt export harbor.px --tiled harbor.tsj
@@ -159,17 +189,30 @@ txt export-frames.txt export alchemist.px --frames frames
 pxart scene --size 96x96 --scale 4 -o alchemist.x4.png alchemist.png@0,0
 pxart scene --size 48x32 --scale 8 -o harbor.x8.png harbor.png@0,0
 pxart sheet harbor.px --cols 6 --scale 6 -o harbor-tiles.png
+pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/attack/right/3.png@32,0
 
 # ---------------------------------------------------------------------------------------
-# 09-check: check on a file with three mistakes and on its fixed version; stats.
+# 09-check: check on a file with three mistakes. The README fixes them one at a time in a
+# text editor and checks after each; here the same edits go to a copy in fixing/, which
+# is removed after, once the sheet and stats of the repaired file are made.
 stage 09-check broken.px fixed.px
 txt check-broken.txt check broken.px
-txt check-fixed.txt check fixed.px -v
-txt stats.txt stats fixed.px
-txt stats-colors.txt stats fixed.px:idle/0 --colors
-txt stats-dark.txt stats fixed.px:idle/0%dark --colors --at 7,3
-pxart sheet fixed.px --scale 6 -o fixed.png
-pxart sheet fixed.px --scale 6 --variant dark -o fixed-dark.png
+mkdir fixing
+cp broken.px fixing/
+(
+  cd fixing
+  fix() { sed "$1" broken.px > broken.tmp && mv broken.tmp broken.px; }
+  fix '41s/$/./'           # the short row gets its missing '.'
+  txt ../check-fix1.txt check broken.px
+  fix '63s/W/w/'           # a 'W' that isn't in the palette, meant as 'w'
+  txt ../check-fix2.txt check broken.px
+  fix '85s/с/c/'           # that first letter is a Cyrillic 'с', typed for the key 'c'
+  txt ../check-fix3.txt check broken.px
+  # the README then draws the repaired file and counts its colors
+  pxart sheet broken.px --scale 6 -o ../fixed.png
+  txt ../stats-colors.txt stats broken.px:idle/0 --colors
+)
+rm -r fixing
 
 # ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"

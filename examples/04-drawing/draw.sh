@@ -7,6 +7,6 @@ pxart line chest.px G 2,9 21,9 --width 2
 pxart rect chest.px G 5,3,2,16 --fill
 pxart rect chest.px G 17,3,2,16 --fill
 pxart flood chest.px Y 5,15
-pxart ellipse chest.px y 11.5,10.5,2.5,2.5 --fill
+pxart ellipse chest.px y --box 9,8,6,6 --fill
 pxart poly chest.px r 11,9 12,9 12,12 11,12 --fill
 pxart outline chest.px --key k --lit B

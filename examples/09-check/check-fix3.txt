@@ -1,0 +1,2 @@
+$ pxart check broken.px
+ok   broken.px: 4 frames, 16x16, 7c
