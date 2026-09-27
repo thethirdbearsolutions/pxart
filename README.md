@@ -233,7 +233,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
-  another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names), `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a
+  another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names; `'b>t' 't=#1e4548'` gives the new key
+  its own color in the same call, and `--variant night` sets night's color instead of the base), `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a
   `--dither N` edge; `--invert` erases the inside instead; both flags repeat, and the kept
   area is the union, so two lamps are one call; works on a rendered PNG too; `--keep-keys
   W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in

@@ -377,16 +377,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
       gives the cut those keys in OUT and leaves FILE as it is.
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
-      Write only the selected frames to a new OUT, with FILE's palette, @palette
-      imports, variants, and @anim/@still lines (minus those
-      of groups left behind; @anim lines in the order of the frames' groups):
-      'extract hero.px:walk/down -o walk.px'. An OUT that exists is E_FILE, since its frames
-      would be lost (E_DUP_FRAME when it has one of the ids): 'frames FILE:SEL --copy-to OUT'
-      adds them to it, and --replace overwrites it. --inline-palette
-      makes OUT self-contained for a hand-off: the imported keys it uses become key lines,
+      Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
+      variants, and @anim/@still lines (minus those of groups left behind;
+      @anim lines in the order of the frames' groups): 'extract hero.px:walk/down -o walk.px'. An OUT that exists
+      is E_FILE, since its frames would be lost (E_DUP_FRAME when it has one of the ids):
+      'frames FILE:SEL --copy-to OUT' adds them to it, and --replace overwrites it.
+      --inline-palette makes OUT self-contained for a hand-off: the imported keys it uses become key lines,
       with their variant colors, and the @palette lines go. OUT renders exactly like the
       source frames, in every variant.
-  recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h]
+  recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h] [--variant V]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
@@ -401,7 +400,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       d to g, and 'a>b' 'b>a' swaps two keys' names (every pixel keeps its look). A key the
       call keeps (pixels outside --region or the selection draw with it, it is imported, or
       c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
-      the palette and don't move pixels, so c=#hex and c=d can share a call.
+      the palette (V's: --variant V) and don't move pixels: c=#hex, c=d and 'b>t' t=#hex share a call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
         [--variant-map NAME=V1,V2] [--align shift|pivot|bottom|bbox] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
@@ -562,7 +561,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
   dup FILE:GROUP NEWGROUP [--after ID] [--replace] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
-      A new animation inherits the source animation's @anim timing. Then edit the copy.
+      A new animation inherits the source's @anim timing.
       A GROUP copies its frames (walk/0 -> run/0), @anim and @still lines too.
   anim-set FILE:GROUP [ms=N] [direction=D] [repeat=N] [pivot=X,Y] [--still | --no-still] [-o OUT]
       Write timing: updates the '@anim GROUP' line, or adds one, in the order of the frames.
@@ -4462,7 +4461,10 @@ def cmd_recolor(a):
     are independent of moves."""
     doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal = doc.resolved()
-    moves, said, renames = {}, {}, {}
+    if a.variant:
+        doc.resolved(a.variant)  # an unknown variant is E_SELECT, with its guess
+    moves, said, renames, later = {}, {}, {}, {}  # later: colors for keys a move of this call makes ('b>t' t=#hex)
+    made = {m[2] for m in a.maps if len(m) == 3 and m[1] == ">"}
     for m in a.maps:
         if len(m) == 3 and m[1] == ">":  # 'a>b': a's pixels get the new key b, in a's color
             k, v = m[0], m[2]
@@ -4491,9 +4493,14 @@ def cmd_recolor(a):
         else:
             fail("E_BAD_ARG", f"recolor: {m!r} isn't a=b, c=#rrggbb, 'a<>b' or 'a>b' (quote a swap: unquoted, < and > "
                  "are shell redirections, and the shell hands pxart only the part before them)")
-        if k not in pal:
+        color = v.startswith("#") or v == "transparent"
+        if k not in pal and not (color and k in made):
+            if color:
+                fail("E_BAD_ARG", f"recolor: {m!r}: key {k!r} isn't in the palette, and no 'a>{k}' in this call makes "
+                     f"it; to add it: pxart palette {doc.path} --add '{k}=" + (
+                         f"#rrggbb' (its base color), then this recolor" if a.variant else f"{v}'"))
             fail("E_SELECT", f"recolor: key {k!r} not in palette")
-        if v.startswith("#") or v == "transparent":
+        if color:
             if a.region:
                 fail("E_BAD_ARG", "--region only applies to key=key repaints; a color change affects every pixel "
                      "of that key. Add a new key (palette --add) and repaint the region to it instead.")
@@ -4502,8 +4509,10 @@ def cmd_recolor(a):
             if ("#", k) in said:
                 fail("E_BAD_ARG", f"recolor: key {k!r} gets two colors ({said[('#', k)]} and {m})")
             said[("#", k)] = m
-            # A shared key recolored here becomes a local override for this file only.
-            doc.palette[k] = CLEAR if v == "transparent" else hex2rgba(v)
+            # A shared key recolored here becomes a local override for this file only; a key a move makes gets its
+            # color once the move has made it.
+            (later if k in made else doc.variants.setdefault(a.variant, {}) if a.variant else doc.palette)[k] = \
+                CLEAR if v == "transparent" else hex2rgba(v)
             continue
         if v not in pal:
             fail("E_SELECT", f"recolor: key {v!r} not in palette (add it with palette --add)")
@@ -4559,10 +4568,13 @@ def cmd_recolor(a):
         f.grid = ["".join(moves.get(c, c) if x0 <= x < x0 + w and y0 <= y < y0 + h else c
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     rename_keys(doc, renames, left)
-    print(*recolor_counts(doc, frames, moves, [k for k in said if isinstance(k, tuple)]), write_doc(doc, out))
+    for k, c in later.items():
+        (doc.variants.setdefault(a.variant, {}) if a.variant else doc.palette)[k] = c
+    print(*recolor_counts(doc, frames, moves, [k for k in said if isinstance(k, tuple)], a.variant),
+          write_doc(doc, out))
 
 
-def recolor_counts(doc, frames, moves, recolored):
+def recolor_counts(doc, frames, moves, recolored, variant=None):
     """What recolor did, as fill and paste say it: 'repainted 12 px;' for the key moves (per frame when several), and
     'recolored o #112233: 40 px;' for each color change, counting the pixels drawn with that key in every frame (a
     color is the whole file's)."""
@@ -4570,7 +4582,8 @@ def recolor_counts(doc, frames, moves, recolored):
     for _, k in recolored:
         counts = [(doc.label(f), sum(row.count(k) for row in f.grid)) for f in doc.frames]
         hit = [f"{label} {n}" for label, n in counts if n]
-        out.append(f"recolored {k} {fmt_color(doc.resolved()[k])}: {sum(n for _, n in counts)} px"
+        out.append(f"recolored {k}" + (f" in {variant}" if variant else "")
+                   + f" {fmt_color(doc.resolved(variant)[k])}: {sum(n for _, n in counts)} px"
                    + (f" ({listed(hit, 5)})" if len(hit) > 1 else "") + ";")
     return out
 
@@ -8332,6 +8345,9 @@ def parser(describe=True):
     g.add_argument("--drop-keys", help="erase every pixel whose key is one of these")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
+    p.add_argument("--variant", metavar="V", help="c=#hex sets c's color in variant V (it must exist), not the base, and "
+                   "'b>t' t=#hex gives the new key t a V color of its own; key moves repaint pixels, the same in "
+                   "every variant")
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
     p.add_argument("-o")
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)

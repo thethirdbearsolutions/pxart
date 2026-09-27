@@ -27556,3 +27556,78 @@ def test_paste_align_keys_errors(tmp_path):
     assert "--align bbox: fly/1 draws nothing in r, so there's no drawing to follow" in run_err(
         "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "bbox", "--keys", "r")
     assert p.read_text() == had
+
+
+# ---------------------------------------------------------------- recolor: a move's new key takes its color in one call
+
+MOVE_PAL = "k #000000\nb #3d3656\n@variant night\nb #1d1e39\n@frame a\nkb\n@frame c\nbb\n"
+
+
+def test_recolor_new_key_takes_its_color_in_the_same_call(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    assert run("recolor", f"{p}:a", "b>t", "t=#1e4548") == 0
+    out = capsys.readouterr().out
+    assert "recolored t #1e4548: 1 px;" in out
+    doc = pxart.parse(p)
+    assert doc.palette["t"] == (0x1e, 0x45, 0x48, 255) and doc.palette["b"] == (0x3d, 0x36, 0x56, 255)
+    assert doc.variants["night"]["t"] == (0x1d, 0x1e, 0x39, 255)  # the move gave t b's night; the color is the base's
+    assert grids(p)["a"] == ["kt"] and grids(p)["c"] == ["bb"]
+
+
+def test_recolor_new_key_color_after_a_full_rename(tmp_path):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    assert run("recolor", p, "b>t", "t=#1e4548") == 0  # b renamed away: its lines are t's, in the new color
+    doc = pxart.parse(p)
+    assert "b" not in doc.palette and doc.palette["t"] == (0x1e, 0x45, 0x48, 255)
+    assert doc.variants["night"] == {"t": (0x1d, 0x1e, 0x39, 255)}
+
+
+def test_recolor_new_key_color_in_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    assert run("recolor", f"{p}:a", "b>t", "t=#10262c", "--variant", "night") == 0
+    assert "recolored t in night #10262c: 1 px;" in capsys.readouterr().out
+    doc = pxart.parse(p)
+    assert doc.palette["t"] == (0x3d, 0x36, 0x56, 255) and doc.variants["night"]["t"] == (0x10, 0x26, 0x2c, 255)
+    assert doc.variants["night"]["b"] == (0x1d, 0x1e, 0x39, 255)
+
+
+def test_recolor_variant_colors_an_existing_key(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    assert run("recolor", p, "k=#111111", "--variant", "night") == 0
+    assert "recolored k in night #111111: 1 px;" in capsys.readouterr().out
+    doc = pxart.parse(p)
+    assert doc.palette["k"] == (0, 0, 0, 255) and doc.variants["night"]["k"] == (0x11, 0x11, 0x11, 255)
+
+
+def test_recolor_unknown_variant_is_e_select(tmp_path):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    msg = run_err("recolor", p, "k=#111111", "--variant", "nite")
+    assert "E_SELECT" in msg and "unknown variant 'nite'" in msg and "did you mean 'night'?" in msg
+
+
+def test_recolor_color_for_an_unknown_key_is_bad_arg_with_palette_add(tmp_path):
+    p = write(tmp_path, "m.px", MOVE_PAL)
+    had = p.read_text()
+    msg = run_err("recolor", p, "q=#123456")
+    assert msg == f"recolor: E_BAD_ARG: 'q=#123456': key 'q' isn't in the palette, and no 'a>q' in this call makes " \
+        f"it; to add it: pxart palette {p} --add 'q=#123456'"
+    msg = run_err("recolor", p, "q=#123456", "--variant", "night")
+    assert f"to add it: pxart palette {p} --add 'q=#rrggbb' (its base color), then this recolor" in msg
+    assert "E_SELECT" in run_err("recolor", p, "q=k")  # a repaint from an unknown key is still a selection miss
+    assert p.read_text() == had
+
+
+def test_recolor_new_key_color_when_its_name_was_freed(tmp_path):
+    # t is renamed away to x and b's pixels take the name t: t=#hex colors the new t, not the old one (now x)
+    p = write(tmp_path, "m.px", "t #ffffff\nb #3d3656\n@frame a\ntb\n")
+    assert run("recolor", p, "t>x", "b>t", "t=#1e4548") == 0
+    doc = pxart.parse(p)
+    assert doc.palette == {"x": (255, 255, 255, 255), "t": (0x1e, 0x45, 0x48, 255)}
+    assert grids(p)["a"] == ["xt"]
+
+
+def test_recolor_help_names_the_new_key_color_and_variant(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "[--region x,y,w,h] [--variant V]" in doc and "c=#hex, c=d and 'b>t' t=#hex share a call" in doc
+    assert run("recolor", "-h") == 0
+    assert "'b>t' t=#hex gives the new key t a V color of its own" in " ".join(capsys.readouterr().out.split())
