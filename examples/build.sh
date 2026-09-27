@@ -46,10 +46,17 @@ txt() {
 }
 
 # ---------------------------------------------------------------------------------------
-# 01-format: one sprite with its own keys, one that imports a shared palette file.
-stage 01-format barrel.px lamp.px palette.px
+# 01-format: one sprite with its own keys, one drawn by hand, one that imports a shared
+# palette file; the hand-drawn one then imports it too, and both go dusk together.
+# The README walks these in order, one image per step.
+stage 01-format barrel.px gem.px lamp.px palette.px
 pxart render barrel.px -o barrel.preview.png --png
+pxart render gem.px --scale 16 -o gem.preview.png
 pxart render lamp.px -o lamp.preview.png --png
+txt import.txt palette gem.px --import palette.px -o gem-shared.px
+pxart render lamp.px gem-shared.px --variant dusk -o dusk.preview.png
+pxart scene --size 96x40 --bg '#dfe8e6' -o shelf.x4.png \
+  barrel.px@4,20 lamp.px@24,4 gem-shared.px@42,28 lamp.px%dusk@62,4 gem-shared.px%dusk@80,28
 
 # ---------------------------------------------------------------------------------------
 # 02-animation: @anim / @frame timing and pivots; anim's GIF, strip and readout; onion.

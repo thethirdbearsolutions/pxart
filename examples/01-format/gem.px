@@ -1,0 +1,15 @@
+# A gem: four colors, then the picture, one letter per pixel.
+pxart 1
+k #2b1e2f
+w #efe6d2
+p #d8718c
+r #c4473a
+
+..kkkkk..
+.kwppprk.
+kwwppprrk
+kwpppprrk
+.kwpprrk.
+..kpprk..
+...kpk...
+....k....
