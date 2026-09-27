@@ -157,6 +157,17 @@ pxart scene --size 96x96 --scale 4 -o alchemist.x4.png alchemist.png@0,0
 pxart scene --size 48x32 --scale 8 -o harbor.x8.png harbor.png@0,0
 
 # ---------------------------------------------------------------------------------------
+# 09-check: check on a file with three mistakes and on its fixed version; stats.
+stage 09-check broken.px fixed.px
+txt check-broken.txt check broken.px
+txt check-fixed.txt check fixed.px -v
+txt stats.txt stats fixed.px
+txt stats-colors.txt stats fixed.px:idle/0 --colors
+txt stats-dark.txt stats fixed.px:idle/0%dark --colors --at 7,3
+pxart sheet fixed.px --scale 6 -o fixed.png
+pxart sheet fixed.px --scale 6 --variant dark -o fixed-dark.png
+
+# ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"
 cp -R "$WORK"/. "$DEST"/
 echo "built examples into $DEST"

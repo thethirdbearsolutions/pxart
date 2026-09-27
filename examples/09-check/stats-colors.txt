@@ -1,0 +1,9 @@
+$ pxart stats fixed.px:idle/0 --colors
+fixed.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
+  #1a1423 58 px (k)
+  #f6eed8 41 px (w)
+  #d4bd92 13 px (c)
+  #ffe07a 5 px (f)
+  #f58b3c 2 px (a)
+  #7a5238 1 px (b)
+  #fff6d0 1 px (i)
