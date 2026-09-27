@@ -103,10 +103,10 @@ LOOKING
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
       from A's, then the whole-sprite shift that best explains B, as anim finds it:
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
-      shift: 20px)": the head rose 1px, the feet stayed. Two different sprites (other sizes,
-      unless both are frames of one animation in one file; or more than half the larger one's
-      opaque pixels still changed at the whole sprites' best shift, as a keeper beside a
-      market kid; --rows and --feet don't change that) print
+      shift: 20px)": the head rose 1px, the feet stayed. Two different sprites (other sizes, or
+      more than half the larger one's opaque pixels still changed at the whole sprites' best
+      shift, as a keeper beside a market kid; --rows and --feet don't change that; two frames
+      of one animation in one file are always one sprite, however much changed) print
       "...; different sprites: edges only": their edges still compare where the feet stand,
       but a best shift between two characters means nothing. y grows down, so +1 is lower. The
       edges are the sides of each frame's opaque bounding box (its leftmost, rightmost, top
@@ -1830,8 +1830,9 @@ def cmd_onion(a):
         ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
         base.alpha_composite(shade)
     upscale(base, a.scale, grid=True, rulers=True).save(outpath(a.o))
-    kin = A.size == B.size or (split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame
-                               and ia.frame.group == ib.frame.group)  # frames of one animation may differ in size
+    one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
+               and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
+    kin = True if one else None if A.size == B.size else False
     for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin):
         print(line)
     print("wrote", a.o)
@@ -1871,9 +1872,10 @@ def band_shift(prev, cur, y0, y1, reach=2):
 def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
     """onion's readout: where each frame's opaque pixels sit on the shared canvas, how B's edges moved from A's (a 1px
     jump of the feet is 'bottom +1'), and the whole-sprite shift that best explains B (anim's). band (y0, y1): only
-    those canvas rows count, for the edges and the shift (band_shift). Two different sprites (kin False: other sizes,
-    and not frames of one animation; or more than half the larger one's opaque pixels still changed at the whole
-    sprites' best shift, band or not) get their edges only: a best shift between two characters means nothing."""
+    those canvas rows count, for the edges and the shift (band_shift). kin: True, frames of one animation (one sprite,
+    however much changed); False, two different sprites (other sizes); None, it depends: more than half the larger
+    one's opaque pixels still changed at the whole sprites' best shift (band or not) makes them two. Two different
+    sprites get their edges only: a best shift between two characters means nothing."""
     clear = [placed(it.img, w, h, at, "#00000000") for it, at in zip((ia, ib), spots)]
     if band:
         alpha = [c.getchannel("A") for c in clear]
@@ -1895,7 +1897,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True):
         most = max(sum(c.getchannel("A").histogram()[1:]) for c in clear)  # the whole sprites, band or not
         edges = f"B vs A{f' ({rows})' if band else ''}: left {l1 - l0:+d}, right {r1 - r0:+d}, top {t1 - t0:+d}, " \
                 f"bottom {b1 - b0:+d}"
-        if not kin or 2 * whole[2] > most:
+        if kin is False or (kin is None and 2 * whole[2] > most):
             lines.append(f"{edges}; different sprites: edges only")
         else:
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")

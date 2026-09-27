@@ -12125,7 +12125,7 @@ def test_onion_one_png_against_itself_keeps_the_shift(tmp_path, capsys):
 
 def test_help_documents_onion_different_sprites():
     doc = " ".join(pxart.__doc__.split())
-    assert "different sprites: edges only" in doc and "unless both are frames of one animation in one file" in doc
+    assert "different sprites: edges only" in doc and "two frames of one animation in one file are always one sprite" in doc
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`different sprites: edges only`" in readme
 
@@ -12729,3 +12729,26 @@ def test_help_documents_variant_authoring(capsys):
     assert "Authoring a variant" in out and "--hoist" in out and "--keep" in out
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "with `--variant night` it sets keys in that variant, making it if needed" in readme
+
+
+BLOCK6 = "\n".join(["kkkkkk"] * 6)
+CHECK6 = "\n".join(["r.r.r.", ".r.r.r"] * 3)  # every pixel another color or gone, whatever the shift
+
+
+def test_onion_frames_of_one_animation_are_one_sprite_however_much_changed(tmp_path, capsys):
+    # A wing flap changes most of a small sprite's pixels: still one animation, still a best shift.
+    p = write(tmp_path, "m.px", f"k #000000\nr #ff0000\n@anim fly ms=100\n@frame fly/0\n{BLOCK6}\n@frame fly/1\n{CHECK6}\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:fly/0", f"{p}:fly/1")
+    assert "; best shift " in lines[2] and "different sprites" not in lines[2]
+
+
+def test_onion_same_frames_in_other_groups_can_be_two_sprites(tmp_path, capsys):
+    p = write(tmp_path, "m.px", f"k #000000\nr #ff0000\n@frame a/0\n{BLOCK6}\n@frame b/0\n{CHECK6}\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a/0", f"{p}:b/0")
+    assert lines[2].endswith("; different sprites: edges only")
+
+
+def test_onion_top_level_frames_are_not_one_animation(tmp_path, capsys):
+    p = write(tmp_path, "m.px", f"k #000000\nr #ff0000\n@frame a\n{BLOCK6}\n@frame b\n{CHECK6}\n")
+    lines = onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b")
+    assert lines[2].endswith("; different sprites: edges only")
