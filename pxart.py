@@ -3440,8 +3440,11 @@ def frames_copy(a, doc, sel, picked):
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
     said = []
+    landed = {Frame(new_id[id(f)]).group for f in picked}  # the groups the copies land in (a frame renamed top-level: none)
     for g in dict.fromkeys(f.group for f in picked if f.group):
         n = renamed_id(g, renames)
+        if n not in landed:  # no copy lands in it: its @anim or @still line would name a group with no frames
+            continue
         if g in doc.anims and n not in dst.anims:
             dst.anims[n] = dict(doc.anims[g])
             said.append(f"added @anim {n}")

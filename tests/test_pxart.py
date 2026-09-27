@@ -23248,3 +23248,93 @@ def test_recipe_feet_bob_fix_works(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert run("anim", "b.px:w") == 0
     assert "shift +0,+1" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- frames --copy-to --rename: no @anim for a group left empty
+
+KEEPER_IDLE = ("pxart 1\nk #000000\nr #c4473a\n@anim idle/down ms=200 direction=pingpong\n@still ui\n"
+               "@frame idle/down/0\nk.\n@frame idle/down/1\n.k\n@frame ui/life\nrr\n")
+
+
+def test_copy_one_frame_renamed_top_level_adds_no_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "world.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("extract", "world.px:lighthouse", "-o", "coast.px") == 0
+    capsys.readouterr()
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    out = capsys.readouterr().out
+    assert "added @anim" not in out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.anims == {} and [f.id for f in doc.frames] == ["lighthouse", "keeper"]
+    assert "@anim" not in (tmp_path / "coast.px").read_text()
+    assert run("check", "--strict", "coast.px") == 0
+    assert "names a group with no frames" not in capsys.readouterr().out
+
+
+def test_copy_one_frame_renamed_top_level_keeps_its_timing(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    assert pxart.parse(tmp_path / "coast.px").get("keeper").ms == 200
+
+
+def test_copy_one_frame_renamed_into_another_group_adds_no_source_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px", "--rename", "idle/down/0",
+               "pose/0") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" not in doc.anims and [f.id for f in doc.frames] == ["lighthouse", "pose/0"]
+    assert pxart.orphans(doc) == []
+
+
+def test_copy_still_frame_renamed_top_level_adds_no_still(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\nr #c4473a\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:ui/life", "--copy-to", "coast.px", "--rename", "ui/life", "life") == 0
+    out = capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.stills == [] and "added @still" not in out and pxart.orphans(doc) == []
+
+
+def test_copy_group_renamed_still_adds_its_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down", "--copy-to", "coast.px", "--rename", "idle/down", "keeper/idle") == 0
+    assert "added @anim keeper/idle" in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert doc.anims["keeper/idle"] == {"direction": "pingpong", "repeat": None, "ms": 200}
+
+
+def test_copy_one_frame_keeping_its_group_still_adds_the_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/0", "--copy-to", "coast.px") == 0
+    assert "added @anim idle/down" in capsys.readouterr().out
+    assert "idle/down" in pxart.parse(tmp_path / "coast.px").anims
+
+
+def test_copy_frame_renamed_within_its_group_adds_the_anim(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down/1", "--copy-to", "coast.px", "--rename", "idle/down/1",
+               "idle/down/0") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" in doc.anims and pxart.orphans(doc) == []
+
+
+def test_copy_two_frames_one_renamed_away_keeps_the_anim_for_the_other(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "keeper.px", KEEPER_IDLE)
+    write(tmp_path, "coast.px", "pxart 1\nk #000000\n@frame lighthouse\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("frames", "keeper.px:idle/down", "--copy-to", "coast.px", "--rename", "idle/down/0", "keeper") == 0
+    doc = pxart.parse(tmp_path / "coast.px")
+    assert "idle/down" in doc.anims and [f.id for f in doc.frames] == ["lighthouse", "keeper", "idle/down/1"]
+    assert pxart.orphans(doc) == []
