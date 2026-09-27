@@ -22465,7 +22465,17 @@ def half(tmp_path, sprite=HALF_SPRITE, pal=HALF_PAL):
     return write(tmp_path, "wick.px", sprite)
 
 
-HALF_WARN = "WARNING: {p}: @variant dusk comes only from its @palette pal.px, which doesn't list its own keys M P: in " \
+def test_half_variant_warning_says_the_palette_gives_no_colors(tmp_path, monkeypatch, capsys):
+    # the file does list M and P, in its base palette: the warning is about their dusk colors, which nothing gives
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "which gives no dusk colors to its own keys M P: in dusk they stay at their base colors" in out
+    assert "doesn't list" not in out
+
+
+HALF_WARN = "WARNING: {p}: @variant dusk comes only from its @palette pal.px, which gives no dusk colors to its own keys M P: in " \
             "dusk they stay at their base colors. Give it a dusk of its own: 'pxart palette {p} --variant dusk " \
             "--derive-from base --match {pal} --keep-lit M,Z' (lights inferred: M relisted unchanged in night; Z left " \
             "at base in night), or --add 'K=#rrggbb'"
@@ -22674,7 +22684,7 @@ def test_check_notes_a_palette_file_importing_one(tmp_path, monkeypatch, capsys)
     monkeypatch.chdir(tmp_path)
     assert run("check", "pal2.px", "pal.px") == 0
     out = capsys.readouterr().out
-    assert "     pal2.px: @variant dusk comes only from its @palette pal.px, which doesn't list its own key y: in " \
+    assert "     pal2.px: @variant dusk comes only from its @palette pal.px, which gives no dusk color to its own key y: in " \
         "dusk it stays at its base color." in out
     assert "2 files, 0 frames, 1 warning" in out
 

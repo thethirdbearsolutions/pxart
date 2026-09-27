@@ -4897,8 +4897,8 @@ def said_half(d, name, ks):
         whys.setdefault(why, []).append(k)
     told = ("lights inferred: " + "; ".join(f"{' '.join(v)} {w}" for w, v in whys.items())) if lit else \
         "no lights inferred; add --keep-lit for any"
-    return (f"@variant {name} comes only from its @palette {' and '.join(refs)}, which doesn't list its own "
-            f"key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
+    return (f"@variant {name} comes only from its @palette {' and '.join(refs)}, which gives no {name} "
+            f"color{'s' * many} to its own key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
             f"color{'s' * many}. Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
             f"--derive-from base --match {pal}" + (f" --keep-lit {','.join(k for k, _ in lit)}" if lit else "")
             + f"' ({told}), or --add 'K=#rrggbb'" + said_recompose(d, name))
