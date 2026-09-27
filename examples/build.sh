@@ -118,8 +118,11 @@ rm chest.px   # so Step 1's 'pxart new chest.px' works in a copy of the folder (
 
 # ---------------------------------------------------------------------------------------
 # 05-compose: three packs, three palettes, three night-ish variants, one dusk dock.
+# The README walks these in order: the conflict, --rekey alone (a dusk that misses two
+# layers), then --variant-map; each scene is 4x (scene's default).
 stage 05-compose harbor-market/harbor.px harbor-market/palette.px \
   lighthouse-keeper/keeper.px lighthouse-keeper/palette.px wick/player.px wick/pal.px
+pxart sheet harbor-market/harbor.px lighthouse-keeper/keeper.px wick/player.px --fit --scale 4 -o packs.png
 H=harbor-market/harbor.px
 layers=(
   ${H}:water/0@0,0 ${H}:water/0@16,0 ${H}:water/0@32,0 ${H}:water/0@48,0 ${H}:water/0@64,0
@@ -128,12 +131,13 @@ layers=(
   ${H}:stall@2,6 ${H}:lamp@36,8
   lighthouse-keeper/keeper.px:idle/down/0@42,14 wick/player.px:idle/0@62,28
 )
-txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}"
-txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}"
-pxart scene --size 80x48 --scale 1 -o dock.png dock.px@0,0
-pxart scene --size 80x48 --scale 4 -o dock.x4.png dock.px@0,0
-pxart scene --size 80x48 --scale 1 -o dock-dusk.png dock.px%dusk@0,0
-pxart scene --size 80x48 --scale 4 -o dock-dusk.x4.png dock.px%dusk@0,0
+txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}" --replace
+txt rekey.txt compose -o dock.px --size 80x48 --rekey "${layers[@]}" --replace
+pxart scene --size 80x48 -o dock-halfdusk.x4.png dock.px%dusk@0,0
+txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}" --replace
+pxart scene --size 80x48 -o dock-dusk.x4.png dock.px%dusk@0,0
+pxart scene --size 80x48 -o dock.x4.png dock.px@0,0
+pxart scene --size 656x192 --scale 1 -o panels.x4.png dock.x4.png@0,0 dock-dusk.x4.png@336,0
 
 # ---------------------------------------------------------------------------------------
 # 06-scene: a four-layer .map (sky, tree line, field tiles, trees) with the hero on it.
