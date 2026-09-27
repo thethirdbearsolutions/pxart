@@ -7577,35 +7577,47 @@ def parser(describe=True):
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")
     g = p.add_mutually_exclusive_group(); g.add_argument("--still", action="store_true", help="add '@still GROUP'")
     g.add_argument("--no-still", action="store_true", help="remove '@still GROUP'")
-    p = sub.add_parser("palette"); p.add_argument("file"); p.add_argument("--export")
-    p.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
-    p.add_argument("--variant", metavar="NAME", help="--add and --keep edit this variant (made if FILE has none)")
-    p.add_argument("--keep", metavar="KEYS", help="with --variant: these keys inherit the base colors in it")
-    p.add_argument("--hoist", metavar="KEYS", help="move these keys into the palette file FILE imports")
-    p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
-    p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
-    p.add_argument("--used", action="store_true")
-    p.add_argument("--in", dest="within", metavar="DIR",
+    p = sub.add_parser("palette", usage="pxart palette FILE [OPTIONS of one mode; the modes are below]")
+    p.add_argument("file")
+    g = p.add_argument_group("list (no edit options)", "Print the palette, where each key comes from and how "
+                             "often it's drawn, and what each variant recolors.")
+    g.add_argument("--in", dest="within", metavar="DIR",
                    help="for a palette file: how many .px files under DIR import it, and draw with each key")
-    p.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
-    p.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
-    p.add_argument("--derive-from", metavar="base|VARIANT",
+    g = p.add_argument_group("add / remove / order base keys", "Edit FILE's own palette lines.")
+    g.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
+    g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
+    g.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
+    g.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
+    g = p.add_argument_group("variants", "Set or inherit keys in one variant, by hand: --variant NAME --add k=#hex.")
+    g.add_argument("--variant", metavar="NAME", help="--add, --keep and --derive-from edit this variant (made if FILE "
+                   "has none)")
+    g.add_argument("--keep", metavar="KEYS", help="with --variant: these keys inherit the base colors in it")
+    g = p.add_argument_group("derive", "Build a whole variant from the base or another variant: --variant NAME "
+                             "--derive-from base.")
+    g.add_argument("--derive-from", metavar="base|VARIANT",
                    help="with --variant NAME: set every key in NAME from its color here, --darken'ed and --tint'ed")
-    p.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
-    p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
-    p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
-    p.add_argument("--match", metavar="FILE[%VARIANT]",
+    g.add_argument("--match", metavar="FILE[%VARIANT]",
                    help="with --derive-from: first map each channel as FILE's base->VARIANT does (a fitted "
                         "gain and offset)")
-    p.add_argument("--lift-darks", action="store_true",
+    g.add_argument("--darken", type=float, metavar="F", help="with --derive-from: each channel times 1 - F (0..1)")
+    g.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
+    g.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
+    g.add_argument("--lift-darks", action="store_true",
                    help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
-    p.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
+    g = p.add_argument_group("import / hoist", "Share one palette file between sprites.")
+    g.add_argument("--import", dest="import_", metavar="P.px",
+                   help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
+    g.add_argument("--hoist", metavar="KEYS", help="move these keys into the palette file FILE imports")
+    g.add_argument("--extract-to", metavar="P.px", help="write FILE's palette and variants as a palette file")
+    g.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
+    g = p.add_argument_group("comments", "The comment lines above key and @variant lines, and FILE's header.")
+    g.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",
                    help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
                         "comment line above that line ('' removes it)")
-    p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
-    p.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
-    p.add_argument("--import", dest="import_", metavar="P.px",
-                   help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
+    g.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
+    g = p.add_argument_group("export", "Write the palette for another tool.")
+    g.add_argument("--export", metavar="OUT.gpl|OUT.hex", help="write the base palette as a GIMP .gpl or a .hex list")
+    g.add_argument("--used", action="store_true", help="with --export: only the keys FILE's frames draw with")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
     p.add_argument("--tiled"); p.add_argument("--variant")
     p.add_argument("--prefix-file", action="store_true",

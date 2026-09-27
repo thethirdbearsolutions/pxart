@@ -4516,14 +4516,57 @@ def test_every_command_help_order(capsys, cmd):
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_options_one_line_each(capsys, cmd):
     out = cmd_help(capsys, cmd)
-    block = out.split("\noptions:\n", 1)[1].split("\n\n", 1)[0].splitlines()
-    assert block and all(l.startswith("  -") for l in block), (cmd, block)
+    opts = options_part(out, cmd)
+    block = [l for l in opts.splitlines() if l.startswith("  -")]
+    groups = [l for l in opts.splitlines() if l and not l.startswith(" ")]
+    assert block and (all(l.startswith("  -") for l in opts.split("\n\n", 1)[0].splitlines()) or groups), (cmd, block)
     flags = [a for a in pxart.parser()[1].choices[cmd]._actions if a.option_strings]
     assert len(block) == len(flags), cmd
     for a in flags:
         line = next(l for l in block if l.lstrip().startswith(", ".join(a.option_strings)))
         if a.help and a.help != argparse_suppress():
             assert " ".join(a.help.replace("%%", "%").split()) in line, (cmd, a.option_strings)
+
+
+def options_part(out, cmd):
+    """A command's -h from its options to its details: 'options:' and, for palette, its groups by mode."""
+    opts = out.split("\noptions:\n", 1)[1]
+    details = pxart.split_section(cmd)[1]
+    return opts[:opts.index(details)] if details else opts.split("\n\n", 1)[0]
+
+
+PALETTE_GROUPS = {
+    "list (no edit options)": ["--in"],
+    "add / remove / order base keys": ["--add", "--remove", "--to", "--order"],
+    "variants": ["--variant", "--keep"],
+    "derive": ["--derive-from", "--match", "--darken", "--tint", "--keep-lit", "--lift-darks"],
+    "import / hoist": ["--import", "--hoist", "--extract-to", "--repoint"],
+    "comments": ["--comment", "--comment-header"],
+    "export": ["--export", "--used"],
+}
+
+
+def test_palette_help_groups_its_options_by_mode(capsys):
+    # the gate's complaint: an 18-flag usage block, and no telling which option goes with which mode
+    out = cmd_help(capsys, "palette")
+    assert out.splitlines()[0] == "usage: pxart palette FILE [OPTIONS of one mode; the modes are below]"
+    opts = options_part(out, "palette")
+    parts = [p for p in opts.split("\n\n") if p.strip()]
+    titles = [p.splitlines()[0] for p in parts if not p.startswith(" ")]
+    assert titles == [t + ":" for t in PALETTE_GROUPS]
+    for title, flags in PALETTE_GROUPS.items():
+        head = opts.index("\n" + title + ":\n")
+        purpose = opts[head:].splitlines()[2]  # a one-line purpose under the title
+        assert purpose.startswith("  ") and not purpose.startswith("  -") and purpose.endswith("."), title
+        body = opts[head:].split("\n\n", 2)[1].splitlines()
+        assert [l.split()[0] for l in body] == flags, title
+    # nothing cut off: every flag palette takes is listed, with its help
+    every = [f for a in pxart.parser()[1].choices["palette"]._actions for f in a.option_strings if f.startswith("--")]
+    assert sorted(every) == sorted([f for fs in PALETTE_GROUPS.values() for f in fs] + ["--help"])
+    for a in pxart.parser()[1].choices["palette"]._actions:
+        assert a.help or not a.option_strings, a.option_strings
+        for f in a.option_strings:
+            assert f in opts
 
 
 def argparse_suppress():
