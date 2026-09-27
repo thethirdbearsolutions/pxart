@@ -107,7 +107,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 ## Commands
 
 `pxart -h` has the full reference, and `pxart CMD -h` prints one command's part of it
-(`pxart poly -h`), with the format notes it relies on.
+(`pxart poly -h`), then a see-also line naming the shared notes in `pxart -h` it relies on
+(EDITING, FORMAT: selecting frames, ...) rather than repeating them.
 
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or with `--fit`

@@ -4473,22 +4473,64 @@ def test_every_command_help_long_flag_too(capsys, cmd):
     assert pxart.reference(cmd) in cmd_help(capsys, cmd, "--help")
 
 
+def see_also(text):
+    """The see-also paragraph of a command's -h, as one line, or None."""
+    for part in text.split("\n\n"):
+        if part.startswith("See also, in pxart -h: "):
+            return " ".join(l.strip() for l in part.splitlines())
+    return None
+
+
 @pytest.mark.parametrize("cmd", COMMANDS)
 def test_every_command_help_is_sliced_from_the_top_level_text(cmd):
-    # One source of truth: every line of the per-command text (but the labels) is a line of pxart -h.
+    # One source of truth: every line of the per-command text (but the labels and the see-also line) is a line of
+    # pxart -h.
     doc = pxart.__doc__.splitlines()
-    for line in pxart.command_help(cmd).splitlines():
-        if not line or line.endswith("(from pxart -h):") or line == "pxart -h has the whole reference.":
+    for part in pxart.command_help(cmd).split("\n\n"):
+        if part.startswith("See also, in pxart -h: "):
             continue
-        assert line in doc, (cmd, line)
+        for line in part.splitlines():
+            if not line or line.endswith("(from pxart -h):") or line == "pxart -h has the whole reference.":
+                continue
+            assert line in doc, (cmd, line)
 
 
 @pytest.mark.parametrize("cmd", COMMANDS)
-def test_every_command_help_includes_what_it_refers_to(capsys, cmd):
+def test_every_command_help_names_what_it_refers_to(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    refs = pxart.SEE.get(cmd, [])
+    also = see_also(out)
+    assert (also is None) == (not refs), cmd
+    for ref in refs:
+        assert f"{ref} ({pxart.GIST[ref]})" in also, (cmd, ref)
+    if also:  # in SEE's order
+        assert [also.index(f"{r} (") for r in refs] == sorted(also.index(f"{r} (") for r in refs)
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_points_at_shared_blocks_rather_than_pasting_them(capsys, cmd):
     out = cmd_help(capsys, cmd)
     for ref in pxart.SEE.get(cmd, []):
         text = pxart.note(ref) if ref in pxart.NOTES else pxart.reference(ref)
-        assert text and text in out, (cmd, ref)
+        assert text not in out, (cmd, ref)
+        assert f"{ref} (from pxart -h):" not in out
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_is_short(capsys, cmd):
+    # The section, one see-also paragraph and argparse's flags; scene's worked map is the longest.
+    out = cmd_help(capsys, cmd)
+    body = out.split("options:")[0]
+    assert len(body.splitlines()) <= len((pxart.reference(cmd) or "").splitlines()) + 25 \
+        + sum(len(pxart.reference(r).splitlines()) + 2 for r in pxart.PASTE.get(cmd, [])), cmd
+
+
+def test_see_also_lines_are_wrapped(capsys):
+    for cmd in COMMANDS:
+        for part in pxart.command_help(cmd).split("\n\n"):
+            if part.startswith("See also"):
+                lines = part.splitlines()
+                assert all(len(l) <= 92 for l in lines) and all(l.startswith("  ") for l in lines[1:]), (cmd, part)
 
 
 def test_see_names_real_commands_and_notes():
@@ -4496,7 +4538,15 @@ def test_see_names_real_commands_and_notes():
         assert cmd in COMMANDS, cmd
         for ref in refs:
             assert ref in pxart.NOTES or ref in COMMANDS, (cmd, ref)
+            assert pxart.GIST.get(ref), (cmd, ref)
     assert set(pxart.SEE) == set(COMMANDS)  # every command says what it refers to (maybe nothing)
+    for cmd, refs in pxart.PASTE.items():
+        assert cmd in COMMANDS and all(r in COMMANDS and pxart.reference(r) for r in refs)
+
+
+def test_every_gist_is_used():
+    used = {r for refs in pxart.SEE.values() for r in refs}
+    assert set(pxart.GIST) == used
 
 
 @pytest.mark.parametrize("name", sorted(pxart.NOTES))
@@ -4506,16 +4556,18 @@ def test_every_note_slice_is_found(name):
     assert text.splitlines()[0].startswith(pxart.NOTES[name][0])
 
 
-def test_anim_set_help_carries_the_pivot_notes(capsys):
+def test_anim_set_help_points_at_the_pivot_notes(capsys):
     out = cmd_help(capsys, "anim-set")
-    assert "FORMAT: pivots and timing (from pxart -h):" in out and "pivot=x,y (optional) on '@frame ID'" in out
-    assert "FORMAT: still groups (from pxart -h):" in out and "--still adds '@still GROUP'" in out
+    also = see_also(out)
+    assert "FORMAT: pivots and timing (pivot=x,y, direction, repeat, ms)" in also
+    assert "FORMAT: still groups (@still GROUP, @still *)" in also and "--still adds '@still GROUP'" in out
+    assert "pivot=x,y (optional) on '@frame ID'" not in out
 
 
 def test_poly_help_explains_its_arguments(capsys):
     out = cmd_help(capsys, "poly")
     assert "A closed polygon through the points in order" in out and "nonzero winding" in out
-    assert "DRAWING (edits like EDITING" in out
+    assert "DRAWING (FILE[:SEL], KEY, clipping, 'painted N px')" in see_also(out)
 
 
 def test_rotate_help_has_the_shared_turn_paragraph(capsys):
@@ -10030,7 +10082,8 @@ def test_compose_after_crop_in_same_process_still_notes(tmp_path, capsys):
 
 
 def test_help_documents_quiet_crop():
-    assert "(quietly: the pixels outside the rectangle are what crop is for, so there's no note)" in pxart.__doc__
+    doc = " ".join(pxart.__doc__.split())
+    assert "Quietly: the pixels outside the rectangle are what crop is for, so there's no note about them" in doc
 
 
 # ---------------------------------------------------------------- loop J: sheet tells same-id frames of several files apart
@@ -11793,3 +11846,59 @@ def test_compose_used_keys_only_drops_an_empty_variant_key_set_but_keeps_the_var
     doc = pxart.parse(out)
     assert doc.variants == {"night": {}}
     assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == pxart.hex2rgba("#000000")
+
+
+# ---------------------------------------------------------------- crop -h: the full story
+
+def test_crop_help_has_the_full_story(capsys):
+    out = " ".join(cmd_help(capsys, "crop").split())
+    assert "crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey] [--used-keys-only]" in out
+    assert "'crop hero.px:idle/0 4,0,8,8 -o parts.px:head'" in out
+    assert "a rectangle that runs past the frame's edge (or starts at a negative x,y) gets '.' there" in out
+    assert "a new OUT starts with FILE's whole palette (so shade ramps still find their keys)" in out
+    assert "OUT:frame of an existing OUT adds that frame" in out and "or replaces it when it exists" in out
+    assert "A plain OUT with one unnamed grid has the grid replaced" in out
+    assert "A key the cut uses that OUT has in another color is E_KEY_CONFLICT" in out
+    assert "--rekey gives the cut those keys in OUT and leaves FILE as it is" in out
+    assert "See also, in pxart -h: compose (" in out
+
+
+def test_crop_help_claims_hold(tmp_path):
+    # Each behaviour crop -h describes, run.
+    src = write(tmp_path, "c.px", "k #000000\ng #00ff00\n@frame a\nkg\ngk\n")
+    assert run("crop", f"{src}:a", "1,1,3,2", "-o", tmp_path / "past.px") == 0
+    assert pxart.parse(tmp_path / "past.px").frames[0].grid == ["k..", "..."]
+    assert run("crop", f"{src}:a", "-1,0,2,1", "-o", tmp_path / "neg.px") == 0
+    assert pxart.parse(tmp_path / "neg.px").frames[0].grid == [".k"]
+    u = write(tmp_path, "u.px", "k #000000\n\nk\n")
+    assert run("crop", f"{src}:a", "0,0,2,1", "-o", u) == 0
+    assert pxart.parse(u).implicit and pxart.parse(u).frames[0].grid == ["kg"]
+    n = write(tmp_path, "n.px", "k #000000\n@frame x\nk\n")
+    assert "E_SELECT" in run_err("crop", f"{src}:a", "0,0,1,1", "-o", n)
+    assert run("crop", f"{src}:a", "0,0,1,1", "-o", f"{n}:x") == 0 and pxart.parse(n).get("x").grid == ["k"]
+    u2 = write(tmp_path, "u2.px", "k #000000\n\nk\n")
+    assert run("crop", f"{src}:a", "0,0,2,1", "-o", f"{u2}:y") == 0
+    assert [f.id for f in pxart.parse(u2).frames] == ["u2", "y"]
+
+
+def test_crop_takes_a_negative_rectangle_without_dashes(tmp_path):
+    src = write(tmp_path, "c.px", "k #000000\n@frame a\nkk\n")
+    assert run("crop", f"{src}:a", "-2,-1,3,2", "-o", tmp_path / "o.px") == 0
+    assert pxart.parse(tmp_path / "o.px").frames[0].grid == ["...", "..k"]
+
+
+def test_tint_help_stands_alone(capsys):
+    out = cmd_help(capsys, "tint")
+    assert "scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every" in out
+    assert "scene (--tint, items, maps)" in see_also(out) and "The same on a PNG" not in out
+
+
+def test_rotate_help_still_pastes_transposes_shared_paragraph(capsys):
+    out = cmd_help(capsys, "rotate")
+    assert "transpose (from pxart -h):" in out and "For deriving path edges and corners" in out
+
+
+def test_command_help_is_much_shorter_than_before(capsys):
+    # crop -h was 86 lines with EDITING, FORMAT and compose pasted in.
+    assert len(cmd_help(capsys, "crop").splitlines()) < 50
+    assert len(cmd_help(capsys, "line").splitlines()) < 30

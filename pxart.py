@@ -166,8 +166,9 @@ LOOKING
       circle out of it, and put that PNG over the tinted one. Quote the color in scripts
       (an unquoted word starting with # is a comment there); the '#' may be left off.
   tint IN.png '#rrggbbaa' [-o OUT.png]
-      The same on a PNG (a rendered scene); each pixel keeps its alpha, so transparent
-      pixels stay transparent. Without -o, IN is rewritten.
+      scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every
+      pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
+      IN is rewritten. Quote the color in scripts; the '#' may be left off.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene, and
   takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
@@ -255,8 +256,24 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
-  crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
-      (quietly: the pixels outside the rectangle are what crop is for, so there's no note)
+  crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey] [--used-keys-only]
+      Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
+      hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
+      what crop is for, so there's no note about them; a rectangle that runs past the frame's
+      edge (or starts at a negative x,y) gets '.' there. FILE:frame must be one .px frame.
+      OUT is written as compose writes it:
+        a new OUT starts with FILE's whole palette (so shade ramps still find their keys):
+          its @palette imports, re-pointed from OUT's directory, its key lines and its
+          variants; --used-keys-only keeps only the keys the cut uses.
+        OUT:frame of an existing OUT adds that frame (after the last frame of its animation,
+          or at the end) or replaces it when it exists, and keeps OUT's other frames and
+          its own palette: the cut's keys join it. A plain OUT with one unnamed grid has the
+          grid replaced; an OUT with named frames needs OUT:frame; an OUT with one unnamed
+          grid, written as OUT:frame, first becomes '@frame STEM' (see FORMAT).
+      A key the cut uses that OUT has in another color is E_KEY_CONFLICT, naming every such
+      key and both colors, with free keys for them; --rekey gives the cut those keys in OUT
+      and leaves FILE as it is (or 'pxart recolor FILE ... -o rekeyed/FILE.px', a copy to
+      crop from, as the error line prints it; see compose).
   extract FILE:SEL -o OUT [--inline-palette]
       Write only the selected frames to OUT (replacing it), with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
@@ -475,7 +492,7 @@ ERROR CODES
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   Frames of different sizes in one animation are allowed; check notes them.
 """
-import argparse, contextlib, io, json, math, os, pathlib, re, shlex, string, sys, unicodedata
+import argparse, contextlib, io, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw
 
 FORMAT_VERSION = 1
@@ -3849,9 +3866,11 @@ def cmd_from_png(a):
 
 # ---------------------------------------------------------------------------- per-command help
 
-# 'pxart CMD -h' prints CMD's section of the reference above (__doc__, the one source), then the notes it depends
-# on, sliced out of __doc__ too: each note runs from the line starting with its first prefix to the line before the
-# one starting with its second. The tests fail when a command has no section or a note loses its first or last line.
+# 'pxart CMD -h' prints CMD's section of the reference above (__doc__, the one source), then a line naming the
+# shared blocks it relies on, to read in pxart -h, rather than pasting them in: each is short, and pasting FORMAT,
+# EDITING and DRAWING into every command made its -h long. A NOTES block runs from the line starting with its first
+# prefix to the line before the one starting with its second; the tests fail when a command has no section or a
+# block loses its first or last line. PASTE is the exception: a section that finishes this command's own text.
 NOTES = {
     "FORMAT: frames and animation": ("  Several frames per file", "  pivot=x,y (optional)"),
     "FORMAT: pivots and timing": ("  pivot=x,y (optional)", "  Frame groups that aren't animations"),
@@ -3862,9 +3881,21 @@ NOTES = {
     "EDITING": ("EDITING (writes .px", "  flip FILE"),
     "DRAWING": ("DRAWING (edits like EDITING", "  line FILE"),
 }
+GIST = {  # what each block (or another command's section) has, for the see-also line
+    "FORMAT: frames and animation": "@frame ids, groups, @anim",
+    "FORMAT: pivots and timing": "pivot=x,y, direction, repeat, ms",
+    "FORMAT: still groups": "@still GROUP, @still *",
+    "FORMAT: variants": "@variant, %VARIANT",
+    "FORMAT: selecting frames": "FILE:SEL, an unnamed grid's name, zsh's \"${F}:sel\"",
+    "LOOKING: centering": "frames of different sizes, --bg",
+    "EDITING": "-o OUT gets the whole file, only changed lines are rewritten, 'no change'",
+    "DRAWING": "FILE[:SEL], KEY, clipping, 'painted N px'",
+    "compose": "OUT's palette, frame placement, E_KEY_CONFLICT, --rekey",
+    "scene": "--tint, items, maps",
+}
 EDITS = ["EDITING", "FORMAT: selecting frames"]
 DRAWS = ["DRAWING", "EDITING", "FORMAT: selecting frames"]
-SEE = {  # a command's section, then these: other commands' sections (by name) and NOTES
+SEE = {  # what a command's section relies on: other commands' sections (by name) and NOTES, named, not pasted
     "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
     "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants"], "tint": ["scene"],
@@ -3878,12 +3909,13 @@ SEE = {  # a command's section, then these: other commands' sections (by name) a
     "anim-set": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups"] + EDITS,
     "palette": ["FORMAT: variants"] + EDITS,
     "line": DRAWS, "rect": DRAWS, "poly": DRAWS, "ellipse": DRAWS, "arc": DRAWS, "flood": DRAWS,
-    "rotate": ["transpose", "FORMAT: pivots and timing"] + DRAWS, "transpose": ["FORMAT: pivots and timing"] + DRAWS,
+    "rotate": ["FORMAT: pivots and timing"] + DRAWS, "transpose": ["FORMAT: pivots and timing"] + DRAWS,
     "shade": DRAWS, "outline": DRAWS,
     "export": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: variants", "FORMAT: selecting frames"],
     "from-png": [],
 }
+PASTE = {"rotate": ["transpose"]}  # transpose's section ends with the paragraph both share
 
 
 def reference(cmd):
@@ -3908,11 +3940,14 @@ def note(name):
 
 
 def command_help(cmd):
-    """What 'pxart CMD -h' prints under argparse's usage line: CMD's section, then what it refers to."""
+    """What 'pxart CMD -h' prints under argparse's usage line: CMD's section (and PASTE's), then one see-also line
+    naming the blocks of pxart -h it relies on, each with what it has."""
     parts = [reference(cmd) or f"  (pxart -h has no section for {cmd})"]
-    for ref in SEE.get(cmd, []):
-        text = note(ref) if ref in NOTES else reference(ref)
-        parts.append(text if text and not text[0].isspace() else f"{ref} (from pxart -h):\n{text}")
+    parts += [f"{ref} (from pxart -h):\n{reference(ref)}" for ref in PASTE.get(cmd, [])]
+    refs = SEE.get(cmd, [])
+    if refs:
+        also = "See also, in pxart -h: " + "; ".join(f"{r} ({GIST[r]})" for r in refs) + "."
+        parts.append("\n".join(textwrap.wrap(also, 92, subsequent_indent="  ", break_on_hyphens=False)))
     return "\n\n".join(parts) + "\n\npxart -h has the whole reference."
 
 
@@ -4023,7 +4058,7 @@ def parser(describe=True):
     p.add_argument("--light", choices=list(LIGHTS), default="nw"); p.add_argument("--strength", type=float, default=2)
     p.add_argument("--region"); p.add_argument("--dither", action="store_true"); p.add_argument("--preview")
     p.add_argument("-o")
-    for name in ("line", "rect", "poly", "ellipse", "arc", "flood"):
+    for name in ("line", "rect", "poly", "ellipse", "arc", "flood", "crop"):  # crop -2,-2,20,20: a rectangle
         sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
