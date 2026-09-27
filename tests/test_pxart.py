@@ -26178,3 +26178,245 @@ def test_checker_is_two_greys_in_squares():
 def test_help_says_render_draws_a_checkerboard():
     doc = " ".join(pxart.__doc__.split())
     assert "render and sheet put a grey checkerboard behind frames; --bg (render, sheet, scene) takes a flat" in doc
+
+
+# ---------------------------------------------------------------- a key transparent only in the base still draws
+# A night-only halo is 'L transparent' with '@variant night' giving it a color. paste compared base colors, not keys, so
+# it skipped every L pixel and said 'no change'; compose, crop, shift and outline did the same. Keys are the truth: a
+# key draws unless it is '.' or transparent in the base and in every variant (Doc.blanks).
+
+HALO_PAL = """pxart 1
+o #1c1626
+L transparent
+@variant night
+o #12142b
+L #f6e45a50
+"""
+
+HALO = """pxart 1
+o #1c1626
+L transparent
+@variant night
+L #f6e45a50
+
+@frame src
+LLo
+L..
+
+@frame dst
+...
+..o
+"""
+
+
+def test_blanks_are_dot_and_keys_transparent_in_every_variant(tmp_path):
+    p = write(tmp_path, "h.px", "o #1c1626\nL transparent\nz transparent\n@variant night\nL #f6e45a50\n\nLoz\n")
+    doc = pxart.parse(p)
+    assert doc.blanks() == {".", "z"}
+
+
+def test_blanks_without_variants_is_every_transparent_key(tmp_path):
+    p = write(tmp_path, "h.px", "o #1c1626\nL transparent\n\nLo\n")
+    assert pxart.parse(p).blanks() == {".", "L"}
+
+
+def test_blanks_counts_an_imported_variant(tmp_path):
+    write(tmp_path, "pal.px", HALO_PAL)
+    p = write(tmp_path, "h.px", "pxart 1\n@palette pal.px\n\nLo\n")
+    assert pxart.parse(p).blanks() == {"."}
+
+
+def test_paste_halo_key_within_a_file(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0") == 0
+    assert "no change" not in capsys.readouterr().out
+    assert pxart.parse(p).get("dst").grid == ["LLo", "L.o"]
+
+
+def test_paste_halo_key_through_an_imported_palette(tmp_path, capsys):
+    # the gate session's repro: L comes from @palette pal.px, whose night lights it
+    write(tmp_path, "pal.px", HALO_PAL)
+    p = write(tmp_path, "b.px", "pxart 1\n@palette pal.px\n\n@frame src\nLLo\nL..\n\n@frame dst\n...\n..o\n")
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0") == 0
+    assert "no change" not in capsys.readouterr().out
+    assert pxart.parse(p).get("dst").grid == ["LLo", "L.o"]
+
+
+def test_paste_halo_key_renders_in_night(tmp_path, capsys):
+    write(tmp_path, "pal.px", HALO_PAL)
+    p = write(tmp_path, "b.px", "pxart 1\n@palette pal.px\n\n@frame src\nL\n\n@frame dst\n.\n")
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0") == 0
+    doc = pxart.parse(p)
+    assert doc.image(doc.get("dst"), "night").getpixel((0, 0)) == (0xf6, 0xe4, 0x5a, 0x50)
+    assert doc.image(doc.get("dst")).getpixel((0, 0))[3] == 0
+
+
+def test_paste_halo_key_into_another_file_brings_its_night(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    dst = write(tmp_path, "d.px", "o #1c1626\n@variant night\no #12142b\n\n@frame f\n...\n")
+    assert run("paste", f"{src}:src", "--into", f"{dst}:f", "--at", "0,0") == 0
+    doc = pxart.parse(dst)
+    assert doc.get("f").grid == ["LLo"]
+    assert doc.palette["L"] == (0, 0, 0, 0) and doc.variants["night"]["L"] == (0xf6, 0xe4, 0x5a, 0x50)
+
+
+def test_paste_halo_key_dry_run_shows_the_pixels(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    before, m = snap(p)
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "+LLo" in out and "+L.o" in out and "(dry run; nothing written)" in out
+    assert untouched(p, before, m)
+
+
+def test_paste_under_keeps_a_halo_pixel_already_there(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO.replace("@frame dst\n...\n..o\n", "@frame dst\nL..\n...\n")
+              .replace("@frame src\nLLo\nL..\n", "@frame src\noo.\n...\n"))
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0", "--under") == 0
+    assert pxart.parse(p).get("dst").grid == ["Lo.", "..."]
+
+
+def test_paste_under_fills_below_a_halo_only_where_empty(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO.replace("@frame dst\n...\n..o\n", "@frame dst\n...\n...\n"))
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0", "--under") == 0
+    assert pxart.parse(p).get("dst").grid == ["LLo", "L.."]
+
+
+def test_paste_key_transparent_in_every_variant_still_does_not_overwrite(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #1c1626\nz transparent\n@variant night\no #12142b\n\n@frame src\nzz\n\n@frame dst\noo\n")
+    before, m = snap(p)
+    assert run("paste", f"{p}:src", "--into", f"{p}:dst", "--at", "0,0") == 0
+    assert "no change" in capsys.readouterr().out and untouched(p, before, m)
+
+
+def test_paste_halo_key_clashing_with_dst_is_a_key_conflict(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    dst = write(tmp_path, "d.px", "L #ff0000\n\n@frame f\n..\n")
+    err = run_err("paste", f"{src}:src", "--into", f"{dst}:f", "--at", "0,0")
+    assert "E_KEY_CONFLICT" in err and "'L' transparent" in err
+
+
+def test_compose_keeps_a_halo_layer(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    out = tmp_path / "o.px"
+    assert run("compose", f"{src}:src@0,0", "-o", f"{out}:x") == 0
+    doc = pxart.parse(out)
+    assert doc.get("x").grid == ["LLo", "L.."]
+    assert doc.image(doc.get("x"), "night").getpixel((0, 0)) == (0xf6, 0xe4, 0x5a, 0x50)
+
+
+def test_compose_halo_layer_over_another(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    b = write(tmp_path, "b.px", "q #ff0000\n\n@frame dst\nqqq\n..q\n")
+    out = tmp_path / "o.px"
+    assert run("compose", f"{b}:dst@0,0", f"{src}:src@0,0", "-o", f"{out}:x") == 0
+    assert pxart.parse(out).get("x").grid == ["LLo", "L.q"]
+
+
+def test_compose_under_keeps_the_frames_halo(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO.replace("@frame dst\n...\n..o\n", "@frame dst\nL..\n...\n"))
+    layer = write(tmp_path, "l.px", "o #1c1626\n\noo\noo\n")
+    assert run("compose", f"{layer}@0,0", "-o", f"{p}:dst", "--under") == 0
+    assert pxart.parse(p).get("dst").grid == ["Lo.", "oo."]
+
+
+def test_compose_counts_cropped_halo_pixels(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    out = tmp_path / "o.px"
+    assert run("compose", f"{src}:src@-1,0", "-o", f"{out}:x", "--size", "3x2") == 0
+    assert "note: 2 px of src fall outside" in capsys.readouterr().out  # both L pixels of column 0
+
+
+def test_crop_keeps_a_halo_key(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    out = tmp_path / "c.px"
+    assert run("crop", f"{src}:src", "0,0,2,2", "-o", f"{out}:x") == 0
+    assert pxart.parse(out).get("x").grid == ["LL", "L."]
+
+
+def test_copy_to_keeps_a_halo_key(tmp_path, capsys):
+    src = write(tmp_path, "h.px", HALO)
+    dst = write(tmp_path, "d.px", "o #1c1626\n@variant night\no #12142b\n\n@frame f\n.\n")
+    assert run("frames", f"{src}:src", "--copy-to", dst) == 0
+    doc = pxart.parse(dst)
+    assert doc.get("src").grid == ["LLo", "L.."] and doc.variants["night"]["L"] == (0xf6, 0xe4, 0x5a, 0x50)
+
+
+def test_shift_moves_a_halo_key(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("shift", f"{p}:src", "--dx", "1") == 0
+    assert pxart.parse(p).get("src").grid == [".LL", ".L."]
+
+
+def test_shift_wrap_moves_a_halo_key(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("shift", f"{p}:src", "--dx", "1", "--wrap") == 0
+    assert pxart.parse(p).get("src").grid == ["oLL", ".L."]
+
+
+def test_outline_counts_a_halo_as_shape_and_never_paints_over_it(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #1c1626\nb #3d3656\nL transparent\n@variant night\nL #f6e45a50\n\n"
+              ".....\n.LbL.\n.....\n")
+    assert run("outline", p, "--key", "o") == 0
+    assert pxart.parse(p).frames[0].grid == [".ooo.", "oLbLo", ".ooo."]
+
+
+def test_outline_skips_a_key_transparent_in_every_variant(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #1c1626\nb #3d3656\nz transparent\n\n.....\n.zbz.\n.....\n")
+    assert run("outline", p, "--key", "o") == 0
+    assert pxart.parse(p).frames[0].grid == ["..o..", ".obo.", "..o.."]
+
+
+def test_outline_inside_repaints_a_halo_edge(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #1c1626\nb #3d3656\nL transparent\n@variant night\nL #f6e45a50\n\nLbL\n")
+    assert run("outline", p, "--key", "o", "--inside") == 0
+    assert pxart.parse(p).frames[0].grid == ["ooo"]
+
+
+def test_mask_drop_keys_and_keep_keys_go_by_halo_key(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("mask", f"{p}:src", "--drop-keys", "L") == 0
+    assert pxart.parse(p).get("src").grid == ["..o", "..."]
+    p2 = write(tmp_path, "h2.px", HALO)
+    assert run("mask", f"{p2}:src", "--keep-keys", "L") == 0
+    assert pxart.parse(p2).get("src").grid == ["LL.", "L.."]
+
+
+def test_mask_keep_erases_halo_pixels_outside(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("mask", f"{p}:src", "--keep", "2,0,1,1") == 0
+    assert "erased 3 px" in capsys.readouterr().out
+    assert pxart.parse(p).get("src").grid == ["..o", "..."]
+
+
+def test_fill_and_flood_go_by_halo_key(tmp_path, capsys):
+    p = write(tmp_path, "h.px", HALO)
+    assert run("flood", f"{p}:src", "o", "0,0") == 0
+    assert pxart.parse(p).get("src").grid == ["ooo", "o.."]
+    p2 = write(tmp_path, "h2.px", HALO)
+    assert run("fill", f"{p2}:dst", "L") == 0
+    assert pxart.parse(p2).get("dst").grid == ["LLL", "LLL"]
+
+
+def test_shade_takes_a_halo_key_as_material(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "a #111111\nc #888888\nw #eeeeee\nL transparent\n@variant night\nL #f6e45a50\n\nLLL\nLLL\nLLL\n")
+    assert run("shade", p, "--ramp", "acw", "--keys", "L") == 0
+    assert "L" not in "".join(pxart.parse(p).frames[0].grid)
+
+
+def test_check_notes_an_unused_halo_key_but_not_an_always_transparent_one(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "o #1c1626\nL transparent\nz transparent\n@variant night\nL #f6e45a50\n\no\n")
+    run("check", p, "-v")
+    out = capsys.readouterr().out
+    assert "unused keys L " in out and "unused keys Lz" not in out
+
+
+def test_compose_new_out_notes_an_undrawn_halo_key(tmp_path, capsys):
+    src = write(tmp_path, "h.px", "o #1c1626\nL transparent\n@variant night\nL #f6e45a50\n\n@frame a\no\n")
+    out = tmp_path / "o.px"
+    assert run("compose", f"{src}:a@0,0", "-o", f"{out}:x") == 0
+    assert "h.px's L;" in capsys.readouterr().out
+
+
+def test_help_outline_shape_is_by_key():
+    assert "every pixel that draws in some variant" in " ".join(pxart.__doc__.split())

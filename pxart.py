@@ -763,7 +763,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       'shade hero.px:idle/0 --ramp XxcCw --keys c' shades the cloak c with the ramp X x c C w.
   outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
           [--corners] [--preview P.png]
-      Outline the frame's shape (every pixel whose color isn't transparent). --outside (the
+      Outline the frame's shape (every pixel that draws in some variant). --outside (the
       default) paints the empty pixels touching the shape on a side; --inside repaints the
       shape's own pixels that have an empty side (off the frame counts as empty). Sides only is
       the pixel-perfect rule: a diagonal edge gets a 1px staircase and a square corner is cut,
@@ -1109,6 +1109,12 @@ class Doc:
             pal.update(self.shared_variants.get(variant, {}))
             pal.update(self.variants.get(variant, {}))
         return pal
+
+    def blanks(self):
+        """The keys that draw nothing: '.', and a key transparent in the base and in every variant. A key transparent
+        only in the base (a halo lit at night) draws: what a frame has is its keys, not its base colors."""
+        pals = [self.resolved()] + [self.resolved(n) for n in variant_names(self)]
+        return {k for k in pals[0] if not any(p[k][3] for p in pals)}
 
     def animated(self, group):
         """Groups are animations unless marked @still (and the ungrouped top level never is)."""
@@ -2266,10 +2272,10 @@ def edit_target(arg, out, label="FILE", coords=None):
 
 
 def clashes(dst_doc, src_doc, keys, clear=False):
-    """The keys src uses (its non-transparent ones; every one with clear, when a whole grid is copied, not stamped) that
+    """The keys src uses (those that draw, Doc.blanks; every one with clear, when a whole grid is copied, not stamped) that
     dst_doc has in other colors, sorted."""
-    src_pal, have = src_doc.resolved(), dst_doc.resolved()
-    return [k for k in sorted(keys) if k != "." and (clear or src_pal[k][3]) and k in have and have[k] != src_pal[k]]
+    src_pal, have, blank = src_doc.resolved(), dst_doc.resolved(), src_doc.blanks()
+    return [k for k in sorted(keys) if k != "." and (clear or k not in blank) and k in have and have[k] != src_pal[k]]
 
 
 def new_keys(bad, src_pal, have, taken, fits=None, given=None, looks=None):
@@ -2380,9 +2386,9 @@ def vclashes(dst, src, keys, vmap=None, clear=False):
     names = variant_names(dst)
     if not names:
         return []
-    have, pal = dst.resolved(), src.resolved()
+    have, pal, blank = dst.resolved(), src.resolved(), src.blanks()
     looks = {n: dst.resolved(n) for n in names}
-    return [k for k in sorted(keys) if k != "." and (clear or pal[k][3]) and have.get(k) == pal[k]
+    return [k for k in sorted(keys) if k != "." and (clear or k not in blank) and have.get(k) == pal[k]
             and colors_in(src, k, names, vmap) != [looks[n][k] for n in names]]
 
 
@@ -2394,14 +2400,14 @@ def fits_in(dst, src, vmap=None):
 
 
 def import_keys(dst, src, keys, vmap=None, clear=False):
-    """The keys src uses that dst hasn't got join dst's palette (opaque ones; every one with clear, when whole grids
+    """The keys src uses that dst hasn't got join dst's palette (those that draw, Doc.blanks; every one with clear, when whole grids
     are copied), each colored in dst's variants as src's file colors it: its variant by that name (or the one
     --variant-map reads as it) gets a line when it recolors the key or lists it (a lamp kept lit). A variant src's
     file hasn't got leaves the key at its base color. Returns the keys added, sorted."""
-    names, pal, added = variant_names(dst), src.resolved(), []
+    names, pal, added, blank = variant_names(dst), src.resolved(), [], src.blanks()
     lv = layer_variants(src, vmap or {})
     for k in sorted(keys):
-        if k == "." or k in dst.resolved() or not (clear or pal[k][3]):
+        if k == "." or k in dst.resolved() or not (clear or k not in blank):
             continue
         dst.add_key(k, pal[k])
         added.append(k)
@@ -2636,9 +2642,10 @@ def spans(ns):
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None, vmap=None):
-    """Copy src frame (or a region of it) onto dst frame at `at`; '.'/transparent keys don't overwrite. under: only
-    onto dst's empty (transparent) pixels, so src goes behind what dst has. Returns the keys it added (import_keys)."""
-    src_pal = src_doc.resolved()
+    """Copy src frame (or a region of it) onto dst frame at `at`; keys that draw nothing (Doc.blanks) don't overwrite, but
+    a key transparent only in the base does (a night halo). under: only onto dst's empty pixels (by the same test), so
+    src goes behind what dst has. Returns the keys it added (import_keys)."""
+    src_blank = src_doc.blanks()
     clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
@@ -2646,14 +2653,14 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
     x0, y0, w, h = parse_rect(region, src.size)
     W, H = dst.size
     g = [list(r) for r in dst.grid]
-    dst_pal = dst_doc.resolved()
+    dst_blank = dst_doc.blanks()
     for y in range(h):
         for x in range(w):
             if not (0 <= y0 + y < src.size[1] and 0 <= x0 + x < src.size[0]):
                 continue
             ch = src.grid[y0 + y][x0 + x]
             tx, ty = at[0] + x, at[1] + y
-            if src_pal[ch][3] and 0 <= tx < W and 0 <= ty < H and not (under and dst_pal[g[ty][tx]][3]):
+            if ch not in src_blank and 0 <= tx < W and 0 <= ty < H and not (under and g[ty][tx] not in dst_blank):
                 g[ty][tx] = ch
     dst.grid = ["".join(r) for r in g]
     return added
@@ -3377,7 +3384,8 @@ def cmd_check(a):
                     else:
                         notes.append(f"line {n}: {msg} (check --strict fails on it)")
                 used = set("".join(r for f in doc.frames for r in f.grid))
-                unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
+                blank = doc.blanks()
+                unused = [k for k in doc.palette if k not in used and k not in blank]
                 if unused:
                     them = "them" if len(unused) > 1 else "it"
                     notes.append("unused keys " + "".join(unused) + f" (no frame draws with {them}: 'pxart palette "
@@ -4265,7 +4273,7 @@ def cmd_transpose(a):
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
     doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
-    pal = doc.resolved()
+    pal, blank = doc.resolved(), doc.blanks()
     if a.fill is not None and a.wrap:
         fail("E_BAD_ARG", "--fill paints the pixels a shift leaves behind; --wrap leaves none")
     if a.fill is not None and a.fill not in pal:
@@ -4290,7 +4298,7 @@ def cmd_shift(a):
         for y, row in enumerate(block):
             for x, ch in enumerate(row):
                 tx, ty = x0 + x + a.dx, y0 + y + a.dy
-                if 0 <= tx < W and 0 <= ty < H and pal[ch][3]:
+                if 0 <= tx < W and 0 <= ty < H and ch not in blank:
                     g[ty][tx] = ch
         f.grid = ["".join(r) for r in g]
     print(write_doc(doc, out))
@@ -5071,8 +5079,9 @@ def normal(p, inside, reach=2):
 
 
 def opaque_set(doc, f):
-    pal = doc.resolved()
-    return {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row) if pal[ch][3]}
+    """The frame's shape: its pixels whose key draws (Doc.blanks), a night-only halo's included."""
+    blank = doc.blanks()
+    return {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row) if ch not in blank}
 
 
 def outline_points(shape, w, h, inside=False, corners=False):
@@ -5391,12 +5400,12 @@ def special_keys(d):
     """The keys of d's file that losing would cost something: {key: why}. Its frames draw with them, or a variant
     treats them on purpose: lists them in their base color (a lamp kept lit), or leaves them alone while it recolors
     most of the other keys (a glow left out of the dark)."""
-    base, why, drawn = d.resolved(), {}, {}
+    base, why, drawn, blank = d.resolved(), {}, {}, d.blanks()
     for f in d.frames:
         for k in dict.fromkeys("".join(f.grid)):
             drawn.setdefault(k, []).append(d.label(f))
     for k in base:
-        if k == "." or not base[k][3]:
+        if k in blank:
             continue
         fs = drawn.get(k, [])
         says = [f"its frame{'s' * (len(fs) > 1)} {listed(fs)} draw{'s' * (len(fs) == 1)} with it"] if fs else []
@@ -5971,8 +5980,9 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     map_cut = 0  # a map's cells are one thing to crop, as scene says it
     for lay, x, y, label in layers:
         w, h = lay.frame.size
+        blank = lay.doc.blanks()
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
-                  if ch != "." and lay.doc.resolved()[ch][3]
+                  if ch not in blank
                   and not (0 <= x + xx < size[0] and 0 <= y + yy < size[1]))
         if getattr(lay, "from_map", False):
             map_cut += cut
@@ -5985,8 +5995,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         print(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from {why}) "
               "and were cropped")
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
-        pal = doc.resolved()
-        target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
+        blank = doc.blanks()
+        target.grid = ["".join(n if o in blank else o for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
     if fresh and getattr(a, "used_keys_only", False):  # keys that landed on the canvas; a cropped-away one goes
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
@@ -6063,10 +6073,10 @@ def said_undrawn(opath, doc, target, owners):
     """A new OUT gets its layers' whole palettes, so the keys its frame doesn't draw with are there on purpose (a shade
     ramp's, a recolor's), and would otherwise be a surprise in check's 'unused keys': a note naming them by file, and
     --used-keys-only. None when every key line is drawn with."""
-    drawn = set("".join(target.grid))
+    drawn, blank = set("".join(target.grid)), doc.blanks()
     files = {}
-    for k, c in doc.palette.items():
-        if k not in drawn and c[3]:
+    for k in doc.palette:
+        if k not in drawn and k not in blank:
             d = owners.get(k)
             files.setdefault(d.path.name if d is not None else "?", []).append(k)
     if not files:
