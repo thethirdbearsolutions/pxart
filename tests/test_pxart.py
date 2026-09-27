@@ -18142,3 +18142,112 @@ def test_readme_documents_import():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--import pal.px` adds a `@palette pal.px` line to a sprite and drops its key lines pal.px has in the " \
         "same colors, so it renders as before" in readme
+
+
+# ---------------------------------------------------------------- palette FILE --order KEYS: those key lines first, in
+# that order, comments attached
+
+ORD = ("pxart 1\n@palette pal.px\n# outline\no #141b1b\n\n# skin\ns #ef914f\nS #c57547\n# cloth\nc #548789\n"
+       "\n@variant dusk\no #10121a\nc #000000\n\n@frame a\nosSc\n")
+
+
+def ord_file(tmp_path, text=ORD):
+    write(tmp_path, "pal.px", "q #010101\n")
+    return write(tmp_path, "s.px", text)
+
+
+def test_order_puts_keys_first_with_their_comments(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    before = renders(s)
+    assert run("palette", s, "--order", "c,S") == 0
+    assert capsys.readouterr().out == f"ordered c S first (2 other keys after, as they were); wrote {s}\n"
+    assert s.read_text() == ("pxart 1\n@palette pal.px\n# cloth\nc #548789\nS #c57547\n# outline\no #141b1b\n\n# skin\n"
+                             "s #ef914f\n\n@variant dusk\no #10121a\nc #000000\n\n@frame a\nosSc\n")
+    assert renders(s) == before
+
+
+def test_order_compact_form(tmp_path, capsys):
+    a, b = ord_file(tmp_path), write(tmp_path, "t.px", ORD)
+    assert run("palette", a, "--order", "cS") == 0 and run("palette", b, "--order", "c,S") == 0
+    assert a.read_text() == b.read_text()
+
+
+def test_order_all_keys(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "c,s,S,o") == 0
+    assert list(pxart.parse(s).palette) == ["c", "s", "S", "o"]
+    assert "0 other keys after" in capsys.readouterr().out
+
+
+def test_order_one_other_key(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "c,s,S") == 0
+    assert "(1 other key after, as they were)" in capsys.readouterr().out
+
+
+def test_order_already_in_place(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "o,s") == 0
+    assert capsys.readouterr().out == f"already in that order; no change: {s}\n" and s.read_text() == ORD
+
+
+def test_order_variants_keep_their_order(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "c") == 0
+    assert list(pxart.parse(s).variants["dusk"]) == ["o", "c"]
+
+
+def test_order_twice_back(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "c,S") == 0
+    assert run("palette", s, "--order", "o,s,S,c") == 0
+    assert list(pxart.parse(s).palette) == ["o", "s", "S", "c"]
+
+
+def test_order_keeps_the_dot_line_index(tmp_path, capsys):
+    s = ord_file(tmp_path, "a #000001\n. transparent\nb #000002\nc #000003\n\nabc.\n")
+    assert run("palette", s, "--order", "c") == 0
+    assert s.read_text() == "c #000003\n. transparent\na #000001\nb #000002\n\nabc.\n"
+
+
+@pytest.mark.parametrize("keys, code, bit", [("q", "E_SELECT", "it comes from pal.px; order it there"),
+                                             ("z", "E_SELECT", "has no key 'z'"),
+                                             (".", "E_BAD_ARG", "'.' is built in"),
+                                             ("c,c", "E_BAD_ARG", "names a key twice"),
+                                             ("c,sS", "E_BAD_ARG", "wants keys like a,b,c")])
+def test_order_errors(tmp_path, keys, code, bit):
+    s = ord_file(tmp_path)
+    msg = run_err("palette", s, "--order", keys)
+    assert code in msg and bit in msg and s.read_text() == ORD
+
+
+@pytest.mark.parametrize("more", [["--add", "q=#010101"], ["--remove", "c"], ["--import", "pal.px"],
+                                  ["--comment-header", ""]])
+def test_order_alone(tmp_path, more):
+    s = ord_file(tmp_path)
+    msg = run_err("palette", s, "--order", "c", *more)
+    assert "E_BAD_ARG" in msg and "--order moves FILE's key lines: give it alone" in msg
+
+
+def test_order_palette_file(tmp_path, capsys):
+    p = write(tmp_path, "p.px", "# header\n\na #000001\n# bee\nb #000002\n")
+    assert run("palette", p, "--order", "b") == 0
+    assert p.read_text() == "# header\n\n# bee\nb #000002\na #000001\n"
+
+
+def test_order_then_check(tmp_path, capsys):
+    s = ord_file(tmp_path)
+    assert run("palette", s, "--order", "S,c") == 0
+    assert run("check", s) == 0
+
+
+def test_help_documents_order():
+    text = " ".join(pxart.__doc__.split())
+    assert "[--import P.px] [--order KEYS]" in text
+    assert "--order o,t,k (or otk) moves FILE's own key lines to the top of its palette in that order, each with the " \
+        "comment and blank lines above it, the other keys after them as they were" in text
+
+
+def test_readme_documents_order():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--order o,t,k` puts those key lines first, comments and all" in readme

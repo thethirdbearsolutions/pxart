@@ -506,7 +506,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
           [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
-          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px]
+          [--remove KEYS [--to KEY]] [--in DIR] [--import P.px] [--order KEYS]
       No flags: lists the keys, their colors, where they come from and how often they're
       used, then each variant's keys: 'dusk: recolors (darker) o x X c C; inherits: e E q'
       (the keys it recolors, then the base keys it leaves alone, both in palette order). A
@@ -566,6 +566,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       FILE renders as before, in every variant it had: where P's variant of that name would
       recolor a key FILE keeps, FILE's variant lists the key's color, and says so. A variant
       only P has comes along (a note says so).
+      --order o,t,k (or otk) moves FILE's own key lines to the top of its palette in that
+      order, each with the comment and blank lines above it, the other keys after them as
+      they were: group a material's ramp, or put the outline first. Variants keep their
+      order; a '. transparent' line keeps its place in the list.
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4907,6 +4911,15 @@ def cmd_palette(a):
              "them inherit the base colors) or --comment KEY 'text' (the comment above k's line in it)")
     if a.to is not None and not a.remove:
         fail("E_BAD_ARG", f"--to {a.to} goes with --remove KEYS: their pixels become {a.to} before the keys go")
+    if a.order:
+        given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
+                                ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
+                                ("--derive-from", a.derive_from), ("--remove", a.remove), ("--import", a.import_)) if v] \
+            + (["--comment-header"] if a.comment_header is not None else [])
+        if given:
+            fail("E_BAD_ARG", f"--order moves FILE's key lines: give it alone, not with {', '.join(given)}")
+        print(order_keys(doc, key_list(a.order, "--order")))
+        return
     if a.import_:
         given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
                                 ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
@@ -5301,6 +5314,27 @@ def remove_keys(doc, keys, to=None, within=None):
     if imported:
         said += import_removal(doc, owners, within, later)
     return "; ".join(said + [write_doc(doc)] + later)
+
+
+def order_keys(doc, keys):
+    """palette FILE --order KEYS: FILE's key lines for KEYS move to the top of its palette, in that order, each with
+    the blank and comment lines above it; the other keys follow as they were. A '. transparent' line keeps its place
+    in the list. What it did."""
+    for k in keys:
+        if k == ".":
+            fail("E_BAD_ARG", "--order '.': '.' is built in; its '. transparent' line, if any, keeps its place",
+                 path=doc.path)
+        if k not in doc.palette:
+            fail("E_SELECT", f"--order {k!r}: " + (
+                f"it comes from {doc.palette_refs[0] if len(doc.palette_refs) == 1 else 'an imported palette file'}; "
+                "order it there" if k in doc.shared else f"{doc.path} has no key {k!r}"), path=doc.path)
+    was = list(doc.palette)
+    order = keys + [k for k in was if k not in keys]
+    doc.palette = {k: doc.palette[k] for k in order}
+    if order == was:
+        return f"already in that order; {write_doc(doc)}"
+    return f"ordered {' '.join(keys)} first ({len(was) - len(keys)} other key{'s' * (len(was) - len(keys) != 1)} " \
+           f"after, as they were); {write_doc(doc)}"
 
 
 def import_palette(doc, pal):
@@ -6056,6 +6090,7 @@ def parser(describe=True):
                    help="KEY 'text' or @variant NAME 'text', one or more in turn (--comment y 'lamp' E 'flame'): the "
                         "comment line above that line ('' removes it)")
     p.add_argument("--comment-header", metavar="TEXT", help="the comment at the top of FILE ('' removes it)")
+    p.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
     p.add_argument("--import", dest="import_", metavar="P.px",
                    help="add '@palette P.px' to FILE, dropping FILE's key lines P has in the same colors")
     p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")

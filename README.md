@@ -209,7 +209,7 @@ rather than repeating them.
   from the base colors, as `scene --tint` would, with the lamps still lit; `--hoist l,g`
   moves a sprite's own keys into the palette file it imports; `--import pal.px` adds a
   `@palette pal.px` line to a sprite and drops its key lines pal.px has in the same colors, so it
-  renders as before; `--remove k,n` takes out keys
+  renders as before; `--order o,t,k` puts those key lines first, comments and all; `--remove k,n` takes out keys
   no frame draws with (`--to j` repaints their pixels as j first; an imported key then goes from
   its palette file only when no other `.px` under the directory holding both, or `--in DIR`, uses
   it); `--comment k 'text'`,
