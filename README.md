@@ -204,9 +204,10 @@ rather than repeating them.
   moves a sprite's own keys into the palette file it imports; `--remove k,n` takes out keys
   no frame draws with (`--to j` repaints their pixels as j first); `--comment k 'text'`,
   `--comment @variant night 'text'` and `--comment-header 'text'` write the comment above
-  a key line, a variant or the file; `palette FILE` alone lists the keys, then what each
-  variant recolors, relists in its base color and inherits: `night: recolors k w; relists
-  unchanged: l g; inherits: e E q`). Edits rewrite only the lines
+  a key line, a variant or the file; `palette FILE` alone lists the keys with their comments, then what each
+  variant recolors darker or brighter, relists in its base color and inherits, with its
+  comment: `night: recolors (darker) k w; brightens y; relists unchanged: l g; inherits: e E q`;
+  `--in DIR` says how many files under DIR import a palette file and draw with each key). Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and

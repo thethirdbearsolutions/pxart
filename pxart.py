@@ -475,12 +475,19 @@ EDITING (writes .px; -o defaults to editing the input in place)
           [--variant NAME --derive-from base|VARIANT [--darken F] [--tint COLOR] [--keep-lit KEYS]]
           [--comment KEY|@variant NAME 'text' [KEY 'text' ...]] [--comment-header 'text']
           [--hoist KEYS] [--export out.gpl|out.hex [--used]] [--extract-to P.px [--repoint]]
-          [--remove KEYS [--to KEY]]
+          [--remove KEYS [--to KEY]] [--in DIR]
       No flags: lists the keys, their colors, where they come from and how often they're
-      used, then each variant's keys: 'dusk: recolors o x X c C; inherits: e E q' (the keys it
-      recolors, then the base keys it leaves alone, both in palette order). A key the variant
-      lists in its base color (a lamp that stays lit at night) is neither: 'night: recolors
-      k w; relists unchanged: l g; inherits: nothing'.
+      used, then each variant's keys: 'dusk: recolors (darker) o x X c C; inherits: e E q'
+      (the keys it recolors, then the base keys it leaves alone, both in palette order). A
+      recolor is darker, brighter ('brightens y W': lamps lit brighter at night) or as bright
+      (Rec. 709 luma, times alpha). A key the variant lists in its base color (a lamp that
+      stays lit at night) is neither: 'night: recolors (darker) k w; relists unchanged: l g;
+      inherits: nothing'. The palette's comments come along: the palette files' header on
+      top, a key's comment after its line ('E #ffe07a local  # light-emitting keys'), each
+      variant's comment under its line, and the comments on its key lines as 'y: # lit in
+      rain: harbor lamp'. A palette file has no frames, so no 'used' column; --in DIR counts
+      the .px files under DIR that import it ('imported by 3 of the .px files under
+      crossover/') and, per key, how many of them draw with it ('used by 2 files').
       --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
       Authoring a variant: with --variant NAME, --add sets the keys in that variant instead,
       over what it had, and makes the variant when FILE has none by that name: 'palette
@@ -4723,20 +4730,89 @@ def cmd_palette(a):
         print("wrote", a.export)
     if a.add or a.keep or a.export or a.extract_to or notes or a.comment_header is not None or derive:
         return
+    if a.within and doc.frames:
+        fail("E_BAD_ARG", f"--in {a.within} counts the files that import a palette file, and {doc.path} has frames: "
+             "its own column says how often each key is used")
+    by = palette_users(doc, a.within) if a.within else None
+    cmts, head = palette_notes(doc)
+    for l in head:
+        print(l)
+    if by is not None:
+        print(f"imported by {len(by)} of the .px files under {a.within}" + (f": {listed(sorted(by), 5)}" if by else ""))
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
-        print(f"{k} {fmt_color(v):11} {src:8}" + (f" used {used.get(k, 0)}" if doc.frames else ""))
+        use = f" used {used.get(k, 0)}" if doc.frames else ""
+        if by is not None and k != ".":
+            n = sum(1 for ks in by.values() if k in ks)
+            use = f" used by {n} file{'s' * (n != 1)}"
+        said = comment_text(cmts.get(("key", k)))
+        print((f"{k} {fmt_color(v):11} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
-    for name in names:  # what each recolors, what it lists in its base color (a lamp kept lit), what it leaves alone
+    for name in names:  # what each recolors (darker, brighter), relists in its base color (a lamp kept lit), leaves
         over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
         sets = [k for k in pal if k in over and k != "." and over[k] != pal[k]]
         same = [k for k in pal if k in over and k != "." and over[k] == pal[k]]
         keeps = [k for k in pal if k not in over and k != "."]
-        print(f"  {name}: recolors {' '.join(sets) or 'nothing'}" + (f"; relists unchanged: {' '.join(same)}" if same
-                                                                      else "")
-              + f"; inherits: {' '.join(keeps) or 'nothing'}")
+        how = {}
+        for k in sets:
+            d = brightness(over[k]) - brightness(pal[k])
+            how.setdefault("darker" if d < 0 else "brighter" if d > 0 else "as bright", []).append(k)
+        parts = ([f"recolors (darker) {' '.join(how['darker'])}"] if "darker" in how else []) \
+            + ([f"recolors (as bright) {' '.join(how['as bright'])}"] if "as bright" in how else []) \
+            + ([f"brightens {' '.join(how['brighter'])}"] if "brighter" in how else [])
+        print(f"  {name}: {'; '.join(parts) or 'recolors nothing'}"
+              + (f"; relists unchanged: {' '.join(same)}" if same else "") + f"; inherits: {' '.join(keeps) or 'nothing'}")
+        for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
+            print(f"    {l.strip()}")
+        for k in pal:
+            said = comment_text(cmts.get(("vkey", name, k)))
+            if said:
+                print(f"    {k}: {said}")
+
+
+def brightness(c):
+    """How bright a color looks (Rec. 709 luma of its rgb, times its alpha), for palette's darker/brighter."""
+    return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * c[3] / 255
+
+
+def comment_text(lead):
+    """The comment lines above a line as one run of text ('# a' '# b' -> '# a / b'), or '' when there are none."""
+    got = [l.strip().lstrip("#").strip() for l in lead or [] if l.strip()]
+    return "# " + " / ".join(g for g in got if g) if any(got) else ""
+
+
+def palette_users(doc, within):
+    """palette PAL --in DIR: {path of each .px under DIR that imports PAL (through its @palette chain): the keys of PAL
+    its frames draw with, those it doesn't define itself}."""
+    target, out = doc.path.resolve(), {}
+    for p in in_dirs([within]):
+        if pathlib.Path(p).resolve() == target:
+            continue
+        try:
+            d = parse(p, allow_empty=True)
+        except (OSError, PxError):
+            continue
+        if target in import_chain(d):
+            drawn = set("".join(r for f in d.frames for r in f.grid))
+            out[p] = {k for k in drawn if k not in d.palette and k in doc.palette}
+    return out
+
+
+def import_chain(d, seen=None):
+    """The resolved paths of every palette file d imports, directly or through another."""
+    seen = set() if seen is None else seen
+    for ref in d.palette_refs:
+        t = (d.path.parent / ref).resolve()
+        if t in seen:
+            continue
+        seen.add(t)
+        try:
+            import_chain(parse(t, palette_only=True), seen)
+        except (OSError, PxError):
+            pass
+    return seen
 
 
 def said_already(same, where=""):
@@ -5557,6 +5633,8 @@ def parser(describe=True):
     p.add_argument("--extract-to", help="write FILE's palette and variants as a palette file")
     p.add_argument("--repoint", action="store_true", help="with --extract-to: FILE then imports it")
     p.add_argument("--used", action="store_true")
+    p.add_argument("--in", dest="within", metavar="DIR",
+                   help="for a palette file: how many .px files under DIR import it, and draw with each key")
     p.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
     p.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
     p.add_argument("--derive-from", metavar="base|VARIANT",
