@@ -1,0 +1,3 @@
+$ pxart scene --map rooms/glade.map --scale 1 -o glade.png tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127
+note: 308 px of the map fall outside the 256x224 scene (size from --map) and were cropped
+wrote glade.png

@@ -33,6 +33,14 @@ pxart -h
 It's also a single file: `python3 pxart.py -h`, with [Pillow](https://pypi.org/project/pillow/)
 as the only dependency.
 
+## Examples
+
+[`examples/`](examples/README.md) shows each major feature as `.px` sources beside the
+images they produce: animation, palette variants, drawing commands, composing across
+packs, tilemaps, import and export, checking.
+
+<img src="examples/06-scene/glade-dusk.x2.png" width="320"> <img src="examples/05-compose/dock-dusk.x4.png" width="320"> <img src="examples/02-animation/walk.gif" width="190">
+
 ## Format
 
 - **Palette:** one line per key: a single character, then `#rrggbb`, `#rrggbbaa`, or

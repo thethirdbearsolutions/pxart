@@ -1,0 +1,57 @@
+# Cozy seaside: warm oilskin yellow vs cool sea, plum-navy outline.
+k #2a1f33
+w #f6f1e4
+s #f0c29a
+S #c98a6e
+y #f2c14e
+Y #c98a2e
+n #3d4f86
+N #252c52
+b #3a7ca5
+c #8ccfd6
+a #ecd49e
+A #c9a66b
+o #8b5a3c
+O #5a3829
+r #c4473a
+l #fff4b0
+g #ffc861
+
+# night: cool moonlight; lamp colors (l, g) stay lit
+@variant night
+k #120e22
+w #9fb0d4
+s #b88f8c
+S #7d5c70
+y #b39a5a
+Y #7a6444
+n #28356a
+N #161b3e
+b #1c3d66
+c #5a86b0
+a #8d8ba6
+A #62637f
+o #5c4150
+O #3a2838
+r #83344e
+l #fff4b0
+g #ffc861
+
+@variant dusk
+k #381c1e
+w #d1ad9a
+s #cd906c
+S #b56d51
+y #cf8f3d
+Y #b56d29
+n #5e4860
+N #3e2732
+b #5b6473
+c #8f9892
+a #cb9b6f
+A #b57f4f
+o #8e4f32
+O #663422
+r #b24330
+l #fff4b0
+g #ffc861

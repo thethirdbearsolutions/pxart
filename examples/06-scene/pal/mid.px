@@ -1,0 +1,33 @@
+# Mid layer: tree line. 13 colors + dusk variant.
+# back-row trees (hazed toward sky)
+p #5c9488
+P #467a74
+# front canopy: cool deep green -> warm yellow-green
+1 #1c3a36
+2 #285a42
+3 #3c7c46
+4 #5ea04a
+5 #92c45a
+# trunks: plum shadow -> warm brown
+6 #2c2030
+7 #4c3434
+8 #70503e
+# undergrowth / ground shadow
+9 #1a2c2c
+0 #2e4a3a
+y #c8e07a
+
+@variant dusk
+p #5a4a78
+P #463c68
+1 #141a30
+2 #1e2c40
+3 #2c4448
+4 #46604c
+5 #7a7a5a
+6 #1a1428
+7 #2e2230
+8 #4a3638
+9 #10141e
+0 #1c2432
+y #e8b070

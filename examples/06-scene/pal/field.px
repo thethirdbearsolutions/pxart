@@ -1,0 +1,35 @@
+# Field tiles + props: grass, dirt path, flowers, stone. 15 colors + dusk variant.
+# grass: deep teal-green -> warm lime
+G #1f4a34
+g #2f6a3a
+h #4a8c3e
+i #72b046
+j #a6d45e
+# dirt: violet-brown -> sandy
+d #6a4a42
+D #9a6c4a
+e #c29462
+E #e2c088
+# flowers
+f #f0607a
+F #ffe48a
+# stone: slate shadow -> pale warm grey
+s #4a4a5e
+S #8a8e9e
+t #c6c8c4
+
+@variant dusk
+G #141e30
+g #1e3038
+h #2e4640
+i #4a6048
+j #74784e
+d #3e2c3a
+D #5c4046
+e #7e5a52
+E #a07a66
+f #c0506c
+F #e0b070
+s #2a2840
+S #545468
+t #807c88

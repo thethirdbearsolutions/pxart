@@ -1,0 +1,5 @@
+$ pxart onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o onion-feet.png
+A walk/down/0: opaque x 7..16, y 26..31 (rows 26-31 of the 24x32 canvas, lined up by pivot)
+B walk/down/3: opaque x 7..16, y 26..30
+B vs A (rows 26-31): left +0, right +0, top +0, bottom -1; best shift +0,-1 then 9px changed (no shift: 11px)
+wrote onion-feet.png

@@ -1,0 +1,2 @@
+$ pxart from-png sheet.png --grid 16x16 --names walk/right,walk_cave/right --palette beetle_pal.px -o imported.px
+wrote imported.px (8 frame(s): walk/right 4, walk_cave/right 4)

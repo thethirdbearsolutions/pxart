@@ -1,0 +1,5 @@
+$ pxart anim hero.px:idle/down
+  idle/down/0                360ms  vs idle/down/3: shift +0,+0 then 10px (3%)
+  idle/down/1                220ms  vs idle/down/0: shift +0,-1 then 83px (22%) (no shift: 143px)
+  idle/down/2                220ms  vs idle/down/1: shift +0,+0 then 11px (3%)
+  idle/down/3                220ms  vs idle/down/2: shift +0,+1 then 86px (23%) (no shift: 151px)

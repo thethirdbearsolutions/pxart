@@ -1,0 +1,2 @@
+$ pxart export alchemist.px --aseprite alchemist.json
+wrote alchemist.png alchemist.json

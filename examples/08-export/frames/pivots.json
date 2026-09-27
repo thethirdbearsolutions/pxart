@@ -1,0 +1,46 @@
+{
+ "walk/right/0": {
+  "x": 12,
+  "y": 31
+ },
+ "walk/right/1": {
+  "x": 12,
+  "y": 31
+ },
+ "walk/right/2": {
+  "x": 12,
+  "y": 31
+ },
+ "walk/right/3": {
+  "x": 12,
+  "y": 31
+ },
+ "walk/right/4": {
+  "x": 12,
+  "y": 31
+ },
+ "walk/right/5": {
+  "x": 12,
+  "y": 31
+ },
+ "attack/right/0": {
+  "x": 12,
+  "y": 31
+ },
+ "attack/right/1": {
+  "x": 12,
+  "y": 31
+ },
+ "attack/right/2": {
+  "x": 12,
+  "y": 31
+ },
+ "attack/right/3": {
+  "x": 12,
+  "y": 31
+ },
+ "attack/right/4": {
+  "x": 12,
+  "y": 31
+ }
+}

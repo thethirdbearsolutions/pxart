@@ -1,0 +1,2 @@
+$ pxart check rooms/glade.map
+ok   rooms/glade.map: map 16x14 tiles, 22 legend char(s), 4 layers
