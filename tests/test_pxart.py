@@ -22406,7 +22406,7 @@ def test_readme_documents_compose_map():
     assert "`compose --map room.map -o room.px` builds the map's room as a `.px` frame" in readme
 
 
-# ---------------------------------------------------------------- pxart help recipes: six workflows, all run here
+# ---------------------------------------------------------------- pxart help recipes: seven workflows, all run here
 # 'pxart help all' is 65KB of reference. The recipes are the way in: each is a few commands a newcomer copies, end to
 # end. Every recipe runs here, its commands in order, in a fresh folder of the files it names, and each must exit 0
 # (a diff that proves something exits 1 when it doesn't).
@@ -22495,11 +22495,11 @@ def run_recipe(tmp_path, monkeypatch, capsys, cmds):
     return ran
 
 
-def test_recipes_are_six_and_short():
+def test_recipes_are_seven_and_short():
     got = recipes()
     assert [t for t, _ in got] == ["Port a pack and prove it lossless", "Merge packs, variants and all",
                                    "Build a dusk or a night", "Slice a sheet", "Make a scene from a map",
-                                   "Check an animation's feet"]
+                                   "Check an animation's feet", "Stamp an overlay behind every frame of an animation"]
     assert all(3 <= len(cmds) <= 6 for _, cmds in got)
     blocks = re.split(r"\n  \d+\. ", pxart.RECIPES)[1:]
     assert all(len(b.strip().splitlines()) <= 12 for b in blocks)
@@ -22575,6 +22575,22 @@ def test_recipe_feet_stay_planted(tmp_path, monkeypatch, capsys):
     assert pxart.parse(tmp_path / "hero.px").anims["walk/down"]["pivot"] == (8, 11)
 
 
+def test_recipe_overlay_follows_the_bob_and_shows_only_at_night(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Stamp an overlay behind every frame of an animation"])
+    paste = next(out for argv, _, out in ran if argv[0] == "paste")
+    assert "note: --align bbox pastes at 0,0 in walk/down/0, 0,1 in walk/down/1, 0,0 in walk/down/2, 0,1 in " \
+        "walk/down/3" in paste
+    doc = pxart.parse(tmp_path / "hero.px")
+    for n in range(4):  # the glow sits behind the body, 1px lower in the bob frames, and never over the drawing
+        glow = {(x, y) for y, row in enumerate(doc.get(f"walk/down/{n}").grid) for x, c in enumerate(row) if c == "G"}
+        ring = {(x, y + n % 2) for y, row in enumerate(doc.get("glow").grid) for x, c in enumerate(row) if c == "G"}
+        assert glow and glow <= ring
+    day, night = doc.image(doc.get("walk/down/1")), doc.image(doc.get("walk/down/1"), "night")
+    x, y = next(iter(glow))
+    assert day.getpixel((x, y))[3] == 0 and night.getpixel((x, y)) == (0xf3, 0xcf, 0x6b, 0x60)
+    assert (tmp_path / "glow.png").exists()
+
+
 def test_help_recipes_prints_them(capsys):
     assert run("help", "recipes") == 0
     out = capsys.readouterr().out
@@ -22588,9 +22604,9 @@ def test_recipes_are_not_in_help_all():
 
 def test_overview_points_at_the_recipes(capsys):
     text = " ".join(pxart.overview().split())
-    assert "Start here: 'pxart help recipes' walks through six workflows end to end: port a pack and prove it " \
+    assert "Start here: 'pxart help recipes' walks through seven workflows end to end: port a pack and prove it " \
         "lossless, merge packs with variants, build a dusk or night, slice a sheet, make a scene from a map, check " \
-        "an animation's feet." in text
+        "an animation's feet, stamp an overlay behind an animation." in text
     assert run("-h") == 0
     assert "'pxart help recipes'" in capsys.readouterr().out
 
@@ -22605,7 +22621,7 @@ def test_help_section_names_recipes():
 
 def test_readme_points_at_the_recipes():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
-    assert "`pxart help recipes` walks through six workflows end to end" in readme
+    assert "`pxart help recipes` walks through seven workflows end to end" in readme
 
 
 def test_help_all_does_not_grow(capsys):
@@ -27253,3 +27269,178 @@ def test_anim_variant_percent_is_of_the_variants_opaque_pixels(tmp_path, capsys)
 def test_anim_help_says_variant_counts_its_render():
     assert "--variant V counts V's render: a halo transparent in the base counts, at any alpha." in \
         " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- FILE:a,b,c: a list of frames or groups
+# The halo session: pasting under a bobbing animation took 4 commands, and 'FILE:a,b' was a missing frame with a
+# did-you-mean.
+
+LIST = "k #000000\nj #ffffff\n@anim walk ms=90\n@frame idle\nk.\n@frame walk/0\nk.\n@frame walk/1\n.k\n" \
+       "@frame walk/2\nkk\n@frame hat\nj.\n"
+
+
+@pytest.mark.parametrize("sel, want", [
+    ("idle,hat", ["idle", "hat"]),
+    ("hat,idle", ["hat", "idle"]),                                   # the order named
+    ("walk,idle", ["walk/0", "walk/1", "walk/2", "idle"]),           # a group is its frames
+    ("walk/1,walk", ["walk/1", "walk/0", "walk/2"]),                 # each frame once, where first named
+    ("walk/2,walk/0", ["walk/2", "walk/0"]),
+    ("idle,*", ["idle", "walk/0", "walk/1", "walk/2", "hat"]),
+])
+def test_select_list(tmp_path, sel, want):
+    p = write(tmp_path, "l.px", LIST)
+    assert [f.id for f in pxart.parse(p).select(sel)] == want
+
+
+def test_select_list_missing_item_names_it_with_its_guess(tmp_path):
+    p = write(tmp_path, "l.px", LIST)
+    msg = run_err("frames", f"{p}:idle,wakl")
+    assert "E_SELECT: no frame or group 'wakl'" in msg and msg.endswith("did you mean 'walk'?")
+    assert "'idle,wakl'" not in msg
+
+
+def test_select_list_empty_item(tmp_path):
+    p = write(tmp_path, "l.px", LIST)
+    msg = run_err("frames", f"{p}:idle,,hat")
+    assert "E_SELECT" in msg and "'idle,,hat' has an empty item" in msg and msg.endswith(": idle,hat")
+
+
+def test_list_selects_for_looking(tmp_path, capsys):
+    p = write(tmp_path, "l.px", LIST)
+    assert run("sheet", f"{p}:walk/0,walk/2,hat", "-o", tmp_path / "s.png") == 0
+    assert [it.label for it in pxart.all_items([f"{p}:walk/0,walk/2,hat"])] == ["walk/0", "walk/2", "hat"]
+    assert [it.label for it in pxart.all_items([f"{p}:walk/0,hat%night".replace("%night", "")])] == ["walk/0", "hat"]
+
+
+def test_list_selects_for_editing(tmp_path, capsys):
+    p = write(tmp_path, "l.px", LIST)
+    assert run("fill", f"{p}:idle,walk/1", "j") == 0
+    assert grids(p) == {"idle": ["jj"], "walk/0": ["k."], "walk/1": ["jj"], "walk/2": ["kk"], "hat": ["j."]}
+    assert capsys.readouterr().out == f"edited 2 frames: idle, walk/1\npainted 4 px (idle 2, walk/1 2); wrote {p}\n"
+
+
+def test_list_with_pixel_coordinates(tmp_path):
+    p = write(tmp_path, "l.px", LIST)
+    assert run("set", f"{p}:walk/0,walk/1", "j", "0,0") == 0
+    assert grids(p)["walk/0"] == ["j."] and grids(p)["walk/1"] == ["jk"] and grids(p)["walk/2"] == ["kk"]
+
+
+def test_list_extract_and_rm(tmp_path, capsys):
+    p = write(tmp_path, "l.px", LIST)
+    assert run("extract", f"{p}:hat,idle", "-o", tmp_path / "e.px") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "e.px").frames] == ["idle", "hat"]  # a file keeps its order
+    assert run("frames", f"{p}:walk/1,hat", "--rm") == 0
+    assert [f.id for f in pxart.parse(p).frames] == ["idle", "walk/0", "walk/2"]
+
+
+@pytest.mark.parametrize("argv", [
+    ["dup", "{p}:idle,hat", "x"],
+    ["dup", "{p}:idle", "x,y"],
+    ["anim-set", "{p}:walk,idle", "ms=3"],
+    ["onion", "{p}:walk/0,walk/1", "{p}:walk/2", "-o", "{d}/o.png"],
+    ["new", "{p}:a,b", "--size", "2x1"],
+    ["compose", "-o", "{p}:a,b", "{p}:idle@0,0"],
+    ["crop", "{p}:idle,hat", "0,0,1,1", "-o", "{d}/c.px"],
+    ["paste", "{p}:idle,hat", "--into", "{p}:walk", "--at", "0,0"],
+    ["scene", "--size", "4x4", "-o", "{d}/s.png", "{p}:idle,hat@0,0"],
+    ["flip", "{p}:walk", "-o", "{p}:a,b"],
+])
+def test_list_where_one_id_goes_says_so(tmp_path, argv):
+    p = write(tmp_path, "l.px", LIST)
+    had = p.read_text()
+    msg = run_err(*[a.format(p=p, d=tmp_path) for a in argv])
+    assert "lists aren't supported here; give one id" in msg and "did you mean" not in msg, msg
+    assert p.read_text() == had
+
+
+def test_help_documents_lists():
+    doc = " ".join(pxart.__doc__.split())
+    assert "or a list of them, FILE:idle,walk/0" in doc
+
+
+# ---------------------------------------------------------------- paste --align: one paste follows every frame
+
+ALIGN_BOB = "k #000000\ng transparent\n@variant night\ng #ffe07a80\n@anim fly ms=90 pivot=1,3\n" \
+      "@frame fly/0\n.k..\n.k..\n....\n....\n" \
+      "@frame fly/1 pivot=1,4\n....\n.k..\n.k..\n....\n" \
+      "@frame fly/2\n....\n....\n..k.\n..k.\n" \
+      "@frame glow\ngg\n"
+
+
+def align_bob(tmp_path):
+    return write(tmp_path, "b.px", ALIGN_BOB)
+
+
+@pytest.mark.parametrize("how, spots", [
+    ("bbox", [(0, 0), (0, 1), (1, 2)]),     # the drawing's top-left: down 1, then down 2 and right 1
+    ("bottom", [(0, 0), (0, 1), (0, 2)]),   # its bottom row only
+    ("pivot", [(0, 0), (0, 1), (0, 0)]),    # fly/1's own pivot is 1 lower; the others share the @anim's
+])
+def test_paste_align_moves_the_paste_with_each_frame(tmp_path, capsys, how, spots):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "0,0", "--under", "--align", how) == 0
+    g = grids(p)
+    for n, (x, y) in enumerate(spots):
+        got = {(xx, yy) for yy, row in enumerate(g[f"fly/{n}"]) for xx, c in enumerate(row) if c == "g"}
+        want = {(x, y), (x + 1, y)} - {(xx, yy) for yy, row in enumerate(pxart.parse(write(
+            tmp_path, "o.px", ALIGN_BOB)).get(f"fly/{n}").grid) for xx, c in enumerate(row) if c == "k"}
+        assert got == want, (how, n, got, want)
+    out = capsys.readouterr().out
+    assert f"note: --align {how} pastes at " + ", ".join(f"{x},{y} in fly/{n}" for n, (x, y) in enumerate(spots)) \
+        + "\n" in out
+
+
+def test_paste_align_is_relative_to_the_first_frame_named(tmp_path, capsys):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly/2,fly/0", "--at", "1,2", "--align", "bbox") == 0
+    assert "note: --align bbox pastes at 1,2 in fly/2, 0,0 in fly/0\n" in capsys.readouterr().out
+    assert grids(p)["fly/0"][0] == "gg.." and grids(p)["fly/2"][2] == ".gg."  # no --under: over the k
+
+
+def test_paste_without_align_pastes_at_the_same_spot(tmp_path, capsys):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "0,0") == 0
+    assert all(grids(p)[f"fly/{n}"][0][0] == "g" for n in range(3))
+    assert "--align" not in capsys.readouterr().out
+
+
+def test_paste_align_one_frame_no_note(tmp_path, capsys):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly/1", "--at", "2,0", "--align", "bbox") == 0
+    assert capsys.readouterr().out == f"pasted 2 px; wrote {p}\n"
+    assert grids(p)["fly/1"][0] == "..gg"
+
+
+def test_paste_align_counts_a_night_only_key_as_drawing(tmp_path, capsys):
+    # a halo lit only at night is part of the drawing a bbox follows (Doc.blanks)
+    p = write(tmp_path, "b.px", ALIGN_BOB.replace("@frame fly/0\n.k..", "@frame fly/0\ng...").replace(
+        "@frame glow\ngg", "@frame glow\nk"))
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly/0,fly/1", "--at", "3,3", "--align", "bbox") == 0
+    assert "pastes at 3,3 in fly/0, 4,4 in fly/1" in capsys.readouterr().out  # fly/0's left edge is its g, x 0
+
+
+def test_paste_align_empty_frame_is_an_error(tmp_path):
+    p = write(tmp_path, "b.px", ALIGN_BOB.replace("@frame fly/2\n....\n....\n..k.\n..k.", "@frame fly/2\n....\n....\n....\n...."))
+    had = p.read_text()
+    msg = run_err("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "0,0", "--align", "bottom")
+    assert "E_BAD_ARG" in msg and "--align bottom: fly/2 draws nothing" in msg
+    assert p.read_text() == had
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "0,0", "--align", "pivot") == 0
+
+
+def test_paste_align_offsets_can_push_off_the_frame(tmp_path, capsys):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "2,3", "--align", "bbox") == 0
+    assert grids(p)["fly/2"] == ["....", "....", "..k.", "..k."]  # 3,5: below the frame, clipped away
+
+
+def test_paste_align_bad_choice(tmp_path, capsys):
+    p = align_bob(tmp_path)
+    assert run("paste", f"{p}:glow", "--into", f"{p}:fly", "--at", "0,0", "--align", "top") == 2
+
+
+def test_paste_help_names_align(capsys):
+    assert run("paste", "-h") == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--align {pivot,bottom,bbox}" in out and "a glow following a bob" in out
+    assert "[--align pivot|bottom|bbox]" in pxart.__doc__

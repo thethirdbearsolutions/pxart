@@ -43,9 +43,9 @@ FORMAT (.px)
   commands that render it print a WARNING naming them and the fix, and check notes it.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame). No SEL (or *) means every frame. A
-  file with one unnamed grid (no @frame) calls it by the file's name, as frames lists it:
-  ant.px's grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
+  path (FILE:walk/down = every walk/down/* frame), or a list of them, FILE:idle,walk/0.
+  No SEL (or *) means every frame. A file with one unnamed grid (no @frame) calls it by
+  the file's name, as frames lists it: ant.px's grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
   ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
   ant that is the frame written. Add %VARIANT to render with a variant: FILE:idle/0%night.
   +----------------------------------------------------------------------------------------+
@@ -359,8 +359,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       with a 4x4 ordered (Bayer) dither: a light radius. --invert erases the inside and
       keeps the outside, dither band mirrored, so a mask and its --invert split the image
       with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
-      their union, and --dither and --invert work over the union. Two lamps in one call:
-      'mask scene.png --keep-circle 20,30,12 --keep-circle 70,30,12 --dither 4'.
+      their union, and --dither and --invert work over the union.
       FILE may be a PNG (a scene rendered at --scale 1: coordinates are its pixels): outside
       pixels become transparent. -o, if given, must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
@@ -379,7 +378,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       gives the cut those keys in OUT and leaves FILE as it is.
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette
-      imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
+      imports, variants, and @anim/@still lines (minus those
       of groups left behind; @anim lines in the order of the frames' groups):
       'extract hero.px:walk/down -o walk.px'. An OUT that exists is E_FILE, since its frames
       would be lost (E_DUP_FRAME when it has one of the ids): 'frames FILE:SEL --copy-to OUT'
@@ -404,12 +403,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
-        [--variant-map NAME=V1,V2] [-o OUT]
+        [--variant-map NAME=V1,V2] [--align pivot|bottom|bbox] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       SRC's keys join DST as a compose layer's join an existing OUT: E_KEY_CONFLICT, the
-      variant WARNINGs, --rekey [KEYS] and --variant-map work alike.
+      variant WARNINGs, --rekey [KEYS] and --variant-map work alike. --align: one paste
+      follows a bob across frames.
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] [--replace] LAYER@x,y ...
   compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]
@@ -835,7 +835,7 @@ CONVERTING
 
 HELP
   help [all | recipes | TOPIC | CMD]
-      'pxart help recipes': six workflows, command by command. 'pxart help all' prints this
+      'pxart help recipes': seven workflows, command by command. 'pxart help all' prints this
       whole reference; 'pxart help TOPIC' one part of it (a heading here, any case); 'pxart
       help CMD' is 'pxart CMD -h': its section and the shared notes it relies on, named.
       'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
@@ -859,7 +859,7 @@ import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, o
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 RECIPES = """RECIPES (pxart help recipes)
-  Six workflows, end to end. Each runs as written from a folder holding the files it names;
+  Seven workflows, end to end. Each runs as written from a folder holding the files it names;
   'pxart help CMD' has the rest of each command.
 
   1. Port a pack and prove it lossless
@@ -924,6 +924,18 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart anim-set hero.px:walk/down pivot=8,11
        $ pxart sheet hero.px:walk/down --align pivot --fit -o walk.png
        $ pxart anim hero.px:walk/down -o walk.gif
+
+  7. Stamp an overlay behind every frame of an animation
+     A glow drawn once, as a frame of its own, goes behind every frame of the walk: --align
+     bbox moves it with each frame's drawing as the body bobs (--at places it in the first
+     frame), and --under keeps it behind. Its key is transparent by day and lit at night, so
+     the sheet shows the walk and the glow (FILE:a,b lists them) at night.
+       $ pxart palette pal.px --add G=transparent
+       $ pxart palette pal.px --variant night --add 'G=#f3cf6b60'
+       $ pxart new hero.px:glow --size 16x12
+       $ pxart ellipse hero.px:glow G --box 2,0,12,9 --ring 2
+       $ pxart paste hero.px:glow --into hero.px:walk/down --at 0,0 --under --align bbox
+       $ pxart sheet hero.px:walk/down,glow --variant night -o glow.png
 """
 
 
@@ -1134,6 +1146,14 @@ class Doc:
         return f.pivot or self.anims.get(f.group, {}).get("pivot")
 
     def select(self, sel):
+        if sel and "," in sel:  # FILE:a,b,c: each one's frames, in the order named, each frame once
+            got = {}
+            for part in sel.split(","):
+                if not part:
+                    fail("E_SELECT", f"{sel!r} has an empty item; a list is ids or groups between commas: "
+                         f"{','.join(p for p in sel.split(',') if p)}", path=self.path)
+                got.update({id(f): f for f in self.select(part) if id(f) not in got})
+            return list(got.values())
         if not sel or sel == "*":  # FILE:* says every frame out loud
             return list(self.frames)
         if self.implicit and sel == self.stem:  # the unnamed grid goes by the file's name, as frames lists it
@@ -1693,7 +1713,21 @@ def tell_apart(its, paths):
             it.label = f"{stem if len(stems[stem]) == 1 else p}:{it.label}"
 
 
+def in_file_order(doc, frames):
+    """A selection (FILE:hat,idle lists frames in the order named) in the file's order, for a command that writes
+    frames where they sit (extract, frames --copy-to/--rm): an animation keeps its play order."""
+    ids = {id(f) for f in frames}
+    return [f for f in doc.frames if id(f) in ids]
+
+
+def one_id(sel, arg, what):
+    """A selector where one frame (or group) id goes: a list (FILE:a,b) is E_BAD_ARG saying so, not a missing id."""
+    if sel and "," in sel:
+        fail("E_BAD_ARG", f"{what} {arg!r}: lists aren't supported here; give one id")
+
+
 def one_frame(arg, what="input", variant=None):
+    one_id(split_sel(arg)[1], arg, what)
     got = items(arg, variant)
     if len(got) != 1:
         fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id")
@@ -3803,7 +3837,7 @@ def cmd_frames(a):
     path, sel = split_sel(a.file)
     with reading(f"FILE ({a.file})"):
         doc = parse(path, allow_empty=True)
-        picked = doc.select(sel) if sel else doc.frames
+        picked = in_file_order(doc, doc.select(sel)) if sel else doc.frames
     if a.prefix is not None and not a.copy_to:
         fail("E_BAD_ARG", f"--prefix names the copies --copy-to DST makes; to rename frames in {path}: frames "
              f"{path} --rename GROUP NEWGROUP")
@@ -4222,6 +4256,8 @@ def copy_target(a):
                  f"FILE:walk/right{turn} -o FILE:walk/left --replace')")
         return edit_target(a.file, a.o) + ([],)
     path, sel = split_sel(a.file)
+    one_id(osel, a.o, "-o")
+    one_id(sel, a.file, "FILE")
     verb = {"flip": "flips", "rotate": "turns", "transpose": "transposes"}[a.cmd]
     if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
         fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP {verb} a copy of FILE:GROUP within FILE ('{a.cmd} {path}:walk/right"
@@ -4621,14 +4657,40 @@ def cmd_paste(a):
     _, asked = rekey_one(a.rekey, ddoc, src.doc, set("".join(src.frame.grid)), vmap, False, out, label, [src.frame])
     warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap), ddoc, out, vmap,
                        "paste --rekey", asked)
+    offsets = aligned(ddoc, dframes, a.align) if a.align else {}
     added = []
     for f in dframes:
+        dx, dy = offsets.get(id(f), (0, 0))
         with reading(label):
-            added += stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region, a.under, out=out, vmap=vmap)
+            added += stamp(ddoc, f, src.doc, src.frame, (ax + dx, ay + dy), a.region, a.under, out=out, vmap=vmap)
     uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
+    moved = [f"{ax + offsets[id(f)][0]},{ay + offsets[id(f)][1]} in {ddoc.label(f)}" for f in dframes] \
+        if len(dframes) > 1 and a.align else []
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
+    if moved:
+        print(f"note: --align {a.align} pastes at {listed(moved, 5)}")
     print(px_changed(ddoc, dframes, "pasted"), write_doc(ddoc, out))
+
+
+def aligned(doc, frames, how):
+    """paste --align: each frame's (dx, dy) from the first frame's, so a paste made for the first follows the others:
+    pivot, their pivots (else bottom-centre, as anim's); bottom, their drawing's bottom row (dy only: feet on the
+    ground); bbox, their drawing's top-left (a bob, a hop). The drawing is the pixels of keys that draw (Doc.blanks),
+    before the paste. A frame that draws nothing has no bbox to follow: E_BAD_ARG."""
+    blank = doc.blanks()
+
+    def spot(f):
+        if how == "pivot":
+            return doc.pivot(f) or (f.size[0] // 2, f.size[1] - 1)
+        ys = [y for y, row in enumerate(f.grid) if any(c not in blank for c in row)]
+        if not ys:
+            fail("E_BAD_ARG", f"--align {how}: {doc.label(f)} draws nothing, so there's no drawing to follow; paste "
+                 f"into it on its own ({doc.path}:{doc.label(f)})")
+        return (0, ys[-1]) if how == "bottom" else (min(x for row in f.grid for x, c in enumerate(row)
+                                                        if c not in blank), ys[0])
+    first = spot(frames[0])
+    return {id(f): (x - first[0], y - first[1]) for f, (x, y) in ((f, spot(f)) for f in frames)}
 
 
 def cmd_extract(a):
@@ -4637,7 +4699,7 @@ def cmd_extract(a):
     path, sel = split_sel(a.file)
     with reading(f"FILE ({a.file})"):
         doc = parse(path)
-        keep = doc.select(sel)
+        keep = in_file_order(doc, doc.select(sel))
     gone = {f.group for f in doc.frames} - {f.group for f in keep}  # groups the selection leaves behind
     out = pathlib.Path(a.o)
     note_suffix(out)
@@ -4718,6 +4780,7 @@ def frame_slot(opath, osel, palette=None, flag="-o", fresh=False):
     """Open OUT (or start it, importing `palette`; fresh: start it though it exists) and find or make the frame
     OUT[:frame] names: (doc, frame). A new frame goes after the last frame of its animation, or at the end when the
     animation is new."""
+    one_id(osel, f"{opath}:{osel}", flag)
     doc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() and not fresh else start_doc(opath, palette)
     if osel:
         if doc.implicit:
@@ -6328,6 +6391,8 @@ def compose_layers(a):
 
 def cmd_dup(a):
     path, sel = split_sel(a.src)
+    one_id(sel, a.src, "SRC")
+    one_id(a.new, a.new, "NEWID")
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
     src = doc.get(sel) if sel else None
@@ -6458,6 +6523,7 @@ def timing_value(k, v):
 def cmd_anim_set(a):
     """Timing: FILE:GROUP updates or adds '@anim GROUP ...'; FILE:GROUP/ID sets that frame's ms=. One line changes."""
     path, sel = split_sel(a.target)
+    one_id(sel, a.target, "FILE")
     with reading(f"FILE ({a.target})"):
         doc = parse(path)
     out = pathlib.Path(a.o) if a.o else doc.path
@@ -7927,7 +7993,7 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
                "night or dusk, hoist, import, remove, order, comment, export.",
     "export": "Write frames as PNGs (--frames), an Aseprite sheet and JSON (--aseprite) or a Tiled tileset\n"
               "(--tiled), from files or whole folders.",
-    "help": "The reference: all of it, a topic, one command, or the six worked recipes.",
+    "help": "The reference: all of it, a topic, one command, or the seven worked recipes.",
     "from-png": "Convert PNGs (loose, a pack with a labels CSV, or one sheet sliced by --grid) to .px with\n"
                 "exact pixels.",
 }
@@ -7975,9 +8041,9 @@ def overview():
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
                       "whole reference.", "",
-                      "Start here: 'pxart help recipes' walks through six workflows end to end: port a pack and prove "
-                      "it", "lossless, merge packs with variants, build a dusk or night, slice a sheet, make a scene "
-                      "from a map,", "check an animation's feet."])
+                      "Start here: 'pxart help recipes' walks through seven workflows end to end: port a pack and "
+                      "prove", "it lossless, merge packs with variants, build a dusk or night, slice a sheet, make a "
+                      "scene from a", "map, check an animation's feet, stamp an overlay behind an animation."])
 
 
 def cmd_help(a):
@@ -8232,6 +8298,9 @@ def parser(describe=True):
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
+    p.add_argument("--align", choices=["pivot", "bottom", "bbox"],
+                   help="into several frames: --at is for the first, and the paste moves in each other frame as its "
+                        "pivot, its drawing's bottom row, or its drawing's top-left does (a glow following a bob)")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", help="WxH of the frame")
