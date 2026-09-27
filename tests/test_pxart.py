@@ -2219,7 +2219,7 @@ def test_map_legend_bad_frame_errors_at_legend_line(tmp_path):
     with pytest.raises(pxart.PxError) as e:
         pxart.load_legend(m)
     assert codes(e) == ["E_SELECT"] and e.value.issues[0].line == 2
-    assert "legend 'z': 'tiles.px:missing'" in str(e.value) and "no frame 'missing'" in str(e.value)
+    assert "legend 'z': 'tiles.px:missing'" in str(e.value) and "no frame or group 'missing'" in str(e.value)
 
 
 def test_map_legend_multi_frame_errors_at_legend_line(tmp_path):
@@ -6637,7 +6637,7 @@ def test_compose_error_names_the_first_layer_too(tmp_path):
 def test_compose_select_error_names_the_layer(tmp_path):
     ok = write(tmp_path, "ok.px", "k #000000\n@frame a\nkk\n")
     msg = run_err("compose", "-o", tmp_path / "o.px", f"{ok}:a@0,0", f"{ok}:zz@0,0")
-    assert msg.startswith(f"compose: layer 2 ({ok}:zz): {ok}: E_SELECT: no frame 'zz'")
+    assert msg.startswith(f"compose: layer 2 ({ok}:zz): {ok}: E_SELECT: no frame or group 'zz'")
 
 
 def test_compose_key_conflict_names_the_layer(tmp_path):
@@ -9066,7 +9066,7 @@ def test_drawing_commands_name_command_and_input(tmp_path, argv):
 def test_drawing_commands_bad_selector(tmp_path, argv):
     p = write(tmp_path, "ok.px", "k #000000\n@frame a\nk\n")
     msg = run_err(*[a.format(p=p) for a in argv])
-    assert f"{argv[0]}: FILE ({p}:zz): {p}: E_SELECT: no frame 'zz'" in msg
+    assert f"{argv[0]}: FILE ({p}:zz): {p}: E_SELECT: no frame or group 'zz'" in msg
 
 
 @pytest.mark.parametrize("cmd", ["line", "rect", "ellipse", "arc", "flood", "shade", "outline", "rotate", "transpose"])
@@ -25619,7 +25619,8 @@ def test_unknown_frame_guesses_a_frame_or_group(tmp_path, sel, want):
         assert run("render", f"{p}:{sel}", "-o", tmp_path / "x.png") == 0
         return
     msg = run_err("render", f"{p}:{sel}", "-o", tmp_path / "x.png")
-    assert f"no frame {sel!r}; frames: fly/right/0, fly/right/1, idle/0; did you mean {want!r}?" in msg
+    assert f"no frame or group {sel!r}; groups: fly/right, idle; frames: fly/right/0, fly/right/1, idle/0; did you mean " \
+        f"{want!r}?" in msg
 
 
 def test_unknown_group_guesses_in_anim_set_frames_dup_and_derive(tmp_path):
@@ -26715,3 +26716,51 @@ def test_plays_once_helper(tmp_path):
 
 def test_anim_help_says_repeat_plays_once():
     assert "A group with repeat=1 plays once: frame 0 gets no wrap-around diff." in " ".join(pxart.__doc__.split())
+
+
+# ---------------------------------------------------------------- a missing selector: "no frame or group", groups listed
+# A mistyped group ('takof') said "no frame 'takof'" and listed only frames, though what it meant was a group.
+
+SEL = "k #000000\n@anim land repeat=1\n@anim takeoff repeat=1\n@frame land/0\nk\n@frame land/1\nk\n" \
+    "@frame takeoff/0\nk\n@frame takeoff/1\nk\n@frame icon\nk\n"
+
+
+def test_missing_selector_says_frame_or_group_and_lists_groups(tmp_path):
+    p = write(tmp_path, "b.px", SEL)
+    msg = run_err("anim", f"{p}:takof")
+    assert "E_SELECT: no frame or group 'takof'; groups: land, takeoff; frames: land/0, land/1, takeoff/0, " \
+        "takeoff/1, icon; did you mean 'takeoff'?" in msg
+
+
+def test_missing_selector_guesses_a_frame_when_that_is_closest(tmp_path):
+    p = write(tmp_path, "b.px", SEL)
+    assert run_err("render", f"{p}:takeoff/2", "-o", tmp_path / "x.png").endswith("did you mean 'takeoff/1'?")
+
+
+def test_missing_selector_guesses_a_top_level_frame(tmp_path):
+    p = write(tmp_path, "b.px", SEL)
+    assert run_err("render", f"{p}:icn", "-o", tmp_path / "x.png").endswith("did you mean 'icon'?")
+
+
+def test_missing_selector_in_a_file_with_no_groups_lists_only_frames(tmp_path):
+    p = write(tmp_path, "b.px", "k #000000\n@frame a\nk\n@frame b\nk\n")
+    msg = run_err("render", f"{p}:c", "-o", tmp_path / "x.png")
+    assert "no frame or group 'c'; frames: a, b" in msg and "groups:" not in msg
+
+
+def test_missing_selector_in_edits_says_frame_or_group(tmp_path):
+    p = write(tmp_path, "b.px", SEL)
+    for argv in (["fill", f"{p}:lnd", "k"], ["flip", f"{p}:lnd"], ["set", f"{p}:lnd", "k", "0,0"]):
+        msg = run_err(*argv)
+        assert "no frame or group 'lnd'; groups: land, takeoff;" in msg and msg.endswith("did you mean 'land'?")
+
+
+def test_dup_missing_source_lists_groups(tmp_path):
+    p = write(tmp_path, "b.px", SEL)
+    msg = run_err("dup", f"{p}:takof", "x")
+    assert "groups: land, takeoff; frames: land/0" in msg and msg.endswith("did you mean 'takeoff'?")
+
+
+def test_missing_variant_still_guesses(tmp_path):
+    p = write(tmp_path, "b.px", GUESS)
+    assert run_err("render", f"{p}:idle/0%nigth", "-o", tmp_path / "x.png").endswith("did you mean 'night'?")

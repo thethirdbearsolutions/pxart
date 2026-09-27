@@ -1139,9 +1139,14 @@ class Doc:
             return list(self.frames)
         got = [f for f in self.frames if f.id == sel or (f.id or "").startswith(sel + "/")]
         if not got:
-            fail("E_SELECT", f"no frame {sel!r}; frames: {', '.join(self.label(f) for f in self.frames)}"
-                 + guess(sel, self.paths()), path=self.path)
+            fail("E_SELECT", f"no frame or group {sel!r}; {self.listing()}" + guess(sel, self.paths()), path=self.path)
         return got
+
+    def listing(self):
+        """'groups: walk/down, idle; frames: walk/down/0, ...' (no groups: only the frames), for a selector's error."""
+        groups = list(dict.fromkeys(f.group for f in self.frames if f.group))
+        return (f"groups: {', '.join(groups)}; " if groups else "") + \
+            f"frames: {', '.join(self.label(f) for f in self.frames)}"
 
     def promote(self):
         """The unnamed grid becomes '@frame <stem>' (the id it already goes by), keeping its rows' spelling and the
@@ -6241,8 +6246,8 @@ def cmd_dup(a):
                         + [write_doc(doc, a.o)]))
         return
     if not src:
-        fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame, or FILE:GROUP; frames: "
-             f"{', '.join(doc.label(f) for f in doc.frames)}" + (guess(sel, doc.paths()) if sel else ""))
+        fail("E_SELECT", f"dup needs FILE:frame-id of an existing frame, or FILE:GROUP; {doc.listing()}"
+             + (guess(sel, doc.paths()) if sel else ""))
     if not ID_RE.match(a.new):
         fail("E_BAD_ID", f"can't use {a.new!r} as the new frame id")
     old = doc.get(a.new)
