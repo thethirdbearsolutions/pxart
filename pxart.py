@@ -99,12 +99,13 @@ LOOKING
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
       --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
       row with --cols frames.
-  anim FILE... [-o walk.gif] [--scale 8] [--fps N] [--variant V] [--dry-run]
+  anim FILE... [-o walk.gif|DIR] [--scale 8] [--fps N] [--variant V] [--dry-run]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
       frame after removing the whole-sprite shift ("shift dx,dy then N px (P%) (no shift: M px)";
-      P is N as a percent of the frame's opaque pixels; a walk that's only a bob shows "then
-      0px (0%)"). The same numbers print to stdout, one line per frame;
+      P: N as a percent of the frame's opaque pixels, or of both frames' if more; a bob alone
+      shows "then 0px (0%)"). The numbers print too, a line per frame (a FILE of several
+      groups: a block each, animated alone; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps is given.
@@ -739,8 +740,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       dark), or --base K. Keys are 'a,b,c' or 'abc'. Nothing outside the material changes.
       --region x,y,w,h repaints only the material inside it, shaded as part of the whole
       frame's material: the region's border is not an edge, only a real one is (an empty
-      pixel, another material, or the frame's side). Shade a half, and it matches that half
-      of the whole shading.
+      pixel, another material, or the frame's side).
       Algorithm, per pixel of the material (the shape: those pixels, over the whole frame;
       everything else, and off the frame, is outside):
         1. depth: its distance to the shape's edge (a vector distance transform from the
@@ -752,7 +752,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
            tone) --strength px in (default 2: a rim; the shape's radius: full form shading);
         4. banding: 0..1 splits evenly over the lights, -1..0 over the darks, rounding to the
            nearest step, ties toward the base; then a stray pixel (no 8-neighbor of its own
-           tone) takes its neighbors' commonest tone. Deterministic, no noise.
+           tone) takes its neighbors' commonest tone. No noise.
       --dither mixes adjacent tones with a 4x4 ordered (Bayer) pattern where the lighting is
       within a quarter step of a band boundary (and skips the stray-pixel pass). --light: n
       ne e se s sw w nw (default nw). --preview P.png renders the result (render's grid and
@@ -2717,19 +2717,59 @@ def outsized(its, fit):
 
 
 def cmd_anim(a):
-    """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written)."""
-    its = all_items(a.files, a.variant)
-    if a.o and pathlib.Path(a.o).suffix.lower() != ".gif":
-        fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
-    docs = list(dict.fromkeys(id(it.doc) for it in its if it.doc))  # one per .px FILE, in order: each parsed apart
-    for arg, d in zip([f for f in a.files if not split_sel(f)[0].endswith((".png", ".gif"))], docs):
-        # one FILE:SEL over several groups (a walk's four directions) plays them as one animation
+    """GIF + strip, and one line of numbers per frame; without -o only the numbers (nothing is written). A FILE or
+    FILE:SEL over several groups (a walk's four directions) animates each group on its own, with a block of numbers
+    each: -o then names one GIF only for one group, else a DIR that gets one per group (DIR/walk/down.gif)."""
+    per, paths = [], []  # each FILE's items, as all_items reads them
+    for n, arg in enumerate(a.files, 1):
+        with reading(f"file {n} ({arg})"):
+            per.append(items(arg, a.variant))
+        paths += [split_sel(arg)[0]] * len(per[-1])
+    tell_apart([it for got in per for it in got], paths)
+    blocks = []  # [[name, items, joined]]: a FILE over several groups gives one per group; the others play as one
+    for arg, got in zip(a.files, per):
+        groups = {}
+        for it in got:
+            groups.setdefault(it.frame.group if it.frame else "", []).append(it)
+        if len(groups) == 1:
+            if blocks and blocks[-1][2]:
+                blocks[-1][0] += " " + arg
+                blocks[-1][1].extend(got)
+            else:
+                blocks.append([arg, list(got), True])
+            continue
         path = split_sel(arg)[0]
-        groups = list(dict.fromkeys(it.frame.group or "(top level)" for it in its if id(it.doc) == d))
-        if len(groups) > 1:
-            pick = next(g for g in groups if g != "(top level)")
-            print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(groups)}; animating them as one; "
-                  f"pick one with {path}:{pick}")
+        names = [g or "(top level)" for g in groups]
+        print(f"note: {split_variant(arg)[0]} is {len(groups)} groups: {listed(names)}; animating each on its own; "
+              f"pick one with {path}:{next(g for g in groups if g)}")
+        blocks += [[f"{path}:{g}" if g else f"{path} (top level)", fs, False] for g, fs in groups.items()]
+    gif = a.o and pathlib.Path(a.o).suffix.lower() == ".gif"
+    if len(blocks) == 1:
+        if a.o and not gif:
+            fail("E_BAD_ARG", f"-o {a.o}: anim writes a GIF (and its strip beside it, as .strip.png); name it .gif")
+        return animate(a, blocks[0][1], a.o)
+    if gif:
+        fail("E_BAD_ARG", f"-o {a.o} is one GIF, and these are {len(blocks)} animations: "
+             f"{listed([n for n, *_ in blocks])}; pick one group, or give -o a DIR for one GIF per group")
+    outs = [anim_path(a.o, fs) if a.o else None for _, fs, _ in blocks]
+    clash = next((o for o in outs if o and outs.count(o) > 1), None)
+    if clash:
+        fail("E_BAD_ARG", f"-o {a.o}: two animations would be written to {clash}; animate them apart")
+    for (name, got, _), out in zip(blocks, outs):
+        print(name)
+        animate(a, got, out)
+
+
+def anim_path(d, its):
+    """Where anim -o DIR writes one group's GIF: DIR/walk/down.gif, or DIR/<file stem>.gif for top-level frames."""
+    first = its[0]
+    stem = first.frame.group if first.frame and first.frame.group else \
+        (first.doc.stem if first.doc else pathlib.Path(first.label).stem)
+    return str(pathlib.Path(d) / f"{stem}.gif")
+
+
+def animate(a, its, out):
+    """One animation: its numbers, and with out (a .gif) its GIF and strip."""
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered
@@ -2739,7 +2779,7 @@ def cmd_anim(a):
         return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
     framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
-    if a.o or DRY["run"]:  # a dry run with no -o still tells the GIF's size
+    if out or DRY["run"]:  # a dry run with no -o still tells the GIF's size
         gif = []
         for f in framed:
             canvas = Image.new("RGBA", (w * S + gap * 3 + w * 3, max(h * S, h * 3 + gap)), (30, 30, 36, 255))
@@ -2747,7 +2787,7 @@ def cmd_anim(a):
             canvas.alpha_composite(f, (w * S + gap, 0))                                        # 1x
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
-        save_image(gif[0], a.o, "-o" if a.o else "the GIF (no -o)", save_all=True, append_images=gif[1:],
+        save_image(gif[0], out, "-o" if out else "the GIF (no -o)", save_all=True, append_images=gif[1:],
                    duration=durs, loop=0, disposal=2, smaller="a lower --scale makes it smaller",
                    about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
                          f"copies beside it, {sum(durs)} ms a loop")
@@ -2769,20 +2809,23 @@ def cmd_anim(a):
         dx, dy, n_shift, n_none, still, wrapped = moves[i]
         opaque = sum(cur.getchannel("A").histogram()[1:])
 
-        def px(n):  # '72px (9%)': of the frame's opaque pixels
-            return f"{n}px ({(200 * n + opaque) // (2 * opaque)}%)" if opaque else f"{n}px"
+        def px(n, base):  # '72px (9%)': of the frame's opaque pixels, or when more changed (the frame before covered
+            op = opaque   # pixels this one doesn't), of the pixels opaque in either: never over 100%
+            if n > op:
+                op = max(n, sum(ImageChops.lighter(base.getchannel("A"), cur.getchannel("A")).histogram()[1:]))
+            return f"{n}px ({(200 * n + op) // (2 * op)}%)" if op else f"{n}px"
         if wrapped:
-            base, head = rolled(prev, dx, dy), f"shift {dx:+d},{dy:+d} (wrap) then {px(n_shift)}"
+            base = rolled(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} (wrap) then {px(n_shift, base)}"
             alt = f"(no shift: {n_none}px)"
         elif still is None:
-            base, head = shifted(prev, dx, dy), f"shift {dx:+d},{dy:+d} then {px(n_shift)}"
+            base = shifted(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} then {px(n_shift, base)}"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:
-            base, head = prev, f"no shift then {px(n_none)}"
+            base, head = prev, f"no shift then {px(n_none, prev)}"
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
-    if not a.o and not DRY["run"]:
+    if not out and not DRY["run"]:
         return
     # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
     # readout's own words (its spaces and colons too), the label rows as tall as the most lines any cell needs
@@ -2803,10 +2846,10 @@ def cmd_anim(a):
         for j, (line, color) in enumerate([(l, (255, 120, 220, 255)) for l in head]
                                           + [(l, (200, 140, 190, 255)) for l in alt]):
             d.text((x, y2 + h * S + 1 + j * LINE_H), line, font=font, fill=color)
-    sp = pathlib.Path(a.o).with_suffix(".strip.png") if a.o else None
-    save_image(strip, sp, "the strip" if a.o else "the strip (no -o)", smaller="a lower --scale makes it smaller",
+    sp = pathlib.Path(out).with_suffix(".strip.png") if out else None
+    save_image(strip, sp, "the strip" if out else "the strip (no -o)", smaller="a lower --scale makes it smaller",
                about=f"{len(cells)} frame{'s' * (len(cells) != 1)} over what changed, at --scale {S}")
-    print(wrote(a.o, sp))
+    print(wrote(out, sp))
 
 
 def cmd_onion(a):
@@ -7772,7 +7815,8 @@ def parser(describe=True):
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
-    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers")
+    p = sub.add_parser("anim"); p.add_argument("files", nargs="+"); p.add_argument("-o", help="GIF; without it, only the numbers. A FILE of several groups: a DIR, "
+                                                         "one DIR/GROUP.gif each (DIR/walk/down.gif)")
     p.add_argument("--fps", type=int); p.add_argument("--scale", type=int, default=8); p.add_argument("--variant")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("onion"); p.add_argument("a"); p.add_argument("b"); p.add_argument("-o")

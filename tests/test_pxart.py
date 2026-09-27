@@ -6476,7 +6476,7 @@ def test_anim_with_output_still_writes_gif_and_strip(tmp_path, capsys):
 
 def test_help_documents_anim_without_output():
     doc = pxart.__doc__
-    assert "anim FILE... [-o walk.gif]" in doc and "without -o, anim prints only those lines" in doc
+    assert "anim FILE... [-o walk.gif|DIR]" in doc and "without -o, anim prints only those lines" in doc
 
 
 # ---------------------------------------------------------------- loop H: frames move already in place
@@ -25315,18 +25315,41 @@ def test_anim_selector_over_several_groups_notes_them(tmp_path, capsys):
     p = write(tmp_path, "h.px", DIRS)
     assert run("anim", f"{p}:walk") == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == (f"note: {p}:walk is 4 groups: walk/down, walk/left, walk/right, walk/up; animating them as one; "
-                      f"pick one with {p}:walk/down")
-    assert len(out) == 9  # the note, then a line per frame as before
+    assert out[0] == (f"note: {p}:walk is 4 groups: walk/down, walk/left, walk/right, walk/up; animating each on its "
+                      f"own; pick one with {p}:walk/down")
+    assert len(out) == 13  # the note, then per group its header and a line per frame
+    assert out[1] == f"{p}:walk/down" and out[4] == f"{p}:walk/left"
+    assert out[2].split() == ["walk/down/0", "100ms", "vs", "walk/down/1:", "shift", "+1,+0", "then", "0px", "(0%)",
+                              "(no", "shift:", "2px)"]  # a group's first frame against its own last
 
 
-def test_anim_plain_file_over_several_groups_notes_them(tmp_path, capsys):
+def test_anim_plain_file_over_several_groups_needs_a_dir(tmp_path, capsys):
     p = write(tmp_path, "h.px", DIRS)
-    assert run("anim", p, "-o", tmp_path / "a.gif") == 0
+    msg = run_err("anim", p, "-o", tmp_path / "a.gif")
+    assert "E_BAD_ARG" in msg and f"-o {tmp_path / 'a.gif'} is one GIF, and these are 5 animations" in msg
+    assert "pick one group, or give -o a DIR for one GIF per group" in msg and not (tmp_path / "a.gif").exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_anim_plain_file_over_several_groups_writes_a_dir(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", p, "-o", tmp_path / "out") == 0
     out = capsys.readouterr().out
-    assert f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating them as one; pick one " \
+    assert f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating each on its own; pick one " \
         f"with {p}:walk/down" in out
-    assert (tmp_path / "a.gif").exists()
+    for g in ("walk/down", "walk/left", "walk/right", "walk/up", "idle"):
+        assert (tmp_path / "out" / f"{g}.gif").exists() and (tmp_path / "out" / f"{g}.strip.png").exists()
+        assert f"wrote {tmp_path / 'out' / g}.gif and {tmp_path / 'out' / g}.strip.png" in out
+    one = Image.open(tmp_path / "out" / "idle.gif")
+    assert one.n_frames == 2
+
+
+def test_anim_dir_matches_each_group_alone(tmp_path, capsys):
+    p = write(tmp_path, "h.px", DIRS)
+    assert run("anim", p, "-o", tmp_path / "out") == 0
+    assert run("anim", f"{p}:walk/left", "-o", tmp_path / "left.gif") == 0
+    assert (tmp_path / "out" / "walk" / "left.gif").read_bytes() == (tmp_path / "left.gif").read_bytes()
+    assert (tmp_path / "out" / "walk" / "left.strip.png").read_bytes() == (tmp_path / "left.strip.png").read_bytes()
 
 
 def test_anim_one_group_has_no_note(tmp_path, capsys):
@@ -25338,22 +25361,42 @@ def test_anim_one_group_has_no_note(tmp_path, capsys):
 def test_anim_two_files_one_group_each_have_no_note(tmp_path, capsys):
     p = write(tmp_path, "h.px", DIRS)
     assert run("anim", f"{p}:walk/left", f"{p}:walk/right") == 0
-    assert "note:" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "note:" not in out and len(out.splitlines()) == 4  # asked for together: one animation, as before
 
 
 def test_anim_notes_each_file_that_spans_groups(tmp_path, capsys):
     p = write(tmp_path, "h.px", DIRS)
     assert run("anim", f"{p}:walk/left", f"{p}:idle", p) == 0
-    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith("note:")]
-    assert notes == [f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating them as one; "
+    lines = capsys.readouterr().out.splitlines()
+    notes = [l for l in lines if l.startswith("note:")]
+    assert notes == [f"note: {p} is 5 groups: walk/down, walk/left, walk/right and 2 more; animating each on its own; "
                      f"pick one with {p}:walk/down"]
+    assert f"{p}:walk/left {p}:idle" in lines  # the files of one group each play on as one, under their names
 
 
 def test_anim_top_level_frames_and_a_group(tmp_path, capsys):
     p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame run/0\n.k\n@frame run/1\nk.\n")
     assert run("anim", p) == 0
-    assert capsys.readouterr().out.splitlines()[0] == (f"note: {p} is 2 groups: (top level), run; animating them as "
-                                                       f"one; pick one with {p}:run")
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"note: {p} is 2 groups: (top level), run; animating each on its own; pick one with {p}:run"
+    assert out[1] == f"{p} (top level)" and out[3] == f"{p}:run"
+
+
+def test_anim_top_level_block_goes_by_the_file_stem_in_a_dir(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "k #000000\n@frame a\nk.\n@frame b\n.k\n@frame run/0\n.k\n@frame run/1\nk.\n")
+    assert run("anim", p, "-o", tmp_path / "d") == 0
+    assert (tmp_path / "d" / "h.gif").exists() and (tmp_path / "d" / "run.gif").exists()
+
+
+def test_anim_percent_never_over_100(tmp_path, capsys):
+    # a big frame, then a speck: more pixels change than the speck has
+    p = write(tmp_path, "h.px", "k #000000\n@frame s/0\nkkkk\nkkkk\nkkkk\nkkkk\n@frame s/1\n....\n....\n....\n.k..\n")
+    assert run("anim", p) == 0
+    out = capsys.readouterr().out
+    pcts = [int(x) for x in re.findall(r"\((\d+)%\)", out)]
+    assert pcts and max(pcts) <= 100
+    assert "then 15px (94%)" in out  # 15 of the 16 pixels opaque in either frame
 
 
 def test_anim_top_level_frames_alone_have_no_note(tmp_path, capsys):
