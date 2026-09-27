@@ -3545,6 +3545,75 @@ def cmd_from_png(a):
         print(doc.text(), end="")
 
 
+# ---------------------------------------------------------------------------- per-command help
+
+# 'pxart CMD -h' prints CMD's section of the reference above (__doc__, the one source), then the notes it depends
+# on, sliced out of __doc__ too: each note runs from the line starting with its first prefix to the line before the
+# one starting with its second. The tests fail when a command has no section or a note loses its first or last line.
+NOTES = {
+    "FORMAT: frames and animation": ("  Several frames per file", "  pivot=x,y (optional)"),
+    "FORMAT: pivots and timing": ("  pivot=x,y (optional)", "  Frame groups that aren't animations"),
+    "FORMAT: still groups": ("  Frame groups that aren't animations", "  Palette variants"),
+    "FORMAT: variants": ("  Palette variants", "  Anywhere a command takes FILE"),
+    "FORMAT: selecting frames": ("  Anywhere a command takes FILE", "LOOKING"),
+    "LOOKING: centering": ("  Centering:", "CHECKING"),
+    "EDITING": ("EDITING (writes .px", "  flip FILE"),
+    "DRAWING": ("DRAWING (edits like EDITING", "  line FILE"),
+}
+EDITS = ["EDITING", "FORMAT: selecting frames"]
+DRAWS = ["DRAWING", "EDITING", "FORMAT: selecting frames"]
+SEE = {  # a command's section, then these: other commands' sections (by name) and NOTES
+    "render": ["FORMAT: variants", "LOOKING: centering"], "sheet": ["FORMAT: variants", "LOOKING: centering"],
+    "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
+    "onion": ["FORMAT: pivots and timing", "LOOKING: centering"], "scene": ["FORMAT: variants"], "tint": ["scene"],
+    "check": ["FORMAT: still groups"], "stats": ["FORMAT: selecting frames"],
+    "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
+               "FORMAT: selecting frames"],
+    "flip": ["FORMAT: pivots and timing"] + EDITS, "shift": EDITS, "set": EDITS, "fill": EDITS,
+    "new": ["compose", "FORMAT: still groups"] + EDITS, "put": ["compose"] + EDITS, "mask": EDITS,
+    "crop": ["compose"] + EDITS, "extract": ["FORMAT: variants"] + EDITS, "recolor": ["FORMAT: variants"] + EDITS,
+    "paste": ["compose"] + EDITS, "compose": EDITS, "dup": ["FORMAT: frames and animation"] + EDITS,
+    "anim-set": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups"] + EDITS,
+    "palette": ["FORMAT: variants"] + EDITS,
+    "line": DRAWS, "rect": DRAWS, "poly": DRAWS, "ellipse": DRAWS, "arc": DRAWS, "flood": DRAWS,
+    "rotate": ["transpose", "FORMAT: pivots and timing"] + DRAWS, "transpose": ["FORMAT: pivots and timing"] + DRAWS,
+    "shade": DRAWS, "outline": DRAWS,
+    "export": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
+               "FORMAT: variants", "FORMAT: selecting frames"],
+    "from-png": [],
+}
+
+
+def reference(cmd):
+    """CMD's section of pxart -h: its usage line (an indent of 2, then CMD and a usage word, not prose) and the lines
+    under it, up to the next line indented 2 or less that isn't blank. None when -h has no section for it."""
+    lines = __doc__.splitlines()
+    start = next((i for i, l in enumerate(lines[lines.index("LOOKING"):], lines.index("LOOKING"))
+                  if re.match(rf"^  {re.escape(cmd)}( +(?![a-z]+( |$))\S|$)", l)), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 2), len(lines))
+    return "\n".join(lines[start:end]).rstrip()
+
+
+def note(name):
+    """A NOTES slice of pxart -h, or None when its first or last line is gone."""
+    lines, (first, after) = __doc__.splitlines(), NOTES[name]
+    i = next((i for i, l in enumerate(lines) if l.startswith(first)), None)
+    j = next((j for j in range(i + 1, len(lines)) if lines[j].startswith(after)), None) if i is not None else None
+    return None if j is None else "\n".join(lines[i:j]).rstrip()
+
+
+def command_help(cmd):
+    """What 'pxart CMD -h' prints under argparse's usage line: CMD's section, then what it refers to."""
+    parts = [reference(cmd) or f"  (pxart -h has no section for {cmd})"]
+    for ref in SEE.get(cmd, []):
+        text = note(ref) if ref in NOTES else reference(ref)
+        parts.append(text if text and not text[0].isspace() else f"{ref} (from pxart -h):\n{text}")
+    return "\n\n".join(parts) + "\n\npxart -h has the whole reference."
+
+
 def said(cmd, issue):
     """An error line as the CLI prints it: 'ellipse: E_BAD_ARG: ...', 'compose: layer 2 (x.px): x.px:4: E_...'. A
     message that starts with the command's own name doesn't say it twice."""
@@ -3553,7 +3622,8 @@ def said(cmd, issue):
     return f"{cmd}: {issue}"
 
 
-def main(argv=None):
+def parser(describe=True):
+    """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
     ap = argparse.ArgumentParser(prog="pxart", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
@@ -3656,6 +3726,14 @@ def main(argv=None):
     p.add_argument("--tiled"); p.add_argument("--variant")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': its section, not only its flags
+        p.description, p.formatter_class = command_help(name), argparse.RawDescriptionHelpFormatter
+    return ap, sub
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    ap, _ = parser(describe="-h" in args or "--help" in args)
     a, extra = ap.parse_known_args(argv)
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option

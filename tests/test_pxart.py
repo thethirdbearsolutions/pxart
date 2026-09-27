@@ -4439,6 +4439,124 @@ def test_help_documents_still_flags():
     assert "new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: pxart CMD -h
+
+COMMANDS = sorted(pxart.parser()[1].choices)
+
+
+def cmd_help(capsys, cmd, flag="-h"):
+    with pytest.raises(SystemExit) as e:
+        pxart.main([cmd, flag])
+    assert e.value.code == 0
+    return capsys.readouterr().out
+
+
+def test_every_subparser_has_a_section_in_the_top_level_help():
+    # A new command without a section in pxart -h fails here.
+    missing = [c for c in COMMANDS if not pxart.reference(c)]
+    assert not missing, f"no section in pxart -h for: {missing}"
+    assert len(COMMANDS) >= 36
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_has_its_section(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    ref = pxart.reference(cmd)
+    assert out.startswith(f"usage: pxart {cmd} ")
+    assert ref in out and ref.startswith(f"  {cmd}")
+    assert out.index(ref) < out.index("options:")
+    assert "pxart -h has the whole reference." in out
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_long_flag_too(capsys, cmd):
+    assert pxart.reference(cmd) in cmd_help(capsys, cmd, "--help")
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_is_sliced_from_the_top_level_text(cmd):
+    # One source of truth: every line of the per-command text (but the labels) is a line of pxart -h.
+    doc = pxart.__doc__.splitlines()
+    for line in pxart.command_help(cmd).splitlines():
+        if not line or line.endswith("(from pxart -h):") or line == "pxart -h has the whole reference.":
+            continue
+        assert line in doc, (cmd, line)
+
+
+@pytest.mark.parametrize("cmd", COMMANDS)
+def test_every_command_help_includes_what_it_refers_to(capsys, cmd):
+    out = cmd_help(capsys, cmd)
+    for ref in pxart.SEE.get(cmd, []):
+        text = pxart.note(ref) if ref in pxart.NOTES else pxart.reference(ref)
+        assert text and text in out, (cmd, ref)
+
+
+def test_see_names_real_commands_and_notes():
+    for cmd, refs in pxart.SEE.items():
+        assert cmd in COMMANDS, cmd
+        for ref in refs:
+            assert ref in pxart.NOTES or ref in COMMANDS, (cmd, ref)
+    assert set(pxart.SEE) == set(COMMANDS)  # every command says what it refers to (maybe nothing)
+
+
+@pytest.mark.parametrize("name", sorted(pxart.NOTES))
+def test_every_note_slice_is_found(name):
+    text = pxart.note(name)
+    assert text and len(text.splitlines()) >= 2, name
+    assert text.splitlines()[0].startswith(pxart.NOTES[name][0])
+
+
+def test_anim_set_help_carries_the_pivot_notes(capsys):
+    out = cmd_help(capsys, "anim-set")
+    assert "FORMAT: pivots and timing (from pxart -h):" in out and "pivot=x,y (optional) on '@frame ID'" in out
+    assert "FORMAT: still groups (from pxart -h):" in out and "--still adds '@still GROUP'" in out
+
+
+def test_poly_help_explains_its_arguments(capsys):
+    out = cmd_help(capsys, "poly")
+    assert "A closed polygon through the points in order" in out and "nonzero winding" in out
+    assert "DRAWING (edits like EDITING" in out
+
+
+def test_rotate_help_has_the_shared_turn_paragraph(capsys):
+    out = cmd_help(capsys, "rotate")
+    assert "For deriving path edges and corners from one tile." in out
+
+
+def test_reference_sections_end_at_the_next_command():
+    assert "flood FILE" not in pxart.reference("arc") and "rect FILE" not in pxart.reference("line")
+    assert pxart.reference("stats").splitlines() == [
+        "  stats FILE...                     size, bbox, color count, colors per frame"]
+    assert "ERROR CODES" not in pxart.reference("from-png")
+    assert "Centering:" not in pxart.reference("tint")
+
+
+def test_reference_skips_prose_that_starts_with_a_command_name():
+    # '  flood print "painted N px".' (DRAWING's intro) and '  transpose move ...' (FORMAT) aren't sections.
+    assert pxart.reference("flood").startswith("  flood FILE[:frame] KEY x,y")
+    assert pxart.reference("transpose").startswith("  transpose FILE[:SEL]")
+    assert pxart.reference("frames").startswith("  frames FILE[:SEL]")
+    assert pxart.reference("nope") is None
+
+
+def test_scene_help_keeps_the_worked_map_with_its_blank_line(capsys):
+    out = cmd_help(capsys, "scene")
+    assert "          l lamp.px+hb\n\n          cccccc" in out
+
+
+def test_plain_runs_do_not_build_the_command_help(monkeypatch, tmp_path):
+    # Only -h pays for the slicing.
+    calls = []
+    monkeypatch.setattr(pxart, "command_help", lambda c: calls.append(c) or "")
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("stats", p) == 0 and not calls
+
+
+def test_readme_mentions_command_help():
+    readme = (pathlib.Path(pxart.__file__).parent / "README.md").read_text()
+    assert "pxart CMD -h" in readme
+
+
 # ---------------------------------------------------------------- GAMES-295: frames --copy-to
 
 CSRC = ("pxart 1\nk #000000\nw #ffffff\n\n@variant night\nw #888888\n\n@anim walk direction=pingpong ms=120 "

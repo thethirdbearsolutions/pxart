@@ -106,7 +106,8 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 
 ## Commands
 
-`pxart -h` has the full reference.
+`pxart -h` has the full reference, and `pxart CMD -h` prints one command's part of it
+(`pxart poly -h`), with the format notes it relies on.
 
 - **Looking:** `render`, `sheet` (frames with one id from several files are labeled
   `hero:idle/0`, `beast:idle/0`), `anim` (one GIF, each frame at `--scale` with its 1x and
