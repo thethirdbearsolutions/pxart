@@ -1391,7 +1391,54 @@ def test_frames_listing_unchanged_without_edits(tmp_path, capsys):
     assert run("frames", p) == 0
     out = capsys.readouterr().out
     assert "walk/down: 2 frame(s) [direction=pingpong, repeat=2, ms=120]" in out
-    assert "walk/down/1  4x2  200ms" in out and "idle  4x2  100ms" in out and "variants: night" in out
+    assert "walk/down/1  4x2  200ms" in out and "  idle  4x2  (line" in out and "variants: night" in out
+
+
+FRAMES_MS = ("pxart 1\nk #000000\n@anim w ms=120\n@still ui\n\n@frame w/0\nk\n@frame w/1 ms=200 pivot=0,0\nk\n"
+             "@frame ui/a\nk\n@frame part ms=300\nk\n@frame badge pivot=0,0\nk\n@frame solo/0\nk\n")
+
+
+def test_frames_ms_only_for_animation_frames(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FRAMES_MS)
+    assert run("frames", p) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "w: 2 frame(s) [ms=120]",
+        "  w/0  1x1  120ms  (line 6)",
+        "  w/1  1x1  200ms  pivot 0,0  (line 8)",
+        "ui: 1 frame(s) [still]",
+        "  ui/a  1x1  still  (line 10)",
+        "(no group): 2 frame(s)",
+        "  part  1x1  (line 12)",
+        "  badge  1x1  pivot 0,0  (line 14)",
+        "solo: 1 frame(s)",
+        "  solo/0  1x1  100ms  (line 16)",
+    ]
+
+
+def test_frames_ms_single_grid_file_has_none(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("frames", p) == 0
+    assert capsys.readouterr().out.splitlines() == ["(no group): 1 frame(s)", "  a  1x1  (line 2)"]
+
+
+def test_frames_ms_star_still_says_still(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FRAMES_MS.replace("@still ui\n", "@still *\n"))
+    assert run("frames", p) == 0
+    out = capsys.readouterr().out
+    assert "  part  1x1  still  (line" in out and "  w/0  1x1  still  (line" in out and "ms  (" not in out
+
+
+def test_frames_ms_selection_listing(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FRAMES_MS)
+    assert run("frames", f"{p}:part") == 0
+    assert capsys.readouterr().out.splitlines() == ["(no group): 1 frame(s) (of 2)", "  part  1x1  (line 12)"]
+
+
+def test_frames_listing_has_no_trailing_or_double_spaces(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FRAMES_MS)
+    assert run("frames", p) == 0
+    for line in capsys.readouterr().out.splitlines():
+        assert line == line.rstrip() and "   " not in line.strip()
 
 
 def test_frames_still_group_shows_still_not_ms(tmp_path, capsys):
@@ -2415,18 +2462,19 @@ def test_still_star_top_level_frames_listed_still(tmp_path, capsys):
     assert "icon  1x1  still" in out and "badge  2x1  still" in out and "ms" not in out
 
 
-def test_top_level_frames_without_still_star_show_ms(tmp_path, capsys):
+def test_top_level_frames_without_still_star_show_no_ms(tmp_path, capsys):
+    # GAMES-295: a top-level frame is never animated; it listed as 100ms.
     p = write(tmp_path, "p.px", TOPLEVEL.replace("@still *\n", ""))
     assert run("frames", p) == 0
     out = capsys.readouterr().out
-    assert "icon  1x1  100ms" in out and "[still]" not in out
+    assert "  icon  1x1  (line" in out and "[still]" not in out and "icon  1x1  100ms" not in out
 
 
 def test_named_still_group_does_not_cover_top_level(tmp_path, capsys):
     p = write(tmp_path, "p.px", TOPLEVEL.replace("@still *", "@still hat"))
     assert run("frames", p) == 0
     out = capsys.readouterr().out
-    assert "icon  1x1  100ms" in out and "hat/big  2x1  still" in out
+    assert "  icon  1x1  (line" in out and "hat/big  2x1  still" in out
     assert "(no group): 2 frame(s)\n" in out
 
 

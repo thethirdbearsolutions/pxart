@@ -166,8 +166,8 @@ CHECKING
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE...                     size, bbox, color count, colors per frame
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID]
-      List frames, sizes, durations ('still' for @still groups; every frame under
-      '@still *') and animations; or delete / reorder frames (prints what it removed or
+      List frames, sizes, durations (only for animation frames; 'still' for @still groups and
+      every frame under '@still *') and animations; or delete / reorder frames (prints what it removed or
       moved, not the listing; a move to where the frames already are prints "already in
       place" and writes nothing). FILE:SEL lists only those frames; 'frames
       hero.px:walk/left --rm' removes them (ids after --rm must be in SEL), and 'frames
@@ -1925,9 +1925,11 @@ def cmd_frames(a):
             + (" [still]" if still else "")
         extra = ", ".join(f"{k}={fmt_setting(v)}" for k, v in meta.items() if v is not None)
         print(head + (f" [{extra}]" if extra else ""))
-        for f in fs:
-            pv = f"  pivot {fmt_setting(doc.pivot(f))}" if doc.pivot(f) else ""
-            print(f"  {doc.label(f)}  {f.size[0]}x{f.size[1]}  {'still' if still else f'{doc.ms(f)}ms'}{pv}  (line {f.line})")
+        for f in fs:  # a duration only where it plays: a top-level part has none
+            when = "still" if still else f"{doc.ms(f)}ms" if doc.animated(g) else None
+            pv = f"pivot {fmt_setting(doc.pivot(f))}" if doc.pivot(f) else None
+            print("  " + "  ".join(x for x in (doc.label(f), f"{f.size[0]}x{f.size[1]}", when, pv, f"(line {f.line})")
+                                   if x))
     if doc.variants:
         print("variants:", ", ".join(doc.variants))
 
