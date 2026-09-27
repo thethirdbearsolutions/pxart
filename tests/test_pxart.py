@@ -11554,7 +11554,8 @@ def onion_png(tmp_path, *more):
 
 
 def old_onion(A, B, w, h, spots):
-    """onion's PNG at --scale 1 as it was before the flags: the default must stay byte-identical."""
+    """onion's PNG at --scale 1 as it was before the flags, the default until --tint-a became it: --fade-a must stay
+    byte-identical to it."""
     base = pxart.on_bg(Image.new("RGBA", (1, 1), pxart.CLEAR), w, h)
     faded = A.copy(); faded.putalpha(A.getchannel("A").point(lambda v: v * 35 // 100))
     base.alpha_composite(faded, spots[0])
@@ -11563,24 +11564,25 @@ def old_onion(A, B, w, h, spots):
     return base
 
 
-def test_onion_default_png_is_as_it_was(tmp_path):
-    img = onion_png(tmp_path)
+def test_onion_fade_a_png_is_the_old_default(tmp_path):
+    img = onion_png(tmp_path, "--fade-a")
     doc = pxart.parse(tmp_path / "s.px")
     want = old_onion(doc.image(doc.get("a")), doc.image(doc.get("c")), 6, 5, [(0, 0), (0, 0)])
     assert img.tobytes() == want.tobytes()
 
 
-def test_onion_default_png_is_as_it_was_at_scale_8(tmp_path):
+def test_onion_fade_a_png_is_the_old_default_at_scale_8(tmp_path):
     p = write(tmp_path, "s.px", SWING)
-    assert run("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png") == 0
+    assert run("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png", "--fade-a") == 0
     doc = pxart.parse(p)
     want = pxart.upscale(old_onion(doc.image(doc.get("a")), doc.image(doc.get("b")), 6, 5, [(0, 0), (0, 0)]), 8,
                          grid=True, rulers=True)
     assert Image.open(tmp_path / "o.png").convert("RGBA").tobytes() == want.tobytes()
 
 
-def test_onion_band_darkens_the_rows_outside(tmp_path):
-    plain, band = onion_png(tmp_path), onion_png(tmp_path, "--feet", "2")
+@pytest.mark.parametrize("look", [[], ["--fade-a"]])
+def test_onion_band_darkens_the_rows_outside(tmp_path, look):
+    plain, band = onion_png(tmp_path, *look), onion_png(tmp_path, "--feet", "2", *look)
     assert band.getpixel((0, 4)) == plain.getpixel((0, 4)) and band.getpixel((0, 3)) == plain.getpixel((0, 3))
     assert sum(band.getpixel((0, 0))[:3]) < sum(plain.getpixel((0, 0))[:3])
     assert sum(band.getpixel((0, 2))[:3]) < sum(plain.getpixel((0, 2))[:3])
@@ -11604,7 +11606,7 @@ def test_onion_tint_a_custom_opaque_color(tmp_path):
 
 
 def test_onion_tint_a_leaves_b_drawn_over_it(tmp_path):
-    tinted, plain = onion_png(tmp_path, "--tint-a", "#40a0ff"), onion_png(tmp_path)
+    tinted, plain = onion_png(tmp_path, "--tint-a", "#40a0ff"), onion_png(tmp_path, "--fade-a")
     assert tinted.getpixel((5, 0)) == plain.getpixel((5, 0))  # B's swing over no A: unchanged by the tint
 
 
@@ -11622,12 +11624,12 @@ def test_onion_tint_a_bad_color(tmp_path):
 
 def test_help_documents_onion_bands_fade_and_edges():
     doc = " ".join(pxart.__doc__.split())
-    assert "onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR]]" in doc
-    assert "A at 35% opacity, then B at 80%" in doc
+    assert "onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]" in doc
+    assert "B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0)" in doc
     assert "The edges are the sides of each frame's opaque bounding box" in doc
     assert "limit the edges and the best shift to that band" in doc
-    assert "--tint-a draws A as a flat silhouette in one color (default #ff4060a0" in doc
-    assert "Without these flags the PNG is as it always was." in doc
+    assert "--tint-a COLOR draws the silhouette in another color" in doc
+    assert "--fade-a draws A itself at 35% opacity instead" in doc
 
 
 # ---------------------------------------------------------------- sheet --fit: cells at their own size
@@ -14585,3 +14587,42 @@ def test_help_documents_sheet_align(capsys):
         in out
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`--align pivot` lines up each animation's frames by pivot" in readme
+
+
+# ---------------------------------------------------------------- onion draws A tinted by default
+
+def test_onion_default_is_the_tint(tmp_path):
+    assert onion_png(tmp_path).tobytes() == onion_png(tmp_path, "--tint-a").tobytes()
+    assert onion_png(tmp_path).tobytes() == onion_png(tmp_path, "--tint-a", "#ff4060a0").tobytes()
+
+
+def test_onion_default_differs_from_fade(tmp_path):
+    assert onion_png(tmp_path).tobytes() != onion_png(tmp_path, "--fade-a").tobytes()
+
+
+def test_onion_default_pixel_is_the_tint_over_the_backdrop(tmp_path):
+    img = onion_png(tmp_path)
+    want = Image.new("RGBA", (1, 1), pxart.rgba("#3a3a44"))
+    want.alpha_composite(Image.new("RGBA", (1, 1), (0xff, 0x40, 0x60, 0xa0)))
+    assert img.getpixel((4, 4)) == want.getpixel((0, 0))
+
+
+def test_onion_tint_and_fade_together_is_an_error(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    assert run("onion", f"{p}:a", f"{p}:b", "-o", tmp_path / "o.png", "--tint-a", "--fade-a") == 2
+    assert not (tmp_path / "o.png").exists()
+
+
+def test_onion_readout_same_tinted_or_faded(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SWING)
+    assert onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b") == onion_lines(tmp_path, capsys, f"{p}:a", f"{p}:b",
+                                                                             "--fade-a")
+
+
+def test_onion_fade_a_help(capsys):
+    assert "--fade-a" in cmd_help(capsys, "onion")
+
+
+def test_readme_documents_onion_tint_default():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`onion` (B over A drawn as a red silhouette" in readme and "`--fade-a` draws A faded instead" in readme

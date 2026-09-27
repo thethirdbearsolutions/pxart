@@ -103,8 +103,9 @@ LOOKING
       Read the strip; the Read tool shows only a GIF's first frame. The same numbers print
       to stdout, one line per frame; without -o, anim prints only those lines and writes
       nothing. Durations come from the file (@anim/@frame ms) unless --fps is given.
-  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR]]
-      B drawn over a faded A: A at 35% opacity, then B at 80%, with render's grid and rulers.
+  onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
+      B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
+      with render's grid and rulers, so where A shows past B is plain to see.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
       from A's, then the whole-sprite shift that best explains B, as anim finds it:
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
@@ -121,9 +122,9 @@ LOOKING
       weapon swing above doesn't hide what the feet did: 'B vs A (rows 20-23): left +0, ...'.
       The shift still moves all of A (pixels come into the band from above) and counts only
       the band's pixels. The PNG darkens the rows outside the band.
-      --tint-a draws A as a flat silhouette in one color (default #ff4060a0, a translucent
-      red; --tint-a '#40a0ff' for opaque blue) instead of faded, so where A shows past B is
-      plain to see. Without these flags the PNG is as it always was.
+      --tint-a COLOR draws the silhouette in another color, at that color's alpha
+      (--tint-a '#40a0ff' for opaque blue). --fade-a draws A itself at 35% opacity instead,
+      the PNG onion drew before --tint-a was the default (faint on the dark backdrop).
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] ITEM@x,y ...
       Default --scale 4 (not render's 8): a 256x224 scene is 1024x896. --scale 1 for 1x.
@@ -2009,8 +2010,8 @@ def cmd_onion(a):
     spots = lay[2] if lay else [((w - A.width) // 2, h - A.height), ((w - B.width) // 2, h - B.height)]
     band = onion_band(a, h)
     base = on_bg(Image.new("RGBA", (1, 1), CLEAR), w, h)
-    if a.tint_a:  # A as a flat silhouette in one color, at that color's alpha: where it shows past B is plain
-        c = parse_color(a.tint_a, "--tint-a")
+    if not a.fade_a:  # A as a flat silhouette in one color, at that color's alpha: where it shows past B is plain
+        c = parse_color(a.tint_a or TINT_A, "--tint-a")
         faded = Image.new("RGBA", A.size, c[:3] + (0,))
         faded.putalpha(A.getchannel("A").point(lambda v: v * c[3] // 255))
     else:
@@ -4814,6 +4815,7 @@ def said(cmd, issue):
 
 
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
+TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
 REKEY_HELP = "give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are"
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
@@ -4839,8 +4841,10 @@ def parser(describe=True):
     g = p.add_mutually_exclusive_group()
     g.add_argument("--rows", help="Y0-Y1: only these canvas rows count for the readout and the best shift")
     g.add_argument("--feet", type=int, metavar="N", help="only the bottom N rows count (--rows for the feet)")
-    p.add_argument("--tint-a", nargs="?", const="#ff4060a0", metavar="COLOR",
-                   help="draw A as a silhouette in COLOR (default #ff4060a0) instead of faded")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--tint-a", nargs="?", const=TINT_A, metavar="COLOR",
+                   help=f"draw A as a silhouette in COLOR (the default, in {TINT_A})")
+    g.add_argument("--fade-a", action="store_true", help="draw A faded to 35%% instead, as onion once did")
     p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o", required=True)
     p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
