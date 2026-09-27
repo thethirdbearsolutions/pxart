@@ -902,11 +902,13 @@ RECIPES = """RECIPES (pxart help recipes)
 
   5. Make a scene from a map
      A text tilemap (scene in 'pxart help LOOKING' has the format) renders as a PNG, or
-     composes into a .px room that renders the same, pixel for pixel. --rekey gives the map's
-     lamp.px%base its own keys, so the room's night leaves it lit, as scene does.
+     composes into a .px room that renders the same, pixel for pixel, base and night (the
+     proofs render at 1x on a transparent --bg). --rekey gives the map's lamp.px%base its own
+     keys, so the room's night leaves it lit, as scene does.
        $ pxart check market.map
-       $ pxart scene --map market.map -o market.png
        $ pxart compose --map market.map -o market.px --rekey
+       $ pxart scene --map market.map --bg transparent --scale 1 -o market.png
+       $ pxart diff market.px market.png
        $ pxart scene --map market.map --bg transparent --scale 1 --variant night -o night.png
        $ pxart diff market.px%night night.png
 
@@ -914,7 +916,9 @@ RECIPES = """RECIPES (pxart help recipes)
      anim prints what moved in each frame: 'rows 9+ still' says rows 9 down (the feet) never
      moved, where 'shift +0,+1 then 0px' would be the whole sprite bobbing, feet and all. onion
      --feet 3 reads the bottom 3 rows alone ('bottom +0': the feet stayed put). A pivot on the
-     feet then lines the frames up in sheet and anim.
+     feet then lines the frames up in sheet and anim. A whole-sprite bob ('shift +0,+1 then
+     0px', feet and all) isn't a feet problem, and no pivot fixes it: shift that frame back up
+     (shift FILE:frame --dy -1), then lower only the body (--region x,y,w,h above the feet).
        $ pxart anim hero.px:walk/down
        $ pxart onion hero.px:walk/down/0 hero.px:walk/down/1 --feet 3 -o feet.png
        $ pxart anim-set hero.px:walk/down pivot=8,11

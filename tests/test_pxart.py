@@ -23202,3 +23202,49 @@ def test_help_says_how_the_band_reads():
     assert "'B vs A (bottom 4 canvas rows 20-23; A opaque in 20-23, B in 21-23): left +0, ...'" in text
     assert "when the bottom edges agree, one up or down only lines up what moved above them, and the readout says " \
         "no shift" in text
+
+
+# ---------------------------------------------------------------- recipes 5 and 6: the base proof, the whole-sprite bob
+
+def test_recipe_scene_proves_base_and_night(tmp_path, monkeypatch, capsys):
+    ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Make a scene from a map"])
+    diffs = [(argv, out) for argv, _, out in ran if argv[0] == "diff"]
+    assert [argv[1:] for argv, _ in diffs] == [["market.px", "market.png"], ["market.px%night", "night.png"]]
+    assert all(out == "same: 96x48, every pixel\n" for _, out in diffs)
+
+
+def test_recipe_scene_base_proof_catches_a_change(tmp_path, monkeypatch, capsys):
+    cmds = dict(recipes())["Make a scene from a map"]
+    run_recipe(tmp_path, monkeypatch, capsys, cmds[:3])
+    doc = pxart.parse(tmp_path / "market.px")
+    doc.frames[0].grid[0] = "." + doc.frames[0].grid[0][1:]
+    doc.save()
+    assert run(*cmds[3]) == 1
+
+
+def test_recipe_scene_renders_proofs_at_1x_transparent():
+    block = pxart.RECIPES.split("  5. ")[1].split("  6. ")[0]
+    scenes = [l for l in block.splitlines() if "$ pxart scene" in l]
+    assert len(scenes) == 2 and all("--bg transparent --scale 1" in l for l in scenes)
+    assert "base and night" in " ".join(block.split())
+
+
+def test_recipe_feet_says_what_to_do_about_a_whole_sprite_bob():
+    block = " ".join(pxart.RECIPES.split("  6. ")[1].split())
+    assert "A whole-sprite bob ('shift +0,+1 then 0px', feet and all) isn't a feet problem, and no pivot fixes it: " \
+        "shift that frame back up (shift FILE:frame --dy -1), then lower only the body (--region x,y,w,h above the " \
+        "feet)." in block
+
+
+def test_recipe_feet_bob_fix_works(tmp_path, monkeypatch, capsys):
+    # a frame that is the whole sprite 1px lower: shift it back up and the strip reads no bob; then lower only the body
+    p = write(tmp_path, "b.px", "k #000000\nr #ff0000\n@anim w ms=100\n@frame w/0\n.k.\nkkk\nr.r\n...\n"
+                                "@frame w/1\n...\n.k.\nkkk\nr.r\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("anim", "b.px:w") == 0
+    assert "shift +0,+1 then 0px" in capsys.readouterr().out
+    assert run("shift", "b.px:w/1", "--dy", "-1") == 0
+    assert pxart.parse(p).get("w/1").grid == pxart.parse(p).get("w/0").grid
+    capsys.readouterr()
+    assert run("anim", "b.px:w") == 0
+    assert "shift +0,+1" not in capsys.readouterr().out
