@@ -447,6 +447,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       inherit the base colors: their lines in the variant go, and a key an imported variant
       recolors gets its base color on a line of FILE's own, since the import can't change
       from here. --add and --keep can share one call; the keys must be in the base palette.
+      A key --add gives the color it already has is left as it is, and said so: 'k is already
+      #0f0f22 in night; unchanged'.
       --hoist l,g moves FILE's own keys into the palette file it imports (its one @palette),
       with their lines in FILE's variants and the comments above both, so every sprite that
       imports it gets them; FILE renders as before. A key the palette file has in another
@@ -4316,10 +4318,12 @@ def cmd_palette(a):
         print(variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                            if a.keep else []))
     else:
-        for m in a.add or []:
-            doc.add_key(*key_color(m))
+        adds = [key_color(m) for m in a.add or []]
+        same = [(k, c) for k, c in adds if doc.resolved().get(k) == c and k in doc.palette]
+        for k, c in adds:
+            doc.add_key(k, c)
         if a.add:
-            print(write_doc(doc))
+            print("; ".join(([said_already(same)] if same else []) + [write_doc(doc)]))
     if a.hoist:
         print(hoist(doc, key_list(a.hoist, "--hoist")))
         return
@@ -4364,6 +4368,11 @@ def cmd_palette(a):
               + f"; inherits: {' '.join(keeps) or 'nothing'}")
 
 
+def said_already(same, where=""):
+    """palette --add of keys that already have those colors: 'k is already #0f0f22 in dusk; unchanged'."""
+    return ", ".join(f"{k} is already {fmt_color(c)}" for k, c in same) + f"{where}; unchanged"
+
+
 def variant_edit(doc, name, adds, keeps):
     """palette FILE --variant NAME --add 'k=#hex' ... --keep KEYS: set keys' colors in the variant (it is made when
     FILE has none by that name) and let others inherit the base colors: a local line goes, and a key an imported
@@ -4385,11 +4394,15 @@ def variant_edit(doc, name, adds, keeps):
             fail("E_VARIANT_KEY", f"@variant {name} can't set {k!r}: the base palette doesn't define it (add it first: "
                  f"pxart palette {doc.path} --add '{k}=#rrggbb')", path=doc.path)
     said = [f"@variant {name}" if have else f"new @variant {name}"]
-    for k, c in adds:
+    same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c]  # its line says so already
+    sets = [(k, c) for k, c in adds if (k, c) not in same]
+    for k, c in sets:
         doc.variants.setdefault(name, {})[k] = c
-    if adds:
+    if sets:
         said.append("sets " + " ".join(f"{k} {fmt_color(c)}" + (" (its base color)" if c == base[k] else "")
-                                      for k, c in adds))
+                                      for k, c in sets))
+    if same:
+        said.append(said_already(same, f" in {name}"))
     gone, pinned, already = [], [], []
     for k in keeps:
         if k in doc.variants.get(name, {}):

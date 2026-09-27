@@ -1654,7 +1654,7 @@ def test_palette_add_existing_same_color_is_no_change(tmp_path, capsys):
     p = write(tmp_path, "a.px", "k #000000\nk\n")
     before, m = snap(p)
     assert run("palette", p, "--add", "k=#000000") == 0
-    assert capsys.readouterr().out == f"no change: {p}\n" and untouched(p, before, m)
+    assert capsys.readouterr().out == f"k is already #000000; unchanged; no change: {p}\n" and untouched(p, before, m)
 
 
 def test_frames_move_to_same_place_is_no_change(tmp_path, capsys):
@@ -12444,7 +12444,7 @@ def test_palette_variant_add_adds_a_line_to_an_existing_variant(tmp_path):
 def test_palette_variant_add_same_again_is_no_change(tmp_path, capsys):
     p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #101010\n\n@frame a\nk\n")
     assert run("palette", p, "--variant", "night", "--add", "k=#101010") == 0
-    assert capsys.readouterr().out == f"@variant night; sets k #101010; no change: {p}\n"
+    assert capsys.readouterr().out == f"@variant night; k is already #101010 in night; unchanged; no change: {p}\n"
 
 
 def test_palette_variant_add_base_color_is_a_relist(tmp_path, capsys):
@@ -14418,3 +14418,65 @@ def test_carried_comments_two_layers_of_one_file_unlabeled(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:x@0,0", f"{a}:y@0,1") == 0
     assert out.read_text() == "pxart 1\nk #000000\n# ink\nw #ffffff\n\n# night\n@variant night\nk #000011\n\nkw\nwk\n"
+
+
+# ---------------------------------------------------------------- palette --add of a color a key already has
+
+def test_palette_variant_add_same_and_new_says_both(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nw #ffffff\n\n@variant night\nk #101010\n\n@frame a\nkw\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010", "w=#303030") == 0
+    assert capsys.readouterr().out == (f"@variant night; sets w #303030; k is already #101010 in night; unchanged; "
+                                       f"wrote {p}\n")
+
+
+def test_palette_variant_add_two_same(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nw #ffffff\n\n@variant night\nk #101010\nw #303030\n\n@frame a\nkw\n")
+    before = p.read_text()
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010", "w=#303030") == 0
+    assert capsys.readouterr().out == (f"@variant night; k is already #101010, w is already #303030 in night; "
+                                       f"unchanged; no change: {p}\n")
+    assert p.read_text() == before
+
+
+def test_palette_variant_add_same_as_an_imported_variant_writes_the_line(tmp_path, capsys):
+    # The imported night already says #101010, but FILE's own line doesn't: setting it here is a change (a local line).
+    write(tmp_path, "pal.px", "k #000000\n@variant night\nk #101010\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nk\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#101010") == 0
+    assert capsys.readouterr().out == f"@variant night; sets k #101010; wrote {p}\n"
+
+
+def test_palette_variant_add_base_color_again_is_unchanged(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\n\n@variant night\nk #000000\n\n@frame a\nk\n")
+    assert run("palette", p, "--variant", "night", "--add", "k=#000000") == 0
+    assert capsys.readouterr().out == f"@variant night; k is already #000000 in night; unchanged; no change: {p}\n"
+
+
+def test_palette_add_same_and_new_base_keys(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "k=#000000", "w=#ffffff") == 0
+    assert capsys.readouterr().out == f"k is already #000000; unchanged; wrote {p}\n"
+
+
+def test_palette_add_new_key_says_only_wrote(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    assert run("palette", p, "--add", "w=#ffffff") == 0
+    assert capsys.readouterr().out == f"wrote {p}\n"
+
+
+def test_palette_add_same_as_an_imported_key_is_no_change_without_the_clause(tmp_path, capsys):
+    # add_key keeps an imported key as it is (no local line): no change, and no claim about FILE's own lines.
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nk\n")
+    assert run("palette", p, "--add", "k=#000000") == 0
+    assert capsys.readouterr().out == f"no change: {p}\n"
+
+
+def test_already_helper():
+    assert pxart.said_already([("k", (15, 15, 34, 255))], " in dusk") == "k is already #0f0f22 in dusk; unchanged"
+    assert pxart.said_already([("k", (0, 0, 0, 255)), ("w", pxart.CLEAR)]) == \
+        "k is already #000000, w is already transparent; unchanged"
+
+
+def test_help_documents_palette_add_already():
+    assert "'k is already #0f0f22 in night; unchanged'" in " ".join(pxart.__doc__.split())
