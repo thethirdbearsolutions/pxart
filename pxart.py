@@ -25,7 +25,8 @@ FORMAT (.px)
   centre (a frame without one then uses its bottom-centre pixel, w // 2, h - 1); export
   writes pivots (Aseprite slices, --frames pivots.json). A pivot may lie outside the frame (a
   hand, the ground under a jump); check notes that in case it's a typo. flip, rotate and
-  transpose move a frame's pivot with its pixels. Set it with anim-set ... pivot=8,23.
+  transpose move a frame's pivot with its pixels: a whole group's @anim pivot moves on its
+  @anim line, and a frame flipped alone gets its own. Set it with anim-set ... pivot=8,23.
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
   'anim-set hero.px:walk/down ms=125' writes these (and 'hero.px:walk/down/1 ms=250' a frame's).
@@ -2030,11 +2031,30 @@ def move_pivot(doc, f, fn):
         f.pivot = new
 
 
+def move_pivots(doc, frames, how):
+    """The frames' pixels move by how(f) -> fn(x, y) -> (x, y); their pivots move with them. When every frame of a
+    group moves and those that use the @anim's pivot all land it on one point, the @anim line's pivot moves (one line,
+    no per-frame copies); otherwise each frame gets its own (move_pivot)."""
+    picked, done = {id(f) for f in frames}, set()
+    for g, fs in doc.groups().items():
+        pv = doc.anims.get(g, {}).get("pivot")
+        inherit = [f for f in fs if f.pivot is None]
+        if not g or pv is None or not inherit or not all(id(f) in picked for f in fs):
+            continue
+        new = {how(f)(*pv) for f in inherit}
+        if len(new) == 1:
+            doc.anims[g]["pivot"] = new.pop()
+            done |= {id(f) for f in inherit}
+    for f in frames:
+        if id(f) not in done:
+            move_pivot(doc, f, how(f))
+
+
 def cmd_flip(a):
     doc, frames, out = edit_target(a.file, a.o)
+    move_pivots(doc, frames, lambda f: (lambda x, y, h=f.size[1]: (x, h - 1 - y)) if a.v else
+                (lambda x, y, w=f.size[0]: (w - 1 - x, y)))
     for f in frames:
-        w, h = f.size
-        move_pivot(doc, f, (lambda x, y: (x, h - 1 - y)) if a.v else (lambda x, y: (w - 1 - x, y)))
         f.grid = f.grid[::-1] if a.v else [r[::-1] for r in f.grid]
     print(write_doc(doc, out))
 
@@ -2053,6 +2073,7 @@ def turn(a, how):
     """rotate / transpose: each selected frame's pixels (and its pivot) move by TURNS[how]."""
     doc, frames, out = edit_target(a.file, a.o)
     move, vec = TURNS[how]
+    move_pivots(doc, frames, lambda f: (lambda x, y, w=f.size[0], h=f.size[1]: move(x, y, w, h)))
     for f in frames:
         w, h = f.size
         g = [["."] * (w if how == "180" else h) for _ in range(h if how == "180" else w)]
@@ -2060,7 +2081,6 @@ def turn(a, how):
             for x, ch in enumerate(row):
                 nx, ny = move(x, y, w, h)
                 g[ny][nx] = ch
-        move_pivot(doc, f, lambda x, y: move(x, y, w, h))
         f.grid = ["".join(r) for r in g]
         if f.size != (w, h):
             print(f"note: {doc.label(f)} is now {f.size[0]}x{f.size[1]} (was {w}x{h})")

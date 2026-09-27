@@ -7254,6 +7254,109 @@ def test_flip_keeps_a_symmetric_inherited_pivot_inherited(tmp_path):
     assert "@frame w/0\n" in p.read_text()
 
 
+# GAMES-295: a whole group flipped together moves its @anim pivot, not per-frame copies.
+
+GPIV = "k #000000\n@anim w ms=90 pivot=0,1\n\n@frame w/0\nk.\nkk\n@frame w/1\nk.\nk.\n@frame x\nk.\n..\n"
+
+
+def pivot_pixels(path):
+    """Each frame's pivot pixel's key (the pivot stays on its pixel through a move)."""
+    doc = pxart.parse(path)
+    return {f.id: doc.pivot(f) and f.grid[doc.pivot(f)[1]][doc.pivot(f)[0]] for f in doc.frames}
+
+
+@pytest.mark.parametrize("target", ["{p}:w", "{p}"])
+def test_flip_whole_group_moves_the_anim_pivot(tmp_path, capsys, target):
+    p = write(tmp_path, "g.px", GPIV)
+    assert run("flip", target.format(p=p)) == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (1, 1) and all(f.pivot is None for f in doc.frames)
+    assert "@anim w ms=90 pivot=1,1\n" in p.read_text() and "@frame w/0\n" in p.read_text()
+
+
+def test_flip_whole_group_only_the_anim_line_changes(tmp_path):
+    p = write(tmp_path, "g.px", GPIV)
+    assert run("flip", f"{p}:w") == 0
+    assert p.read_text() == GPIV.replace("pivot=0,1", "pivot=1,1").replace("k.\nkk\n@frame w/1\nk.\nk.",
+                                                                           ".k\nkk\n@frame w/1\n.k\n.k")
+
+
+def test_flip_whole_group_vertical(tmp_path):
+    p = write(tmp_path, "g.px", GPIV)
+    assert run("flip", f"{p}:w", "--v") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (0, 0) and all(f.pivot is None for f in doc.frames)
+
+
+def test_flip_whole_group_twice_is_the_original(tmp_path):
+    p = write(tmp_path, "g.px", GPIV)
+    assert run("flip", f"{p}:w") == 0 and run("flip", f"{p}:w") == 0
+    assert p.read_text() == GPIV
+
+
+def test_flip_one_frame_of_group_still_gets_its_own(tmp_path):
+    p = write(tmp_path, "g.px", GPIV)
+    assert run("flip", f"{p}:w/1") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (0, 1) and doc.get("w/1").pivot == (1, 1) and doc.get("w/0").pivot is None
+
+
+def test_flip_whole_group_keeps_frames_own_pivots_their_own(tmp_path):
+    # w/1 has its own pivot: it flips on its @frame line; the others share the @anim's, which moves.
+    p = write(tmp_path, "g.px", GPIV.replace("@frame w/1\n", "@frame w/1 pivot=0,0\n"))
+    assert run("flip", f"{p}:w") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (1, 1) and doc.get("w/1").pivot == (1, 0) and doc.get("w/0").pivot is None
+
+
+def test_flip_whole_group_of_mixed_sizes_gets_per_frame_pivots(tmp_path):
+    # 2 wide and 3 wide: the anim pivot 0,1 mirrors to 1,1 and 2,1; no one point, so each frame gets its own.
+    p = write(tmp_path, "g.px", "k #000000\n@anim w pivot=0,1\n@frame w/0\nk.\nkk\n@frame w/1\nk..\nkkk\n")
+    assert run("flip", f"{p}:w") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (0, 1) and doc.get("w/0").pivot == (1, 1) and doc.get("w/1").pivot == (2, 1)
+
+
+def test_flip_whole_group_renders_and_pivots_like_per_frame(tmp_path):
+    # Same pixels, same pivot per frame as flipping each frame on its own.
+    a = write(tmp_path, "a.px", GPIV)
+    b = write(tmp_path, "b.px", GPIV)
+    assert run("flip", f"{a}:w") == 0
+    for fid in ("w/0", "w/1"):
+        assert run("flip", f"{b}:{fid}") == 0
+    da, db = pxart.parse(a), pxart.parse(b)
+    for f in da.frames:
+        assert f.grid == db.get(f.id).grid and da.pivot(f) == db.pivot(db.get(f.id))
+    assert pivot_pixels(a) == pivot_pixels(b)
+
+
+@pytest.mark.parametrize("cmd", [["rotate", "90"], ["rotate", "180"], ["rotate", "270"], ["transpose"]])
+def test_turn_whole_group_moves_the_anim_pivot(tmp_path, cmd):
+    p = write(tmp_path, "g.px", "k #000000\nj #ffffff\n@anim w pivot=2,0\n@frame w/0\nkkj\nk..\n"
+              "@frame w/1\nk.j\n.k.\n")
+    before = pivot_pixels(p)
+    assert run(cmd[0], f"{p}:w", *cmd[1:]) == 0
+    doc = pxart.parse(p)
+    assert all(f.pivot is None for f in doc.frames) and doc.anims["w"]["pivot"] != (2, 0)
+    assert pivot_pixels(p) == before == {"w/0": "j", "w/1": "j"}
+
+
+def test_turn_one_frame_of_group_gets_its_own(tmp_path):
+    p = write(tmp_path, "g.px", "k #000000\nj #ffffff\n@anim w pivot=2,0\n@frame w/0\nkkj\nk..\n"
+              "@frame w/1\nk.j\n.k.\n")
+    assert run("rotate", f"{p}:w/0", "90") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (2, 0) and doc.get("w/0").pivot is not None and doc.get("w/1").pivot is None
+    assert pivot_pixels(p) == {"w/0": "j", "w/1": "j"}
+
+
+def test_flip_group_symmetric_anim_pivot_unchanged(tmp_path):
+    p = write(tmp_path, "g.px", "k #000000\n@anim w pivot=1,0\n@frame w/0\nkkk\n@frame w/1\nk.k\n")
+    assert run("flip", f"{p}:w") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["w"]["pivot"] == (1, 0) and all(f.pivot is None for f in doc.frames)
+
+
 def test_flip_without_pivots_is_unchanged(tmp_path):
     p = write(tmp_path, "m.px", MULTI)
     assert run("flip", f"{p}:walk/down/1") == 0
