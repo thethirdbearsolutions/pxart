@@ -7979,7 +7979,7 @@ def said(cmd, issue):
 
 
 EDIT_DRY = ("set", "fill", "put", "line", "rect", "poly", "ellipse", "arc", "flood", "shade", "outline", "flip", "shift",
-            "rotate", "transpose", "mask", "recolor", "crop", "paste", "dup", "frames", "anim-set", "palette")
+            "rotate", "transpose", "mask", "recolor", "crop", "paste", "dup", "frames", "anim-set", "new", "palette")
 EDIT_DRY_HELP = "print what the edit says and a diff of the file it would change; write nothing"
 DRY_HELP = ("print the readout and each output's size and layout, write nothing ('(dry run; nothing written)'); -o "
             "may be left off")

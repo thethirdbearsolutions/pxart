@@ -26581,3 +26581,54 @@ def test_replace_is_in_the_help():
     doc = " ".join(pxart.__doc__.split())
     assert "flips a copy (--replace: over its frames)" in doc and "-o FILE:NEWGROUP turns a copy, as flip's" in doc
     assert "dup FILE:GROUP NEWGROUP [--after ID] [--replace] [-o OUT]" in doc
+
+
+# ---------------------------------------------------------------- new --dry-run
+
+def test_new_dry_run_new_file_writes_nothing(tmp_path, capsys):
+    out = tmp_path / "sub" / "n.px"
+    assert run("new", f"{out}:a/0", "--size", "3x2", "--dry-run") == 0
+    text = capsys.readouterr().out
+    assert "--- /dev/null" in text and "+@frame a/0" in text and text.count("+...") == 2
+    assert f"would write {out} frame a/0\n" in text and text.endswith("(dry run; nothing written)\n")
+    assert not out.exists() and not out.parent.exists()
+
+
+def test_new_dry_run_into_an_existing_file(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    before, m = snap(p)
+    assert run("new", f"{p}:land/0", "--size", "4x2", "--key", "k", "--dry-run") == 0
+    text = capsys.readouterr().out
+    assert "+@frame land/0" in text and "+kkkk" in text and text.endswith("(dry run; nothing written)\n")
+    assert untouched(p, before, m)
+
+
+def test_new_dry_run_still(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    before, m = snap(p)
+    assert run("new", f"{p}:icons/0", "--size", "1x1", "--still", "--dry-run") == 0
+    text = capsys.readouterr().out
+    assert "+@still icons" in text and "would write" in text and "; @still icons" in text
+    assert untouched(p, before, m)
+
+
+def test_new_dry_run_empty(tmp_path, capsys):
+    write(tmp_path, "pal.px", "k #000000\n")
+    out = tmp_path / "e.px"
+    assert run("new", out, "--empty", "--palette", tmp_path / "pal.px", "--dry-run") == 0
+    text = capsys.readouterr().out
+    assert "+@palette pal.px" in text and "(no frames; imports pal.px)" in text and not out.exists()
+
+
+def test_new_dry_run_error_is_the_same_error(tmp_path, capsys):
+    p = write(tmp_path, "b.px", BUGS)
+    assert "E_DUP_FRAME" in run_err("new", f"{p}:idle/0", "--size", "1x1", "--dry-run")
+
+
+def test_new_dry_run_says_it_once(tmp_path, capsys):
+    assert run("new", tmp_path / "n.px", "--size", "1x1", "--dry-run") == 0
+    assert capsys.readouterr().out.count("(dry run; nothing written)") == 1
+
+
+def test_new_is_an_edit_with_dry_run():
+    assert "new" in pxart.EDIT_DRY
