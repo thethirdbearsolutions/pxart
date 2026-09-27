@@ -16510,6 +16510,11 @@ def help_fixtures(d):
     (d / "game" / "room.px").write_text("pxart 1\nk #1a1423\n@frame room\nkk\n")
     (d / "game" / "tiles.px").write_text("pxart 1\nk #1a1423\n@frame floor\nk\n")
     (d / "game" / "wip" / "broken.px").write_text("pxart 1\nk #1a1423\n@frame x\nkq\n")
+    (d / "pack").mkdir()
+    (d / "pack" / "labels.csv").write_text("filename,proposed_name\ntile_0000.png,grass\ntile_0001.png,roof-red\n")
+    Image.new("RGBA", (2, 2), (64, 192, 64, 255)).save(d / "pack" / "tile_0000.png")
+    Image.new("RGBA", (2, 2), (192, 64, 64, 255)).save(d / "pack" / "tile_0001.png")
+    (d / "town.px").write_text("pxart 1\ng #40c040\nr #c04040\n@frame grass\ngg\ngg\n@frame roof-red\nrr\nrr\n")
     (d / "town").mkdir()
     (d / "town" / "pal.px").write_text("k #1a1423\nr #c04040\n@variant night\nr #401010\n")
     (d / "town" / "roofs.px").write_text("pxart 1\n@palette pal.px\n@frame roof-red\nrr\nkk\n")
@@ -20190,14 +20195,15 @@ def test_diff_groups_paired_by_id(tmp_path, capsys):
     p = write(tmp_path, "v.px", VPX)
     q = write(tmp_path, "q.px", VPX.replace("@frame idle/1\nkyw\nwwk\n", "@frame idle/1\nkyw\nwwy\n"))
     assert run("diff", f"{p}:idle", f"{q}:idle") == 1
-    assert capsys.readouterr().out == "idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n2 frame(s): 1 same, 1 differ\n"
+    assert capsys.readouterr().out == ("idle/0: same: 3x2, every pixel\nidle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n"
+                                       "2 frame(s): 1 same, 1 differ\n")
 
 
 def test_diff_groups_all_same(tmp_path, capsys):
     p = write(tmp_path, "v.px", VPX)
     q = write(tmp_path, "q.px", VPX)
     assert run("diff", p, q) == 0
-    assert capsys.readouterr().out == "2 frame(s): 2 same\n"
+    assert capsys.readouterr().out == "idle/0: same: 3x2, every pixel\nidle/1: same: 3x2, every pixel\n2 frame(s): 2 same\n"
 
 
 def test_diff_pairs_by_id_not_order(tmp_path, capsys):
@@ -20212,7 +20218,8 @@ def test_diff_pairs_in_order_when_ids_differ(tmp_path, capsys):
     q = write(tmp_path, "q.px", "pxart 1\nk #101010\ny #f0d040\nw #e0e0e0\n"
                                 "@frame wick/idle/0\nkyw\nww.\n@frame wick/idle/1\nkyw\nwwy\n")
     assert run("diff", p, q) == 1
-    assert capsys.readouterr().out == ("idle/1 vs wick/idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n"
+    assert capsys.readouterr().out == ("idle/0 vs wick/idle/0: same: 3x2, every pixel\n"
+                                       "idle/1 vs wick/idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)\n"
                                        "2 frame(s): 1 same, 1 differ\n")
 
 
@@ -20264,9 +20271,9 @@ def test_diff_proves_a_rekeyed_compose_renders_as_its_layer(tmp_path, capsys):
 
 def test_help_documents_diff():
     text = " ".join(pxart.__doc__.split())
-    assert "diff A B [--variant V]" in text
-    assert "Compare two renders pixel by pixel." in text
-    assert "It exits 1 when anything differs, as check does" in text
+    assert "diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]" in text
+    assert "Compare renders pixel by pixel, one line per pair" in text
+    assert "It exits 1 when anything differs or has no pair, as check does" in text
 
 
 def test_diff_is_under_checking(capsys):
@@ -21436,3 +21443,325 @@ def test_help_documents_export_several_files():
 def test_readme_documents_export_several_files():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`export town/ --frames out/` exports every `.px` under `town/`" in readme and "`--prefix-file`" in readme
+
+
+# ---------------------------------------------------------------- diff in batches: FILE DIR, DIR DIR, --labels
+# Proving the 132-tile port took 132 diff calls. diff now pairs a file's frames with a directory's PNGs (by id, or
+# by the names a pack's labels.csv gives them) and two directories file by file, one line per pair, a count, and
+# exit 1 when anything differs or has no pair. --strict-alpha compares transparent pixels' rgb too.
+
+BATCH_TILES = "pxart 1\nk #000000\ng #40c040\nr #c04040\n@frame grass\ngg\ngk\n@frame roof\nrr\nkk\n@frame walk/0\nk.\n.k\n"
+
+
+def tile_pngs(tmp_path, name="out"):
+    """export BATCH_TILES --frames name/: one PNG per frame, as the tool writes them."""
+    p = write(tmp_path, "tiles.px", BATCH_TILES)
+    assert run("export", p, "--frames", tmp_path / name) == 0
+    return p, tmp_path / name
+
+
+def diff_pack(tmp_path, rows=None):
+    """A pack as it ships: tile_000N.png and a labels.csv naming them."""
+    d = tmp_path / "pack"
+    d.mkdir()
+    doc = pxart.parse(write(tmp_path, "tiles.px", BATCH_TILES))
+    rows = rows or [("tile_0000.png", "grass"), ("tile_0001.png", "roof"), ("tile_0002.png", "walk/0")]
+    for (png, _), f in zip(rows, doc.frames):
+        doc.image(f).save(d / png)
+    (d / "labels.csv").write_text("filename,proposed_name\n" + "".join(f"{a},{b}\n" for a, b in rows))
+    return tmp_path / "tiles.px", d
+
+
+def test_diff_file_against_its_export_dir_all_same(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    capsys.readouterr()
+    assert run("diff", p, out) == 0
+    assert capsys.readouterr().out == ("grass: same: 2x2, every pixel\nroof: same: 2x2, every pixel\n"
+                                       "walk/0: same: 2x2, every pixel\n3 frame(s): 3 same\n")
+
+
+def test_diff_file_against_dir_one_differs_exits_1(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    img = Image.open(out / "roof.png").convert("RGBA")
+    img.putpixel((1, 1), (1, 2, 3, 255))
+    img.save(out / "roof.png")
+    capsys.readouterr()
+    assert run("diff", p, out) == 1
+    got = capsys.readouterr().out
+    assert "roof: 1 px differ in 1,1,1,1 (x,y,w,h)\n" in got and got.endswith("3 frame(s): 2 same, 1 differ\n")
+
+
+def test_diff_file_against_dir_missing_png_is_unpaired(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    (out / "walk" / "0.png").unlink()
+    capsys.readouterr()
+    assert run("diff", p, out) == 1
+    got = capsys.readouterr().out
+    assert f"walk/0: no {out / 'walk' / '0.png'}\n" in got and got.endswith("3 frame(s): 2 same, 1 unpaired\n")
+
+
+def test_diff_file_against_dir_counts_differ_and_unpaired(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    (out / "grass.png").unlink()
+    Image.new("RGBA", (3, 3)).save(out / "roof.png")
+    capsys.readouterr()
+    assert run("diff", p, out) == 1
+    got = capsys.readouterr().out
+    assert "roof: sizes 2x2 and 3x3\n" in got and got.endswith("3 frame(s): 1 same, 1 differ, 1 unpaired\n")
+
+
+def test_diff_file_sel_against_dir(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    capsys.readouterr()
+    assert run("diff", f"{p}:walk", out) == 0
+    assert capsys.readouterr().out == "walk/0: same: 2x2, every pixel\n1 frame(s): 1 same\n"
+
+
+def test_diff_extra_pngs_in_the_dir_dont_count(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    Image.new("RGBA", (5, 5), (9, 9, 9, 255)).save(out / "unrelated.png")
+    assert run("diff", f"{p}:grass", out) == 0
+
+
+def test_diff_dir_against_file_puts_the_png_first(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    Image.new("RGBA", (3, 3)).save(out / "roof.png")
+    capsys.readouterr()
+    assert run("diff", out, p) == 1
+    assert "roof: sizes 3x3 and 2x2\n" in capsys.readouterr().out
+
+
+def test_diff_dir_against_file_all_same(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    assert run("diff", out, p) == 0
+
+
+def test_diff_file_against_dir_with_variant(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VPX)
+    assert run("export", p, "--frames", tmp_path / "night", "--variant", "night") == 0
+    assert run("diff", p, tmp_path / "night") == 1
+    assert run("diff", p, tmp_path / "night", "--variant", "night") == 0
+    assert run("diff", f"{p}%night", tmp_path / "night") == 0
+
+
+def test_diff_unnamed_grid_against_dir_goes_by_its_name(tmp_path, capsys):
+    p = write(tmp_path, "ant.px", "k #000000\nk.\n")
+    assert run("export", p, "--frames", tmp_path / "out") == 0
+    capsys.readouterr()
+    assert run("diff", p, tmp_path / "out") == 0
+    assert capsys.readouterr().out.startswith("ant: same: 2x1, every pixel\n")
+
+
+def test_diff_file_against_pack_with_labels(tmp_path, capsys):
+    p, d = diff_pack(tmp_path)
+    capsys.readouterr()
+    assert run("diff", p, d, "--labels", d / "labels.csv") == 0
+    assert capsys.readouterr().out == ("grass vs tile_0000.png: same: 2x2, every pixel\n"
+                                       "roof vs tile_0001.png: same: 2x2, every pixel\n"
+                                       "walk/0 vs tile_0002.png: same: 2x2, every pixel\n3 frame(s): 3 same\n")
+
+
+def test_diff_labels_row_missing_is_unpaired(tmp_path, capsys):
+    p, d = diff_pack(tmp_path, rows=[("tile_0000.png", "grass"), ("tile_0001.png", "roof")])
+    capsys.readouterr()
+    assert run("diff", p, d, "--labels", d / "labels.csv") == 1
+    got = capsys.readouterr().out
+    assert f"walk/0: no PNG under {d} named walk/0 by --labels\n" in got and "1 unpaired" in got
+
+
+def test_diff_labels_names_become_ids_as_from_png_makes_them(tmp_path, capsys):
+    # from-png --labels ids 'red roof' red_roof: diff reads the CSV the same way
+    d = tmp_path / "pack"
+    d.mkdir()
+    Image.new("RGBA", (1, 1), (200, 0, 0, 255)).save(d / "t0.png")
+    (d / "labels.csv").write_text("filename,proposed_name\nt0.png,red roof\n")
+    assert run("from-png", d / "t0.png", "--labels", d / "labels.csv", "-o", tmp_path / "t.px") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "t.px").frames] == ["red_roof"]
+    assert run("diff", tmp_path / "t.px", d, "--labels", d / "labels.csv") == 0
+
+
+def test_diff_labels_other_columns(tmp_path, capsys):
+    d = tmp_path / "pack"
+    d.mkdir()
+    doc = pxart.parse(write(tmp_path, "tiles.px", BATCH_TILES))
+    doc.image(doc.get("grass")).save(d / "a.png")
+    (d / "names.csv").write_text("file,name\na.png,grass\n")
+    assert run("diff", f"{tmp_path / 'tiles.px'}:grass", d, "--labels", d / "names.csv", "--file-col", "file",
+               "--label-col", "name") == 0
+
+
+def test_diff_labels_csv_elsewhere_by_file_name(tmp_path, capsys):
+    # a row's file is read from the CSV's directory, else matched by file name alone, as from-png does
+    p, d = diff_pack(tmp_path)
+    (tmp_path / "meta").mkdir()
+    (d / "labels.csv").rename(tmp_path / "meta" / "labels.csv")
+    assert run("diff", p, d, "--labels", tmp_path / "meta" / "labels.csv") == 0
+
+
+def test_diff_labels_two_pngs_one_name_is_bad_arg(tmp_path, capsys):
+    p, d = diff_pack(tmp_path, rows=[("tile_0000.png", "grass"), ("tile_0001.png", "grass")])
+    msg = run_err("diff", p, d, "--labels", d / "labels.csv")
+    assert "E_BAD_ARG" in msg and "are both named 'grass'" in msg and "by --labels" in msg
+
+
+def test_diff_label_col_without_labels_is_bad_arg(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    assert "--label-col names a column of --labels" in run_err("diff", p, out, "--label-col", "x")
+    assert "--file-col names a column of --labels" in run_err("diff", p, out, "--file-col", "x")
+
+
+def test_diff_labels_between_two_files_is_bad_arg(tmp_path, capsys):
+    p, d = diff_pack(tmp_path)
+    msg = run_err("diff", p, p, "--labels", d / "labels.csv")
+    assert "E_BAD_ARG" in msg and "--labels names the PNGs of a directory" in msg
+
+
+def test_diff_labels_bad_column_is_bad_arg(tmp_path, capsys):
+    p, d = diff_pack(tmp_path)
+    msg = run_err("diff", p, d, "--labels", d / "labels.csv", "--label-col", "nope")
+    assert "E_BAD_ARG" in msg and "no column 'nope'" in msg
+
+
+def test_diff_port_proof_in_one_call(tmp_path, capsys):
+    # the port: from-png the pack by its labels, then one diff proves every frame
+    p, d = diff_pack(tmp_path)
+    pngs = sorted(d.glob("*.png"))
+    assert run("from-png", *pngs, "--labels", d / "labels.csv", "-o", tmp_path / "town.px") == 0
+    capsys.readouterr()
+    assert run("diff", tmp_path / "town.px", d, "--labels", d / "labels.csv") == 0
+    assert capsys.readouterr().out.endswith("3 frame(s): 3 same\n")
+
+
+def test_diff_two_dirs_of_pngs(tmp_path, capsys):
+    p, a = tile_pngs(tmp_path, "a")
+    assert run("export", p, "--frames", tmp_path / "b") == 0
+    capsys.readouterr()
+    assert run("diff", a, tmp_path / "b") == 0
+    assert capsys.readouterr().out == ("grass.png: same: 2x2, every pixel\nroof.png: same: 2x2, every pixel\n"
+                                       "walk/0.png: same: 2x2, every pixel\n3 frame(s): 3 same\n")
+
+
+def test_diff_two_dirs_only_in_one_side(tmp_path, capsys):
+    p, a = tile_pngs(tmp_path, "a")
+    assert run("export", p, "--frames", tmp_path / "b") == 0
+    (a / "roof.png").unlink()
+    Image.new("RGBA", (1, 1)).save(tmp_path / "b" / "extra.png")
+    capsys.readouterr()
+    assert run("diff", a, tmp_path / "b") == 1
+    got = capsys.readouterr().out
+    assert f"extra.png: only in B ({tmp_path / 'b'})\n" in got and f"roof.png: only in B ({tmp_path / 'b'})\n" in got
+    assert got.endswith("4 frame(s): 2 same, 2 unpaired\n")
+    assert run("diff", tmp_path / "b", a) == 1
+    assert f"roof.png: only in A ({tmp_path / 'b'})" in capsys.readouterr().out
+
+
+def test_diff_two_dirs_of_px_pair_frames(tmp_path, capsys):
+    for side in ("a", "b"):
+        (tmp_path / side / "sub").mkdir(parents=True)
+        write(tmp_path / side, "t.px", BATCH_TILES)
+        write(tmp_path / side / "sub", "v.px", VPX if side == "a" else VPX.replace("wwk\n", "wwy\n"))
+    capsys.readouterr()
+    assert run("diff", tmp_path / "a", tmp_path / "b") == 1
+    got = capsys.readouterr().out.splitlines()
+    assert "t.px:grass: same: 2x2, every pixel" in got and "t.px:walk/0: same: 2x2, every pixel" in got
+    assert "sub/v.px:idle/1: 1 px differ in 2,1,1,1 (x,y,w,h)" in got and got[-1] == "5 frame(s): 4 same, 1 differ"
+
+
+def test_diff_two_dirs_one_frame_files_label_by_frame(tmp_path, capsys):
+    for side in ("a", "b"):
+        (tmp_path / side).mkdir()
+        write(tmp_path / side, "ant.px", "k #000000\nk.\n")
+    capsys.readouterr()
+    assert run("diff", tmp_path / "a", tmp_path / "b") == 0
+    assert capsys.readouterr().out == "ant.px:ant: same: 2x1, every pixel\n1 frame(s): 1 same\n"
+
+
+def test_diff_two_dirs_with_labels_names_the_pack_pngs(tmp_path, capsys):
+    p, d = diff_pack(tmp_path)
+    assert run("export", p, "--frames", tmp_path / "out") == 0
+    capsys.readouterr()
+    assert run("diff", tmp_path / "out", d, "--labels", d / "labels.csv") == 0
+    got = capsys.readouterr().out
+    assert "grass.png vs tile_0000.png: same: 2x2, every pixel\n" in got
+    assert "walk/0.png vs tile_0002.png: same" in got and got.endswith("3 frame(s): 3 same\n")
+
+
+def test_diff_two_empty_dirs_is_e_file(tmp_path, capsys):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    assert "E_FILE" in run_err("diff", tmp_path / "a", tmp_path / "b")
+
+
+def test_diff_bad_png_in_dir_names_it(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    (out / "roof.png").write_text("not a png")
+    msg = run_err("diff", p, out)
+    assert msg.startswith("diff: ") and "E_FILE" in msg and str(out / "roof.png") in msg
+
+
+def test_diff_bad_px_side_names_it(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    bad = write(tmp_path, "bad.px", "k #000000\nkq\n")
+    assert run_err("diff", bad, out).startswith(f"diff: A ({bad}): ")
+    assert run_err("diff", out, bad).startswith(f"diff: B ({bad}): ")
+
+
+def test_diff_two_files_prints_every_pair(tmp_path, capsys):
+    p = write(tmp_path, "a.px", BATCH_TILES)
+    q = write(tmp_path, "b.px", BATCH_TILES.replace("rr\nkk", "rr\nkr"))
+    capsys.readouterr()
+    assert run("diff", p, q) == 1
+    assert capsys.readouterr().out == ("grass: same: 2x2, every pixel\nroof: 1 px differ in 1,1,1,1 (x,y,w,h)\n"
+                                       "walk/0: same: 2x2, every pixel\n3 frame(s): 2 same, 1 differ\n")
+
+
+def test_diff_transparent_rgb_same_by_default_differs_with_strict_alpha(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk.\n")
+    img = Image.new("RGBA", (2, 1), (255, 255, 255, 0))
+    img.putpixel((0, 0), (0, 0, 0, 255))
+    img.save(tmp_path / "b.png")
+    assert run("diff", a, tmp_path / "b.png") == 0
+    capsys.readouterr()
+    assert run("diff", a, tmp_path / "b.png", "--strict-alpha") == 1
+    assert capsys.readouterr().out == "1 px differ in 1,0,1,1 (x,y,w,h)\n"
+
+
+def test_diff_strict_alpha_two_renders_match(tmp_path, capsys):
+    # a render keeps no color under '.': two renders are strictly alike
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\n@frame f\nk.\n")
+    b = write(tmp_path, "b.px", "pxart 1\nQ #000000\nz transparent\n@frame g\nQz\n")
+    assert run("diff", a, b, "--strict-alpha") == 0
+
+
+def test_diff_strict_alpha_with_dirs(tmp_path, capsys):
+    p, out = tile_pngs(tmp_path)
+    img = Image.open(out / "walk" / "0.png").convert("RGBA")
+    img.putpixel((1, 0), (5, 5, 5, 0))
+    img.save(out / "walk" / "0.png")
+    assert run("diff", p, out) == 0
+    assert run("diff", p, out, "--strict-alpha") == 1
+
+
+def test_diff_partial_alpha_always_compares(tmp_path, capsys):
+    a = Image.new("RGBA", (1, 1), (10, 10, 10, 128))
+    b = Image.new("RGBA", (1, 1), (11, 10, 10, 128))
+    assert pxart.diff_images(a, b) == "1 px differ in 0,0,1,1 (x,y,w,h)"
+    assert pxart.diff_images(a, b, strict=True) == "1 px differ in 0,0,1,1 (x,y,w,h)"
+    c = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    d = Image.new("RGBA", (1, 1), (9, 9, 9, 0))
+    assert pxart.diff_images(c, d) is None and pxart.diff_images(c, d, strict=True) is not None
+
+
+def test_help_documents_diff_batches_and_alpha():
+    text = " ".join(pxart.__doc__.split())
+    assert "a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames writes them, or " \
+        "with --labels CSV against the PNG whose row names it so" in text
+    assert "two directories: the .png and .px files under them paired by path" in text
+    assert "a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its rgb" in text
+    assert "--strict-alpha compares all four everywhere" in text
+
+
+def test_readme_documents_diff_batches():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`diff town.px pack/ --labels pack/labels.csv` checks every frame against the pack's PNG" in readme
+    assert "`--strict-alpha`" in readme

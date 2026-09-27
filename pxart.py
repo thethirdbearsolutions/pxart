@@ -247,16 +247,27 @@ CHECKING
       each with its pixel count and the keys that draw it ('#120e22 40 px (k)'). --at x,y
       (repeatable) prints that pixel's key and its color in the base palette and in every
       variant ('at 3,4: key k; base #3f2631, night #120e22'), or in the %VARIANT named only.
-  diff A B [--variant V]
-      Compare two renders pixel by pixel. A and B are FILE[:SEL][%VARIANT] or PNGs: one frame
-      each, or frames paired by id (in order when their ids differ but their counts match:
-      diff wick.px:walk party.px:wick/walk, copies made with --prefix wick/). Prints
-      'same: 16x16, every pixel', or what differs: '12 px differ in 3,4,6,6 (x,y,w,h)' (or
-      'sizes 16x16 and 16x24'), one line per frame that differs and a count for several. It
-      exits 1 when anything differs, as check does, so a script can prove a copy or a rekey
-      renders as the original: 'diff hero.px:idle/0 hero.px:idle/1'. A transparent pixel
-      equals any other transparent pixel. --variant V renders both sides with V, and a
-      side's own %VARIANT wins (A%night against B%dusk works too).
+  diff A B [--variant V] [--strict-alpha] [--labels CSV [--label-col C] [--file-col C]]
+      Compare renders pixel by pixel, one line per pair ('same: 16x16, every pixel', or what
+      differs: '12 px differ in 3,4,6,6 (x,y,w,h)', 'sizes 16x16 and 16x24') and for several a
+      count ('132 frame(s): 130 same, 1 differ, 1 unpaired'). It exits 1 when anything differs
+      or has no pair, as check does, so a script can prove a copy, a rekey or a port renders
+      as the original: 'diff hero.px:idle/0 hero.px:idle/1'. A and B are:
+        two files, FILE[:SEL][%VARIANT] or PNGs: one frame each, or frames paired by id (in
+          order when their ids differ but their counts match: diff wick.px:walk
+          party.px:wick/walk, copies made with --prefix wick/);
+        a file and a directory of PNGs: each frame against DIR/<id>.png, as export --frames
+          writes them, or with --labels CSV against the PNG whose row names it so (read as
+          from-png's --labels): 'diff town.px pack/ --labels pack/labels.csv' proves a port
+          lossless in one call;
+        two directories: the .png and .px files under them paired by path (with --labels, a
+          PNG goes by its row's name), a .px pair frame by frame.
+      A frame with no PNG, or a file only one side has, is unpaired.
+      Transparency: a pixel whose alpha is 0 matches any other whose alpha is 0, whatever its
+      rgb (a PNG may keep a color under a transparent pixel; a render keeps none); any other
+      pixel compares on all four channels. --strict-alpha compares all four everywhere.
+      --variant V renders both sides with V, and a side's own %VARIANT wins (A%night against
+      B%dusk works too).
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -3001,8 +3012,42 @@ def pixel_at(it, x, y, variant=None):
 
 
 def cmd_diff(a):
-    """diff A B [--variant V]: two renders compared pixel by pixel. One frame each, or frames paired by id; prints what
-    differs (how many pixels, where) and exits 1 when anything does."""
+    """diff A B [--variant V] [--strict-alpha] [--labels CSV]: renders compared pixel by pixel, one line per pair and a
+    count for several; exit 1 when anything differs or has no pair. A and B: two files (one frame each, or frames
+    paired by id), a file and a directory of PNGs (each frame against DIR/<id>.png, or the PNG --labels names so), or
+    two directories (their .png and .px files paired by path)."""
+    for flag, v in (("--label-col", a.label_col), ("--file-col", a.file_col)):
+        if v is not None and not a.labels:
+            fail("E_BAD_ARG", f"{flag} names a column of --labels FILE.csv; give --labels too")
+    dirs = [os.path.isdir(x) for x in (a.a, a.b)]
+    if a.labels and not any(dirs):
+        fail("E_BAD_ARG", "--labels names the PNGs of a directory: diff FILE.px DIR --labels DIR/labels.csv")
+    if all(dirs):
+        pairs = dir_pairs(a)
+    elif any(dirs):
+        pairs = file_dir_pairs(a, flip=dirs[0])
+    else:
+        pairs = file_pairs(a)
+    same = differ = alone = 0
+    for lab, x, y in pairs:
+        if isinstance(y, str):  # no pair: y says what's missing
+            alone += 1
+            print(f"{lab}: {y}")
+            continue
+        said = diff_images(x.img, y.img, a.strict_alpha)
+        differ += said is not None
+        same += said is None
+        print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
+    if len(pairs) > 1 or (pairs and pairs[0][0] is not None):
+        print(f"{len(pairs)} frame(s): {same} same" + (f", {differ} differ" if differ else "")
+              + (f", {alone} unpaired" if alone else ""))
+    if differ or alone:
+        sys.exit(1)
+
+
+def file_pairs(a):
+    """diff FILE FILE: [(label, A's Item, B's Item)]: one frame each (labeled None), or frames paired by id, or in order
+    when their ids differ but their counts match (copies made with --prefix)."""
     sides = []
     for what, arg in (("A", a.a), ("B", a.b)):
         with reading(f"{what} ({arg})"):
@@ -3010,35 +3055,91 @@ def cmd_diff(a):
     ia, ib = sides
     la, lb = {it.label: it for it in ia}, {it.label: it for it in ib}
     if len(ia) == 1 and len(ib) == 1:
-        pairs = [(None, ia[0], ib[0])]
-    elif set(la) == set(lb):
-        pairs = [(lab, la[lab], lb[lab]) for lab in la]
-    elif len(ia) == len(ib):  # copies under other ids (frames --copy-to --prefix wick/): in order
-        pairs = [(f"{x.label} vs {y.label}", x, y) for x, y in zip(ia, ib)]
-    else:
-        only = [f"{what} has {listed(sorted(set(x) - set(y)), 5)} and {other} hasn't"
-                for what, other, x, y in (("A", "B", la, lb), ("B", "A", lb, la)) if set(x) - set(y)]
-        fail("E_SELECT", f"A is {len(ia)} frame(s) and B {len(ib)}, paired by id: " + "; ".join(only)
-             + "; pick frames with FILE:SEL")
-    differ = 0
-    for lab, x, y in pairs:
-        said = diff_images(x.img, y.img)
-        differ += said is not None
-        if said or lab is None:
-            print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
-    if lab is not None or len(pairs) > 1:
-        print(f"{len(pairs)} frame(s): {len(pairs) - differ} same" + (f", {differ} differ" if differ else ""))
-    if differ:
-        sys.exit(1)
+        return [(None, ia[0], ib[0])]
+    if set(la) == set(lb):
+        return [(lab, la[lab], lb[lab]) for lab in la]
+    if len(ia) == len(ib):  # copies under other ids (frames --copy-to --prefix wick/): in order
+        return [(f"{x.label} vs {y.label}", x, y) for x, y in zip(ia, ib)]
+    only = [f"{what} has {listed(sorted(set(x) - set(y)), 5)} and {other} hasn't"
+            for what, other, x, y in (("A", "B", la, lb), ("B", "A", lb, la)) if set(x) - set(y)]
+    fail("E_SELECT", f"A is {len(ia)} frame(s) and B {len(ib)}, paired by id: " + "; ".join(only)
+         + "; pick frames with FILE:SEL")
 
 
-def diff_images(a, b):
-    """None when two RGBA images are pixel-for-pixel the same (every transparent pixel alike, whatever its rgb), else
-    what differs: 'sizes 16x16 and 16x24', or '12 px differ in 3,4,6,6 (x,y,w,h)'."""
+def dir_pngs(d, a):
+    """{name: path} of the PNGs under directory d: each by its path under d without .png ('walk/0'), or with --labels
+    by the name its CSV row gives (as from-png ids it: a char an id can't have becomes '_'), in its folder. Two PNGs
+    with one name are E_BAD_ARG."""
+    name_of = csv_labels(a) if a.labels else None
+    out = {}
+    for p in sorted(pathlib.Path(d).rglob("*.png"), key=lambda p: p.parts):
+        rel = p.relative_to(d).with_suffix("")
+        got = name_of(p) if name_of else None
+        name = (rel.parent / re.sub(r"[^A-Za-z0-9_\-./]", "_", got)).as_posix() if got else rel.as_posix()
+        if name in out:
+            fail("E_BAD_ARG", f"{out[name]} and {p} are both named {name!r} under {d}"
+                 + (" by --labels" if name_of else "") + "; pair them one at a time")
+        out[name] = p
+    return out
+
+
+def file_dir_pairs(a, flip=False):
+    """diff FILE DIR (or DIR FILE): each frame of FILE (FILE:SEL) against the PNG under DIR named like it, DIR/<id>.png
+    (or the PNG --labels names so). A frame no PNG is named like is unpaired: (label, Item, what's missing)."""
+    farg, d = (a.b, a.a) if flip else (a.a, a.b)
+    with reading(f"{'B' if flip else 'A'} ({farg})"):
+        its = items(farg, a.variant)
+    pngs = dir_pngs(d, a)
+    out = []
+    for it in its:
+        p = pngs.get(it.label)
+        if p is None:
+            out.append((it.label, it, f"no PNG under {d} named {it.label} by --labels" if a.labels else
+                        f"no {pathlib.Path(d) / (it.label + '.png')}"))
+            continue
+        with reading(f"{'A' if flip else 'B'} ({p})"):
+            png = items(str(p))[0]
+        lab = f"{it.label} vs {p.relative_to(d).as_posix()}" if a.labels else it.label
+        out.append((lab, png, it) if flip else (lab, it, png))
+    return out
+
+
+def dir_pairs(a):
+    """diff DIR_A DIR_B: the .png and .px files under both, paired by path under each (with --labels, a PNG goes by the
+    name its row gives); a .px pair's frames paired as for two files, labeled 'path:id'. A file only one side has is
+    unpaired: (path, None, which side has it)."""
+    sides = []
+    for d in (a.a, a.b):
+        pngs = {f"{name}.png": p for name, p in dir_pngs(d, a).items()}
+        pxs = {p.relative_to(d).as_posix(): p for p in sorted(pathlib.Path(d).rglob("*.px"), key=lambda p: p.parts)}
+        sides.append({**pngs, **pxs})
+    sa, sb = sides
+    if not sa and not sb:
+        fail("E_FILE", f"{a.a} and {a.b} hold no .png or .px files")
+    out = []
+    for rel in sorted(set(sa) | set(sb), key=lambda r: pathlib.PurePosixPath(r).parts):
+        if rel not in sb or rel not in sa:
+            out.append((rel, None, f"only in A ({a.a})" if rel in sa else f"only in B ({a.b})"))
+        elif rel.endswith(".png"):
+            with reading(f"A ({sa[rel]})"):
+                x = items(str(sa[rel]))[0]
+            with reading(f"B ({sb[rel]})"):
+                y = items(str(sb[rel]))[0]
+            real = [p.relative_to(d).as_posix() for p, d in ((sa[rel], a.a), (sb[rel], a.b))]
+            out.append((rel if real == [rel, rel] else " vs ".join(real), x, y))  # --labels: the files' own names
+        else:
+            sub = argparse.Namespace(**{**vars(a), "a": str(sa[rel]), "b": str(sb[rel])})
+            out += [(f"{rel}:{lab or x.label}", x, y) for lab, x, y in file_pairs(sub)]
+    return out
+
+
+def diff_images(a, b, strict=False):
+    """None when two RGBA images are pixel-for-pixel the same (every transparent pixel alike, whatever its rgb, unless
+    strict: --strict-alpha), else what differs: 'sizes 16x16 and 16x24', or '12 px differ in 3,4,6,6 (x,y,w,h)'."""
     if a.size != b.size:
         return f"sizes {a.width}x{a.height} and {b.width}x{b.height}"
     w = a.width
-    bad = [i for i, (p, q) in enumerate(zip(pixels(a), pixels(b))) if p != q and (p[3] or q[3])]
+    bad = [i for i, (p, q) in enumerate(zip(pixels(a), pixels(b))) if p != q and (strict or p[3] or q[3])]
     if not bad:
         return None
     xs, ys = [i % w for i in bad], [i // w for i in bad]
@@ -6332,6 +6433,24 @@ def loose_names(paths, a):
         return names
     if not a.labels:
         return None
+    name_of = csv_labels(a)
+    names, unnamed = [], []
+    for p in paths:
+        got = name_of(p)
+        if got is None:
+            unnamed.append(str(p))
+        names.append(got)
+    if unnamed:
+        fail("E_SELECT", f"--labels names no row for {listed(unnamed, 5)}; add them to the CSV (column "
+             f"{a.file_col or 'filename'}) or leave them out")
+    return names
+
+
+def csv_labels(a):
+    """--labels FILE.csv (repeatable) [--file-col] [--label-col], as from-png and diff read them: a function from a PNG's
+    path to its name, or None when no row names it. A row's --file-col names a PNG relative to the CSV's own directory,
+    or else by its file name alone (when no CSV's directory holds it); a file name that two CSVs name differently, or
+    a PNG two rows name differently, is an error."""
     fcol, lcol = a.file_col or "filename", a.label_col or "proposed_name"
     by_path, by_name = {}, {}  # resolved path -> (name, where); file name -> [(name, where)]
     for csv_path in a.labels:
@@ -6355,8 +6474,9 @@ def loose_names(paths, a):
                      f"{name!r} ({where})")
             by_path[key] = (name, where)
             by_name.setdefault(pathlib.PurePath(file).name, []).append((name, where))
-    names, unnamed = [], []
-    for p in paths:
+
+    def name_of(p):
+        p = pathlib.Path(p)
         got = by_path.get(p.resolve())
         if got is None:
             alike = {n for n, _ in by_name.get(p.name, [])}
@@ -6364,13 +6484,8 @@ def loose_names(paths, a):
                 fail("E_SELECT", f"--labels: {p} is in no CSV's directory, and its file name {p.name} has several "
                      f"names: {', '.join(sorted(alike))}; put the CSV beside the PNGs it names")
             got = by_name[p.name][0] if alike else None
-        if got is None:
-            unnamed.append(str(p))
-        names.append(got[0] if got else None)
-    if unnamed:
-        fail("E_SELECT", f"--labels names no row for {listed(unnamed, 5)}; add them to the CSV (column "
-             f"{fcol}) or leave them out")
-    return names
+        return got[0] if got else None
+    return name_of
 
 
 def same_ids(entries, named=False):
@@ -6704,6 +6819,12 @@ def parser(describe=True):
                         "(repeatable)")
     p = sub.add_parser("diff"); p.add_argument("a"); p.add_argument("b")
     p.add_argument("--variant", help="render both with this variant (a side's own %%variant wins)")
+    p.add_argument("--strict-alpha", action="store_true",
+                   help="compare all four channels even where alpha is 0 (by default any two transparent pixels match)")
+    p.add_argument("--labels", action="append", metavar="FILE.csv",
+                   help="a directory's PNGs go by the names this CSV gives them, as from-png's --labels (repeatable)")
+    p.add_argument("--label-col", metavar="COL", help="with --labels: the column of names (default proposed_name)")
+    p.add_argument("--file-col", metavar="COL", help="with --labels: the column of PNG file names (default filename)")
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
