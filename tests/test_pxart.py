@@ -4632,11 +4632,11 @@ def plays(path, fid):
 def test_frames_copy_group_new_to_dst(tmp_path, capsys):
     s, d = write(tmp_path, "s.px", CSRC), write(tmp_path, "d.px", CDST)
     assert run("frames", f"{s}:walk", "--copy-to", d) == 0
-    # k is black in both, but d's night recolors it and s's night doesn't: a note, and d's night colors those pixels.
+    # k is black in both, but d's night recolors it and s's night doesn't: a WARNING, and d's night colors those pixels.
     assert capsys.readouterr().out == (
-        f"note: FILE ({s}:walk) draws 'k' #000000 (night: #000000 in s.px, #000011 in {d}): {d} has that key in that "
-        "base color but other variant colors, and its variants color the pixels its way; frames --copy-to --rekey "
-        f"gives it a key of its own\ncopied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n")
+        f"WARNING: FILE ({s}:walk) draws 'k' #000000 in {d}'s variant colors, not s.px's: night #000011 (s.px: "
+        "#000000); frames --copy-to --rekey k gives it a key of its own\n"
+        f"copied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n")
     assert ids(d) == ["idle", "tail/0", "walk/0", "walk/1"]
     doc = pxart.parse(d)
     assert doc.anims["walk"] == {"direction": "pingpong", "repeat": None, "ms": 120, "pivot": (0, 1)}
@@ -4828,8 +4828,8 @@ def test_frames_copy_dst_in_other_directory_keeps_its_palette_import(tmp_path):
 
 def test_help_documents_frames_copy_to():
     doc = pxart.__doc__
-    assert "[--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2] [--prefix P | --rename GROUP NEWGROUP]]" \
-        in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
+    assert "[--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]\n          [--prefix P | --rename GROUP " \
+        "NEWGROUP]]" in doc and "'frames hero.px:walk --copy-to beast.px --after idle/3'" in doc
 
 
 # ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
@@ -11111,14 +11111,14 @@ def test_rekey_flags_on_the_commands():
 
 def test_help_documents_rekey():
     doc = " ".join(pxart.__doc__.split())
-    assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only] [--variant-map NAME=V1,V2] "
+    assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] [--variant-map NAME=V1,V2] "
             "LAYER@x,y") in doc
     assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
             "written)") in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
     assert "with no -o renames them in field.px itself, in every frame" in doc
     assert "--rekey gives both free keys in DST, as compose's does" in doc
-    assert "--rekey gives both free keys in DST. A frame id DST already has is E_DUP_FRAME" in doc
+    assert "--rekey gives both free keys in DST. --rekey o,r moves only those keys" in doc
 
 
 # ---------------------------------------------------------------- each command's E_KEY_CONFLICT in its own nouns
@@ -11873,7 +11873,7 @@ def test_compose_used_keys_only_drops_an_empty_variant_key_set_but_keeps_the_var
 
 def test_crop_help_has_the_full_story(capsys):
     out = " ".join(cmd_help(capsys, "crop").split())
-    assert "crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey] [--used-keys-only]" in out
+    assert "crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only]" in out
     assert "'crop hero.px:idle/0 4,0,8,8 -o parts.px:head'" in out
     assert "a rectangle that runs past the frame's edge (or starts at a negative x,y) gets '.' there" in out
     assert "a new OUT starts with FILE's whole palette (so shade ramps still find their keys)" in out
@@ -12988,9 +12988,9 @@ def test_variant_clash_note_without_rekey(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1") == 0
     lines = capsys.readouterr().out.splitlines()
-    assert (f"note: layer 2 ({b}:s) draws 'r' #c4473a (dusk: #c4473a in scarf.px, #a33a4c in {out}; night: #83344e "
-            f"in scarf.px, #c4473a in {out}): {out} has that key in that base color but other variant colors, and its "
-            "variants color the pixels its way; compose --rekey gives it a key of its own") in lines
+    assert (f"WARNING: layer 2 ({b}:s) draws 'r' #c4473a in {out}'s variant colors, not scarf.px's: dusk #a33a4c "
+            "(scarf.px: #c4473a), night #c4473a (scarf.px: #83344e); compose --rekey r gives it a key of its own") \
+        in lines
 
 
 def test_variant_clash_owner_decides_without_rekey(tmp_path, capsys):
@@ -13061,9 +13061,8 @@ def test_variant_clash_existing_out_note_without_rekey(tmp_path, capsys):
     out = write(tmp_path, "o.px", AWNING)
     assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0") == 0
     got = capsys.readouterr().out.splitlines()
-    assert got == [f"note: layer 1 ({b}:s) draws 'r' #c4473a (dusk: #c4473a in scarf.px, #a33a4c in {out}): {out} has "
-                   "that key in that base color but other variant colors, and its variants color the pixels its way; "
-                   "compose --rekey gives it a key of its own", f"wrote {out} frame b"]
+    assert got == [f"WARNING: layer 1 ({b}:s) draws 'r' #c4473a in {out}'s variant colors, not scarf.px's: dusk "
+                   "#a33a4c (scarf.px: #c4473a); compose --rekey r gives it a key of its own", f"wrote {out} frame b"]
     assert pxart.parse(out).get("b").grid == ["r."]
 
 
@@ -13072,12 +13071,12 @@ def test_variant_clash_existing_out_rekey_gives_the_scarf_its_own_key(tmp_path, 
     out = write(tmp_path, "o.px", AWNING)
     assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey") == 0
     got = capsys.readouterr().out.splitlines()
-    # one line for the file: what --rekey did and why, and the dusk its new key doesn't get
+    # one line per reason: what --rekey did and why, then the dusk its new key doesn't get
     assert got[0] == (f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged): r has {out}'s "
-                      f"base color but other variant colors. scarf.px has no @variant dusk (it has night), so the keys "
-                      f"layer 1 ({b}:s) adds to {out} (a) stay at base colors in its dusk; --variant-map dusk=night "
-                      "reads its night as dusk")
-    assert got[1] == f"wrote {out} frame b"
+                      "base color but other variant colors")
+    assert got[1] == (f"note: scarf.px has no @variant dusk (it has night), so the keys layer 1 ({b}:s) adds to {out} "
+                      "(a) stay at base colors in its dusk; --variant-map dusk=night reads its night as dusk")
+    assert got[2] == f"wrote {out} frame b"
     doc = pxart.parse(out)
     assert doc.get("b").grid == ["a."] and doc.palette["a"] == pxart.hex2rgba("#c4473a")
     assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}}  # the scarf stays at its base color at dusk
@@ -13223,7 +13222,8 @@ def test_variant_map_without_rekey_still_notes_a_clash(tmp_path, capsys):
     a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--variant-map", "dusk=night") == 0
-    assert "draws 'r' #c4473a (dusk: #83344e in scarf.px, #a33a4c in" in capsys.readouterr().out
+    assert "draws 'r' #c4473a in " in (got := capsys.readouterr().out)
+    assert "variant colors, not scarf.px's: dusk #a33a4c (scarf.px: #83344e)" in got
 
 
 # ---------------------------------------------------------------- compose: left-out keys, one line per file
@@ -13705,20 +13705,20 @@ def test_copy_to_without_rekey_notes_the_shared_key(tmp_path, capsys):
     s, d = scarf_market(tmp_path)
     assert run("frames", f"{s}:walk", "--copy-to", d) == 0
     got = capsys.readouterr().out
-    assert (f"note: FILE ({s}:walk) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d}): {d} has that key "
-            "in that base color but other variant colors, and its variants color the pixels its way; frames --copy-to "
-            "--rekey gives it a key of its own") in got
+    assert (f"WARNING: FILE ({s}:walk) draws 'r' #c4473a in {d}'s variant colors, not keeper.px's: dusk #a33a4c "
+            "(keeper.px: #c4473a); frames --copy-to --rekey r gives it a key of its own") in got.splitlines()
     assert pxart.parse(d).get("walk/0").grid == ["rk", "q."]
 
 
 def test_copy_to_note_names_every_key_that_differs(tmp_path, capsys):
-    # The market dims its outline k at dusk too: both keys in one note, and --rekey moves both.
+    # The market dims its outline k at dusk too: one WARNING per key, and --rekey moves both.
     s, d = scarf_market(tmp_path, MARKET.replace("@variant dusk\n", "@variant dusk\nk #000011\n"))
     run("frames", f"{s}:walk", "--copy-to", d)
-    got = capsys.readouterr().out
-    assert (f"draws 'k' #000000 (dusk: #000000 in keeper.px, #000011 in {d}) and 'r' #c4473a (dusk: #c4473a in "
-            f"keeper.px, #a33a4c in {d}): {d} has those keys in that base color but other variant colors, and its "
-            "variants color those pixels its way; frames --copy-to --rekey gives them keys of their own") in got
+    got = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert got == [f"WARNING: FILE ({s}:walk) draws 'k' #000000 in {d}'s variant colors, not keeper.px's: dusk #000011 "
+                   "(keeper.px: #000000); frames --copy-to --rekey k gives it a key of its own",
+                   f"WARNING: FILE ({s}:walk) draws 'r' #c4473a in {d}'s variant colors, not keeper.px's: dusk #a33a4c "
+                   "(keeper.px: #c4473a); frames --copy-to --rekey r gives it a key of its own"]
 
 
 def test_copy_to_rekey_moves_every_key_that_differs(tmp_path, capsys):
@@ -13769,8 +13769,9 @@ def test_copy_to_new_keys_without_map_stay_base_and_say_so(tmp_path, capsys):
     s, d = scarf_market(tmp_path)
     assert run("frames", f"{s}:walk", "--copy-to", d) == 0
     assert "q" not in pxart.parse(d).variants["dusk"]
-    assert (f". keeper.px has no @variant dusk (it has night), so the keys FILE ({s}:walk) adds to {d} (q) stay at "
-            "base colors in its dusk; --variant-map dusk=night reads its night as dusk") in capsys.readouterr().out
+    assert (f"note: keeper.px has no @variant dusk (it has night), so the keys FILE ({s}:walk) adds to {d} (q) stay "
+            "at base colors in its dusk; --variant-map dusk=night reads its night as dusk") \
+        in capsys.readouterr().out.splitlines()
 
 
 def test_copy_to_variant_map_unknown_source_variant(tmp_path):
@@ -13851,8 +13852,8 @@ def test_paste_rekey_splits_a_key_whose_variants_differ(tmp_path, capsys):
 def test_paste_without_rekey_notes_the_shared_key(tmp_path, capsys):
     s, d = scarf_market(tmp_path)
     assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0") == 0
-    assert (f"note: SRC ({s}:walk/0) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d})"
-            in capsys.readouterr().out)
+    assert (f"WARNING: SRC ({s}:walk/0) draws 'r' #c4473a in {d}'s variant colors, not keeper.px's: dusk #a33a4c "
+            "(keeper.px: #c4473a); paste --rekey r gives it a key of its own" in capsys.readouterr().out.splitlines())
 
 
 def test_paste_new_keys_come_with_their_variant_colors(tmp_path, capsys):
@@ -13893,8 +13894,8 @@ def test_crop_into_existing_out_without_rekey_notes(tmp_path, capsys):
     s, d = scarf_market(tmp_path)
     assert run("crop", f"{s}:walk/0", "0,0,1,1", "-o", f"{d}:scarf") == 0
     got = capsys.readouterr().out
-    assert f"note: FILE ({s}:walk/0) draws 'r' #c4473a (dusk: #c4473a in keeper.px, #a33a4c in {d})" in got
-    assert "crop --rekey gives it a key of its own" in got
+    assert (f"WARNING: FILE ({s}:walk/0) draws 'r' #c4473a in {d}'s variant colors, not keeper.px's: dusk #a33a4c "
+            "(keeper.px: #c4473a); crop --rekey r gives it a key of its own") in got.splitlines()
 
 
 def test_crop_into_existing_out_variant_map(tmp_path, capsys):
@@ -14165,23 +14166,25 @@ def test_report_implicit_frame_named_by_file(tmp_path):
     assert why["k"] == ["its frame ant draws with it"]
 
 
-def test_report_copy_to_one_line_for_vclash_and_base_note(tmp_path, capsys):
+def test_report_copy_to_one_line_per_reason_for_vclash_and_base_note(tmp_path, capsys):
     s = write(tmp_path, "keeper.px", "r #c4473a\nq #fff4b0\n@variant night\nr #83344e\n@frame w/0\nrq\n")
     d = write(tmp_path, "party.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame a\nr\n")
     assert run("frames", s, "--copy-to", d) == 0
-    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith("note:")]
-    assert len(notes) == 1 and "draws 'r' #c4473a" in notes[0] and ". keeper.px has no @variant dusk" in notes[0]
+    lines = capsys.readouterr().out.splitlines()
+    warns, notes = [l for l in lines if l.startswith("WARNING:")], [l for l in lines if l.startswith("note:")]
+    assert len(warns) == 1 and "draws 'r' #c4473a" in warns[0] and "no @variant" not in warns[0]
+    assert len(notes) == 1 and notes[0].startswith("note: keeper.px has no @variant dusk")
 
 
 def test_help_documents_the_compose_report(capsys):
     doc = " ".join(pxart.__doc__.split())
-    assert "compose reports once per source file" in doc
+    assert "compose reports per source file, in layer order, one line per reason" in doc
     assert "which of the file's frames draw with a key it lost" in doc
 
 
 def test_readme_documents_the_compose_report():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
-    assert "it reports one line per source file, with what `--rekey` moved and why" in readme
+    assert "it reports per source file, one line per reason, with what `--rekey` moved and why" in readme
 
 
 # ---------------------------------------------------------------- carried comments stay true in the new OUT
@@ -15734,3 +15737,425 @@ def test_readme_documents_rename_and_prefix():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "under other ids with `--prefix wick/` or `--rename walk wick/walk`" in readme
     assert "`frames hero.px --rename walk hero/walk` renames a group in place" in readme
+
+
+# ---------------------------------------------------------------- --rekey KEYS | KEY=DSTKEY, and one WARNING per key
+# --rekey was all or nothing, and couldn't say "use DST's j anyway"; the scarf-on-awning trap was buried in a long note.
+
+AWN_I = ("r #c4473a\nk #000000\nI #c4473a\n@variant dusk\nr #a33a4c\nI #903040\nk #000011\n"
+         "@frame awning\nrk\nI.\n")  # DST: I is the scarf's base red, dimmed otherwise at dusk; k dims too
+
+
+def rk_pair(tmp_path, dst=AWN_I):
+    return write(tmp_path, "keeper.px", SCARF_WALK), write(tmp_path, "party.px", dst)
+
+
+def test_rekey_spec_values():
+    assert pxart.rekey_spec(None) is None
+    assert pxart.rekey_spec("") == (None, {})
+    assert pxart.rekey_spec("o,r") == ({"o", "r"}, {})
+    assert pxart.rekey_spec("k=j,n=q") == (set(), {"k": "j", "n": "q"})
+    assert pxart.rekey_spec("k=j,n") == ({"n"}, {"k": "j"})
+    assert pxart.rekey_spec("r=r") == (set(), {"r": "r"})
+    assert pxart.rekey_spec("0") == ({"0"}, {})
+
+
+@pytest.mark.parametrize("bad", ["ab", "k=", "k=jj", ".", "k=.", "k,,n", ",k", "k=j=q", "#", "k=@"])
+def test_rekey_spec_bad(bad):
+    with pytest.raises(pxart.PxError) as e:
+        pxart.rekey_spec(bad)
+    assert codes(e) == ["E_BAD_ARG"] and "want keys, comma-separated" in str(e.value)
+
+
+def test_rekey_spec_twice():
+    with pytest.raises(pxart.PxError) as e:
+        pxart.rekey_spec("k,k=j")
+    assert "names 'k' twice" in str(e.value)
+
+
+def test_rekey_spec_target_also_listed():
+    with pytest.raises(pxart.PxError) as e:
+        pxart.rekey_spec("k=j,j")
+    assert "j is where --rekey puts another key" in str(e.value)
+
+
+@pytest.mark.parametrize("argv,want", [
+    (["compose", "-o", "o.px", "--rekey", "a.px:x@0,0"], ["compose", "-o", "o.px", "--rekey=", "a.px:x@0,0"]),
+    (["frames", "a.px", "--copy-to", "d.px", "--rekey"], ["frames", "a.px", "--copy-to", "d.px", "--rekey="]),
+    (["frames", "a.px", "--rekey", "--copy-to", "d.px"], ["frames", "a.px", "--rekey=", "--copy-to", "d.px"]),
+    (["frames", "a.px", "--rekey", "o,r"], ["frames", "a.px", "--rekey", "o,r"]),
+    (["frames", "a.px", "--rekey", "k=j"], ["frames", "a.px", "--rekey", "k=j"]),
+    (["frames", "a.px", "--rekey", "k"], ["frames", "a.px", "--rekey", "k"]),
+    (["crop", "a.px:x", "--rekey", "0,0,2,2", "-o", "o.px"], ["crop", "a.px:x", "--rekey=", "0,0,2,2", "-o", "o.px"]),
+    (["crop", "a.px:x", "--rekey", "-1,0,2,2", "-o", "o.px"], ["crop", "a.px:x", "--rekey=", "-1,0,2,2", "-o", "o.px"]),
+    (["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"], ["crop", "a.px:x", "0,0,2,2", "--rekey", "1,2", "-o", "o"]),
+    (["frames", "a.px", "--rekey=o"], ["frames", "a.px", "--rekey=o"]),
+])
+def test_rekey_args(argv, want):
+    assert pxart.rekey_args(argv) == want
+
+
+def test_bare_rekey_before_a_layer_still_works(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--rekey", "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1") == 0
+    assert run("compose", "-o", f"{out}:z", "--rekey", f"{b}:s@0,0") == 0
+
+
+def test_crop_rekey_before_the_rectangle(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("crop", f"{s}:walk/0", "--rekey", "0,0,2,2", "-o", f"{d}:cut") == 0
+    assert pxart.parse(d).get("cut").size == (2, 2)
+
+
+def test_crop_rekey_equals_digit_keys(tmp_path):
+    s, d = rk_pair(tmp_path)
+    msg = run_err("crop", f"{s}:walk/0", "0,0,2,2", "--rekey=1,2,3,4", "-o", f"{d}:cut")
+    assert "E_SELECT" in msg and "--rekey 1,2,3,4: no layer draws with 1 2 3 4" in msg
+
+
+# --- one WARNING per key
+
+def test_vclash_warning_per_key_copy_to(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d) == 0
+    warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert len(warns) == 2
+    assert warns[0].startswith(f"WARNING: FILE ({s}:walk) draws 'k' #000000 in {d}'s variant colors, not keeper.px's:")
+    assert warns[1].startswith(f"WARNING: FILE ({s}:walk) draws 'r' #c4473a in {d}'s variant colors, not keeper.px's:")
+    assert warns[1].endswith("frames --copy-to --rekey r gives it a key of its own")
+
+
+def test_vclash_warning_names_each_variant_that_differs(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d)
+    out = capsys.readouterr().out
+    assert "draws 'r' #c4473a in " in out and "not keeper.px's: dusk #a33a4c (keeper.px: #c4473a);" in out
+
+
+def test_vclash_warning_is_short(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d)
+    assert all(len(l.replace(str(tmp_path), "T")) < 200 for l in capsys.readouterr().out.splitlines())
+
+
+def test_vclash_warnings_every_key_on_its_own_line_many_keys(tmp_path, capsys):
+    # Twelve keys, one line each (the session's note was one 1500-char line).
+    keys = "abcdefghijmn"
+    src = "".join(f"{k} #10{i:02d}10\n" for i, k in enumerate(keys)) + "@variant night\n" + "".join(
+        f"{k} #00{i:02d}00\n" for i, k in enumerate(keys)) + "@frame w/0\n" + keys + "\n"
+    dst = "".join(f"{k} #10{i:02d}10\n" for i, k in enumerate(keys)) + "@variant night\n" + "".join(
+        f"{k} #20{i:02d}20\n" for i, k in enumerate(keys)) + "@frame a\n" + keys + "\n"
+    s, d = write(tmp_path, "s.px", src), write(tmp_path, "d.px", dst)
+    assert run("frames", s, "--copy-to", d) == 0
+    lines = capsys.readouterr().out.splitlines()
+    warns = [l for l in lines if l.startswith("WARNING:")]
+    assert len(warns) == 12 and all(f"draws {k!r}" in w for k, w in zip(keys, warns))
+    assert all(len(l.replace(str(tmp_path), "T")) < 200 for l in lines)
+
+
+def test_vclash_warning_paste(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0") == 0
+    warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert [w.split(" draws ")[1][:3] for w in warns] == ["'k'", "'r'"]
+    assert all(w.endswith("gives it a key of its own") and "paste --rekey" in w for w in warns)
+
+
+def test_vclash_warning_compose_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0") == 0
+    warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert len(warns) == 2 and all(f"layer 1 ({s}:walk/0) draws" in w for w in warns)
+    assert "compose --rekey k gives" in warns[0] and "compose --rekey r gives" in warns[1]
+
+
+def test_vclash_warning_crop_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", f"{d}:cut") == 0
+    assert "crop --rekey r gives it a key of its own" in capsys.readouterr().out
+
+
+def test_vclash_warning_compose_new(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1") == 0
+    warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert len(warns) == 1 and "draws 'r'" in warns[0]
+
+
+def test_no_vclash_warning_with_rekey(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_vclash_warning_not_printed_when_the_command_fails(tmp_path, capsys):
+    s, d = rk_pair(tmp_path, AWN_I.replace("k #000000", "k #101010"))  # k: another color: E_KEY_CONFLICT
+    code = run("frames", f"{s}:walk", "--copy-to", d)
+    assert code == 1 and "WARNING" not in capsys.readouterr().out
+
+
+def test_report_rekey_note_and_uncovered_note_on_lines_of_their_own(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(f"note: --rekey gives {s}'s keys free ones in {d}:")
+    assert any(l.startswith("note: keeper.px has no @variant dusk") for l in lines[1:])
+
+
+# --- --rekey KEYS: only those
+
+def test_rekey_only_listed_keys_move(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r") == 0
+    out = capsys.readouterr().out
+    g = pxart.parse(d).get("walk/0").grid
+    assert g[0][1] == "k" and g[0][0] not in ("r", "k")  # r moved, k stayed
+    warns = [l for l in out.splitlines() if l.startswith("WARNING:")]
+    assert len(warns) == 1 and "draws 'k'" in warns[0]
+
+
+def test_rekey_only_two_keys(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "k,r") == 0
+    g = pxart.parse(d).get("walk/0").grid
+    assert g[0][0] not in ("r", "k") and g[0][1] not in ("r", "k") and "WARNING" not in capsys.readouterr().out
+
+
+def test_rekey_only_leaves_a_color_conflict_an_error(tmp_path, capsys):
+    s, d = rk_pair(tmp_path, AWN_I.replace("k #000000", "k #101010"))
+    before = d.read_text()
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r")
+    assert "E_KEY_CONFLICT" in msg and "'k' #000000" in msg and d.read_text() == before
+
+
+def test_rekey_only_key_that_needs_no_move(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "q,r") == 0
+    assert f"note: --rekey q: it needs no other key; {d} has it in the same colors" in capsys.readouterr().out
+
+
+def test_rekey_only_key_not_drawn(tmp_path):
+    s, d = rk_pair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rekey", "z")
+    assert "E_SELECT" in msg and f"--rekey z: FILE ({s}:walk) doesn't draw with z" in msg
+
+
+def test_rekey_only_paste(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--rekey", "r") == 0
+    g = pxart.parse(d).get("awning").grid
+    assert g[0][1] == "k" and g[0][0] not in ("r", "k")
+
+
+def test_rekey_only_compose_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey", "r") == 0
+    g = pxart.parse(d).get("c").grid
+    assert g[0][1] == "k" and g[0][0] not in ("r", "k")
+    assert "compose --rekey k gives it a key of its own" in capsys.readouterr().out
+
+
+def test_rekey_only_compose_key_no_layer_draws(tmp_path):
+    s, d = rk_pair(tmp_path)
+    msg = run_err("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey", "z")
+    assert "E_SELECT" in msg and "--rekey z: no layer draws with z" in msg
+
+
+def test_rekey_only_compose_needless(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey", "q,r") == 0
+    assert f"note: --rekey q: no other key needed; {d} has it in the same colors" in capsys.readouterr().out
+
+
+def test_rekey_only_compose_new_three_packs(tmp_path, capsys):
+    # Only r moves: the other clashes stay E_KEY_CONFLICT.
+    code, out, _ = compose_packs(tmp_path, "--rekey", "r")
+    assert code == 1 and not out.exists()
+
+
+def test_rekey_only_crop_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", f"{d}:cut", "--rekey", "r") == 0
+    assert pxart.parse(d).get("cut").grid[0][1] == "k"
+
+
+# --- --rekey KEY=DSTKEY
+
+def test_rekey_explicit_uses_dsts_key(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=I,k") == 0
+    g = pxart.parse(d).get("walk/0").grid
+    assert g[0][0] == "I" and g[0][1] not in ("k", "r", "I")
+
+
+def test_rekey_explicit_warns_per_variant_color(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=I,k")
+    warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING:")]
+    assert warns == [f"WARNING: --rekey r=I: FILE ({s}:walk)'s 'r' #c4473a is {d}'s 'I', which {d}'s variants color "
+                     "otherwise: dusk #903040 (keeper.px: #c4473a); those pixels take party.px's colors there"
+                     .replace("party.px's colors", f"{d}'s colors")]
+
+
+def test_rekey_explicit_says_what_it_did(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=I,k")
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.startswith(f"note: --rekey gives {s}'s keys other ones in {d}: ")
+    assert "'r>I'" in line and line.endswith("; r as --rekey named, k free")
+
+
+def test_rekey_explicit_renders_dst_colors_in_variants(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=I,k")
+    assert color_in(d, "walk/0", "dusk", (0, 0)) == pxart.hex2rgba("#903040")
+    assert color_in(d, "walk/0", None, (0, 0)) == pxart.hex2rgba("#c4473a")
+
+
+def test_rekey_explicit_other_base_color_is_an_error(tmp_path):
+    s, d = rk_pair(tmp_path)
+    before = d.read_text()
+    d.write_text(AWN_I.replace("I #c4473a\n", "I #c4473a\nX #123456\n"))
+    before = d.read_text()
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=X")
+    assert "E_KEY_CONFLICT" in msg and f"--rekey r=X: {d}'s 'X' is #123456, and FILE ({s}:walk)'s 'r' #c4473a" in msg
+    assert "--rekey r" in msg and d.read_text() == before
+
+
+def test_rekey_explicit_onto_a_source_key_is_an_error(tmp_path):
+    s, d = rk_pair(tmp_path)
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=q")
+    assert "E_KEY_CONFLICT" in msg and "has a key 'q' of its own" in msg
+
+
+def test_rekey_explicit_to_a_free_key(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=Z,k=Y") == 0
+    doc = pxart.parse(d)
+    assert doc.get("walk/0").grid[0] == "ZY" and doc.palette["Z"] == pxart.hex2rgba("#c4473a")
+    assert "WARNING" not in capsys.readouterr().out
+    assert reads_as(d, "walk/0", s, "walk/0", {})
+
+
+def test_rekey_explicit_keep_on_purpose(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=r,k=k") == 0
+    out = capsys.readouterr().out
+    assert pxart.parse(d).get("walk/0").grid[0] == "rk" and "--rekey gives" not in out
+    warns = [l for l in out.splitlines() if l.startswith("WARNING:")]
+    assert len(warns) == 2 and warns[0].startswith("WARNING: --rekey k=k:") and warns[1].startswith("WARNING: --rekey r=r:")
+
+
+def test_rekey_explicit_not_drawn(tmp_path):
+    s, d = rk_pair(tmp_path)
+    assert "doesn't draw with z" in run_err("frames", f"{s}:walk", "--copy-to", d, "--rekey", "z=I")
+
+
+def test_rekey_explicit_paste(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--rekey", "r=I,k") == 0
+    assert pxart.parse(d).get("awning").grid[0][0] == "I"
+    assert "WARNING: --rekey r=I: SRC" in capsys.readouterr().out
+
+
+def test_rekey_explicit_paste_mirrored(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("paste", f"{s}:walk/0+h", "--into", f"{d}:awning", "--at", "0,0", "--rekey", "r=I,k") == 0
+    assert pxart.parse(d).get("awning").grid[0][1] == "I"
+
+
+def test_rekey_explicit_compose_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey", "r=I,k") == 0
+    out = capsys.readouterr().out
+    assert pxart.parse(d).get("c").grid[0][0] == "I"
+    assert f"WARNING: --rekey r=I: layer 1 ({s}:walk/0)'s 'r' #c4473a is {d}'s 'I'" in out
+    assert "r as --rekey named" in out
+
+
+def test_rekey_explicit_compose_existing_other_base_color(tmp_path):
+    s, d = rk_pair(tmp_path)
+    before = d.read_text()
+    msg = run_err("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey", "r=k")
+    assert "E_KEY_CONFLICT" in msg and d.read_text() == before
+
+
+def test_rekey_explicit_compose_two_layers_of_one_file(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", "--size", "4x2", f"{s}:walk/0@0,0", f"{s}:walk/1@2,0", "--rekey",
+               "r=I,k") == 0
+    g = pxart.parse(d).get("c").grid
+    assert g[0][0] == "I" and g[0][3] == "I"
+
+
+def test_rekey_explicit_compose_new_free_name(tmp_path, capsys):
+    a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey", "r") == 0
+    capsys.readouterr()
+    out2 = tmp_path / "o2.px"
+    assert run("compose", "-o", out2, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey", "r=S") == 0
+    doc = pxart.parse(out2)
+    assert doc.frames[0].grid[1][0] == "S" and doc.variants["night"]["S"] == pxart.hex2rgba("#83344e")
+    assert looks_as_its_file(out2, [(a, "a", 0, 0), (b, "s", 0, 1)])
+
+
+def test_rekey_explicit_crop_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("crop", f"{s}:walk/0", "0,0,2,2", "-o", f"{d}:cut", "--rekey", "r=I,k") == 0
+    assert pxart.parse(d).get("cut").grid[0][0] == "I"
+
+
+def test_rekey_explicit_source_file_unchanged(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "r=I,k")
+    assert s.read_text() == SCARF_WALK
+
+
+# --- the note that offers DST's same-base key anyway
+
+def test_rekey_hint_names_the_same_base_key(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == (f"note: {d} has the base colors of r as I, in other variant colors; --rekey k,r=I uses those "
+                        "anyway (a warning then says which variant colors change)")
+
+
+def test_rekey_hint_list_works(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey", "k,r=I") == 0
+    assert pxart.parse(d).get("walk/0").grid[0][0] == "I"
+
+
+def test_rekey_hint_not_for_the_same_key_name(tmp_path, capsys):
+    s, d = rk_pair(tmp_path, AWN_I.replace("I #c4473a\n", "").replace("I #903040\n", "").replace("I.", ".."))
+    assert run("frames", f"{s}:walk", "--copy-to", d, "--rekey") == 0
+    assert "uses those anyway" not in capsys.readouterr().out
+
+
+def test_rekey_hint_compose_existing(tmp_path, capsys):
+    s, d = rk_pair(tmp_path)
+    assert run("compose", "-o", f"{d}:c", f"{s}:walk/0@0,0", "--rekey") == 0
+    assert f"note: {d} has the base colors of r as I, in other variant colors; --rekey " in capsys.readouterr().out
+
+
+def test_help_documents_rekey_keys():
+    text = " ".join(pxart.__doc__.split())
+    assert "--rekey KEYS touches only the keys it lists" in text
+    assert "--rekey k=j,n=q uses OUT's j and q, which must be in k's and n's base colors" in text
+    assert "r=r keeps r as it is on purpose" in text
+    assert "write --rekey=1,2,3,4 to name four digit keys there" in text
+    assert "one WARNING per key OUT's variants color otherwise" in text
+
+
+def test_cmd_help_rekey_keys(capsys):
+    for cmd in ("frames", "paste", "crop", "compose"):
+        assert "KEY=OUTKEY to use OUT's key" in " ".join(cmd_help(capsys, cmd).split()), cmd
+
+
+def test_readme_documents_rekey_keys():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and q" in readme

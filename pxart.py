@@ -212,7 +212,8 @@ CHECKING
   stats FILE|DIR...                 size, bbox, color count, colors per frame (a directory and
                                     palette files as for sheet)
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
-         [--copy-to DST [ID...] [--rekey] [--variant-map NAME=V1,V2] [--prefix P | --rename GROUP NEWGROUP]]
+         [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
+          [--prefix P | --rename GROUP NEWGROUP]]
       List frames, sizes, durations (only for animation frames; 'still' for @still groups
       and every frame under '@still *') and animations; or delete / reorder frames (prints
       what it removed or moved, not the listing; a move to where the frames already are
@@ -228,11 +229,13 @@ CHECKING
       at --after/--before a DST frame: 'frames hero.px:walk --copy-to beast.px --after idle/3'.
       Their keys join DST's palette and DST's variants as compose's layers join an existing
       OUT: in the colors FILE's variant of the same name gives them (--variant-map dusk=night
-      reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose). A key DST has in another color is E_KEY_CONFLICT; one
-      DST has in the same color but recolors otherwise in a variant (a market's awning red
-      beside a keeper's scarf red) gets a note, since DST's variant would recolor FILE's
-      pixels; --rekey gives both free keys in DST. A frame id DST already has is E_DUP_FRAME. To put
-      back a frame removed by mistake, copy it from a copy of the file, --after its neighbor.
+      reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose).
+      A key DST has in another color is E_KEY_CONFLICT; one DST has in the same color but
+      recolors otherwise in a variant (a market's awning red beside a keeper's scarf red) gets
+      a WARNING of its own, since DST's variant would recolor FILE's pixels; --rekey gives both
+      free keys in DST. --rekey o,r moves only those keys, and --rekey k=j puts k on DST's j,
+      as compose's does. A frame id DST already has is E_DUP_FRAME. To put back a frame
+      removed by mistake, copy it from a copy of the file, --after its neighbor.
       DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
       --empty --palette P.px' one with no frames that imports P.
       Copies under other ids, when DST has those already (two packs' walk/*): --prefix wick/
@@ -302,7 +305,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
-  crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey] [--used-keys-only] [--variant-map NAME=V1,V2]
+  crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only] [--variant-map NAME=V1,V2]
       Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
       hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
       what crop is for, so there's no note about them; a rectangle that runs past the frame's
@@ -344,16 +347,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
       :SEL moves keys in every frame; moves over more than one frame print "applied to N
       frames".
-  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey]
+  paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
         [--variant-map NAME=V1,V2] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
-      keys DST has in their color but recolors otherwise in its variants get a note; --rekey
-      gives both free keys in DST, as compose's does. SRC's new keys join DST's variants in
+      keys DST has in their color but recolors otherwise in its variants get a WARNING each;
+      --rekey gives both free keys in DST, as compose's does (--rekey KEYS too). SRC's new keys join DST's variants in
       SRC's colors, as a compose layer's join an existing OUT (--variant-map too).
-  compose -o OUT[:frame] [--size WxH] [--under] [--rekey] [--used-keys-only]
+  compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] LAYER@x,y ...
       Stack single frames (later layers on top; '.' never overwrites) into one frame.
       --under keeps OUT's frame and draws the layers behind it: they fill only its empty
@@ -390,12 +393,27 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the file needs a key it lost (its other frames draw with it, named, or a variant lists
       it unchanged or keeps it while recoloring most keys: a lamp kept lit); --rekey then
       keeps such keys under free keys in OUT.
-      compose reports once per source file, in layer order: one line with what --rekey moved
+      compose reports per source file, in layer order, one line per reason: what --rekey moved
       and why (another color there; OUT's base color but other variant colors; a key its
-      layers here don't draw with that the file needs), the colors a new OUT left out, which
-      of the file's frames draw with a key it lost, and the keys OUT's variants color
-      otherwise. An E_KEY_CONFLICT line offers the same moves --rekey makes, with the same
-      reasons, and prints alone: a compose that fails prints no notes.
+      layers here don't draw with that the file needs; a key --rekey KEY=OUTKEY named), the
+      colors a new OUT left out, which of the file's frames draw with a key it lost, and one
+      WARNING per key OUT's variants color otherwise ('WARNING: layer 2 (keeper.px:idle) draws
+      'r' #c4473a in party.px's variant colors, not keeper.px's: dusk #a33a4c (keeper.px:
+      #83344e); compose --rekey r gives it a key of its own'). An E_KEY_CONFLICT line offers
+      the same moves --rekey makes, with the same reasons, and prints alone: a compose that
+      fails prints no notes.
+      --rekey KEYS touches only the keys it lists. --rekey o,r gives o and r free keys and
+      leaves the others as they are (a key of another color is still E_KEY_CONFLICT, a variant
+      clash still a WARNING). KEY=OUTKEY puts KEY on OUT's key OUTKEY instead of a free one:
+      --rekey k=j,n=q uses OUT's j and q, which must be in k's and n's base colors (else
+      E_KEY_CONFLICT), and must not be keys of the layer's file; where OUT's variants color
+      them otherwise, a WARNING per key names each color that changes. Both mix: k=j,n,s gives
+      n and s free keys, and r=r keeps r as it is on purpose. When --rekey gives a key a free
+      one though an existing OUT has its base color under another key (in other variant
+      colors, so it wasn't reused), a note names that key and the --rekey list that uses it
+      anyway: 'note: party.px has the base colors of k n as j q, in other variant colors;
+      --rekey k=j,n=q uses those anyway'. After crop's --rekey, four digits are the rectangle;
+      write --rekey=1,2,3,4 to name four digit keys there.
       The comments above the layers' key and @variant lines come along, as for palette
       --extract-to; a comment naming a key --rekey renamed says so: '# lamp colors (l, g)
       stay lit (renamed l>I g>J)'. The keys right below a key's comment in its file (the keys
@@ -421,7 +439,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       With an existing OUT, whose variants stay its own, the map says which of each layer's
       variants to read as OUT's dusk (dusk must be one of OUT's). A key a layer draws in OUT's
       base color but that its file's variants color otherwise (one red awning, recolored by
-      one pack's dusk and another's night), in a new OUT or an existing one, gets a note:
+      one pack's dusk and another's night), in a new OUT or an existing one, gets a WARNING:
       OUT's variants color those pixels OUT's way. --rekey gives such a key a free key of its
       own, as it does a key of another color, reusing a key of OUT only when it looks the same
       in every variant. crop writes a new OUT the same way, and crop, paste and frames
@@ -1858,21 +1876,26 @@ def check_vmap(vmap, dst, dst_name, srcs, fresh=False):
                  f"{', '.join(variant_names(dst)) or 'none'}); the map reads the sources' variants as DST's own")
 
 
-def said_vclash(label, d, ks, dst, opath, vmap, rekey_said):
-    """A note for the keys of d's file (label: which input) that dst has in their base color but other variant colors
-    (vclashes): each key's colors, both ways, and what --rekey does."""
+def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
+    """One WARNING per key of d's file (label: which input) that dst has in its base color but other variant colors
+    (vclashes): dst's variants would color those pixels dst's way, not d's file's (a scarf taking an awning's dusk).
+    Each names its colors both ways, and --rekey KEY, which gives it a key of its own; asked {key: the key --rekey
+    KEY=DSTKEY moved it from}: that key is where --rekey was told to put it, and the WARNING says so."""
     names = variant_names(dst)
     looks = {n: dst.resolved(n) for n in names}
-    each = []
+    lines = []
     for k in ks:
         base, mine = d.resolved()[k], colors_in(d, k, names, vmap)
-        each.append(f"{k!r} {fmt_color(base)} (" + "; ".join(f"{n}: {fmt_color(c)} in {d.path.name}, "
-                                                            f"{fmt_color(looks[n][k])} in {opath}"
-                                                            for n, c in zip(names, mine) if c != looks[n][k]) + ")")
-    many = len(ks) > 1
-    return (f"{label} draws {' and '.join(each)}: {opath} has {'those keys' if many else 'that key'} in that "
-            f"base color but other variant colors, and its variants color {'those' if many else 'the'} pixels its way; "
-            f"{rekey_said} gives {'them keys' if many else 'it a key'} of {'their' if many else 'its'} own")
+        each = ", ".join(f"{n} {fmt_color(looks[n][k])} ({d.path.name}: {fmt_color(c)})"
+                         for n, c in zip(names, mine) if c != looks[n][k])
+        if asked and k in asked:
+            lines.append(f"WARNING: --rekey {asked[k]}={k}: {label}'s {asked[k]!r} {fmt_color(base)} is {opath}'s "
+                         f"{k!r}, which {opath}'s variants color otherwise: {each}; those pixels take {opath}'s colors "
+                         "there")
+        else:
+            lines.append(f"WARNING: {label} draws {k!r} {fmt_color(base)} in {opath}'s variant colors, not "
+                         f"{d.path.name}'s: {each}; {rekey_said} {k} gives it a key of its own")
+    return lines
 
 
 def said_uncovered(label, d, dst, opath, vmap, added):
@@ -1910,9 +1933,114 @@ def rekey(doc, moves, frames=()):
         rename_key(doc, k, v)
 
 
-def said_rekey(src, dst, moves):
-    return (f"note: --rekey gives {src}'s keys free ones in {dst}: "
-            + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items()) + f" ({src} is unchanged)")
+def said_rekey(src, dst, moves, asked=()):
+    """What --rekey moved: 'k>j' each; asked, the keys --rekey KEY=DSTKEY named (not free ones)."""
+    free = [k for k in moves if k not in asked]
+    return (f"note: --rekey gives {src}'s keys {'free ones' if not asked else 'other ones'} in {dst}: "
+            + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items()) + f" ({src} is unchanged)"
+            + (f"; {' '.join(k for k in moves if k in asked)} as --rekey named, {' '.join(free) or 'none'} free"
+               if asked else ""))
+
+
+REKEY_KEY = r"[^\s#@.\"\\,=]"
+REKEY_RE = re.compile(rf"^{REKEY_KEY}(={REKEY_KEY})?(,{REKEY_KEY}(={REKEY_KEY})?)*$")
+RECT_ARG_RE = re.compile(r"^-?\d+(,-?\d+){3}$")  # crop's x,y,w,h after --rekey is the rectangle, not keys
+
+
+def rekey_spec(value):
+    """--rekey's argument: None when not given; else (only, asked): only, the keys it may give free keys (None: every
+    key that needs one, bare --rekey), and asked {key: the key it goes to}, from KEY=DSTKEY. A list names every key
+    --rekey touches: 'o,r' moves only o and r, 'k=j,n' puts k on j and gives n a free key."""
+    if value is None:
+        return None
+    if value == "":
+        return None, {}
+    only, asked = set(), {}
+    for t in value.split(","):
+        k, eq, j = t.partition("=")
+        if len(k) != 1 or k not in KEYS or (eq and (len(j) != 1 or j not in KEYS)):
+            fail("E_BAD_ARG", f"--rekey {value!r}: want keys, comma-separated (--rekey o,r: only those get free keys), "
+                 "or KEY=DSTKEY (--rekey k=j: k's pixels take DST's key j); bare --rekey moves every key that needs it")
+        if k in only or k in asked:
+            fail("E_BAD_ARG", f"--rekey {value!r} names {k!r} twice")
+        if eq:
+            asked[k] = j
+        else:
+            only.add(k)
+    both = sorted(set(asked.values()) & only)
+    if both:
+        fail("E_BAD_ARG", f"--rekey {value!r}: {' '.join(both)} is where --rekey puts another key; it can't also get a "
+             "free key")
+    return only, asked
+
+
+def check_asked(asked, src, dst, dst_name, what):
+    """--rekey KEY=DSTKEY for one source file: the key must be one src's pixels use (checked by the caller), and
+    DSTKEY a key src hasn't got (other than KEY itself), in KEY's base color when dst has it."""
+    pal, have = src.resolved(), dst.resolved() if dst is not None else {}
+    for k, j in asked.items():
+        if j != k and j in pal:
+            fail("E_KEY_CONFLICT", f"--rekey {k}={j}: {what} has a key {j!r} of its own ({fmt_color(pal[j])}); name a "
+                 f"key it hasn't got")
+        if j in have and have[j] != pal[k]:
+            fail("E_KEY_CONFLICT", f"--rekey {k}={j}: {dst_name}'s {j!r} is {fmt_color(have[j])}, and {what}'s {k!r} "
+                 f"{fmt_color(pal[k])}: its pixels would change color. Name a key {dst_name} has in "
+                 f"{fmt_color(pal[k])}, or give {k} a free one: --rekey {k}")
+
+
+def rekey_one(value, dst, src, keys, vmap, clear, dst_name, what, frames=()):
+    """--rekey [KEYS | KEY=DSTKEY,...] for one source going into an existing dst (frames --copy-to, paste): the named
+    keys go where they were told, then the keys that need free ones (rekey_moves; with a list, only those it names)
+    get them; src moves in memory (rekey). Prints what moved and, for a key it moved to a free one while dst has its
+    base color under a key whose variants differ, how to use that key anyway. Returns ({old: new}, {new: old} of the
+    asked moves)."""
+    spec = rekey_spec(value)
+    if spec is None:
+        return {}, {}
+    only, asked = spec
+    unused = [k for k in sorted((only or set()) | set(asked)) if k not in keys]
+    if unused:
+        fail("E_SELECT", f"--rekey {value}: {what} doesn't draw with {' '.join(unused)}")
+    check_asked(asked, src, dst, dst_name, what)
+    moves = {k: j for k, j in asked.items() if j != k}
+    if moves:
+        rekey(src, moves, frames)
+        keys = {moves.get(k, k) for k in keys}
+    auto = rekey_moves(dst, src, keys - set(asked.values()), vmap, clear) or {}
+    if only is not None:
+        needless = sorted(only - set(auto))
+        auto = {k: v for k, v in auto.items() if k in only}
+        if needless:
+            print(f"note: --rekey {' '.join(needless)}: {'they need' if len(needless) > 1 else 'it needs'} no other "
+                  f"key; {dst_name} has {'them' if len(needless) > 1 else 'it'} in the same colors")
+    if auto:
+        rekey(src, auto, frames)
+    back = {v: k for k, v in moves.items()}
+    done = {back.get(k, k): v for k, v in list(moves.items()) + list(auto.items())}
+    if done:
+        print(said_rekey(src.path, dst_name, done, set(asked)))
+        hint = same_base_hint({back.get(k, k): v for k, v in auto.items()}, asked, src, dst, dst_name)
+        if hint:
+            print(hint)
+    return done, {j: k for k, j in asked.items()}
+
+
+def same_base_hint(auto, asked, src, dst, dst_name):
+    """For keys --rekey gave free ones (auto {old: new}) though dst has their base color under a key whose variants
+    differ (so it wasn't reused): a note naming those keys and the --rekey list that uses them anyway, the other keys
+    it moved kept as they went (asked KEY=DSTKEY, the rest by name). None when there are none."""
+    have, pal = dst.resolved(), src.resolved()
+    same = {}
+    for k, v in auto.items():
+        c = next((c for c, col in have.items() if c not in (".", k) and col == pal.get(v) and c not in pal), None)
+        if c:
+            same[k] = c
+    if not same:
+        return None
+    arg = [f"{k}={j}" for k, j in asked.items()] + [f"{k}={same[k]}" if k in same else k for k in auto]
+    return (f"note: {dst_name} has the base colors of {' '.join(same)} as {' '.join(same.values())}, in other variant "
+            f"colors; --rekey {','.join(arg)} uses those anyway (a warning then says which variant colors "
+            "change)")
 
 
 def spans(ns):
@@ -2568,22 +2696,18 @@ def frames_copy(a, doc, sel, picked):
     keys = set("".join(r for f in picked for r in f.grid))
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, dst, dpath, [doc])
-    if a.rekey:
-        moves = rekey_moves(dst, doc, keys, vmap, clear=True)
-        if moves:
-            rekey(doc, moves)
-            keys = set("".join(r for f in picked for r in f.grid))
-            print(said_rekey(doc.path, dpath, moves))
+    label = f"FILE ({a.file})"
+    _, asked = rekey_one(a.rekey, dst, doc, keys, vmap, True, dpath, label)
+    keys = set("".join(r for f in picked for r in f.grid))
     clash = key_conflicts(dst, doc, keys, "FILE", dpath, "frames --copy-to", clear=True, vmap=vmap)
     if clash:
-        clash.ctx = f"FILE ({a.file})"
+        clash.ctx = label
         raise PxError(clash)
-    label = f"FILE ({a.file})"
-    vbad = vclashes(dst, doc, keys, vmap, clear=True)
-    parts = [said_vclash(label, doc, vbad, dst, dpath, vmap, "frames --copy-to --rekey")] if vbad else []
-    parts.append(said_uncovered(label, doc, dst, dpath, vmap, import_keys(dst, doc, keys, vmap, clear=True)))
-    if any(parts):  # one line for the source file, as compose's
-        print("note: " + ". ".join(p for p in parts if p))
+    warn = said_vclash(label, doc, vclashes(dst, doc, keys, vmap, clear=True), dst, dpath, vmap,
+                       "frames --copy-to --rekey", asked)
+    uncovered = said_uncovered(label, doc, dst, dpath, vmap, import_keys(dst, doc, keys, vmap, clear=True))
+    for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
+        print(line)
     said = []
     for g in dict.fromkeys(f.group for f in picked if f.group):
         n = renamed_id(g, renames)
@@ -3090,21 +3214,17 @@ def cmd_paste(a):
     ax, ay = map(int, a.at.split(","))
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, ddoc, out, [src.doc])
-    if a.rekey:
-        moves = rekey_moves(ddoc, src.doc, set("".join(src.frame.grid)), vmap)
-        if moves:
-            rekey(src.doc, moves, [src.frame])
-            print(said_rekey(src.doc.path, out, moves))
     label = f"SRC ({a.src})"
-    vbad = vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap)
+    _, asked = rekey_one(a.rekey, ddoc, src.doc, set("".join(src.frame.grid)), vmap, False, out, label, [src.frame])
+    warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap), ddoc, out, vmap,
+                       "paste --rekey", asked)
     added = []
     for f in dframes:
         with reading(label):
             added += stamp(ddoc, f, src.doc, src.frame, (ax, ay), a.region, a.under, out=out, vmap=vmap)
-    parts = [said_vclash(label, src.doc, vbad, ddoc, out, vmap, "paste --rekey")] if vbad else []
-    parts.append(said_uncovered(label, src.doc, ddoc, out, vmap, added))
-    if any(parts):  # one line for the source file, as compose's
-        print("note: " + ". ".join(p for p in parts if p))
+    uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
+    for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
+        print(line)
     print(write_doc(ddoc, out))
 
 
@@ -4048,18 +4168,60 @@ def cmd_compose(a):
             said, head = palette_notes(lay.doc)
             notes[lay.doc.path.resolve()] = (said, comment_blocks(lay.doc), head)
     gone, renamed, why = {}, {}, {}
-    if getattr(a, "rekey", False):
-        try:
-            with contextlib.redirect_stdout(io.StringIO()):  # its notes are the real run's
-                found, why = compose(a, layers, dry=True, vmap=vmap)
-        except PxError as e:
-            found, why = getattr(e, "moves", {}), getattr(e, "why", {})
-        for path, moves in found.items():
-            for lay, *_ in layers:
-                if lay.doc.path.resolve() == path:
-                    rekey(lay.doc, moves, [lay.frame])
-                    gone[id(lay.doc)] = set(moves)
+    spec = rekey_spec(getattr(a, "rekey", None))
+    if spec is not None:
+        only, asked = spec
+        files = {}  # path -> [its layers' docs (one per layer), their frames, the keys they draw with]
+        for lay, *_ in layers:
+            got = files.setdefault(lay.doc.path.resolve(), [[], [], set()])
+            got[0].append(lay.doc)
+            got[1].append(lay.frame)
+            got[2] |= set("".join(lay.frame.grid))
+        unused = sorted(k for k in (only or set()) | set(asked) if not any(k in used for *_, used in files.values()))
+        if unused:
+            fail("E_SELECT", f"--rekey {a.rekey}: no layer draws with {' '.join(unused)}")
+        opath = split_sel(a.o)[0]
+        with reading(f"-o ({a.o})"):
+            odoc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() else None
+        def move(path, moves):  # every layer's doc of that file (each layer reads its own)
+            ds, frames, _ = files[path]
+            for d, f in zip(ds, frames):
+                if moves:
+                    rekey(d, moves, [f])
+                gone.setdefault(id(d), set()).update(moves)
+        def dry():  # where --rekey would move keys now: {path: moves}, {path: why}
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):  # its notes are the real run's
+                    return compose(a, layers, dry=True, gone=gone, vmap=vmap)
+            except PxError as e:
+                return getattr(e, "moves", {}), getattr(e, "why", {})
+        # KEY=DSTKEY first, for the files whose KEY --rekey would move (every file drawing it, when none needs to),
+        # then the free keys are found around them
+        found = dry()[0] if asked else {}
+        took = {}
+        for path, (ds, frames, used) in files.items():
+            mine = {k: j for k, j in asked.items() if k in used and (
+                k in found.get(path, {}) or not any(k in found.get(p, {}) for p in files))}
+            if not mine:
+                continue
+            check_asked(mine, ds[0], odoc, opath, ds[0].path)
+            moves = {k: j for k, j in mine.items() if j != k}
+            move(path, moves)
             renamed[path] = moves
+            why[path] = {k: ("asked", j) for k, j in mine.items()}
+            took[path] = set(mine.values())
+        found, whys = dry()
+        needless = set(only or ())
+        for path, moves in found.items():
+            moves = {k: v for k, v in moves.items() if (only is None or k in only) and k not in took.get(path, ())}
+            needless -= set(moves)
+            move(path, moves)
+            renamed[path] = {**renamed.get(path, {}), **moves}
+            why.setdefault(path, {}).update({k: w for k, w in whys.get(path, {}).items() if k in moves})
+        if needless:
+            print(f"note: --rekey {' '.join(sorted(needless))}: no other key needed; {opath} has "
+                  f"{'them' if len(needless) > 1 else 'it'} in the same colors")
+        renamed = {p: m for p, m in renamed.items() if m}
     compose(a, layers, gone=gone, vmap=vmap, notes=notes, renamed=renamed, moved=why)
 
 
@@ -4095,15 +4257,14 @@ def said_left_out(opath, doc, d, label, entries, rekey_said):
 def said_moves(src, opath, moves, why, d):
     """compose --rekey's moves for one source file, and why each key moved, grouped: 'other colors there', 'OUT's
     base color but other variant colors', or a key its layers here don't draw with that its file needs."""
-    said = f"--rekey gives {src}'s keys free ones in {opath}: " + " ".join(shlex.quote(f"{k}>{v}")
-                                                                          for k, v in moves.items())
-    said += f" ({src} is unchanged)"
     kinds = {}
     for k in moves:
         kinds.setdefault(why.get(k, ("color",))[0], []).append(k)
+    said = (f"--rekey gives {src}'s keys {'other' if 'asked' in kinds else 'free'} ones in {opath}: "
+            + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items()) + f" ({src} is unchanged)")
     if set(kinds) <= {"color"}:
         return said
-    parts = []
+    parts = [f"{' '.join(kinds['asked'])} as --rekey named"] if "asked" in kinds else []
     if "color" in kinds:
         one = len(kinds["color"]) == 1
         parts.append(f"{' '.join(kinds['color'])} {'is another color' if one else 'are other colors'} there")
@@ -4121,9 +4282,10 @@ def said_moves(src, opath, moves, why, d):
 
 
 def said_by_file(opath, layers, doc, left_out, renamed, why, vclashed, added, vmap, rekey_said, fresh):
-    """compose's report, one line per source file, in layer order: what --rekey moved and why, the keys a new OUT
-    left out, the keys its variants color otherwise (said_vclash), and the keys an existing OUT got at base colors in a
-    variant the file hasn't got (said_uncovered). A WARNING when the file lost a key it needs."""
+    """compose's report, per source file in layer order, one line per reason: what --rekey moved and why (and the keys
+    of OUT it could have used anyway), the keys a new OUT left out (a WARNING when the file lost a key it needs), one
+    WARNING per key OUT's variants color otherwise (said_vclash), and the keys an existing OUT got at base colors in a
+    variant the file hasn't got (said_uncovered)."""
     entries = [(n, label, lay.doc) for n, (lay, _, _, label) in enumerate(layers, 1)]
     files = {}
     for n, label, d in entries:
@@ -4135,24 +4297,27 @@ def said_by_file(opath, layers, doc, left_out, renamed, why, vclashed, added, vm
         got.setdefault(k, (kept, uses))
     lines = []
     for path, es in files.items():
-        d, label = es[0][2], by_file(es)[0]
-        parts, loud = [], False
+        d = es[0][2]
+        mine = why.get(path, {})
         if renamed.get(path):
-            parts.append(said_moves(d.path, opath, renamed[path], why.get(path, {}), d))
+            lines.append("note: " + said_moves(d.path, opath, renamed[path], mine, d))
+            auto = {k: v for k, v in renamed[path].items() if mine.get(k, ("",))[0] != "asked"}
+            asked = {k: w[1] for k, w in mine.items() if w[0] == "asked"}
+            hint = None if fresh else same_base_hint(auto, asked, d, doc, opath)
+            if hint:
+                lines.append(hint)
         if lost.get(path):
             losing = [e for e in es if any(g == e[1] for _, g, *_ in left_out)]
             loud, text = said_left_out(opath, doc, d, by_file(losing)[0], [(k, *v) for k, v in lost[path].items()],
                                        rekey_said)
-            parts.append(text)
+            lines.append(f"{'WARNING' if loud else 'note'}: {text}")
         if path in vclashed:
-            parts.append(said_vclash(by_file(vclashed[path]["layers"])[0], d, sorted(vclashed[path]["keys"]), doc,
-                                     opath, vmap, rekey_said))
+            lines += said_vclash(by_file(vclashed[path]["layers"])[0], d, sorted(vclashed[path]["keys"]), doc, opath,
+                                 vmap, rekey_said, {w[1]: k for k, w in mine.items() if w[0] == "asked"})
         if not fresh and path in added:
             text = said_uncovered(by_file(added[path]["layers"])[0], d, doc, opath, vmap, added[path]["keys"])
             if text:
-                parts.append(text)
-        if parts:
-            lines.append(f"{'WARNING' if loud else 'note'}: " + ". ".join(parts))
+                lines.append(f"note: {text}")
     return lines
 
 
@@ -5161,7 +5326,8 @@ def said(cmd, issue):
 
 USED_HELP = "a new OUT gets only the keys the frame uses (default: the sources' whole palettes, for shade ramps)"
 TINT_A = "#ff4060a0"  # onion draws A as a silhouette in this translucent red
-REKEY_HELP = "give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are"
+REKEY_HELP = ("give keys that clash with OUT's colors free keys in OUT only; the source files stay as they are. "
+              "KEYS: only these ('o,r'), or KEY=OUTKEY to use OUT's key ('k=j,n=q')")
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
 
@@ -5205,7 +5371,7 @@ def parser(describe=True):
     p = sub.add_parser("frames"); p.add_argument("file"); p.add_argument("--rm", nargs="*")
     p.add_argument("--copy-to", nargs="+", metavar=("DST", "ID"), help="copy frames (FILE:SEL, or these ids) into DST")
     p.add_argument("--move"); p.add_argument("--after"); p.add_argument("--before")
-    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p.add_argument("--rename", nargs=2, action="append", metavar=("GROUP", "NEWGROUP"),
                    help="GROUP's frames (or the frame GROUP) get NEWGROUP's ids, @anim/@still lines too; with "
@@ -5232,13 +5398,13 @@ def parser(describe=True):
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")
     p.add_argument("-o")
     p = sub.add_parser("crop"); p.add_argument("src"); p.add_argument("rect"); p.add_argument("-o", required=True)
-    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
-    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", help="WxH of the frame")
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
@@ -5279,7 +5445,7 @@ def parser(describe=True):
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p = sub.add_parser("compose"); p.add_argument("layers", nargs="+"); p.add_argument("-o", required=True)
     p.add_argument("--size"); p.add_argument("--under", action="store_true", help="draw the layers behind OUT's frame")
-    p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
+    p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--used-keys-only", action="store_true", help=USED_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2",
                    help="a new OUT's variant NAME takes each layer's first of NAME, V1, V2 (repeatable)")
@@ -5315,14 +5481,25 @@ def parser(describe=True):
     return ap, sub
 
 
+def rekey_args(args):
+    """A bare --rekey followed by an argument that isn't a key list (a layer, crop's x,y,w,h) is written --rekey= for
+    argparse, which would otherwise take that argument as --rekey's KEYS."""
+    out = list(args)
+    for i, x in enumerate(out):
+        nxt = out[i + 1] if i + 1 < len(out) else None
+        if x == "--rekey" and (nxt is None or not REKEY_RE.match(nxt) or RECT_ARG_RE.match(nxt)):
+            out[i] = "--rekey="
+    return out
+
+
 def main(argv=None):
-    args = sys.argv[1:] if argv is None else argv
+    args = rekey_args(sys.argv[1:] if argv is None else argv)
     ap, _ = parser(describe="-h" in args or "--help" in args)
-    a, extra = ap.parse_known_args(argv)
+    a, extra = ap.parse_known_args(args)
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
     elif extra:
-        ap.parse_args(argv)  # argparse's own error
+        ap.parse_args(args)  # argparse's own error
     told = io.StringIO()  # what the command prints, held until it is done: see unsaid()
     try:
         with contextlib.redirect_stdout(told):

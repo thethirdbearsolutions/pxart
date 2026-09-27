@@ -181,9 +181,9 @@ rather than repeating them.
   comments on their key and `@variant` lines, each naming its file when there are several
   (`from keeper.px's @variant night, dusk here`), with the palette files' headers at the
   top; a key its file needs (drawn in other frames,
-  named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports one
-  line per source file, with what `--rekey` moved and why, and an `E_KEY_CONFLICT` offers
-  the same moves; each variant colors only
+  named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports per
+  source file, one line per reason, with what `--rekey` moved and why, and an `E_KEY_CONFLICT`
+  offers the same moves; each variant colors only
   the layers whose file has it, a note says which stay at their base colors, and
   `--variant-map dusk=night,dark` merges several files' variants into one (it adds to the
   same-name lookup, never replaces it: OUT's night still reads each file's night); `--under` draws
@@ -194,7 +194,9 @@ rather than repeating them.
   two files have in one color but recolor differently in their variants, into a new file or
   an existing one (`frames keeper.px:walk --copy-to party.px --rekey --variant-map
   dusk=night` reads the keeper's night as party.px's dusk), and in a new OUT to a needed key
-  it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
+  it would leave out; a key OUT's variants would recolor is a `WARNING` of its own;
+  `--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and
+  q, with a `WARNING` where their variant colors differ), `dup` (copy a frame), `anim-set` (timing), `palette
   --add` (with `--variant night` it sets keys in that variant, making it if needed;
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
