@@ -2462,7 +2462,7 @@ def test_new_blank_file(tmp_path, capsys):
     out = tmp_path / "blank.px"
     assert run("new", out, "--size", "3x2") == 0
     assert out.read_text() == "pxart 1\n\n...\n...\n"
-    assert capsys.readouterr().out == f"wrote {out} \n"
+    assert capsys.readouterr().out == f"wrote {out}\n"
     doc = pxart.parse(out)
     assert doc.implicit and doc.frames[0].size == (3, 2)
 
@@ -2568,7 +2568,7 @@ def test_new_palette_creates_missing_output_directories(tmp_path, sub, capsys):
     doc = pxart.parse(out)
     assert doc.image(doc.frames[0]).getpixel((0, 0)) == (0x10, 0x20, 0x30, 255)
     assert doc.image(doc.frames[0], "night").getpixel((1, 0)) == (0, 0, 0, 255)
-    assert capsys.readouterr().out.startswith(f"wrote {out}")
+    assert capsys.readouterr().out == f"wrote {out}\n"
 
 
 def test_new_palette_frame_in_missing_directory(tmp_path):
@@ -2684,6 +2684,47 @@ def test_png_writers_create_missing_directories(tmp_path):
     assert run("tint", tmp_path / "s.png", "#00000080", "-o", tmp_path / "t" / "u" / "t.png") == 0
     assert run("mask", tmp_path / "s.png", "--keep", "0,0,1,1", "-o", tmp_path / "m" / "n" / "m.png") == 0
     assert (tmp_path / "t" / "u" / "t.png").exists() and (tmp_path / "m" / "n" / "m.png").exists()
+
+
+def test_wrote_lines_have_no_trailing_space(tmp_path, capsys):
+    # GAMES-295: 'wrote X ' (a trailing space where an empty frame suffix was printed).
+    write(tmp_path, "pal.px", "k #000000\n")
+    p = write(tmp_path, "a.px", "k #000000\nk\n")
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(tmp_path / "i.png")
+    runs = [
+        ("new", tmp_path / "n.px", "--size", "1x1"),
+        ("new", f"{tmp_path / 'n2.px'}:x", "--size", "1x1"),
+        ("new", tmp_path / "n3.px", "--size", "1x1", "--palette", tmp_path / "pal.px"),
+        ("compose", "-o", tmp_path / "c.px", f"{p}@0,0"),
+        ("compose", "-o", f"{tmp_path / 'c2.px'}:x", f"{p}@0,0"),
+        ("crop", p, "0,0,1,1", "-o", tmp_path / "cr.px"),
+        ("crop", p, "0,0,1,1", "-o", f"{tmp_path / 'cr2.px'}:y"),
+        ("from-png", tmp_path / "i.png", "-o", tmp_path / "f.px"),
+        ("from-png", tmp_path / "i.png", "-o", tmp_path / "f2.px", "--id", "z"),
+        ("flip", p), ("set", p, "k", "0,0"), ("fill", p, "k"),
+    ]
+    for argv in runs:
+        assert run(*argv) == 0, argv
+        out = capsys.readouterr().out
+        assert out and out.endswith("\n"), argv
+        for line in out.splitlines():
+            assert line == line.rstrip(), (argv, line)
+
+
+@pytest.mark.parametrize("argv, want", [
+    (("new", "{d}/a.px", "--size", "1x1"), "wrote {d}/a.px\n"),
+    (("new", "{d}/a.px:x/0", "--size", "1x1"), "wrote {d}/a.px frame x/0\n"),
+    (("compose", "-o", "{d}/c.px", "{d}/src.px@0,0"), "wrote {d}/c.px\n"),
+    (("compose", "-o", "{d}/c.px:q", "{d}/src.px@0,0"), "wrote {d}/c.px frame q\n"),
+    (("crop", "{d}/src.px", "0,0,1,1", "-o", "{d}/c.px"), "wrote {d}/c.px\n"),
+    (("from-png", "{d}/i.png", "-o", "{d}/f.px"), "wrote {d}/f.px\n"),
+    (("from-png", "{d}/i.png", "-o", "{d}/f.px", "--id", "z"), "wrote {d}/f.px (1 frame(s))\n"),
+])
+def test_wrote_line_exact(tmp_path, capsys, argv, want):
+    write(tmp_path, "src.px", "k #000000\nk\n")
+    Image.new("RGBA", (1, 1), (1, 1, 1, 255)).save(tmp_path / "i.png")
+    assert run(*[x.format(d=tmp_path) for x in argv]) == 0
+    assert capsys.readouterr().out == want.format(d=tmp_path)
 
 
 def test_new_bad_frame_id(tmp_path):

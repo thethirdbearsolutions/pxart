@@ -2320,7 +2320,7 @@ def cmd_new(a):
     if key not in doc.resolved():
         fail("E_SELECT", f"new: key {key!r} not in palette (add it with palette --add, or start with --palette)")
     target.grid = [key * w] * h
-    print(write_doc(doc, opath), f"frame {osel}" if osel else "")
+    print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
 
 
 def cmd_put(a):
@@ -2902,7 +2902,7 @@ def cmd_compose(a):
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         pal = doc.resolved()
         target.grid = ["".join(o if pal[o][3] else n for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
-    print(write_doc(doc, opath), f"frame {osel}" if osel else "")
+    print(write_doc(doc, opath) + (f" frame {osel}" if osel else ""))
 
 
 def cmd_dup(a):
@@ -3181,7 +3181,7 @@ def cmd_from_png(a):
         else:
             doc.frames.append(Frame(fid, grid))
     if out:
-        print(write_doc(doc, out), f"({len(imgs)} frame(s))" if named else "")
+        print(write_doc(doc, out) + (f" ({len(imgs)} frame(s))" if named else ""))
     else:
         print(doc.text(), end="")
 
