@@ -244,7 +244,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. A key moved twice is E_BAD_ARG. Color changes set
-      the palette and don't move pixels, so c=#hex and c=d can share a call.
+      the palette and don't move pixels, so c=#hex and c=d can share a call. FILE with no
+      :SEL moves keys in every frame; moves over more than one frame print "applied to N frames".
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
@@ -2240,7 +2241,8 @@ def cmd_recolor(a):
                           for x, c in enumerate(row)) for y, row in enumerate(f.grid)]
     for k, v in renames.items():
         rename_key(doc, k, v)
-    print(write_doc(doc, out))
+    many = f"applied to {len(frames)} frames; " if moves and len(frames) > 1 else ""  # a whole file is easy to miss
+    print(many + write_doc(doc, out))
 
 
 def rename_key(doc, k, v):

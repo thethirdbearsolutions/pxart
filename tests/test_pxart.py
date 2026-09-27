@@ -4391,6 +4391,36 @@ def test_help_documents_still_flags():
     assert "new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: recolor says how many frames
+
+@pytest.mark.parametrize("target, maps, want", [
+    ("{p}", ["k=j"], "applied to 3 frames; wrote {p}"),                  # no selector: every frame
+    ("{p}:a", ["k=j"], "wrote {p}"),                                     # one frame: no count
+    ("{p}", ["k<>j"], "applied to 3 frames; wrote {p}"),
+    ("{p}", ["k=#123456"], "wrote {p}"),                                 # a color change moves no pixels
+    ("{p}", ["k=#123456", "j=r"], "applied to 3 frames; wrote {p}"),
+    ("{p}", ["q=r"], "applied to 3 frames; no change: {p}"),            # q is in no frame: nothing changes
+])
+def test_recolor_says_applied_to_n_frames(tmp_path, capsys, target, maps, want):
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\nr #ff0000\nq #00ff00\n@frame a\nkj\n@frame b\nkr\n"
+              "@frame c\njj\n")
+    assert run("recolor", target.format(p=p), *maps) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == want.format(p=p)
+
+
+def test_recolor_group_selector_counts_its_frames(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\n@frame w/0\nk\n@frame w/1\nk\n@frame x\nk\n")
+    assert run("recolor", f"{p}:w", "k=j") == 0
+    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
+    assert grids(p) == {"w/0": ["j"], "w/1": ["j"], "x": ["k"]}
+
+
+def test_recolor_single_grid_file_no_count(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "k #000000\nj #111111\n\nkj\n")
+    assert run("recolor", p, "k=j") == 0
+    assert capsys.readouterr().out == f"wrote {p}\n"
+
+
 # ---------------------------------------------------------------- GAMES-295: E_KEY_CONFLICT names every key
 
 def conflict_layers(tmp_path):
@@ -4547,7 +4577,7 @@ def test_recolor_rename_whole_file_renames_the_lines_in_place(tmp_path, capsys):
     assert run("recolor", p, "w>Z") == 0
     assert p.read_text() == RENAME.replace("w #", "Z #").replace("kw\n", "kZ\n").replace("ww\n", "ZZ\n")
     assert renders(p) == before
-    assert capsys.readouterr().out == f"wrote {p}\n"
+    assert capsys.readouterr().out == f"applied to 2 frames; wrote {p}\n"
 
 
 def test_recolor_rename_part_keeps_the_old_key(tmp_path, capsys):
