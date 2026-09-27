@@ -9498,9 +9498,10 @@ def test_compose_new_out_unused_conflicting_key_left_out_with_note(tmp_path, cap
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:y@1,0") == 0
     assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "j": (0, 255, 0, 255), "z": (255, 255, 255, 255)}
-    assert capsys.readouterr().out.splitlines()[0] == (f"note: {out} leaves out layer 2 ({b}:y)'s colors for keys "
-                                                       "unused there, which it has in another layer's colors: 'z' "
-                                                       "(layer 1's, the earlier layer's)")
+    assert capsys.readouterr().out.splitlines()[0] == (
+        f"note: {out} leaves out layer 2 ({b}:y)'s colors for z, a key that layer doesn't draw with (so it doesn't "
+        f"conflict), and has other layers' colors for it: 'z' #ff0000 (#ffffff there, from layer 1 ({a}:x), which "
+        "doesn't draw with it either: the earlier layer's)")
 
 
 def keynote_layers(tmp_path):
@@ -9520,11 +9521,13 @@ def test_compose_key_note_names_only_colors_left_out_and_why(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "3x3", f"{a}@0,0", f"{b}@0,1", f"{c}@1,1") == 0
     assert notes_of(capsys.readouterr().out) == [
-        f"note: {out} leaves out layer 1 ({a})'s colors for keys unused there, which it has in another layer's colors: "
-        "'hn' (layer 2's, which that layer uses)",
-        f"note: {out} leaves out layer 2 ({b})'s colors for keys unused there, which it has in another layer's colors: "
-        "'r' (layer 1's, the earlier layer's), 'w' (layer 1's, which that layer uses), 'q' (layer 3's, which that "
-        "layer uses)",
+        f"note: {out} leaves out layer 1 ({a})'s colors for h n, keys that layer doesn't draw with (so they don't "
+        f"conflict), and has other layers' colors for them: 'h' #111111 (#aaaaaa there, from layer 2 ({b}), which "
+        f"draws with it), 'n' #222222 (#bbbbbb there, from layer 2 ({b}), which draws with it)",
+        f"note: {out} leaves out layer 2 ({b})'s colors for r w q, keys that layer doesn't draw with (so they don't "
+        f"conflict), and has other layers' colors for them: 'r' #cccccc (#333333 there, from layer 1 ({a}), which "
+        f"doesn't draw with it either: the earlier layer's), 'w' #f6ecd2 (#eee0b8 there, from layer 1 ({a}), which "
+        f"draws with it), 'q' #123456 (#654321 there, from layer 3 ({c}), which draws with it)",
     ]
 
 
@@ -9579,10 +9582,12 @@ def test_compose_key_note_later_used_key_beats_both_unused(tmp_path, capsys):
     assert run("compose", "-o", out, "--size", "3x1", f"{a}@0,0", f"{b}@1,0", f"{c}@2,0") == 0
     assert pxart.parse(out).palette["z"] == pxart.hex2rgba("#333333")
     assert notes_of(capsys.readouterr().out) == [
-        f"note: {out} leaves out layer 1 ({a})'s colors for keys unused there, which it has in another layer's colors: "
-        "'z' (layer 3's, which that layer uses)",
-        f"note: {out} leaves out layer 2 ({b})'s colors for keys unused there, which it has in another layer's colors: "
-        "'z' (layer 3's, which that layer uses)",
+        f"note: {out} leaves out layer 1 ({a})'s colors for z, a key that layer doesn't draw with (so it doesn't "
+        f"conflict), and has other layers' colors for it: 'z' #111111 (#333333 there, from layer 3 ({c}), which draws "
+        "with it)",
+        f"note: {out} leaves out layer 2 ({b})'s colors for z, a key that layer doesn't draw with (so it doesn't "
+        f"conflict), and has other layers' colors for it: 'z' #222222 (#333333 there, from layer 3 ({c}), which draws "
+        "with it)",
     ]
 
 
@@ -12998,8 +13003,9 @@ def test_variant_clash_rekey_gives_the_scarf_its_own_key(tmp_path, capsys):
     a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
-    assert capsys.readouterr().out.splitlines()[0] == f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' " \
-                                                      f"({b} is unchanged)"
+    assert capsys.readouterr().out.splitlines()[0] == (
+        f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged): r has {out}'s base color but "
+        "other variant colors")
     doc = pxart.parse(out)
     assert doc.frames[0].grid == ["rk", "a."]
     assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}, "night": {"a": pxart.hex2rgba("#83344e")}}
@@ -13061,9 +13067,12 @@ def test_variant_clash_existing_out_rekey_gives_the_scarf_its_own_key(tmp_path, 
     out = write(tmp_path, "o.px", AWNING)
     assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0", "--rekey") == 0
     got = capsys.readouterr().out.splitlines()
-    assert got[0] == f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged)"
-    assert got[1] == (f"note: scarf.px has no @variant dusk (it has night), so the keys layer 1 ({b}:s) adds to {out} "
-                      "(a) stay at base colors in its dusk; --variant-map dusk=night reads its night as dusk")
+    # one line for the file: what --rekey did and why, and the dusk its new key doesn't get
+    assert got[0] == (f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged): r has {out}'s "
+                      f"base color but other variant colors. scarf.px has no @variant dusk (it has night), so the keys "
+                      f"layer 1 ({b}:s) adds to {out} (a) stay at base colors in its dusk; --variant-map dusk=night "
+                      "reads its night as dusk")
+    assert got[1] == f"wrote {out} frame b"
     doc = pxart.parse(out)
     assert doc.get("b").grid == ["a."] and doc.palette["a"] == pxart.hex2rgba("#c4473a")
     assert doc.variants == {"dusk": {"r": pxart.hex2rgba("#a33a4c")}}  # the scarf stays at its base color at dusk
@@ -13210,8 +13219,9 @@ def test_left_out_two_layers_of_one_file_one_line(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "3x1", f"{a}:x@0,0", f"{a}:y@1,0", f"{b}:z@2,0") == 0
     lines = [l for l in capsys.readouterr().out.splitlines() if "leaves out" in l]
-    assert lines == [f"note: {out} leaves out layers 1-2 ({a})'s colors for keys unused there, which it has in another "
-                     "layer's colors: 'z' (layer 3's, which that layer uses)"]
+    assert lines == [f"note: {out} leaves out layers 1-2 ({a})'s colors for z, a key those layers don't draw with (so it "
+                     f"doesn't conflict), and has other layers' colors for it: 'z' #ffffff (#ff0000 there, from layer "
+                     f"3 ({b}:z), which draws with it)"]
 
 
 def test_left_out_key_drawn_elsewhere_in_its_file_is_a_warning(tmp_path, capsys):
@@ -13220,9 +13230,9 @@ def test_left_out_key_drawn_elsewhere_in_its_file_is_a_warning(tmp_path, capsys)
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
     assert capsys.readouterr().out.splitlines()[0] == (
-        f"WARNING: {out} leaves out layer 1 ({a}:x)'s colors for keys unused there, which it has in another layer's "
-        f"colors: 'l' (layer 2's, which that layer uses; a.px draws with it); compose --rekey keeps l under free keys "
-        f"in {out}")
+        f"WARNING: {out} leaves out layer 1 ({a}:x)'s colors for l, a key that layer doesn't draw with (so it doesn't "
+        f"conflict), and has other layers' colors for it: 'l' #ffff00 (#ff0000 there, from layer 2 ({b}:z), which "
+        f"draws with it; a.px needs it: its frame lamp draws with it); compose --rekey keeps l under free keys in {out}")
 
 
 def test_left_out_relisted_key_is_a_warning(tmp_path, capsys):
@@ -13230,7 +13240,8 @@ def test_left_out_relisted_key_is_a_warning(tmp_path, capsys):
     b = write(tmp_path, "b.px", "l #ff0000\n@frame z\nl\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0") == 0
-    assert "(layer 2's, which that layer uses; @variant night relists it unchanged)" in capsys.readouterr().out
+    assert (f"'l' #ffff00 (#ff0000 there, from layer 2 ({b}:z), which draws with it; a.px needs it: @variant night "
+            "relists it unchanged)") in capsys.readouterr().out
 
 
 def test_left_out_key_kept_out_of_a_dark_variant_is_a_warning(tmp_path, capsys):
@@ -13239,8 +13250,8 @@ def test_left_out_key_kept_out_of_a_dark_variant_is_a_warning(tmp_path, capsys):
     b = write(tmp_path, "b.px", "f #ff0000\n@frame z\nf\n")
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "4x1", f"{a}:x@0,0", f"{b}:z@3,0") == 0
-    assert "'f' (layer 2's, which that layer uses; @variant dark keeps it while it recolors most keys)" \
-        in capsys.readouterr().out
+    assert (f"'f' #ffe07a (#ff0000 there, from layer 2 ({b}:z), which draws with it; a.px needs it: @variant dark keeps "
+            "it while it recolors most keys)") in capsys.readouterr().out
 
 
 def test_left_out_plain_key_is_a_note(tmp_path, capsys):
@@ -13258,7 +13269,8 @@ def test_left_out_warning_rekey_keeps_the_key(tmp_path, capsys):
     out = tmp_path / "o.px"
     assert run("compose", "-o", out, "--size", "2x1", f"{a}:x@0,0", f"{b}:z@1,0", "--rekey") == 0
     got = capsys.readouterr().out
-    assert got.splitlines()[0] == f"note: --rekey gives {a}'s keys free ones in {out}: 'l>a' ({a} is unchanged)"
+    assert got.splitlines()[0] == (f"note: --rekey gives {a}'s keys free ones in {out}: 'l>a' ({a} is unchanged): its "
+                                   "layers here don't draw with l, but a.px needs it (l: its frame lamp draws with it)")
     assert "WARNING" not in got and "leaves out" not in got
     assert pxart.parse(out).palette == {"k": (0, 0, 0, 255), "l": (255, 0, 0, 255), "a": (255, 255, 0, 255)}
 
@@ -13277,14 +13289,15 @@ def test_special_keys(tmp_path):
                                               "@variant night\nk #000011\nl #ffff00\nw #111111\nq #222222\n"
                                               "@frame a\nk\n@frame b\nq\n"))
     why = pxart.special_keys(doc)
-    assert why == {"k": ["s.px draws with it"], "q": ["s.px draws with it"], "l": ["@variant night relists it unchanged"],
+    assert why == {"k": ["its frame a draws with it"], "q": ["its frame b draws with it"],
+                   "l": ["@variant night relists it unchanged"],
                    "f": ["@variant night keeps it while it recolors most keys"]}
 
 
 def test_special_keys_a_variant_recoloring_few_keeps_nothing_special(tmp_path):
     doc = pxart.parse(write(tmp_path, "s.px", "k #000000\na #111111\nb #222222\nc #333333\n@variant v\nk #000011\n"
                                               "@frame a\nk\n"))
-    assert pxart.special_keys(doc) == {"k": ["s.px draws with it"]}
+    assert pxart.special_keys(doc) == {"k": ["its frame a draws with it"]}
 
 
 # ---------------------------------------------------------------- compose: palette comments come along
@@ -13739,7 +13752,7 @@ def test_copy_to_new_keys_without_map_stay_base_and_say_so(tmp_path, capsys):
     s, d = scarf_market(tmp_path)
     assert run("frames", f"{s}:walk", "--copy-to", d) == 0
     assert "q" not in pxart.parse(d).variants["dusk"]
-    assert (f"note: keeper.px has no @variant dusk (it has night), so the keys FILE ({s}:walk) adds to {d} (q) stay at "
+    assert (f". keeper.px has no @variant dusk (it has night), so the keys FILE ({s}:walk) adds to {d} (q) stay at "
             "base colors in its dusk; --variant-map dusk=night reads its night as dusk") in capsys.readouterr().out
 
 
@@ -13958,3 +13971,197 @@ def test_help_documents_variant_aware_imports(capsys):
         assert "--variant-map NAME=V1,V2" in cmd_help(capsys, cmd)
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`frames keeper.px:walk --copy-to party.px --rekey --variant-map dusk=night` reads the keeper's night" in readme
+
+
+# ---------------------------------------------------------------- compose's report: one summary per source file
+# The crossover repro: the market's tiles and the kid don't draw with S, the keeper does (in another color). The note
+# for the market said its S was left out "for layer 3's" while layer 3's conflict didn't list S; a WARNING said the
+# kid's file "draws with" S, meaning frames that weren't being composed.
+
+R_TILES = "pxart 1\nk #2b1e2f\ng #8f8a96\nS #b9745c\n@frame cobble\ngk\n@frame sign\nSk\n"
+R_FOLK = "pxart 1\nk #2b1e2f\np #d8718c\nS #b9745c\n@frame kid/0\npk\n@frame fm/0\nSk\n@frame fm/1\nkS\n"
+R_KEEPER = "pxart 1\nk #2a1f33\nS #c98a6e\ny #f2c14e\n@frame idle/0\nSk\n"
+
+
+def report_packs(tmp_path):
+    return (write(tmp_path, "tiles.px", R_TILES), write(tmp_path, "folk.px", R_FOLK),
+            write(tmp_path, "keeper.px", R_KEEPER))
+
+
+def report_compose(tmp_path, *more):
+    t, f, k = report_packs(tmp_path)
+    out = tmp_path / "dock.px"
+    code = run("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0", *more)
+    return code, out, (t, f, k)
+
+
+def test_report_failed_compose_prints_only_the_errors(tmp_path, capsys):
+    code, out, (t, f, k) = report_compose(tmp_path)
+    got = capsys.readouterr()
+    assert code == 1 and got.out == "" and not out.exists()
+
+
+def test_report_error_lists_what_rekey_moves_and_why(tmp_path, capsys):
+    code, out, (t, f, k) = report_compose(tmp_path)
+    capsys.readouterr()
+    msg = run_err("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0")
+    assert msg.startswith(f"compose: layer 3 ({k}:idle/0): E_KEY_CONFLICT: 1 key of this layer is another color in the "
+                          f"new {out}: 'k' #2a1f33 (#2b1e2f there, from layer 1 ({t}:cobble))")
+    assert "'S'" not in msg.split("; to keep")[0]  # OUT has the keeper's S: no conflict for it
+
+
+def test_report_error_moves_are_the_moves_rekey_makes(tmp_path, capsys):
+    t, f, k = report_packs(tmp_path)
+    out = tmp_path / "dock.px"
+    argv = ["compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0"]
+    offered = [m for m in fix_of(run_err(*argv)) if ">" in m]
+    capsys.readouterr()
+    assert run(*argv, "--rekey") == 0
+    line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {k}'s" in l)
+    assert line.split(": ", 2)[2].split(" (")[0] == " ".join(f"'{m}'" for m in offered)
+
+
+def test_report_note_for_the_tiles_says_why_s_is_no_conflict(tmp_path, capsys):
+    # Tiles with no frame that draws with S: their S is left out, and the line says why that's no conflict.
+    t, f, k = report_packs(tmp_path)
+    t = write(tmp_path, "tiles.px", "pxart 1\nk #2b1e2f\ng #8f8a96\nS #b9745c\n@frame cobble\ngk\n")
+    out = tmp_path / "dock.px"
+    assert run("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0",
+               "--rekey") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (f"note: {out} leaves out layer 1 ({t}:cobble)'s colors for S, a key that layer doesn't draw "
+                        f"with (so it doesn't conflict), and has other layers' colors for it: 'S' #b9745c (#c98a6e "
+                        f"there, from layer 3 ({k}:idle/0), which draws with it)")
+    assert len([l for l in lines if str(t) in l]) == 1
+
+
+def test_report_tiles_rekey_keeps_s_needed_by_a_frame_not_composed(tmp_path, capsys):
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (f"note: --rekey gives {t}'s keys free ones in {out}: 'S>b' ({t} is unchanged): its layers here "
+                        "don't draw with S, but tiles.px needs it (S: its frame sign draws with it)")
+
+
+def test_report_tiles_need_s_only_in_a_frame_not_composed(tmp_path, capsys):
+    # Without --rekey but with the keeper's k renamed first, the compose succeeds: the tiles' sign draws with S, so
+    # the tiles line is a WARNING naming that frame, not the composed cobble.
+    t, f, k = report_packs(tmp_path)
+    k2 = write(tmp_path, "keeper2.px", R_KEEPER.replace("k #2a1f33", "j #2a1f33").replace("Sk", "Sj"))
+    out = tmp_path / "dock.px"
+    assert run("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k2}:idle/0@4,0") == 0
+    lines = capsys.readouterr().out.splitlines()
+    tiles = next(l for l in lines if f"layer 1 ({t}:cobble)'s colors" in l)
+    assert tiles.startswith("WARNING:") and "tiles.px needs it: its frame sign draws with it" in tiles
+    assert "cobble draws" not in tiles and f"compose --rekey keeps S under free keys in {out}" in tiles
+    folk = next(l for l in lines if f"layer 2 ({f}:kid/0)'s colors" in l)
+    assert "folk.px needs it: its frames fm/0, fm/1 draw with it" in folk and "kid/0 draw" not in folk
+
+
+def test_report_one_line_per_source_file(tmp_path, capsys):
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    lines = [l for l in capsys.readouterr().out.splitlines() if l.startswith(("note:", "WARNING:"))]
+    for path in (t, f, k):
+        assert len([l for l in lines if str(path) in l.split(" leaves out ")[0].split(" free ones")[0]]) <= 1
+
+
+def test_report_rekey_and_left_out_of_one_file_share_its_line(tmp_path, capsys):
+    # The folk file: --rekey keeps its needed S under a free key; that is the one line for the file.
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    folk = [l for l in lines if str(f) in l]
+    assert len(folk) == 1 and folk[0].startswith(f"note: --rekey gives {f}'s keys free ones in {out}: 'S>")
+    assert "its layers here don't draw with S, but folk.px needs it (S: its frames fm/0, fm/1 draw with it)" in folk[0]
+
+
+def test_report_keeper_line_says_its_key_moved_for_its_color(tmp_path, capsys):
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {k}'s" in l)
+    assert line == f"note: --rekey gives {k}'s keys free ones in {out}: 'k>a' ({k} is unchanged)"
+
+
+def test_report_rekey_reasons_grouped(tmp_path, capsys):
+    # One file whose keys move for all three reasons: another color, other variant colors, needed elsewhere.
+    a = write(tmp_path, "a.px", "r #c4473a\nk #000000\nl #ffff00\n@variant dusk\nr #a33a4c\n@frame a\nrk\n"
+                                "@frame b\nl.\n")
+    b = write(tmp_path, "b.px", "r #c4473a\nk #111111\nl #fff000\n@variant night\nr #83344e\n@frame s\nrk\n"
+                                "@frame lamp\nl.\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
+    line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {b}'s" in l)
+    assert line == (f"note: --rekey gives {b}'s keys free ones in {out}: 'k>a' 'r>b' 'l>c' ({b} is unchanged): k is "
+                    f"another color there; r has {out}'s base color but other variant colors; its layers here don't "
+                    "draw with l, but b.px needs it (l: its frame lamp draws with it)")
+
+
+def test_report_error_names_the_other_reasons(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "r #c4473a\nk #000000\nl #ffff00\n@variant dusk\nr #a33a4c\n@frame a\nrk\n"
+                                "@frame b\nl.\n")
+    b = write(tmp_path, "b.px", "r #c4473a\nk #111111\nl #fff000\n@variant night\nr #83344e\n@frame s\nrk\n"
+                                "@frame lamp\nl.\n")
+    out = tmp_path / "o.px"
+    msg = run_err("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1")
+    assert (f"add --rekey: compose then gives this layer's keys free ones in the new {out} ('k>a' 'r>b' 'l>c'; r: the "
+            f"new {out}'s base color but other variant colors; l: unused here, but b.px needs it) and leaves {b} as it "
+            "is") in msg
+    assert fix_of(msg)[:5] == ["recolor", str(b), "k>a", "r>b", "l>c"]
+
+
+def test_report_recolor_recipe_matches_rekey(tmp_path, capsys):
+    # Recoloring a copy with the error's recipe and composing from it looks the same as --rekey, in every variant.
+    a = write(tmp_path, "a.px", "r #c4473a\nk #000000\nl #ffff00\n@variant dusk\nr #a33a4c\n@frame a\nrk\n"
+                                "@frame b\nl.\n")
+    b = write(tmp_path, "b.px", "r #c4473a\nk #111111\nl #fff000\n@variant night\nr #83344e\n@frame s\nrk\n"
+                                "@frame lamp\nl.\n")
+    o1, o2 = tmp_path / "o1.px", tmp_path / "o2.px"
+    fix = fix_of(run_err("compose", "-o", o1, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1"))
+    assert run(*fix) == 0
+    assert run("compose", "-o", o1, "--size", "2x2", f"{a}:a@0,0", f"{fix[-1]}:s@0,1") == 0
+    assert run("compose", "-o", o2, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
+    d1, d2 = pxart.parse(o1), pxart.parse(o2)
+    assert d1.frames[0].grid == d2.frames[0].grid
+    for v in (None, "dusk", "night"):
+        assert list(pxart.pixels(d1.image(d1.frames[0], v))) == list(pxart.pixels(d2.image(d2.frames[0], v)))
+
+
+def test_report_listed_helper():
+    assert pxart.listed([]) == ""
+    assert pxart.listed(["a"]) == "a"
+    assert pxart.listed(["a", "b", "c", "d"]) == "a, b, c, d"
+    assert pxart.listed(["a", "b", "c", "d", "e"]) == "a, b, c and 2 more"
+    assert pxart.listed(list("abcdefghij"), most=2) == "a, b and 8 more"
+
+
+def test_report_special_keys_names_frames(tmp_path):
+    doc = pxart.parse(write(tmp_path, "f.px", R_FOLK))
+    why = pxart.special_keys(doc)
+    assert why["S"] == ["its frames fm/0, fm/1 draw with it"] and why["p"] == ["its frame kid/0 draws with it"]
+
+
+def test_report_special_keys_many_frames(tmp_path):
+    text = "k #000000\n" + "".join(f"@frame w/{i}\nk\n" for i in range(9))
+    why = pxart.special_keys(pxart.parse(write(tmp_path, "m.px", text)))
+    assert why["k"] == ["its frames w/0, w/1, w/2 and 6 more draw with it"]
+
+
+def test_report_implicit_frame_named_by_file(tmp_path):
+    why = pxart.special_keys(pxart.parse(write(tmp_path, "ant.px", "k #000000\nk\n")))
+    assert why["k"] == ["its frame ant draws with it"]
+
+
+def test_report_copy_to_one_line_for_vclash_and_base_note(tmp_path, capsys):
+    s = write(tmp_path, "keeper.px", "r #c4473a\nq #fff4b0\n@variant night\nr #83344e\n@frame w/0\nrq\n")
+    d = write(tmp_path, "party.px", "r #c4473a\n@variant dusk\nr #a33a4c\n@frame a\nr\n")
+    assert run("frames", s, "--copy-to", d) == 0
+    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith("note:")]
+    assert len(notes) == 1 and "draws 'r' #c4473a" in notes[0] and ". keeper.px has no @variant dusk" in notes[0]
+
+
+def test_help_documents_the_compose_report(capsys):
+    doc = " ".join(pxart.__doc__.split())
+    assert "compose reports once per source file" in doc
+    assert "which of the file's frames draw with a key it lost" in doc
+
+
+def test_readme_documents_the_compose_report():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "it reports one line per source file, with what `--rekey` moved and why" in readme

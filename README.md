@@ -172,7 +172,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
   comments on their key and `@variant` lines; a key its file needs (drawn in other frames,
-  kept lit by a variant) that it has to leave out is a `WARNING`; each variant colors only
+  named, or kept lit by a variant) that it has to leave out is a `WARNING`; it reports one
+  line per source file, with what `--rekey` moved and why, and an `E_KEY_CONFLICT` offers
+  the same moves; each variant colors only
   the layers whose file has it, a note says which stay at their base colors, and
   `--variant-map dusk=night,dark` merges several files' variants into one; `--under` draws
   the layers behind the frame that's there, in its empty pixels; a key a layer has in
