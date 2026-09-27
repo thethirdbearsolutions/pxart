@@ -141,14 +141,26 @@ pxart scene --size 656x192 --scale 1 -o panels.x4.png dock.x4.png@0,0 dock-dusk.
 
 # ---------------------------------------------------------------------------------------
 # 06-scene: a four-layer .map (sky, tree line, field tiles, trees) with the hero on it.
+# The README walks these in order; each render is 2x.
 stage 06-scene rooms/glade.map pal/far.px pal/mid.px pal/field.px pal/hero.px \
   layers/far.px layers/mid.px tiles/field.px tiles/tree.px sprites/hero.px
 txt check.txt check rooms/glade.map
-hero=(tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127)
-txt scene.txt scene --map rooms/glade.map --scale 1 -o glade.png "${hero[@]}"
-pxart scene --map rooms/glade.map --scale 2 -o glade.x2.png "${hero[@]}" 2> /dev/null
-pxart scene --map rooms/glade.map --scale 1 --variant dusk -o glade-dusk.png "${hero[@]}" 2> /dev/null
-pxart scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png "${hero[@]}" 2> /dev/null
+# the README's layers picture: the map's first 1, 2, 3 and 4 layers, 1x, in a 2x2 grid
+for n in 1 2 3 4; do
+  awk -v n=$n '/^---$/ { k++ } k < n' rooms/glade.map > rooms/_first$n.map
+  pxart scene --map rooms/_first$n.map --size 256x224 --scale 1 -o _layers$n.png > /dev/null 2>&1
+done
+pxart scene --size 528x464 --scale 1 -o layers.png \
+  _layers1.png@0,0 _layers2.png@272,0 _layers3.png@0,240 _layers4.png@272,240
+rm rooms/_first?.map _layers?.png
+txt scene.txt scene --map rooms/glade.map --scale 2 -o glade.x2.png \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127
+txt scene-dusk.txt scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127
+txt compose.txt compose --map rooms/glade.map -o glade.px --rekey \
+  tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127 --replace
+txt check-glade.txt check glade.px
+pxart scene --size 1040x448 --scale 1 -o panels.x2.png glade.x2.png@0,0 glade-dusk.x2.png@528,0
 
 # ---------------------------------------------------------------------------------------
 # 07-import: lay the beetle's frames out as a PNG sheet, slice it back with from-png --grid,
