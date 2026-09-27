@@ -1,0 +1,33 @@
+# Far layer: sky, clouds, hazy mountains. 14 colors + dusk variant.
+1 #3e6fc0
+2 #5a8ed4
+3 #7eaee2
+4 #a8cdea
+5 #cfe6ee
+c #f6f8f2
+d #c4d2e6
+# distant mountains: blue-violet haze, snow
+7 #8c9cc8
+8 #6c7cb0
+9 #54609a
+a #e8eef8
+# near ridge: teal-green hills
+b #5e8e8c
+e #447272
+f #325a60
+
+@variant dusk
+1 #2c2458
+2 #4c2e6a
+3 #8a3e70
+4 #d06a64
+5 #f4a860
+c #ffd8a0
+d #c47a80
+7 #7a5a88
+8 #5c4478
+9 #423264
+a #f0b8a8
+b #4a4a6a
+e #363a5a
+f #262a48

@@ -120,6 +120,17 @@ pxart scene --size 80x48 --scale 1 -o dock-dusk.png dock.px%dusk@0,0
 pxart scene --size 80x48 --scale 4 -o dock-dusk.x4.png dock.px%dusk@0,0
 
 # ---------------------------------------------------------------------------------------
+# 06-scene: a four-layer .map (sky, tree line, field tiles, trees) with the hero on it.
+stage 06-scene rooms/glade.map pal/far.px pal/mid.px pal/field.px pal/hero.px \
+  layers/far.px layers/mid.px tiles/field.px tiles/tree.px sprites/hero.px
+txt check.txt check rooms/glade.map
+hero=(tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127)
+txt scene.txt scene --map rooms/glade.map --scale 1 -o glade.png "${hero[@]}"
+pxart scene --map rooms/glade.map --scale 2 -o glade.x2.png "${hero[@]}" 2> /dev/null
+pxart scene --map rooms/glade.map --scale 1 --variant dusk -o glade-dusk.png "${hero[@]}" 2> /dev/null
+pxart scene --map rooms/glade.map --scale 2 --variant dusk -o glade-dusk.x2.png "${hero[@]}" 2> /dev/null
+
+# ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"
 cp -R "$WORK"/. "$DEST"/
 echo "built examples into $DEST"
