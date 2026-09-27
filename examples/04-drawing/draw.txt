@@ -1,0 +1,22 @@
+$ pxart new chest.px --size 24x20 --palette palette.px
+wrote chest.px
+$ pxart rect chest.px b 2,9,20,10 --fill
+painted 200 px; wrote chest.px
+$ pxart poly chest.px b 3,9 5,3 18,3 20,9 --fill
+painted 94 px; wrote chest.px
+$ pxart shade chest.px --ramp Bhbo --keys b --light nw --strength 3
+changed 100 px: 7->B, 57->h, 36->o; wrote chest.px
+$ pxart line chest.px G 2,9 21,9 --width 2
+painted 40 px; wrote chest.px
+$ pxart rect chest.px G 5,3,2,16 --fill
+painted 28 px; wrote chest.px
+$ pxart rect chest.px G 17,3,2,16 --fill
+painted 28 px; wrote chest.px
+$ pxart flood chest.px Y 5,15
+painted 96 px; wrote chest.px
+$ pxart ellipse chest.px y 11.5,10.5,2.5,2.5 --fill
+painted 24 px; wrote chest.px
+$ pxart poly chest.px r 11,9 12,9 12,12 11,12 --fill
+painted 8 px; wrote chest.px
+$ pxart outline chest.px --key k --lit B
+changed 66 px: 36->k, 30->B; wrote chest.px

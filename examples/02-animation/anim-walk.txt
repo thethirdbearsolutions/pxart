@@ -1,0 +1,9 @@
+$ pxart anim hero.px:walk/down
+  walk/down/0                110ms  vs walk/down/7: shift -1,+1 then 72px (20%) (no shift: 260px)
+  walk/down/1                110ms  vs walk/down/0: shift +0,+1 then 26px (7%) (no shift: 205px)
+  walk/down/2                110ms  vs walk/down/1: shift -1,-1 then 82px (23%) (no shift: 278px)
+  walk/down/3                110ms  vs walk/down/2: shift +0,-1 then 51px (14%) (no shift: 209px)
+  walk/down/4                110ms  vs walk/down/3: shift +1,+1 then 67px (18%) (no shift: 283px)
+  walk/down/5                110ms  vs walk/down/4: shift +0,+1 then 26px (7%) (no shift: 205px)
+  walk/down/6                110ms  vs walk/down/5: shift +1,-1 then 84px (23%) (no shift: 253px)
+  walk/down/7                110ms  vs walk/down/6: shift +0,-1 then 52px (14%) (no shift: 221px)

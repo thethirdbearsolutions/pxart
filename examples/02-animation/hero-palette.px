@@ -1,0 +1,41 @@
+# Hero: young swordsman. 15 colors, 4bpp.
+# outline is a deep plum, not black; each ramp shifts cooler into shadow, warmer into light.
+o #2b1d32
+# skin: peach -> rose -> cool brown-mauve
+S #f8d6ac
+s #e0a07a
+k #9e5a52
+# hair: auburn, warm orange highlight -> wine shadow
+H #f4a04c
+h #c8562e
+r #74283a
+# tunic: teal-cyan light -> blue -> indigo shadow
+T #74c8d4
+t #3a86ac
+n #2c4a82
+# leather: warm tan -> dark brown-violet
+B #a26c46
+b #5c3834
+# steel + eye whites, gold trim
+W #f4f6ee
+M #98a2bc
+g #f0c05a
+
+# dusk: ~30% down, shadows toward plum-blue, lit tones pick up the sunset orange.
+# Kept a step brighter than the field's dusk so the hero still reads on the grass.
+@variant dusk
+o #1c1428
+S #e4ae92
+s #aa6c6a
+k #5e3848
+H #e4844e
+h #903c38
+r #4c1e34
+T #6c8eb2
+t #36598a
+n #22305e
+B #7c4c48
+b #3a2430
+W #dccad0
+M #6c6a8e
+g #d49250
