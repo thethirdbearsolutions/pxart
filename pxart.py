@@ -3387,8 +3387,8 @@ def cmd_recolor(a):
             fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} stays one: {said[v]!r} leaves it in the "
                  f"palette ({why}); name a free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: "
                  f"{' '.join(free) or 'none'})")
-        fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one ({fmt_color(pal[v])}): name a free "
-             f"key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: {' '.join(free) or 'none'})"
+        fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one ({fmt_color(pal[v])}): name a "
+             f"free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: {' '.join(free) or 'none'})"
              + (f", or free {v!r} in the same call: '{v}>{free[0]}' {m!r}" if free and v in doc.palette else ""))
     for f in frames:
         x0, y0, w, h = rects[id(f)]
@@ -4955,7 +4955,8 @@ def cmd_palette(a):
     if a.order:
         given = [f for f, v in (("--add", a.add), ("--variant", a.variant), ("--keep", a.keep), ("--hoist", a.hoist),
                                 ("--extract-to", a.extract_to), ("--export", a.export), ("--comment", notes),
-                                ("--derive-from", a.derive_from), ("--remove", a.remove), ("--import", a.import_)) if v] \
+                                ("--derive-from", a.derive_from), ("--remove", a.remove),
+                                ("--import", a.import_)) if v] \
             + (["--comment-header"] if a.comment_header is not None else [])
         if given:
             fail("E_BAD_ARG", f"--order moves FILE's key lines: give it alone, not with {', '.join(given)}")
@@ -5461,10 +5462,11 @@ def import_palette(doc, pal):
     if bad:
         moves = new_keys(bad, mine, theirs, set(mine) | set(theirs))
         each = ", ".join(f"{k!r} {fmt_color(mine[k])} ({pal}: {fmt_color(theirs[k])})" for k in bad)
-        fix = (f"; give {doc.path}'s {'ones' if len(bad) > 1 else 'one'} free keys first (no pixel changes color): "
-               f"pxart recolor {shlex.quote(str(doc.path))} "
+        fix = (f"; give {doc.path}'s {'keys free ones' if len(bad) > 1 else 'key a free one'} first (no pixel changes "
+               f"color): pxart recolor {shlex.quote(str(doc.path))} "
                + " ".join(shlex.quote(f"{k}>{v}") for k, v in moves.items())
-               + f", then palette {doc.path} --import {pal}") if moves else             "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
+               + f", then palette {doc.path} --import {pal}") if moves else \
+            "; there aren't enough free keys to rename them: repaint some as keys both have in one color"
         fail("E_KEY_CONFLICT", f"--import {pal}: {len(bad)} key{'s' * (len(bad) > 1)} of {doc.path} "
              f"{'are other colors' if len(bad) > 1 else 'is another color'} in {pal}: {each}{fix}", path=doc.path)
     names = variant_names(doc)
@@ -5912,7 +5914,8 @@ def sheet_cells(path, img, a):
     if not cols or not rows:
         fail("E_BAD_ARG", f"--grid {a.grid}: {path} is {img.width}x{img.height}, smaller than one cell")
     notes = []
-    for what, box in (("right", (cols * w, 0, img.width, img.height)), ("bottom", (0, rows * h, img.width, img.height))):
+    for what, box in (("right", (cols * w, 0, img.width, img.height)),
+                      ("bottom", (0, rows * h, img.width, img.height))):
         if box[0] < box[2] and box[1] < box[3]:
             strip = f"the {box[2] - box[0] if what == 'right' else box[3] - box[1]}px strip at the {what}"
             if img.crop(box).getchannel("A").getbbox():
@@ -6283,7 +6286,8 @@ def parser(describe=True):
     p.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
     p.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
     p.add_argument("--match", metavar="FILE[%VARIANT]",
-                   help="with --derive-from: first map each channel as FILE's base->VARIANT does (a fitted gain+offset)")
+                   help="with --derive-from: first map each channel as FILE's base->VARIANT does (a fitted "
+                        "gain and offset)")
     p.add_argument("--lift-darks", action="store_true",
                    help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
     p.add_argument("--comment", nargs="+", action="append", metavar="KEY TEXT",

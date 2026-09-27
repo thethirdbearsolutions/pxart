@@ -18009,7 +18009,7 @@ def test_import_conflict(tmp_path):
     before = b.read_text()
     msg = run_err("palette", b, "--import", pal)
     assert "E_KEY_CONFLICT" in msg and f"1 key of {b} is another color in {pal}: 't' #ff0000 ({pal}: #548789)" in msg
-    assert f"give {b}'s one free keys first (no pixel changes color): pxart recolor {b} 't>a', then palette {b} " \
+    assert f"give {b}'s key a free one first (no pixel changes color): pxart recolor {b} 't>a', then palette {b} " \
         f"--import {pal}" in msg
     assert b.read_text() == before
 
@@ -18034,7 +18034,7 @@ def test_import_conflict_with_an_earlier_import(tmp_path):
 def test_import_several_conflicts_get_distinct_keys(tmp_path):
     pal, b = imp(tmp_path, boy="pxart 1\no #ff0000\nt #00ff00\na #0000ff\n\nota\n")
     msg = run_err("palette", b, "--import", pal)
-    assert "2 keys of" in msg and "'o>b' 't>c'" in msg
+    assert "2 keys of" in msg and "'o>b' 't>c'" in msg and f"give {b}'s keys free ones first" in msg
 
 
 def test_import_already(tmp_path, capsys):
