@@ -855,7 +855,7 @@ ERROR CODES
   Frames of different sizes in one animation are allowed; check notes them.
 """
 import argparse, contextlib, csv, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 RECIPES = """RECIPES (pxart help recipes)
   Six workflows, end to end. Each runs as written from a folder holding the files it names;
@@ -1717,6 +1717,36 @@ def upscale(img, scale, grid=False, rulers=False):
     return out
 
 
+LINE_H = 12  # a strip label line: the pixel font's 11px and a pixel between
+
+
+def strip_font():
+    """anim's strip labels: Pillow's pixel font (its spaces and colons show at 1x, where the default's small
+    FreeType face draws '(no shift: 79px)' as '(noshift 79px)'); the default where Pillow has no pixel font."""
+    try:
+        return ImageFont.load_default_imagefont()
+    except AttributeError:
+        return ImageFont.load_default()
+
+
+def fit_lines(d, text, width, font):
+    """text in lines no wider than width px, broken at spaces (a word wider than that alone is broken where it must
+    be); [] for ''."""
+    lines = []
+    for word in text.split():
+        cand = f"{lines[-1]} {word}" if lines else word
+        if lines and d.textlength(cand, font=font) <= width:
+            lines[-1] = cand
+            continue
+        while d.textlength(word, font=font) > width and len(word) > 1:
+            n = max(1, max(k for k in range(1, len(word) + 1) if d.textlength(word[:k], font=font) <= width)
+                    if d.textlength(word[:1], font=font) <= width else 1)
+            lines.append(word[:n])
+            word = word[n:]
+        lines.append(word)
+    return lines
+
+
 def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
@@ -2525,10 +2555,6 @@ def cmd_anim(a):
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
         save_image(gif[0], a.o, save_all=True, append_images=gif[1:], duration=durs, loop=0, disposal=2)
-        pad, lab, lab2 = 8, 14, 26
-        size = (pad + len(framed) * (w * S + pad), pad + 2 * (h * S + pad) + lab + lab2)
-        strip = Image.new("RGBA", size, (30, 30, 36, 255))
-        d = ImageDraw.Draw(strip)
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
@@ -2541,6 +2567,7 @@ def cmd_anim(a):
         # frame whose shift would light them
         moves = [motion(*pairs[i][:2], wrap=pairs[i][2], legs=legs) if m[4] is None and m[:2] != (0, 0) and not m[5]
                  else m for i, m in enumerate(moves)]
+    cells = []  # per frame: (framed, what changed, its label, head, alt), for the strip
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
         dx, dy, n_shift, n_none, still, wrapped = moves[i]
@@ -2558,17 +2585,28 @@ def cmd_anim(a):
             base, head = prev, f"no shift then {px(n_none)}"
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
-        if not a.o:
-            continue
-        x = pad + i * (w * S + pad)
-        strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
-        d.text((x, pad + h * S + 1), f"{its[i].label} {durs[i]}ms", fill=(220, 220, 220, 255))
-        y2 = pad * 2 + h * S + lab
-        strip.alpha_composite(upscale(on_bg(diff_frame(base, cur), w, h, "#1e1e24"), S, grid=True), (x, y2))
-        d.text((x, y2 + h * S + 1), head, fill=(255, 120, 220, 255))
-        d.text((x, y2 + h * S + 13), alt, fill=(200, 140, 190, 255))
+        cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
     if not a.o:
         return
+    # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
+    # readout's own words (its spaces and colons too), the label rows as tall as the most lines any cell needs
+    pad, font = 8, strip_font()
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    wrap = [[fit_lines(probe, t, w * S, font) for t in c[2:]] for c in cells]
+    n1, n2 = max(len(x[0]) for x in wrap), max(len(x[1]) + len(x[2]) for x in wrap)
+    size = (pad + len(cells) * (w * S + pad), pad + 2 * (h * S + pad) + (n1 + n2) * LINE_H + 2)
+    strip = Image.new("RGBA", size, (30, 30, 36, 255))
+    d = ImageDraw.Draw(strip)
+    for i, ((fr, changed, *_), (label, head, alt)) in enumerate(zip(cells, wrap)):
+        x = pad + i * (w * S + pad)
+        strip.alpha_composite(upscale(fr, S, grid=True), (x, pad))
+        for j, line in enumerate(label):
+            d.text((x, pad + h * S + 1 + j * LINE_H), line, font=font, fill=(220, 220, 220, 255))
+        y2 = pad * 2 + h * S + n1 * LINE_H
+        strip.alpha_composite(upscale(on_bg(changed, w, h, "#1e1e24"), S, grid=True), (x, y2))
+        for j, (line, color) in enumerate([(l, (255, 120, 220, 255)) for l in head]
+                                          + [(l, (200, 140, 190, 255)) for l in alt]):
+            d.text((x, y2 + h * S + 1 + j * LINE_H), line, font=font, fill=color)
     sp = pathlib.Path(a.o).with_suffix(".strip.png")
     save_image(strip, sp, "the strip")
     print("wrote", a.o, "and", sp)

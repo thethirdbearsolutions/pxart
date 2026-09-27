@@ -2124,7 +2124,9 @@ def test_big_upper_body_lift_is_unshifted(tmp_path):
 def test_strip_png_is_taller_for_the_second_label_line(tmp_path, capsys):
     anim_lines(tmp_path, capsys, BOB_0, BOB_1)
     strip = Image.open(tmp_path / "a.strip.png")
-    assert strip.height == 8 + 2 * (14 * 8 + 8) + 14 + 26
+    # the frame label, then the head and the '(no shift: ...)' line: at least three label lines
+    assert strip.height >= 8 + 2 * (14 * 8 + 8) + 3 * pxart.LINE_H + 2
+    assert (strip.height - (8 + 2 * (14 * 8 + 8)) - 2) % pxart.LINE_H == 0
 
 
 def test_help_documents_breathing_strip():
@@ -23594,3 +23596,94 @@ def test_keep_spacing_unit(tmp_path):
     doc.frames = [f for f in doc.frames if f.id != "a/0"]
     pxart.keep_spacing(doc, {("anim", "a"), ("frame", "a/0"), ("row", "a/0", 0)})
     assert doc.text() == "pxart 1\n@palette pal.px\n\n@anim b\n@frame b/0\nk\n"
+
+
+# ---------------------------------------------------------------- anim's strip labels: wrapped to the cell, the readout's words
+
+def strip_walk(tmp_path, w=24, h=8):
+    rows0 = ["." * w] * (h - 3) + ["." * 4 + "k" * (w - 8) + "." * 4] * 3
+    rows1 = ["." * w] * (h - 4) + ["." * 5 + "k" * (w - 8) + "." * 3] * 3 + ["." * w]
+    return write(tmp_path, "w.px", "k #000000\n@anim walk/down ms=100\n@frame walk/down/0\n" + "\n".join(rows0)
+                 + "\n@frame walk/down/1\n" + "\n".join(rows1) + "\n")
+
+
+def test_fit_lines_wraps_at_spaces():
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    one = d.textlength("x", font=font)
+    assert pxart.fit_lines(d, "shift +1,+0 then 21px (17%)", one * 12, font) == ["shift +1,+0", "then 21px", "(17%)"]
+    assert pxart.fit_lines(d, "(no shift: 79px)", one * 16, font) == ["(no shift: 79px)"]
+    assert pxart.fit_lines(d, "", 100, font) == []
+    assert pxart.fit_lines(d, "a b", 1000, font) == ["a b"]
+
+
+def test_fit_lines_breaks_a_word_wider_than_the_cell():
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    one = d.textlength("x", font=font)
+    got = pxart.fit_lines(d, "wick/walk/down/0 150ms", one * 6, font)
+    assert "".join(got[:-1]) == "wick/walk/down/0" and got[-1] == "150ms"
+    assert all(d.textlength(l, font=font) <= one * 6 for l in got)
+
+
+def test_fit_lines_never_wider_than_asked(tmp_path):
+    import random
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    rng = random.Random(7)
+    for _ in range(200):
+        text = " ".join("".join(rng.choice("abc/:(),+-0123 ") for _ in range(rng.randrange(1, 14)))
+                        for _ in range(rng.randrange(1, 6)))
+        width = rng.randrange(8, 120)
+        lines = pxart.fit_lines(d, text, width, font)
+        one = d.textlength("x", font=font)
+        assert all(d.textlength(l, font=font) <= max(width, one) for l in lines), (text, width, lines)
+        assert "".join(lines).replace(" ", "") == text.replace(" ", "")
+
+
+def test_strip_labels_stay_inside_their_cells(tmp_path, capsys):
+    p = strip_walk(tmp_path)
+    out = tmp_path / "w.gif"
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", out) == 0
+    strip = Image.open(tmp_path / "w.strip.png").convert("RGBA")
+    w, S, pad = 24, 4, 8
+    for i in range(2):  # the gap between cells (and past the last) is backdrop in every label row
+        for x in range(pad + i * (w * S + pad) + w * S, pad + (i + 1) * (w * S + pad)):
+            for y in range(strip.height):
+                assert strip.getpixel((x, y)) == (30, 30, 36, 255), (x, y)
+
+
+def test_strip_labels_are_the_readouts_words(tmp_path, capsys, monkeypatch):
+    p = strip_walk(tmp_path)
+    drawn = []
+    real = pxart.ImageDraw.ImageDraw.text
+
+    def spy(self, xy, text, *args, **kw):
+        drawn.append(text)
+        return real(self, xy, text, *args, **kw)
+    monkeypatch.setattr(pxart.ImageDraw.ImageDraw, "text", spy)
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", tmp_path / "w.gif") == 0
+    printed = capsys.readouterr().out
+    words = " ".join(drawn)
+    assert "(no shift:" in words and "(noshift" not in words
+    for line in printed.splitlines()[:2]:
+        said = line.split(": ", 1)[1]
+        assert all(wd in words for wd in said.split())
+
+
+def test_strip_is_as_tall_as_its_labels_need(tmp_path, capsys):
+    p = strip_walk(tmp_path)
+    assert run("anim", f"{p}:walk/down", "--scale", "4", "-o", tmp_path / "a.gif") == 0
+    assert run("anim", f"{p}:walk/down", "--scale", "12", "-o", tmp_path / "b.gif") == 0
+    a, b = (Image.open(tmp_path / n) for n in ("a.strip.png", "b.strip.png"))
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    font = pxart.strip_font()
+    lines_a = len(pxart.fit_lines(d, "walk/down/0 100ms", 24 * 4, font))
+    assert a.height >= 8 + 2 * (8 * 4 + 8) + (lines_a + 2) * pxart.LINE_H
+    assert b.height == 8 + 2 * (8 * 12 + 8) + 3 * pxart.LINE_H + 2  # wide cells: one line each
+
+
+def test_strip_font_is_a_pixel_font():
+    font = pxart.strip_font()
+    d = pxart.ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    assert d.textlength(" ", font=font) >= 4 and d.textlength(":", font=font) >= 4
