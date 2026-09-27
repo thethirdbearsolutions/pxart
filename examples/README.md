@@ -35,8 +35,10 @@ or point an alias at the script in this repo (`/path/to` being where you cloned 
 alias pxart='python3 /path/to/pxart.py'
 ```
 
-Then copy an example's folder somewhere, `cd` into the copy, and follow its README from
-there. Running the commands in the folder here would overwrite the files it comes with.
+Then open an example's README. Its "Before you start" copies just that example's source
+files into a new folder (`~/pxart-01` and so on) and moves you there, so every output is
+made fresh and prints exactly what the README shows. Running the commands in the folder
+here would overwrite the files it comes with.
 
 
 ## What's in each

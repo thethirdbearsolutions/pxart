@@ -19,9 +19,18 @@ on purpose. [`fixed.px`](fixed.px) is the same file without them.
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy. You'll edit `broken.px` there, so
-you need your own copy of it. The [examples README](../README.md) says how to make
-`pxart` a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-09
+cp broken.px fixed.px ~/pxart-09/
+cd ~/pxart-09
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there. You'll edit your copy of `broken.px`.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 You'll also need a text editor that can jump to a line number; most can.
 
@@ -74,9 +83,10 @@ pxart check broken.px
 
 ```text
 FAIL broken.px: 2 error(s)
+...
 ```
 
-One down.
+One down. (The `...` stands for the remaining errors, listed again as in Step 1.)
 
 
 ## Step 3: A letter that isn't in the palette
@@ -100,6 +110,7 @@ pxart check broken.px
 
 ```text
 FAIL broken.px: 1 error(s)
+...
 ```
 
 
@@ -134,10 +145,10 @@ as `fixed.px`, apart from the comment on its first line.
 
 ## Step 5: Look at it
 
-A file that passes `check` can be drawn:
+A file that passes `check` can be drawn. Draw your repaired `broken.px`:
 
 ```sh
-pxart sheet fixed.px --scale 6 -o fixed.png
+pxart sheet broken.px --scale 6 -o fixed.png
 ```
 
 `sheet` puts every frame side by side with its name; `--scale 6` draws each pixel as a
@@ -152,11 +163,11 @@ pxart sheet fixed.px --scale 6 -o fixed.png
 of each:
 
 ```sh
-pxart stats fixed.px:idle/0 --colors
+pxart stats broken.px:idle/0 --colors
 ```
 
 ```text
-fixed.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
+broken.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58b3c #f6eed8 #ffe07a #fff6d0
   #1a1423 58 px (k)
   #f6eed8 41 px (w)
   #d4bd92 13 px (c)
@@ -164,9 +175,10 @@ fixed.px:idle/0: 16x16 bbox=(1, 0, 15, 16) colors=7 #1a1423 #7a5238 #d4bd92 #f58
   #fff6d0 1 px (i)
 ```
 
-`bbox` is the box around the pixels that aren't empty (left, top, right, bottom). Below
-it, each color, how many pixels use it, and its key: 58 pixels of outline `k`, and a
-single pixel of `i`, the bright heart of the flame.
+`bbox` is the box around the pixels that aren't empty, as left, top, right, bottom. The
+right and bottom are one past the last pixel, so `(1, 0, 15, 16)` covers x from 1 to 14
+and y from 0 to 15. Below it, each color, how many pixels use it, and its key: 58 pixels
+of outline `k`, and a single pixel of `i`, the bright heart of the flame.
 
 
 ## Try it yourself

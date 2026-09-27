@@ -24,9 +24,18 @@ Which export you want depends on where the art goes next:
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-08
+cp alchemist.px hero_pal.px harbor.px harbor-palette.px ~/pxart-08/
+cd ~/pxart-08
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 This folder has two sprites: [`alchemist.px`](alchemist.px), a character with a
 six-frame walk and a five-frame attack, and [`harbor.px`](harbor.px), six 16x16 ground
@@ -87,10 +96,11 @@ is at 8x:
 
 ![the exported tileset image](harbor.x8.png)
 
-Tiled numbers tiles from 0, in the order they are in the `.px` file. `sheet` labels them
-in that order:
+Tiled numbers tiles from 0, in the order they are in the `.px` file. `sheet` shows them
+in that order, labeled with their frame names: counting from 0, `cobble/a` to `cobble/c`
+are tiles 0 to 2, `planks` is 3, and `water/0` and `water/1` are 4 and 5.
 
-![the harbor tiles in order: 0-2 cobble, 3 planks, 4-5 water](harbor-tiles.png)
+![the harbor tiles in Tiled's order: cobble/a, cobble/b, cobble/c, planks, water/0, water/1](harbor-tiles.png)
 
 [`harbor.tsj`](harbor.tsj) (a Tiled tileset, in JSON) gives the size of the tiles and
 the image, and one more thing: tile 4 animates. It shows tile 4, then tile 5, 450 ms

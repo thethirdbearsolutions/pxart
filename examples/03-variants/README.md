@@ -32,9 +32,18 @@ the same, so you get the night version for free.
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-03
+cp coast.px palette.px ~/pxart-03/
+cd ~/pxart-03
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 
 ## Step 1: Look at the palette
@@ -244,8 +253,13 @@ pxart scene --size 608x256 --scale 1 -o panels.x4.png \
 
 ## Try it yourself
 
-- **Make a storm.** Derive a `storm` variant with more darkening and a grey-green
-  tint, say `--darken 0.35 --tint '#40584060'`, and keep the lamp lit.
+- **Make a storm.** Derive a `storm` variant with more darkening and a grey-green tint,
+  keeping the lamp lit: `pxart palette derived/palette.px --variant storm --derive-from
+  base --darken 0.35 --tint '#40584060' --keep-lit l,g`. Then render it under a grey sky.
+  `--variant storm` draws every item in the storm colors, so the items need no `%storm`:
+  `pxart scene --size 48x64 --bg '#5d6b6e' --variant storm -o storm.x4.png
+  derived/coast.px:sand@0,48 derived/coast.px:sand@16,48 derived/coast.px:sand@32,48
+  derived/coast.px:lighthouse@2,6 derived/coast.px:keeper@16,26`.
 - **Change the night lamp.** Give `l` a warmer color in night only, with
   `--variant night --add 'l=#ffd070'`, and see how the listing's night line changes.
 - **Label your letters.** `palette.px`'s comments were written with `--comment`, which

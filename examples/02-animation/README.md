@@ -24,9 +24,18 @@ sprites in [01 · Format basics](../01-format). pxart plays the frames in number
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-02
+cp hero.px hero-palette.px ~/pxart-02/
+cd ~/pxart-02
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 
 ## Step 1: Read the animation lines
@@ -150,8 +159,16 @@ pxart onion hero.px:walk/down/0 hero.px:walk/down/1 -o onion.png
 first frame is A (the silhouette), the second is B.
 
 ```text
+A walk/down/0: opaque x 4..19, y 0..31 (on the 24x32 canvas, lined up by pivot)
+B walk/down/1: opaque x 4..19, y 1..31
 B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 26px changed (no shift: 205px)
+wrote onion.png
 ```
+
+The *canvas* is the 24x32 area both frames are drawn on, placed so their pivots land on
+the same pixel. *Opaque* pixels are the ones that aren't empty. So the first two lines
+say where each frame's drawn pixels are: A's go from row 0 to 31, B's from row 1 to 31.
+The third line compares them.
 
 `top +1`: B's top edge is 1 pixel lower than A's, so the head dropped. `bottom +0`: the
 feet stayed on the ground. The red peeking out above the head is where A was:
@@ -171,7 +188,10 @@ pxart onion hero.px:walk/down/0 hero.px:walk/down/3 --feet 6 -o onion-feet.png
 The image darkens the rows it isn't looking at.
 
 ```text
+A walk/down/0: opaque x 7..16, y 26..31 (rows 26-31 of the 24x32 canvas, lined up by pivot)
+B walk/down/3: opaque x 7..16, y 26..30
 B vs A (bottom 6 canvas rows 26-31; A opaque in 26-31, B in 26-30): left +0, right +0, top +0, bottom -1; best shift +0,-1 then 9px changed (no shift: 11px)
+wrote onion-feet.png
 ```
 
 `bottom -1`: in frame 3 the lowest pixel is 1 row higher (it stops at row 30, not 31).

@@ -194,7 +194,7 @@ pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/att
 # ---------------------------------------------------------------------------------------
 # 09-check: check on a file with three mistakes. The README fixes them one at a time in a
 # text editor and checks after each; here the same edits go to a copy in fixing/, which
-# is removed after. Then stats and a sheet of the fixed file.
+# is removed after, once the sheet and stats of the repaired file are made.
 stage 09-check broken.px fixed.px
 txt check-broken.txt check broken.px
 mkdir fixing
@@ -208,10 +208,11 @@ cp broken.px fixing/
   txt ../check-fix2.txt check broken.px
   fix '85s/с/c/'           # that first letter is a Cyrillic 'с', typed for the key 'c'
   txt ../check-fix3.txt check broken.px
+  # the README then draws the repaired file and counts its colors
+  pxart sheet broken.px --scale 6 -o ../fixed.png
+  txt ../stats-colors.txt stats broken.px:idle/0 --colors
 )
 rm -r fixing
-txt stats-colors.txt stats fixed.px:idle/0 --colors
-pxart sheet fixed.px --scale 6 -o fixed.png
 
 # ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"

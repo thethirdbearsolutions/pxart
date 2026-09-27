@@ -30,9 +30,18 @@ into pictures.
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-01
+cp barrel.px gem.px lamp.px palette.px ~/pxart-01/
+cd ~/pxart-01
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 
 ## Step 1: Look at the barrel
@@ -50,7 +59,8 @@ h #6e4230
 ```
 
 - A line starting with `#` is a comment, for people.
-- `pxart 1` says which version of the format this is. Every `.px` file starts with it.
+- `pxart 1` says which version of the format this is. It usually comes first, after any
+  comments, but it's optional.
 - The five letter lines are the barrel's colors (its *palette*). Each letter is a *key*.
 
 After a blank line, the grid: 16 rows of 16 letters. Now draw it:
@@ -193,8 +203,8 @@ otherwise, hence the `.x4` in the name.
 
 ## Try it yourself
 
-- **Recolor the gem.** Change `p #d8718c` in `gem.px` to `p #3f7fa8` and run the Step 2
-  command again for a blue gem.
+- **Recolor the gem.** In `gem.px`, change `p #d8718c` to `p #3f7fa8` and `r #c4473a` to
+  `r #26496e` (the pink and its red shadow become two blues), and run the Step 2 command again for a blue gem.
 - **Hide the grid.** `pxart render gem.px --scale 16 --no-grid -o plain.png` draws the
   gem without the grid lines.
 - **See who shares the palette.** `pxart palette palette.px --in .` lists every color

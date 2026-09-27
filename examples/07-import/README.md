@@ -21,9 +21,18 @@ file with the original, pixel by pixel.
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-07
+cp beetle.px beetle_pal.px sheet.png ~/pxart-07/
+cd ~/pxart-07
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there. `sheet.png` is the one input that isn't a `.px` file ([the last section](#where-the-sheet-comes-from) shows how it was made).
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 
 ## Step 1: Cut the sheet into frames
@@ -100,7 +109,7 @@ wrote diff.png
 
 57 pixels differ, all inside the box that starts at x=1, y=3 and is 12 wide and 7 tall:
 the shell, which is red in one and purple in the other. `(exit 1)` means `diff` reported
-a failure, which a script can check for, the same way `check` does.
+a difference: a script that runs it can tell the two apart from a match, which exits 0.
 
 ![A, B, and the 57 differing pixels in bright pink](diff.png)
 

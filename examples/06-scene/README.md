@@ -29,9 +29,18 @@ whole file into one picture.
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-06
+cp -R rooms pal layers tiles sprites ~/pxart-06/
+cd ~/pxart-06
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there. `-R` copies the folders with everything in them.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 The folder is laid out like a small game: `tiles/` holds the tile sheets, `layers/` the
 big background pictures, `sprites/` the hero, `pal/` their palettes, and `rooms/` the map.
@@ -73,7 +82,7 @@ starts a new *layer*: another set of rows, drawn over the ones before. The glade
 3. the ground: grass, flowers and the dirt path, in the bottom seven rows;
 4. the trees `T`, `t` and `P`, over the grass.
 
-The bottom rows of layers 3 and 4, side by side:
+The bottom seven rows of layers 3 and 4 (rows 7 to 13 of the map's 14), side by side:
 
 ```map
 abfab1NNNNNN2baf        ................
@@ -81,6 +90,8 @@ bacaaWppppppEcab        ................
 afbabWppppppEaba        .P............T.
 bcaab3SS78SS4bfa        ................
 abafbcabWEbasbab        T..............t
+fbabacbaWEabcafb        ................
+abcabfabWEbabacb        ................
 ```
 
 In layer 3, `1NNNNNN2` over `W....E` over `3SS78SS4` is the edge of the square of path,
@@ -160,11 +171,19 @@ pxart compose --map rooms/glade.map -o glade.px --rekey \
   ([05 · Compose across packs](../05-compose) explains it step by step).
 - `--replace` starts `glade.px` over if your copy of the folder already has one.
 
-Among its notes, one per file it rekeyed, like the hero's:
+It prints eight notes and `wrote glade.px` (all in [`compose.txt`](compose.txt)). One
+per file it rekeyed, like the hero's:
 
 ```text
+...
 note: --rekey gives sprites/hero.px's keys free ones in glade.px: 'S>I' 'b>J' 'g>K' 'h>L' 's>N' 't>O' (sprites/hero.px is unchanged)
+...
 ```
+
+Some notes name layers by number, like `layers 115-118 (rooms/../tiles/tree.px)`. Those
+aren't the map's four layers: compose stacks every tile the map places as a layer of its
+own, in order. Here that's 118 of them: the sky, the tree line, 112 ground tiles and the
+4 trees, so the trees are layers 115 to 118.
 
 `check` confirms it's one frame, 256x224, with 51 colors:
 
@@ -174,7 +193,12 @@ pxart check glade.px
 
 ```text
 ok   glade.px: 256x224 51c
+     glade.px: unused keys befy (no frame draws with them: 'pxart palette glade.px --remove b,e,f,y' drops them; compose and crop give a new OUT their sources' whole palettes unless --used-keys-only)
 ```
+
+The second line is a note, not an error: `glade.px` got every color of the four
+palettes, and four of them (`b e f y`) aren't drawn anywhere. They do no harm; the note
+says how to drop them.
 
 `pxart scene --size 256x224 --scale 2 -o check.png glade.px%dusk@0,0` draws it, and the
 picture is the same as Step 5's, pixel for pixel.
@@ -193,9 +217,9 @@ pxart scene --size 1040x448 --scale 1 -o panels.x2.png glade.x2.png@0,0 glade-du
 
 - **Move a tree.** In the last layer of `glade.map`, move the `P` in `.P............T.`
   a few cells to the right and render again.
-- **Add a stone.** The legend has an `o` for a stone that no row uses. Put an `o` on a
-  grass cell in the last layer, say `T......o.......t` for the row `T..............t`, and
-  render again.
+- **Plant a pine.** The last layer's bottom row is empty. Change it from
+  `................` to `...P............`, render again, and a second pine stands in the
+  grass at the bottom left.
 - **Mirror the hero.** Add `+h` to his frame, `sprites/hero.px:walk/left/0+h@147,127`, and
   he faces right.
 

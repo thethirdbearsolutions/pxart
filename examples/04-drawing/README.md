@@ -20,9 +20,18 @@ The colors come from [`palette.px`](palette.px), and the whole script is
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-04
+cp draw.sh palette.px ~/pxart-04/
+cd ~/pxart-04
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 Positions are x,y in pixels, counted from 0,0 at the top-left corner; x grows to the
 right and y grows *down*. The pictures below have rulers so you can check them.
@@ -204,8 +213,9 @@ the chest at its real size, 24x20, as [`chest.png`](chest.png): the file a game 
 - **Light from the other side.** Use `--light ne` in Step 4 and in Step 11
   (`pxart outline chest.px --key k --lit B --light ne`), and the chest is lit from the
   top-right.
-- **Try before you commit.** Put `--preview try.png` on the `shade` command: it draws
-  what shading would do into `try.png` and leaves `chest.px` alone.
+- **Try before you commit.** At Step 4, run the `shade` command with `--preview try.png`
+  on the end first: it draws what shading would do into `try.png` and leaves `chest.px`
+  alone. Then run it without `--preview` to shade for real.
 
 
 ## Commands used

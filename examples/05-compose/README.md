@@ -30,9 +30,18 @@ it by giving the newcomer's letters unused ones. The packs' own files never chan
 
 ## Before you start
 
-Copy this folder somewhere and `cd` into the copy, so the commands below don't
-overwrite the files here. The [examples README](../README.md) says how to make `pxart`
-a command you can type.
+From this folder, copy just the source files into a new folder of your own and go
+there. The commands below then make every output fresh, and print exactly what's shown
+here:
+
+```sh
+mkdir -p ~/pxart-05
+cp -R harbor-market lighthouse-keeper wick ~/pxart-05/
+cd ~/pxart-05
+```
+
+`~` is your home folder, and `-p` keeps `mkdir` quiet if the folder is already there. `-R` copies the folders with everything in them.
+The [examples README](../README.md) says how to make `pxart` a command you can type.
 
 
 ## Step 1: Look at the three packs
@@ -109,14 +118,30 @@ pxart compose -o dock.px --size 80x48 --rekey "${layers[@]}" --replace
 ```
 
 `--rekey` gives each clashing letter a free one in `dock.px`, so every pixel keeps its
-own color. It prints a note for each pack, like this one for Wick:
+own color. This time compose prints ten notes and then `wrote dock.px` (all of it is in
+[`rekey.txt`](rekey.txt)). Trimmed here to the start and the end:
 
 ```text
+note: dock.px leaves out layers 1-17 (harbor-market/harbor.px)'s colors for s S a n, keys those layers don't draw with (so they don't conflict), ...
+note: --rekey gives lighthouse-keeper/keeper.px's keys free ones in dock.px: 'c>e' 'k>j' 'w>q' 'y>v' 'r>F' 'l>H' 'g>I' ...
+...
 note: --rekey gives wick/player.px's keys free ones in dock.px: 'b>x' 'c>z' 'f>C' 'k>D' 'w>E' (wick/player.px is unchanged)
+...
+wrote dock.px
 ```
 
-`'k>D'`: Wick's `k` is written as `D` in `dock.px`. And `wick/player.px is unchanged`:
-only the new file uses the new letters.
+The notes come in four kinds:
+
+- **`--rekey gives ...`**, one per pack it rekeyed. `'k>D'`: Wick's `k` is written as `D`
+  in `dock.px`. And `wick/player.px is unchanged`: only the new file uses the new letters.
+- **`leaves out ...'s colors for ...`**, three of them. The harbor's palette has `s S a n`,
+  but none of the harbor tiles used here draw with them. The keeper and Wick do, in their
+  own colors, so `dock.px` gives those letters the keeper's and Wick's colors. Nothing
+  changes on screen: the harbor layers never used them.
+- **`@variant ... covers ...`**, three, plus one that starts `to give every layer one
+  variant`. These are the ones that matter next.
+- **`gets 8 keys its frame doesn't draw with`**: spare colors from the packs' palettes,
+  kept in `dock.px` in case you edit it later.
 
 Now look at the dock in its dusk colors. `%dusk` picks the variant, as in
 [03 · Palette variants](../03-variants):
@@ -127,12 +152,15 @@ pxart scene --size 80x48 -o dock-halfdusk.x4.png dock.px%dusk@0,0
 
 ![a dusk where the keeper and Wick stay in daylight](dock-halfdusk.x4.png)
 
-The harbor went dusky, but the keeper and Wick are still in daylight. Among compose's
-notes (all in [`rekey.txt`](rekey.txt)) is why:
+The harbor went dusky, but the keeper and Wick are still in daylight. The notes from
+before said why:
 
 ```text
+...
 note: dock.px's @variant dusk covers layers 1-17 (harbor-market/harbor.px) only: layer 18 (lighthouse-keeper/keeper.px:idle/down/0) and layer 19 (wick/player.px:idle/0) stay at base colors in it
+...
 note: to give every layer one variant, merge them: --variant-map dusk=night,dark (each layer takes the first of dusk, night, dark its file has)
+...
 ```
 
 Each pack calls its darker colors something else: the harbor's is `dusk`, the keeper's
