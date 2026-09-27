@@ -403,7 +403,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       c=g paints with it) isn't free. A key moved twice is E_BAD_ARG. Color changes set
       the palette and don't move pixels, so c=#hex and c=d can share a call.
   paste SRC[+h|+v|+hv] --into DST[:frame] --at x,y [--region x,y,w,h] [--under] [--rekey [KEYS]]
-        [--variant-map NAME=V1,V2] [--align pivot|bottom|bbox] [-o OUT]
+        [--variant-map NAME=V1,V2] [--align shift|pivot|bottom|bbox] [-o OUT]
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
@@ -926,16 +926,17 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart anim hero.px:walk/down -o walk.gif
 
   7. Stamp an overlay behind every frame of an animation
-     A glow drawn once, as a frame of its own, goes behind every frame of the walk: --align
-     bbox moves it with each frame's drawing as the body bobs (--at places it in the first
-     frame), and --under keeps it behind. Its key is transparent by day and lit at night, so
-     the sheet shows the walk and the glow (FILE:a,b lists them) at night.
+     A glow drawn once, as a frame of its own, goes behind every frame of a flight: --align
+     shift moves it as anim's best shifts say the body bobs (--at places it in the first
+     frame; bbox would follow the wing tips), and --under keeps it behind. Its key is
+     transparent by day and lit at night, so the sheet shows the flight and the glow (FILE:a,b
+     lists them) at night.
        $ pxart palette pal.px --add G=transparent
        $ pxart palette pal.px --variant night --add 'G=#f3cf6b60'
-       $ pxart new hero.px:glow --size 16x12
-       $ pxart ellipse hero.px:glow G --box 2,0,12,9 --ring 2
-       $ pxart paste hero.px:glow --into hero.px:walk/down --at 0,0 --under --align bbox
-       $ pxart sheet hero.px:walk/down,glow --variant night -o glow.png
+       $ pxart new bat.px:glow --size 16x12
+       $ pxart ellipse bat.px:glow G --box 2,0,12,9 --ring 2
+       $ pxart paste bat.px:glow --into bat.px:fly --at 0,1 --under --align shift
+       $ pxart sheet bat.px:fly,glow --variant night -o glow.png
 """
 
 
@@ -4657,7 +4658,9 @@ def cmd_paste(a):
     _, asked = rekey_one(a.rekey, ddoc, src.doc, set("".join(src.frame.grid)), vmap, False, out, label, [src.frame])
     warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap), ddoc, out, vmap,
                        "paste --rekey", asked)
-    offsets = aligned(ddoc, dframes, a.align) if a.align else {}
+    if a.keys is not None and not a.align:
+        fail("E_BAD_ARG", "--keys picks the drawing --align follows; add --align shift, bbox or bottom")
+    offsets = aligned(ddoc, dframes, a.align, a.keys) if a.align else {}
     added = []
     for f in dframes:
         dx, dy = offsets.get(id(f), (0, 0))
@@ -4673,20 +4676,60 @@ def cmd_paste(a):
     print(px_changed(ddoc, dframes, "pasted"), write_doc(ddoc, out))
 
 
-def aligned(doc, frames, how):
+def aligned(doc, frames, how, keys=None):
     """paste --align: each frame's (dx, dy) from the first frame's, so a paste made for the first follows the others:
     pivot, their pivots (else bottom-centre, as anim's); bottom, their drawing's bottom row (dy only: feet on the
-    ground); bbox, their drawing's top-left (a bob, a hop). The drawing is the pixels of keys that draw (Doc.blanks),
-    before the paste. A frame that draws nothing has no bbox to follow: E_BAD_ARG."""
+    ground); bbox, their drawing's top-left (a hop, when nothing sticks out); shift, the sum of each frame's best shift
+    from the one before, as anim's readout computes it on its shared canvas (a body's bob, whatever its wings do). The
+    drawing is the pixels of keys that draw (Doc.blanks), or of `keys` only, before the paste; shift reads them in their
+    base colors. A frame that shows nothing has nothing to follow: E_BAD_ARG."""
     blank = doc.blanks()
+    if keys is not None:
+        if how == "pivot":
+            fail("E_BAD_ARG", "--keys picks the drawing that --align bbox, bottom or shift follows; --align pivot "
+                 "reads only the pivots")
+        keys = key_list(keys, "--keys")
+        pal = doc.resolved()
+        unknown = [k for k in keys if k not in pal]
+        if unknown:
+            fail("E_BAD_ARG", f"--keys: {'keys' if len(unknown) > 1 else 'key'} {', '.join(map(repr, unknown))} "
+                 f"{'aren' if len(unknown) > 1 else 'isn'}'t in the palette"
+                 + guess(unknown[0], sorted(pal)), path=doc.path)
+        blank = set(doc.resolved()) - set(keys)
+
+    def nothing(f):
+        of = f" of {','.join(keys)}" if keys else ""
+        fail("E_BAD_ARG", f"--align {how}: {doc.label(f)} " + (
+            f"shows no pixel{of} in its base colors, and shift follows the base render; --align bbox reads keys lit "
+            f"only in a variant too" if how == "shift" else
+            f"draws nothing{' in ' + ','.join(keys) if keys else ''}, so there's no drawing to follow; paste into it "
+            f"on its own ({doc.path}:{doc.label(f)})"))
+    if how == "shift":
+        pal = doc.resolved()
+        its = []
+        for f in frames:
+            img = Image.new("RGBA", f.size)
+            img.putdata([CLEAR if c in blank else pal[c] for row in f.grid for c in row])
+            if not img.getbbox():
+                nothing(f)
+            its.append(Item(doc.label(f), img, 0, doc, f))
+        lay = pivot_layout(its)  # the canvas anim diffs on: pivots lined up, else bottom-centered
+        w, h = lay[:2] if lay else (max(it.img.width for it in its), max(it.img.height for it in its))
+        spots = lay[2] if lay else [((w - it.img.width) // 2, h - it.img.height) for it in its]
+        canvas = [placed(it.img, w, h, at, "#00000000") for it, at in zip(its, spots)]
+        out, cx, cy = {id(frames[0]): (0, 0)}, 0, 0
+        for i in range(1, len(frames)):
+            dx, dy, _ = best_shift(canvas[i - 1], canvas[i])
+            cx, cy = cx + dx, cy + dy
+            out[id(frames[i])] = (cx + spots[0][0] - spots[i][0], cy + spots[0][1] - spots[i][1])
+        return out
 
     def spot(f):
         if how == "pivot":
             return doc.pivot(f) or (f.size[0] // 2, f.size[1] - 1)
         ys = [y for y, row in enumerate(f.grid) if any(c not in blank for c in row)]
         if not ys:
-            fail("E_BAD_ARG", f"--align {how}: {doc.label(f)} draws nothing, so there's no drawing to follow; paste "
-                 f"into it on its own ({doc.path}:{doc.label(f)})")
+            nothing(f)
         return (0, ys[-1]) if how == "bottom" else (min(x for row in f.grid for x, c in enumerate(row)
                                                         if c not in blank), ys[0])
     first = spot(frames[0])
@@ -8298,9 +8341,12 @@ def parser(describe=True):
     p = sub.add_parser("paste"); p.add_argument("src"); p.add_argument("--into", required=True)
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
-    p.add_argument("--align", choices=["pivot", "bottom", "bbox"],
-                   help="into several frames: --at is for the first, and the paste moves in each other frame as its "
-                        "pivot, its drawing's bottom row, or its drawing's top-left does (a glow following a bob)")
+    p.add_argument("--align", choices=["shift", "pivot", "bottom", "bbox"],
+                   help="into several frames: --at is for the first, and the paste moves in each other frame as the "
+                        "body does: shift, by the best shifts anim prints, added up from the first frame (a glow "
+                        "following a bob, wings and all); pivot, as its pivot; bottom, as its drawing's bottom row; "
+                        "bbox, as its drawing's top-left (wings or an arm sticking out move it too)")
+    p.add_argument("--keys", metavar="K,L", help="--align follows only these keys' pixels (the body, not the wings)")
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", help="WxH of the frame")

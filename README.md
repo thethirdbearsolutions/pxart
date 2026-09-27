@@ -237,7 +237,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `--dither N` edge; `--invert` erases the inside instead; both flags repeat, and the kept
   area is the union, so two lamps are one call; works on a rendered PNG too; `--keep-keys
   W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in
-  `compose`; `--under` fills only the empty pixels), `compose` (stack layers into a frame;
+  `compose`; `--under` fills only the empty pixels; into an animation, `--align shift` moves the paste with the body's
+  bob, frame by frame, as `anim`'s best shifts add up, where `--align bbox` would follow wings that stick out), `compose` (stack layers into a frame;
   a new frame lands after its animation; a new file gets the layers' whole palette, their
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
   finds its keys, or with `--used-keys-only` only the keys its frame uses, and the

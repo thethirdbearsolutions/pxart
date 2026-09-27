@@ -16707,6 +16707,19 @@ def help_fixtures(d):
                 "attack/2"):
         hero += f"@frame {fid}\n" + hero_frame(32, 32, "c")
     (d / "hero.px").write_text(hero)
+    bat = "pxart 1\n@palette pal.px\n@anim fly ms=90\n"  # a body that bobs 0,+1,+1,0 while its wings flap past it
+    for i, (top, pose) in enumerate(zip([4, 5, 5, 4], ["up", "level", "down", "level"])):
+        g = [["."] * 16 for _ in range(14)]
+        for y, row in enumerate(BAT_BODY):
+            for x, c in enumerate(row):
+                if c != ".":
+                    g[top + y][x] = c
+        for x in range(4):
+            ys = {"up": [x - 4, x - 3], "level": [1, 2], "down": [5 - x, 6 - x]}[pose]
+            for y in ys:
+                g[top + y][x] = g[top + y][15 - x] = "w"
+        bat += f"@frame fly/{i}\n" + "\n".join("".join(r) for r in g) + "\n"
+    (d / "bat.px").write_text(bat)
     (d / "beast.px").write_text(hero_pal + "".join(f"@frame idle/{i}\n" + hero_frame(16, 16, "x") for i in range(4)))
     (d / "w1.txt").write_text(hero_frame(32, 32, "C"))
     (d / "palette.px").write_text("# shared\nj #2a1f33\nq #3d4f86\n@variant night\nj #0f0f22\n")
@@ -22411,9 +22424,13 @@ def test_readme_documents_compose_map():
 # end. Every recipe runs here, its commands in order, in a fresh folder of the files it names, and each must exit 0
 # (a diff that proves something exits 1 when it doesn't).
 
+BAT_BODY = [".....kkkkkk.....", "....kbbbbbbk....", "....kbybbybk....", "....kbbbbbbk....", ".....kbbbbk.....",
+            "......kkkk......"]
+
+
 def recipe_fixtures(d):
     """The files the recipes name: a PNG pack with labels.csv, a shared pal.px (with a night), a hero that imports
-    it (an idle and a walk that bobs over planted feet), two characters from other packs (keeper.px has a dark),
+    it (an idle and a walk that bobs over planted feet), a bat whose wings flap past its bob, two characters from other packs (keeper.px has a dark),
     mossback.px's dusk to fit, a 64x64 walk sheet, and a market map of tiles, a stall and lamps."""
     d = pathlib.Path(d)
     (d / "pack").mkdir()
@@ -22441,6 +22458,19 @@ def recipe_fixtures(d):
     for i, top in enumerate([body, bob, body, bob]):
         hero += f"@frame walk/down/{i}\n" + "\n".join(top + legs) + "\n"
     (d / "hero.px").write_text(hero)
+    bat = "pxart 1\n@palette pal.px\n@anim fly ms=90\n"  # a body that bobs 0,+1,+1,0 while its wings flap past it
+    for i, (top, pose) in enumerate(zip([4, 5, 5, 4], ["up", "level", "down", "level"])):
+        g = [["."] * 16 for _ in range(14)]
+        for y, row in enumerate(BAT_BODY):
+            for x, c in enumerate(row):
+                if c != ".":
+                    g[top + y][x] = c
+        for x in range(4):
+            ys = {"up": [x - 4, x - 3], "level": [1, 2], "down": [5 - x, 6 - x]}[pose]
+            for y in ys:
+                g[top + y][x] = g[top + y][15 - x] = "w"
+        bat += f"@frame fly/{i}\n" + "\n".join("".join(r) for r in g) + "\n"
+    (d / "bat.px").write_text(bat)
     (d / "keeper.px").write_text("pxart 1\nk #2b1e2f\nr #c4473a\nt #74c8d4\n@variant dark\nk #150f18\nr #83344e\n"
                                  "t #3a6470\n@anim walk ms=150\n@frame walk/0\n.kk.\nkrrk\n.tt.\n@frame walk/1\n.kk.\n"
                                  "krrk\nt..t\n")
@@ -22578,17 +22608,27 @@ def test_recipe_feet_stay_planted(tmp_path, monkeypatch, capsys):
 def test_recipe_overlay_follows_the_bob_and_shows_only_at_night(tmp_path, monkeypatch, capsys):
     ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Stamp an overlay behind every frame of an animation"])
     paste = next(out for argv, _, out in ran if argv[0] == "paste")
-    assert "note: --align bbox pastes at 0,0 in walk/down/0, 0,1 in walk/down/1, 0,0 in walk/down/2, 0,1 in " \
-        "walk/down/3" in paste
-    doc = pxart.parse(tmp_path / "hero.px")
-    for n in range(4):  # the glow sits behind the body, 1px lower in the bob frames, and never over the drawing
-        glow = {(x, y) for y, row in enumerate(doc.get(f"walk/down/{n}").grid) for x, c in enumerate(row) if c == "G"}
-        ring = {(x, y + n % 2) for y, row in enumerate(doc.get("glow").grid) for x, c in enumerate(row) if c == "G"}
+    assert "note: --align shift pastes at 0,1 in fly/0, 0,2 in fly/1, 0,2 in fly/2, 0,1 in fly/3" in paste
+    doc = pxart.parse(tmp_path / "bat.px")
+    for n, bob in enumerate([0, 1, 1, 0]):  # the glow sits behind the body, as low as it bobs, never over the drawing
+        glow = {(x, y) for y, row in enumerate(doc.get(f"fly/{n}").grid) for x, c in enumerate(row) if c == "G"}
+        ring = {(x, y + 1 + bob) for y, row in enumerate(doc.get("glow").grid) for x, c in enumerate(row) if c == "G"}
         assert glow and glow <= ring
-    day, night = doc.image(doc.get("walk/down/1")), doc.image(doc.get("walk/down/1"), "night")
+    day, night = doc.image(doc.get("fly/1")), doc.image(doc.get("fly/1"), "night")
     x, y = next(iter(glow))
     assert day.getpixel((x, y))[3] == 0 and night.getpixel((x, y)) == (0xf3, 0xcf, 0x6b, 0x60)
     assert (tmp_path / "glow.png").exists()
+
+
+def test_recipe_overlay_bob_is_what_anim_prints_and_not_the_wings(tmp_path, monkeypatch, capsys):
+    # the bat's wings stick out past its body: anim's best shifts are the body's bob, and bbox/bottom follow the wings
+    ran = run_recipe(tmp_path, monkeypatch, capsys, [["anim", "bat.px:fly"]])
+    assert [re.search(r"shift ([+-]\d+,[+-]\d+)", l).group(1) for l in ran[0][2].splitlines()] == \
+        ["+0,+0", "+0,+1", "+0,+0", "+0,-1"]
+    for how, want in [("bbox", "0,5 in fly/1, 0,5 in fly/2, 0,4 in fly/3"), ("bottom", "0,1 in fly/1, 0,2 in fly/2, "
+                                                                                       "0,0 in fly/3")]:
+        assert run("paste", "hero.px:idle/0", "--into", "bat.px:fly", "--at", "0,0", "--align", how, "--dry-run") == 0
+        assert f"note: --align {how} pastes at 0,0 in fly/0, {want}" in capsys.readouterr().out
 
 
 def test_help_recipes_prints_them(capsys):
@@ -27442,5 +27482,77 @@ def test_paste_align_bad_choice(tmp_path, capsys):
 def test_paste_help_names_align(capsys):
     assert run("paste", "-h") == 0
     out = " ".join(capsys.readouterr().out.split())
-    assert "--align {pivot,bottom,bbox}" in out and "a glow following a bob" in out
-    assert "[--align pivot|bottom|bbox]" in pxart.__doc__
+    assert "--align {shift,pivot,bottom,bbox}" in out and "a glow following a bob, wings and all" in out
+    assert "wings or an arm sticking out move it too" in out and "--keys K,L" in out
+    assert "[--align shift|pivot|bottom|bbox]" in pxart.__doc__
+
+
+# ---------------------------------------------------------------- paste --align shift and --keys: follow the body
+
+FLAP = "k #000000\nw #ffffff\n@anim fly ms=90\n" \
+    "@frame fly/0\nw..w\n.kk.\n.kk.\n....\n....\n" \
+    "@frame fly/1\n....\n....\nwkkw\n.kk.\n....\n" \
+    "@frame fly/2\n....\n....\n.kk.\n.kk.\nw..w\n" \
+    "@frame fly/3\n....\n.kk.\nwkkw\n....\n....\n" \
+    "@frame dot\nk\n"
+
+
+def test_paste_align_shift_follows_the_body_not_the_wings(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FLAP)
+    assert run("anim", f"{p}:fly") == 0
+    shifts = re.findall(r"shift ([+-]\d+,[+-]\d+)", capsys.readouterr().out)
+    assert shifts == ["+0,+0", "+0,+1", "+0,+0", "+0,-1"]  # the body: rows 1, 2, 2, then 1 again
+    assert run("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,1", "--align", "shift") == 0
+    out = capsys.readouterr().out
+    assert "note: --align shift pastes at 0,1 in fly/0, 0,2 in fly/1, 0,2 in fly/2, 0,1 in fly/3\n" in out
+    g = grids(p)
+    assert [g[f"fly/{n}"][y][0] for n, y in enumerate([1, 2, 2, 1])] == ["k"] * 4  # fly/1's w: no --under, so over it
+
+
+def test_paste_align_bbox_follows_the_wings(tmp_path, capsys):
+    p = write(tmp_path, "f.px", FLAP)
+    assert run("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,1", "--align", "bbox", "--dry-run") == 0
+    assert "pastes at 0,1 in fly/0, 0,3 in fly/1, 0,3 in fly/2, 0,2 in fly/3" in capsys.readouterr().out  # wing tips
+
+
+@pytest.mark.parametrize("how", ["bbox", "bottom", "shift"])
+def test_paste_align_keys_follows_only_those_keys(tmp_path, capsys, how):
+    # k alone is the body: its top-left, its bottom row and its best shifts all say down 1, down 1, back up
+    p = write(tmp_path, "f.px", FLAP)
+    assert run("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,1", "--align", how, "--keys", "k",
+               "--dry-run") == 0
+    assert f"note: --align {how} pastes at 0,1 in fly/0, 0,2 in fly/1, 0,2 in fly/2, 0,1 in fly/3\n" \
+        in capsys.readouterr().out
+
+
+def test_paste_align_shift_on_the_shared_canvas_of_pivots(tmp_path, capsys):
+    # fly/1 is drawn a row lower in its grid, and its pivot says so: on anim's canvas it didn't move
+    p = write(tmp_path, "f.px", "k #000000\n@anim fly pivot=1,2\n@frame fly/0\n.kk.\n.kk.\n....\n"
+              "@frame fly/1 pivot=1,3\n....\n.kk.\n.kk.\n....\n@frame dot\nk\n")
+    assert run("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "shift", "--dry-run") == 0
+    assert "note: --align shift pastes at 0,0 in fly/0, 0,1 in fly/1\n" in capsys.readouterr().out
+
+
+def test_paste_align_shift_frame_that_shows_nothing_by_day(tmp_path):
+    p = write(tmp_path, "f.px", FLAP.replace("w #ffffff", "w transparent\n@variant night\nw #ffffff"))
+    msg = run_err("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "shift", "--keys", "w")
+    assert "E_BAD_ARG" in msg and "--align shift: fly/0 shows no pixel of w in its base colors" in msg \
+        and "--align bbox reads keys lit only in a variant too" in msg
+    assert run("paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "bbox", "--keys", "w",
+               "--dry-run") == 0
+
+
+def test_paste_align_keys_errors(tmp_path):
+    p = write(tmp_path, "f.px", FLAP.replace("@frame fly/0\nw..w", "r #ff0000\n@frame fly/0\nr..w"))
+    had = p.read_text()
+    assert "--keys picks the drawing --align follows; add --align shift, bbox or bottom" in run_err(
+        "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--keys", "k")
+    assert "--align pivot reads only the pivots" in run_err(
+        "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "pivot", "--keys", "k")
+    assert "--keys: key 'q' isn't in the palette" in run_err(
+        "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "bbox", "--keys", "q")
+    assert "--keys: keys 'q', 'z' aren't in the palette" in run_err(
+        "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "bbox", "--keys", "q,z")
+    assert "--align bbox: fly/1 draws nothing in r, so there's no drawing to follow" in run_err(
+        "paste", f"{p}:dot", "--into", f"{p}:fly", "--at", "0,0", "--align", "bbox", "--keys", "r")
+    assert p.read_text() == had
