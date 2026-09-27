@@ -4785,16 +4785,49 @@ def half_variants(d, only=None):
     return out
 
 
+def lit_keys(d):
+    """The keys of d's own (the ones a derive into an imported variant writes) that d's variants already treat as
+    lights: [(key, why)] in palette order. A light is a key some variant of d leaves at its base color (no line, or
+    relisted unchanged) or makes brighter; for a key d's @palette defines too, that palette's variants count as well.
+    A variant d gets only from its import can't know d's keys, so it says nothing about them."""
+    out = []
+    for k, c in d.palette.items():
+        if k == "." or not c[3]:
+            continue
+        whys = []
+        seen = [(n, f"{n}", c, d.variants[n]) for n in d.variants]
+        if k in d.shared:  # the import defines k too: its variants say what k does there
+            seen += [(n, f"{' and '.join(d.palette_refs)}'s {n}", d.shared[k], o)
+                     for n, o in d.shared_variants.items() if n not in d.variants]
+        for n, label, base, over in seen:
+            got = d.resolved(n)[k] if n in d.variants else over.get(k, base)
+            if brightness(got) > brightness(base):
+                whys.append(f"brighter in {label}")
+            elif got == base:
+                whys.append(f"{'relisted unchanged' if k in over else 'left at base'} in {label}")
+        if whys:
+            out.append((k, ", ".join(whys)))
+    return out
+
+
 def said_half(d, name, ks):
-    """The words for one of half_variants: which file, which variant, the keys it leaves at base, and the fix."""
+    """The words for one of half_variants: which file, which variant, the keys it leaves at base, and the fix, with the
+    lights lit_keys infers kept lit (and why each), since a derive would dim them."""
     refs = d.palette_refs
     pal = (d.path.parent / refs[0]).as_posix() if len(refs) == 1 else "P.px"
     pal = os.path.normpath(pal) if len(refs) == 1 and not os.path.isabs(pal) else pal
     many = len(ks) > 1
+    lit = lit_keys(d)
+    whys = {}
+    for k, why in lit:
+        whys.setdefault(why, []).append(k)
+    told = ("lights inferred: " + "; ".join(f"{' '.join(v)} {w}" for w, v in whys.items())) if lit else \
+        "no lights inferred; add --keep-lit for any"
     return (f"@variant {name} comes only from its @palette {' and '.join(refs)}, which doesn't list its own "
             f"key{'s' * many} {' '.join(ks)}: in {name} {'they stay at their' if many else 'it stays at its'} base "
             f"color{'s' * many}. Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
-            f"--derive-from base --match {pal}' (--keep-lit KEYS for lights), or --add 'K=#rrggbb'")
+            f"--derive-from base --match {pal}" + (f" --keep-lit {','.join(k for k, _ in lit)}" if lit else "")
+            + f"' ({told}), or --add 'K=#rrggbb'")
 
 
 WARNED = set()  # (path, variant) whose half_variants WARNING this run printed: once per file and variant

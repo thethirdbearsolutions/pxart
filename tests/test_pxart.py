@@ -22388,7 +22388,8 @@ def half(tmp_path, sprite=HALF_SPRITE, pal=HALF_PAL):
 
 HALF_WARN = "WARNING: {p}: @variant dusk comes only from its @palette pal.px, which doesn't list its own keys M P: in " \
             "dusk they stay at their base colors. Give it a dusk of its own: 'pxart palette {p} --variant dusk " \
-            "--derive-from base --match {pal}' (--keep-lit KEYS for lights), or --add 'K=#rrggbb'"
+            "--derive-from base --match {pal} --keep-lit M,Z' (lights inferred: M relisted unchanged in night; Z left " \
+            "at base in night), or --add 'K=#rrggbb'"
 
 
 def test_half_variants_lists_own_drawn_keys_the_import_leaves(tmp_path):
@@ -22651,6 +22652,113 @@ def test_derive_the_fix_the_warning_gives_silences_it(tmp_path, monkeypatch, cap
     assert run("render", "wick.px%dusk", "-o", "r.png") == 0
     assert "WARNING" not in capsys.readouterr().out
     assert pxart.parse(tmp_path / "wick.px").variants["dusk"]["M"] == (0xff, 0xe0, 0x7a, 255)  # kept lit: listed
+
+
+def test_lit_keys_from_the_files_own_variant(tmp_path):
+    # night relists M unchanged, darkens P, has no line for Z: M and Z are lights
+    assert pxart.lit_keys(pxart.parse(half(tmp_path))) == [("M", "relisted unchanged in night"),
+                                                          ("Z", "left at base in night")]
+
+
+def test_lit_keys_brighter_in_a_variant(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("P #403f4a", "P #ffffff"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night"), ("P", "brighter in night"),
+                                              ("Z", "left at base in night")]
+
+
+def test_lit_keys_every_variant_named(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant rain\nM #101010\nP #fff6d0\nZ #101010\n@anim"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night"),
+                                              ("P", "relisted unchanged in rain"), ("Z", "left at base in night")]
+
+
+def test_lit_keys_several_reasons_for_one_key(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@anim", "@variant rain\n@anim"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night, left at base in rain"),
+                                              ("P", "left at base in rain"),
+                                              ("Z", "left at base in night, left at base in rain")]
+
+
+def test_lit_keys_none_without_variants_of_its_own(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    assert pxart.lit_keys(pxart.parse(p)) == []
+
+
+def test_lit_keys_none_when_every_own_key_is_dimmed(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n",
+                                           "@variant night\nM #403020\nP #403f4a\nZ #302010\n"))
+    assert pxart.lit_keys(pxart.parse(p)) == []
+
+
+def test_lit_keys_skips_transparent_and_imported_only_keys(tmp_path):
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282", "Z transparent"))
+    assert pxart.lit_keys(pxart.parse(p)) == [("M", "relisted unchanged in night")]  # not o, g: pal.px's own
+
+
+def test_lit_keys_an_overridden_key_reads_the_imports_variants(tmp_path):
+    # the sprite's own g overrides pal.px's g; pal.px's dusk darkens g, but pal.px's glow has no line for it
+    pal = HALF_PAL + "@variant glow\no #ffffff\n"
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\ng #84c669\n"), pal)
+    lit = dict(pxart.lit_keys(pxart.parse(p)))
+    assert lit["g"] == "left at base in pal.px's glow"  # night: pal.px's night darkens it
+
+
+def test_lit_keys_an_overridden_key_brighter_in_the_imports_variant(tmp_path):
+    pal = HALF_PAL + "@variant glow\ng #ffffff\n"
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\ng #84c669\n"), pal)
+    assert dict(pxart.lit_keys(pxart.parse(p)))["g"] == "brighter in pal.px's glow"
+
+
+def test_lit_keys_an_own_variant_the_import_colors_is_not_left_at_base(tmp_path):
+    # the sprite overrides o and has its own dusk with no o line: pal.px's dusk still recolors it there
+    p = half(tmp_path, HALF_SPRITE.replace("Z #f7c282\n", "Z #f7c282\no #3f2631\n").replace(
+        "@anim", "@variant dusk\nM #806030\nP #806060\nZ #806060\n@anim"))
+    lit = dict(pxart.lit_keys(pxart.parse(p)))
+    assert "o" not in lit  # its own night and dusk have no o line, but pal.px's night and dusk darken it
+    assert pxart.parse(p).resolved("dusk")["o"] == (0x4b, 0x24, 0x1e, 255)
+
+
+def test_warning_without_lights_says_so(tmp_path, monkeypatch, capsys):
+    half(tmp_path, HALF_SPRITE.replace("@variant night\nM #ffe07a\nP #403f4a\n", ""))
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    out = capsys.readouterr().out
+    assert "--derive-from base --match pal.px' (no lights inferred; add --keep-lit for any), or --add" in out
+    assert "--keep-lit M" not in out
+
+
+def test_warning_names_the_lights_in_check_and_the_listing_too(tmp_path, monkeypatch, capsys):
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for argv in (["check", "wick.px"], ["palette", "wick.px"], ["render", "wick.px%dusk", "-o", "r.png"]):
+        assert run(*argv) == 0
+        out = capsys.readouterr().out
+        assert "--match pal.px --keep-lit M,Z' (lights inferred: M relisted unchanged in night; Z left at base in " \
+            "night)" in out, argv
+
+
+def test_following_the_warning_as_printed_keeps_the_lights_lit(tmp_path, monkeypatch, capsys):
+    # the gate's repro: running the printed command dimmed the flames when it said only '--keep-lit KEYS'
+    half(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "wick.px%dusk", "-o", "r.png") == 0
+    cmd = re.search(r"'pxart (palette [^']*)'", capsys.readouterr().out).group(1)
+    assert run(*shlex.split(cmd)) == 0
+    doc = pxart.parse(tmp_path / "wick.px")
+    dusk, base = doc.resolved("dusk"), doc.resolved()
+    assert dusk["M"] == base["M"] and dusk["Z"] == base["Z"]  # the lights, kept
+    assert dusk["P"] != base["P"]  # night dims P: so does the derived dusk
+    assert pxart.half_variants(doc) == []
+
+
+def test_following_the_warning_for_a_palette_file(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "pal.px", HALF_PAL)
+    write(tmp_path, "pal2.px", "pxart 1\n@palette pal.px\ny #f3cf6b\nw #203040\n@variant night\ny #f3cf6b\n"
+                               "w #101010\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("check", "pal2.px") == 0
+    out = capsys.readouterr().out
+    assert "--match pal.px --keep-lit y' (lights inferred: y relisted unchanged in night)" in out
 
 
 def test_help_says_a_half_variant_warns():

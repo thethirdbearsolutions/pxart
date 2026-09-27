@@ -89,8 +89,10 @@ pxart 1
   `--variant night`. A variant a sprite gets only from its `@palette` can't know the
   sprite's own keys and leaves them at their base colors (a white wick at dusk): every
   command that renders it prints a `WARNING` naming them, `check` says so too, and
-  `palette wick.px --variant dusk --derive-from base --match pal.px` gives the sprite a dusk
-  of its own, fitted to the palette's.
+  `palette wick.px --variant dusk --derive-from base --match pal.px --keep-lit M,m` gives the
+  sprite a dusk of its own, fitted to the palette's, with its lights kept lit: the WARNING
+  prints that command, the lights inferred from the file's other variants (a key one leaves at
+  base or brightens: `M left at base in night`).
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`
