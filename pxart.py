@@ -391,8 +391,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant colors):
       when no pixel keeps a and a is FILE's own key, a's palette lines become b's (a rename),
       else b is added and a stays. It frees a key without a visible change, say before
-      compose or frames --copy-to meets that key in another color. c=#hex changes key c's
-      color everywhere. '.' works as a source key.
+      compose or frames --copy-to meets that key in another color; onto a key b already in
+      a's color (a near-duplicate), the error says to write a=b, a repaint that looks the same.
+      c=#hex changes key c's color everywhere. '.' works as a source key.
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. The renames apply together as well: a key another
@@ -3622,8 +3623,20 @@ def cmd_recolor(a):
             fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} stays one: {said[v]!r} leaves it in the "
                  f"palette ({why}); name a free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: "
                  f"{' '.join(free) or 'none'})")
-        fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one ({fmt_color(pal[v])}): name a "
-             f"free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: {' '.join(free) or 'none'})"
+        new = f"name a free key ({' '.join(repr(f'{k}>{c}') for c in free[:1])}; free: {' '.join(free) or 'none'})"
+        if pal[v] == pal[k]:  # the key it wants already draws that color: a repaint, not a new key
+            other = [n for n in variant_names(doc) if doc.resolved(n)[v] != doc.resolved(n)[k]]
+            if not other:
+                fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one, in {k}'s color "
+                     f"({fmt_color(pal[v])}" + (", in every variant too" if variant_names(doc) else "") + "): to "
+                     f"draw {k}'s pixels with {v}, write '{k}={v}' (a repaint that looks the same); for a new key, "
+                     + new)
+            fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one, in {k}'s base color "
+                 f"({fmt_color(pal[v])}) but not in " + ", ".join(
+                     f"{n} ({k} {fmt_color(doc.resolved(n)[k])}, {v} {fmt_color(doc.resolved(n)[v])})" for n in other)
+                 + f", so '{k}={v}' would change how {' and '.join(other)} look{'s' * (len(other) == 1)}: " + new
+                 + (f", or free {v!r} in the same call: '{v}>{free[0]}' {m!r}" if free and v in doc.palette else ""))
+        fail("E_BAD_ARG", f"recolor: {m!r} needs a new key, and {v!r} is already one ({fmt_color(pal[v])}): " + new
              + (f", or free {v!r} in the same call: '{v}>{free[0]}' {m!r}" if free and v in doc.palette else ""))
     for f in frames:
         x0, y0, w, h = rects[id(f)]

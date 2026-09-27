@@ -20870,3 +20870,104 @@ def test_palette_rule_listing_says_what_each_variant_recolors(tmp_path, capsys):
     p = write(tmp_path, "s.px", RULE_PX)
     assert run("palette", p) == 0
     assert "night: recolors (darker) w" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- recolor 'i>y' onto a key of the same color
+# 'i>y' where y already has i's color: the port had near-duplicate keys, and the fix is a repaint, 'i=y', not a free
+# key. When a variant colors them apart, 'i=y' would change that variant, so the old advice stands.
+
+SAMECOLOR = "pxart 1\ni #f3cf6b\ny #f3cf6b\nk #000000\n\n@frame a\niyk\n@frame b\nkki\n"
+
+
+def test_recolor_rename_onto_same_color_key_suggests_the_repaint(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR)
+    msg = run_err("recolor", p, "i>y")
+    assert "E_BAD_ARG" in msg
+    assert "'i>y' needs a new key, and 'y' is already one, in i's color (#f3cf6b): to draw i's pixels with y, " \
+        "write 'i=y' (a repaint that looks the same)" in msg
+    assert "for a new key, name a free key ('i>a'; free: a b c)" in msg
+    assert "in every variant" not in msg and "same call" not in msg
+    assert p.read_text() == SAMECOLOR
+
+
+def test_recolor_rename_onto_same_color_key_the_suggested_repaint_works(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR)
+    before = renders(p)
+    msg = run_err("recolor", p, "i>y")
+    fix = re.search(r"write ('[^']+')", msg).group(1)
+    assert fix == "'i=y'"
+    assert run("recolor", p, *shlex.split(fix)) == 0
+    assert grids(p) == {"a": ["yyk"], "b": ["kky"]} and renders(p) == before
+
+
+def test_recolor_rename_onto_same_color_key_in_every_variant(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR.replace("k #000000\n", "k #000000\n@variant night\nk #111111\n"))
+    msg = run_err("recolor", p, "i>y")
+    assert "'y' is already one, in i's color (#f3cf6b, in every variant too): to draw i's pixels with y, write " \
+        "'i=y'" in msg
+
+
+def test_recolor_rename_onto_same_color_key_both_relisted_in_a_variant(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR.replace("k #000000\n", "k #000000\n@variant night\ni #202020\ny #202020\n"))
+    msg = run_err("recolor", p, "i>y")
+    assert "in every variant too" in msg and "write 'i=y'" in msg
+
+
+def test_recolor_rename_onto_same_base_color_but_a_variant_differs(tmp_path):
+    text = SAMECOLOR.replace("k #000000\n", "k #000000\n@variant night\ni #f3cf6b\ny #101010\n")
+    p = write(tmp_path, "s.px", text)
+    msg = run_err("recolor", p, "i>y")
+    assert "'i>y' needs a new key, and 'y' is already one, in i's base color (#f3cf6b) but not in night (i #f3cf6b, " \
+        "y #101010), so 'i=y' would change how night looks: name a free key ('i>a'; free: a b c), or free 'y' in the " \
+        "same call: 'y>a' 'i>y'" in msg
+    assert "write 'i=y'" not in msg and p.read_text() == text
+
+
+def test_recolor_rename_onto_same_base_color_several_variants_differ(tmp_path):
+    text = SAMECOLOR.replace("k #000000\n", "k #000000\n@variant night\ny #101010\n@variant dusk\ni #303030\n")
+    p = write(tmp_path, "s.px", text)
+    msg = run_err("recolor", p, "i>y")
+    assert "but not in night (i #f3cf6b, y #101010), dusk (i #303030, y #f3cf6b), so 'i=y' would change how night " \
+        "and dusk look:" in msg
+
+
+def test_recolor_rename_onto_same_color_imported_key(tmp_path):
+    write(tmp_path, "pal.px", "y #f3cf6b\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\ni #f3cf6b\n\niy\n")
+    msg = run_err("recolor", p, "i>y")
+    assert "in i's color (#f3cf6b): to draw i's pixels with y, write 'i=y'" in msg
+    assert run("recolor", p, "i=y") == 0 and grids(p) == {None: ["yy"]}
+
+
+def test_recolor_rename_onto_same_color_imported_variant_differs(tmp_path):
+    write(tmp_path, "pal.px", "y #f3cf6b\n@variant night\ny #000000\n")
+    p = write(tmp_path, "s.px", "@palette pal.px\ni #f3cf6b\n\niy\n")
+    msg = run_err("recolor", p, "i>y")
+    assert "but not in night (i #f3cf6b, y #000000)" in msg and "same call" not in msg  # y is pal.px's
+
+
+def test_recolor_rename_onto_other_color_key_keeps_the_old_advice(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR)
+    msg = run_err("recolor", p, "i>k")
+    assert "'i>k' needs a new key, and 'k' is already one (#000000): name a free key ('i>a'; free: a b c), or free " \
+        "'k' in the same call: 'k>a' 'i>k'" in msg
+    assert "i=k" not in msg
+
+
+def test_recolor_rename_onto_same_color_with_a_region(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR)
+    msg = run_err("recolor", p, "i>y", "--region", "0,0,1,1")
+    assert "write 'i=y'" in msg
+    assert run("recolor", p, "i=y", "--region", "0,0,1,1") == 0 and grids(p) == {"a": ["yyk"], "b": ["kki"]}
+
+
+def test_recolor_rename_onto_same_color_other_moves_still_checked_first(tmp_path):
+    p = write(tmp_path, "s.px", SAMECOLOR)
+    assert "moved twice" in run_err("recolor", p, "i>y", "i=k")
+
+
+def test_help_and_readme_document_the_same_color_repaint():
+    assert "onto a key b already in a's color (a near-duplicate), the error says to write a=b, a repaint that looks " \
+        "the same" in " ".join(pxart.__doc__.split())
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "onto a key already in a's color the error says `a=b`" in readme

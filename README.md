@@ -181,7 +181,7 @@ rather than repeating them. `compose` and `palette`, the two longest, open with 
   the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`,
   or `--fill KEY`), `set`, `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
-  rename when nothing keeps a; the key moves of one call apply together, so none feeds
+  rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
   another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names), `mask` (erase outside `--keep x,y,w,h` or `--keep-circle cx,cy,r`, with a
   `--dither N` edge; `--invert` erases the inside instead; both flags repeat, and the kept
   area is the union, so two lamps are one call; works on a rendered PNG too; `--keep-keys
