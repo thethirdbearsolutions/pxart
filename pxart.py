@@ -26,10 +26,10 @@ FORMAT (.px)
   writes pivots (Aseprite slices, --frames pivots.json). A pivot may lie outside the frame (a
   hand, the ground under a jump); check notes that in case it's a typo. flip, rotate and
   transpose move a frame's pivot with its pixels: a whole group's @anim pivot moves on its
-  @anim line, and a frame flipped alone gets its own. Set it with anim-set ... pivot=8,23.
+  @anim line, and a frame flipped alone gets its own.
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
   repeat: 0 or absent = loop forever; N = play N times. ms: default frame duration.
-  'anim-set hero.px:walk/down ms=125' writes these (and 'hero.px:walk/down/1 ms=250' a frame's).
+  'anim-set hero.px:walk/down ms=125' writes these, pivot=8,23 too (FILE:GROUP/ID: a frame's).
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
   ids with no '/' included (a parts file). Top-level ids are never animated anyway; '@still *'
@@ -56,8 +56,8 @@ FORMAT (.px)
   directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
   names. Run from the folder holding game/ and wick/, 'palette game/pal.px --variant dark
   --derive-from base --match wick/pal.px%dark' reads wick/pal.px, where game/pal.px's own
-  line would say '@palette ../wick/pal.px'. A file pxart writes in another directory gets
-  its @palette lines re-pointed from there. An E_FILE for a relative path says so, and a
+  line would say '@palette ../wick/pal.px' (a file pxart writes elsewhere gets its @palette
+  lines re-pointed: see EDITING). An E_FILE for a relative path says so, and a
   path option's names the option: 'palette: --match (../wick/pal.px%dark): ../wick/pal.px
   (from the current directory): E_FILE: No such file or directory'.
 
@@ -74,7 +74,7 @@ LOOKING
       files out: one whose name or path under the directory matches ('_*.px', 'wip/*.px'), or
       every file under a directory that does ('wip'): 'sheet game/ --exclude wip --exclude
       room.px -o set.png'. A glob that matches nothing gets a note; one that leaves out every
-      file is E_FILE. It works the same in check and stats, and on files named directly. A
+      file is E_FILE (check, stats and export alike, files named directly too). A
       palette file (no frames) among the inputs, a directory's or a glob's, is skipped with a
       note ('note: sheet skips palette.px: a palette file, no frames'); given alone it is
       E_NO_FRAMES. Every cell is
@@ -160,8 +160,7 @@ LOOKING
       legend lines '<char> <FILE[:frame][%variant]>', a blank line, then rows of legend
       chars ('.' = empty). In a legend line the rest of the line is the path, relative to
       the map file: spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes"
-      optional. check and scene load every legend entry; one that can't load is an
-      error at its legend line.
+      optional. A legend entry that can't load is an error at its legend line.
       Items are then drawn on top. '#' lines are comments only before the first row;
       after that every non-blank line is a row, so '#' works as a map char (a wall row
       '####'). Before the rows, a line that is exactly
@@ -197,9 +196,9 @@ LOOKING
           .S.L.l
           x.....
       'pxart scene --map market.map -o market.png' is 96x48: cobbles and water, then the
-      props over them (compose --map builds the same room as a .px). The stall's cell is 16,16, so it draws at 16 + (16-32)//2,
-      16 + 16 - 32 = 8,0; the lamps at 48,0 and 80,0 (mirrored); the crate, mirrored, at its
-      cell's top-left, 0,32.
+      props over them (compose --map builds the same room as a .px). The stall's cell is
+      16,16, so it draws at 16 + (16-32)//2, 16 + 16 - 32 = 8,0; the lamps at 48,0 and 80,0
+      (mirrored); the crate, mirrored, at its cell's top-left, 0,32.
       --variant V renders every map tile and .px item with V (a whole dark room), except
       those with their own %variant, which wins; a .px without V is an E_SELECT error.
       %base is the base palette, so 'lamp.px%base@40,20' (or a legend entry 'L lamp.px%base')
@@ -210,16 +209,16 @@ LOOKING
       --tint '#10183080' lays that color, at its alpha, over the whole finished scene (bg,
       map, every item, those with their own %variant too) at 1x, before --scale: a night
       scene in one step. To keep a light bright, render the scene untinted, mask the lit
-      circle out of it, and put that PNG over the tinted one. Quote the color in scripts
-      (an unquoted word starting with # is a comment there); the '#' may be left off.
+      circle out of it, and put that PNG over the tinted one.
   tint IN.png '#rrggbbaa' [-o OUT.png]
       scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
-      IN is rewritten. Quote the color in scripts; the '#' may be left off.
+      IN is rewritten.
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). --bg works on render, sheet and scene, and
   takes #rrggbb, #rrggbbaa or 'transparent' (as does every color typed on the command line:
-  --tint, tint, palette --add k=transparent; the '#' may be left off).
+  --tint, tint, palette --add k=transparent; the '#' may be left off, and in a script a
+  '#' color needs quotes, or the shell reads a comment).
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
@@ -286,16 +285,11 @@ CHECKING
       would change them), the @anim line of a group DST lacks, and @still. They keep FILE's
       order and land after their group's last frame in DST, at the end for a new group, or
       at --after/--before a DST frame: 'frames hero.px:walk --copy-to beast.px --after idle/3'.
-      Their keys join DST's palette and DST's variants as compose's layers join an existing
-      OUT: in the colors FILE's variant of the same name gives them (--variant-map dusk=night
-      reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose).
-      A key DST has in another color is E_KEY_CONFLICT; one DST has in the same color but
-      recolors otherwise in a variant (a market's awning red beside a keeper's scarf red) gets
-      a WARNING of its own, since DST's variant would recolor FILE's pixels; --rekey gives both
-      free keys in DST. --rekey o,r moves only those keys, and --rekey k=j puts k on DST's j,
-      as compose's does. A frame id DST already has is E_DUP_FRAME, and so are two copies
-      --rename would give one id (--rename walk w --rename run w). To put back a frame
-      removed by mistake, copy it from a copy of the file, --after its neighbor.
+      Their keys join DST's palette and variants as compose's layers join an existing OUT
+      (see compose): E_KEY_CONFLICT, the variant WARNINGs, --rekey [KEYS] and --variant-map
+      dusk=night work alike. A frame id DST already has is E_DUP_FRAME, and so are two
+      copies --rename would give one id (--rename walk w --rename run w). To put back a
+      frame removed by mistake, copy it from a copy of the file, --after its neighbor.
       DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
       --empty --palette P.px' one with no frames that imports P.
       Copies under other ids, when DST has those already (two packs' walk/*): --prefix wick/
@@ -334,7 +328,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
       (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
       already exists is E_DUP_FRAME: fill it instead. --still marks its group '@still GROUP'
-      (new ui.px:icons/life --still); a top-level frame is never animated and needs none.
+      (new ui.px:icons/life --still).
       --empty starts a new OUT with no frames: the version line and, with --palette, its
       @palette line. It is where frames --copy-to puts another file's frames against a
       shared palette: 'new party.px --empty --palette palette.px', then 'frames
@@ -371,20 +365,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
       what crop is for, so there's no note about them; a rectangle that runs past the frame's
       edge (or starts at a negative x,y) gets '.' there. FILE:frame must be one .px frame.
-      OUT is written as compose writes it:
-        a new OUT starts with FILE's whole palette (so shade ramps still find their keys):
-          its @palette imports, re-pointed from OUT's directory, its key lines and its
-          variants; --used-keys-only keeps only the keys the cut uses.
-        OUT:frame of an existing OUT adds that frame (after the last frame of its animation,
-          or at the end) or replaces it when it exists, and keeps OUT's other frames and
-          its own palette: the cut's keys join it. A plain OUT with one unnamed grid has the
-          grid replaced; an OUT with named frames needs OUT:frame; an OUT with one unnamed
-          grid, written as OUT:frame, first becomes '@frame STEM' (see FORMAT). The cut's keys
-          are checked against OUT's variants and join them as compose's layers do.
-      A key the cut uses that OUT has in another color is E_KEY_CONFLICT, naming every such
-      key and both colors, with free keys for them; --rekey gives the cut those keys in OUT
-      and leaves FILE as it is (or 'pxart recolor FILE ... -o rekeyed/FILE.px', a copy to
-      crop from, as the error line prints it; see compose).
+      OUT is written as compose writes it, FILE's frame its one layer (see compose): a new
+      OUT gets FILE's whole palette (--used-keys-only: the cut's keys), OUT:frame adds or
+      replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
+      replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
+      gives the cut those keys in OUT and leaves FILE as it is.
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette
       imports (re-pointed relative to OUT), variants, and @anim/@still lines (minus those
@@ -399,12 +384,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
   recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
       keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
-      redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant colors):
-      when no pixel keeps a and a is FILE's own key, a's palette lines become b's (a rename),
-      else b is added and a stays. It frees a key without a visible change, say before
-      compose or frames --copy-to meets that key in another color; onto a key b already in
-      a's color (a near-duplicate), the error says to write a=b, a repaint that looks the same.
-      c=#hex changes key c's color everywhere. '.' works as a source key.
+      redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
+      colors): when no pixel keeps a and a is FILE's own key, a's palette lines become b's
+      (a rename), else b is added and a stays. It frees a key without a visible change, say
+      before compose or frames --copy-to meets that key in another color; onto a key b
+      already in a's color (a near-duplicate), the error says to write a=b, a repaint that
+      looks the same. c=#hex changes key c's color everywhere. '.' works as a source key.
       Order: the key moves of one call apply together, each pixel by the key it had before
       the call, so no move feeds another: 'a<>b' c=a turns a's pixels to b and b's and c's
       to a, and a=b b=a is a swap too. The renames apply together as well: a key another
@@ -420,11 +405,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Copy SRC's frame (or --region of it) onto DST at x,y; '.' never overwrites. +h / +v
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
-      Keys SRC uses in other colors than DST's are E_KEY_CONFLICT, all named, as for compose;
-      keys DST has in their color but recolors otherwise in its variants get a WARNING each;
-      --rekey gives both free keys in DST, as compose's does (--rekey KEYS too). SRC's new
-      keys join DST's variants in SRC's colors, as a compose layer's join an existing OUT
-      (--variant-map too).
+      SRC's keys join DST as a compose layer's join an existing OUT: E_KEY_CONFLICT, the
+      variant WARNINGs, --rekey [KEYS] and --variant-map work alike.
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] [--replace] LAYER@x,y ...
   compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]
@@ -445,12 +427,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       first layer's 16x16), 'compose -o party.px:keeper/walk keeper.px:walk/0@0,0 --rekey'
       (keeper.px's k is another color in party.px, so it gets a free key there).
 
-      A new OUT starts with the layers' whole palettes, used or not, so a later 'shade --ramp'
-      or recolor finds its keys: when every layer imports the same @palette files, OUT imports
-      them too (re-pointed from OUT's directory); otherwise their colors become OUT's key
-      lines. Local keys follow, the keys the layers use first: a key layers have in different
-      colors gets the color of the layer that uses it, else the earlier layer's, and one line
-      per source file names its colors left out and why: a key none of the file's layers here
+      A new OUT (rule 1; a shared import re-pointed from OUT's directory): local keys follow
+      the import, the keys the layers use first: a key layers have in different colors gets
+      the color of the layer that uses it, else the earlier layer's, and one line per source
+      file names its colors left out and why: a key none of the file's layers here
       draw with is no conflict, and OUT has the color of the layer named (which draws with it,
       or is the earlier layer). That line is a WARNING when the file needs a key it lost (its
       other frames draw with it, named, or a variant lists it unchanged or keeps it while
@@ -466,16 +446,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       from its layers' whole palettes (for shade ramps and recolors): wick.px's E'), and
       check's 'unused keys' note offers the palette --remove that drops them.
 
-      An existing OUT keeps its own palette, @palette and variants; each layer's keys are
-      added to it unless the key already exists with the same color, each in the colors the
-      layer's file gives it in OUT's variants of the same name (a variant the file hasn't got
-      leaves the key at its base color there, and a file with variants, none of them OUT's,
-      gets a note saying so and naming the --variant-map that would read one as OUT's). A
-      plain OUT that exists (no :frame) keeps its palette too, keys from an earlier run
-      included, and a note says so: 'note: glade.px exists: keeping its palette (61 keys,
-      @variant dusk); --replace starts it fresh' (an E_KEY_CONFLICT says it as well).
-      --replace starts it as if new: the layers' palettes, nothing of the old file (not with
-      OUT:frame, whose other frames it would drop, or with --under).
+      An existing OUT (rule 2): a layer's key is added unless OUT has it in that color, in
+      the colors the layer's file gives it in OUT's variants of the same name (a variant the
+      file hasn't got leaves the key at its base color there, and a file with variants, none
+      of them OUT's, gets a note saying so and naming the --variant-map that would read one
+      as OUT's). A plain OUT that exists (no :frame) keeps its palette too, keys from an
+      earlier run included, and a note says so: 'note: glade.px exists: keeping its palette
+      (61 keys, @variant dusk); --replace starts it fresh' (an E_KEY_CONFLICT says it as
+      well). --replace starts it as if new: the layers' palettes, nothing of the old file
+      (not with OUT:frame, whose other frames it would drop, or with --under).
 
       Key conflicts: a key a layer uses in another color than OUT's (or an earlier layer's) is
       E_KEY_CONFLICT, one line per source file (all its layers: 'layers 1-4, 7 (field.px)')
@@ -487,15 +466,12 @@ EDITING (writes .px; -o defaults to editing the input in place)
       run out the keys a shell reads (! $ ` ' * ? [ ] { } ~ & ; | < > ( )) or pxart does (,
       and =). A key any layer's file has isn't free, used here or not. Two ways to use them,
       both leaving the layers' files as they are:
-        --rekey: compose gives those keys the free ones in OUT as it goes (the files are read,
-          never written) and a note says which: 'note: --rekey gives field.px's keys free ones
+        --rekey: compose gives those keys the free ones in OUT as it goes, and a note says
+          which: 'note: --rekey gives field.px's keys free ones
           in scene.px: 's>a' 't>b' (field.px is unchanged)'. Composing from the same file into
           OUT again reuses them (OUT has them in those colors by then).
         a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside
           OUT), then compose from rekeyed/field.px; the line prints it ready to run.
-
-      (recolor field.px 's>a' 't>b' with no -o renames them in field.px itself, in every
-      frame: right when the file itself should change.)
 
       --rekey KEYS touches only the keys it lists. --rekey o,r gives o and r free keys and
       leaves the others as they are (a key of another color is still E_KEY_CONFLICT, a variant
@@ -520,50 +496,49 @@ EDITING (writes .px; -o defaults to editing the input in place)
       lost, and one WARNING per key OUT's variants color otherwise ('WARNING: layer 2
       (keeper.px:idle) draws 'r' #c4473a in party.px's variant colors, not keeper.px's: dusk
       #a33a4c (keeper.px: #83344e); compose --rekey r gives it a key of its own'). An
-      E_KEY_CONFLICT line offers the same moves --rekey makes, with the same reasons, and
-      prints alone: a compose that fails prints no notes.
+      E_KEY_CONFLICT line offers the same moves --rekey makes, with the same reasons.
 
-      Variants come along for the keys OUT has, each in the colors of the layer whose key OUT
-      has, so one file's variant never recolors another file's pixels. Layers from files with
-      different variants (a market's dusk, a keeper's night, a candle's dark): each of OUT's
-      variants covers only the layers whose file has it, and a note per variant says which
-      layers stay at their base colors in it. --variant-map dusk=night,dark (repeatable)
-      builds OUT's dusk from each layer's first of dusk, night, dark, so every layer dims
-      together; a new OUT's palette is then inlined (its variants are built, not imported).
-      The map adds to the same-name lookup, never replaces it: it says only where OUT's dusk
-      comes from, and OUT's other variants, night among them, still read each file's variant
-      of the same name (a keeper's night is then OUT's dusk and OUT's night too). One variant
-      may feed several maps (--variant-map dusk=night --variant-map rain=night). A new OUT
-      merges a variant into the map's only when every file that has it gave it to the map (the
-      keeper's night, read as dusk): then it gets no variant of its own. One that a file keeps
-      as its own (its file has a dusk too) stays one of OUT's variants. With an existing OUT,
-      whose variants stay its own, the map says which of each layer's variants to read as
-      OUT's dusk (dusk must be one of OUT's). A key a layer draws in OUT's base color but that
-      its file's variants color otherwise (one red awning, recolored by one pack's dusk and
-      another's night), in a new OUT or an existing one, gets a WARNING: OUT's variants color
-      those pixels OUT's way. --rekey gives such a key a free key of its own, as it does a key
-      of another color, reusing a key of OUT only when it looks the same in every variant.
-      crop writes a new OUT the same way, and crop, paste and frames --copy-to bring keys in
-      the same way.
+      Variants (rule 3) come along for the keys OUT has, in the colors of the layer whose
+      key OUT has. Layers from files with different variants (a market's dusk, a keeper's
+      night, a candle's dark): each of OUT's variants covers only the layers whose file has
+      it, and a note per variant says which layers stay at their base colors in it.
+      --variant-map dusk=night,dark (repeatable) builds OUT's dusk from each layer's first
+      of dusk, night, dark, so every layer dims together; a new OUT's palette is then
+      inlined (its variants are built, not imported). The map adds to the same-name lookup,
+      never replaces it: it says only where OUT's dusk comes from, and OUT's other variants,
+      night among them, still read each file's variant of the same name (a keeper's night is
+      then OUT's dusk and OUT's night too). One variant may feed several maps (--variant-map
+      dusk=night --variant-map rain=night). A new OUT merges a variant into the map's only
+      when every file that has it gave it to the map (the keeper's night, read as dusk):
+      then it gets no variant of its own. One that a file keeps as its own (its file has a
+      dusk too) stays one of OUT's variants. With an existing OUT, whose variants stay its
+      own, the map says which of each layer's variants to read as OUT's dusk (dusk must be
+      one of OUT's). A key a layer draws in OUT's base color but that its file's variants
+      color otherwise (one red awning, recolored by one pack's dusk and another's night), in
+      a new OUT or an existing one, gets a WARNING: OUT's variants color those pixels OUT's
+      way. --rekey gives such a key a free key of its own, as it does a key of another
+      color, reusing a key of OUT only when it looks the same in every variant. crop writes
+      a new OUT the same way, and crop, paste and frames --copy-to bring keys in the same
+      way.
 
       Comments: the comments above the layers' key and @variant lines come along, as for
-      palette --extract-to; a comment naming a key --rekey renamed says so: '# lamp colors (l,
-      g) stay lit (renamed l>I g>J)'. The keys right below a key's comment in its file (the
-      keys it is about: '# light-emitting keys' above f a i) stay below it. From several
-      files, each saying which file's it is ('from keeper.px's @variant night, dusk here'),
-      and one that names a variant --variant-map merged into another says so ('from player.px,
-      whose dark is dusk here'). A @variant's comment names only the files whose variant lines
-      gave OUT's own @variant keys, and when OUT imports the rest, says so ('from visitors.px's
-      @variant night; the rest from pal.px's night'). An OUT whose palette is inlined also gets
-      the palette files' header comments at the top of its palette, each with the files it
-      came from.
+      palette --extract-to; a comment naming a key --rekey renamed says so: '# lamp colors
+      (l, g) stay lit (renamed l>I g>J)'. The keys right below a key's comment in its file
+      (the keys it is about: '# light-emitting keys' above f a i) stay below it. From
+      several files, each saying which file's it is ('from keeper.px's @variant night, dusk
+      here'), and one that names a variant --variant-map merged into another says so ('from
+      player.px, whose dark is dusk here'). A @variant's comment names only the files whose
+      variant lines gave OUT's own @variant keys, and when OUT imports the rest, says so
+      ('from visitors.px's @variant night; the rest from pal.px's night'). An OUT whose
+      palette is inlined also gets the palette files' header comments at the top of its
+      palette, each with the files it came from.
 
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
-      parts.px:body@0,8. With OUT:frame, adds or replaces that frame in OUT and keeps its
-      other frames (OUT may be a palette-only file); the 'wrote' line says when it replaced
-      one. A new frame goes after the last frame of its animation (like dup), or at the end
-      when the animation is new. Canvas size: --size, else the frame being replaced, else the
-      other frames of its animation, else the first layer. Pixels that land outside the canvas
+      parts.px:body@0,8. OUT:frame keeps OUT's other frames (OUT may be a palette-only file),
+      and the 'wrote' line says when it replaced one. A new frame goes after the last frame of
+      its animation (like dup), or at the end when the animation is new. Canvas size: --size,
+      else --map's, else the frame being replaced, else the other frames of its animation,
+      else the first layer. Pixels that land outside the canvas
       are cropped, with a note saying how many. --under keeps OUT's frame and draws the layers
       behind it: they fill only its empty pixels (a floor or a shadow under a finished
       sprite). The frame must exist. compose and dup note an output path that doesn't end in
@@ -571,14 +546,14 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
-      the LAYER@x,y given over them. The canvas is the map's size unless --size says otherwise,
-      and --tile is scene's (N means NxN). Palette, --rekey and --variant-map work as for any
-      layers. A legend entry with its own %VARIANT comes in that variant's colors, as a file of
-      its own (tiles.px%dark; --rekey tells it from tiles.px), and a PNG in keys of its own:
-      OUT's variants leave both as they are, as scene --variant does. So 'compose --map
-      market.map -o market.px' renders as 'scene --map market.map --bg transparent --scale 1
-      -o market.png' does, pixel for pixel, in every variant too, except where a translucent
-      pixel lands on another: a .px pixel is one key, so it replaces what scene blends.
+      the LAYER@x,y given over them; --tile is scene's (N means NxN). Palette, --rekey and
+      --variant-map work as for any layers. A legend entry with its own %VARIANT comes in
+      that variant's colors, as a file of its own (tiles.px%dark; --rekey tells it from
+      tiles.px), and a PNG in keys of its own: OUT's variants leave both as they are, as
+      scene --variant does. So 'compose --map market.map -o market.px' renders as 'scene
+      --map market.map --bg transparent --scale 1 -o market.png' does, pixel for pixel, in
+      every variant too, except where a translucent pixel lands on another: a .px pixel is
+      one key, so it replaces what scene blends.
   dup FILE:ID NEWID [--after ID] [-o OUT]
       Copy a frame under a new id, placed after the last frame of NEWID's animation, or
       when that animation is new, after the source's whole animation (or after --after).
@@ -591,9 +566,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A path that is both a group and a frame means the group. Only that one line changes.
       --still adds '@still GROUP' (the group is no animation: UI icons, parts), --no-still
       removes it; FILE with no :GROUP (or FILE:*) --still writes '@still *' (every frame),
-      unless every frame already is in a @still group: then it says so and adds nothing (a
-      top-level frame isn't in one, so '@still *' still lists it as still). An @anim line
-      stays, unused while the group is still.
+      unless every frame already is in a @still group: then it says so and adds nothing. An
+      @anim line stays, unused while the group is still.
   palette FILE [--add k=#hex ...] [--variant NAME [--add k=#hex ...] [--keep KEYS]]
           [--variant NAME --derive-from base|VARIANT [--match FILE%V] [--darken F] [--tint COLOR]
            [--keep-lit KEYS] [--lift-darks]]
@@ -620,25 +594,24 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Examples: 'palette party.px' lists it; 'palette pal.px --variant night --add k=#120e22
       w=#9fb0d4'; 'palette pal.px --variant dusk --derive-from base --match mossback.px%dusk'.
 
-      Listing: no flags lists the keys, their colors, where they come from and how often
-      they're used, then each variant's keys: 'dusk: recolors (darker) o x X c C; inherits: e
-      E q' (the keys it recolors, then the base keys it leaves alone, both in palette order).
-      A recolor is darker, brighter ('brightens y W': lamps lit brighter at night) or as
-      bright (Rec. 709 luma, times alpha). A key the variant lists in its base color (a lamp
-      that stays lit at night) is neither: 'night: recolors (darker) k w; relists unchanged: l
-      g; inherits: nothing'. The palette's comments come along: the palette files' header on
-      top, a key's comment after its line ('E #ffe07a local # light-emitting keys'), each
-      variant's comment under its line, and the comments on its key lines as 'y: # lit in
-      rain: harbor lamp'. A palette file has no frames, so no 'used' column; --in DIR counts
-      the .px files under DIR that import it ('imported by 3 of the .px files under
-      crossover/') and, per key, how many of them draw with it ('used by 2 files').
+      Listing: after the keys (rule 1), each variant's line: 'dusk: recolors (darker) o x X
+      c C; inherits: e E q' (the keys it recolors, then the base keys it leaves alone, both
+      in palette order). A recolor is darker, brighter ('brightens y W': lamps lit brighter
+      at night) or as bright (Rec. 709 luma, times alpha). A key the variant lists in its
+      base color (a lamp that stays lit at night) is neither: 'night: recolors (darker) k w;
+      relists unchanged: l g; inherits: nothing'. The palette's comments come along: the
+      palette files' header on top, a key's comment after its line ('E #ffe07a local #
+      light-emitting keys'), each variant's comment under its line, and the comments on its
+      key lines as 'y: # lit in rain: harbor lamp'. A palette file has no frames, so no
+      'used' column; --in DIR counts the .px files under DIR that import it ('imported by 3
+      of the .px files under crossover/') and, per key, how many of them draw with it ('used
+      by 2 files').
 
       Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
 
       Authoring a variant: with --variant NAME, --add sets the keys in that variant instead,
-      over what it had, and makes the variant when FILE has none by that name: 'palette pal.px
-      --variant night --add k=#120e22 w=#9fb0d4'. A key given in its base color is listed
-      unchanged (a lamp kept lit at night). --variant NAME --keep l,g lets keys inherit the
+      over what it had, and makes the variant when FILE has none by that name (the example
+      above). --variant NAME --keep l,g lets keys inherit the
       base colors: their lines in the variant go, and a key an imported variant recolors gets
       its base color on a line of FILE's own, since the import can't change from here. --add
       and --keep can share one call; the keys must be in the base palette. A key --add gives
@@ -657,15 +630,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
       fitted by least squares over the keys that variant recolors (not the ones it relists,
-      the lamps), then --darken and --tint as above: 'palette pal.px --variant dusk
-      --derive-from base --match mossback.px%dusk' gives the cast the mood of another pack's
-      dusk, warm lights and blue shadows included (a red gain, a blue offset), where one
-      darken and one tint move every channel alike. The output prints the fit: 'r x0.92 -17, g
-      x0.81 -11, b x0.78 +10'. A key darker than a quarter (Rec. 709 luma under 64) never
-      comes out brighter than its --derive-from color: it is scaled back to that brightness,
-      its hue kept, and listed as held, so a near-black outline stays dark under a blue tint
-      or offset; when none is, the output says 'held: none'. --lift-darks lets the derive
-      brighten them (a fog), and names the ones it did; --add sets one anyway.
+      the lamps), then --darken and --tint as above: the example above gives the cast the
+      mood of another pack's dusk, warm lights and blue shadows included (a red gain, a blue
+      offset), where one darken and one tint move every channel alike. The output prints the
+      fit: 'r x0.92 -17, g x0.81 -11, b x0.78 +10'. A key darker than a quarter (Rec. 709
+      luma under 64) never comes out brighter than its --derive-from color: it is scaled
+      back to that brightness, its hue kept, and listed as held, so a near-black outline
+      stays dark under a blue tint or offset; when none is, the output says 'held: none'.
+      --lift-darks lets the derive brighten them (a fog), and names the ones it did; --add
+      sets one anyway.
 
       Comments: --comment KEY 'text' sets the comment right above FILE's line for KEY
       (replacing the comment lines there; blank lines stay); --comment @variant night 'text'
@@ -791,12 +764,10 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       so there are no doubled (L-shaped) corners; --corners also takes the pixels touching only
       at a corner (square corners, a 2px staircase). Selective outline (--lit L, or
       --selective --lit L): outline pixels facing the light get L (a darker tone of the
-      material, say) and the rest K. Facing: the outline pixel's outward normal (the pull of
-      the empty pixels within 2px minus that of the shape's, 1/distance-weighted, so a
-      staircase reads as its slope) dotted with the light's direction; above 0 is lit, so a
-      nw light lights the top and left edges and a 45-degree edge (ne, sw) stays K.
-      --light: n ne e se s sw w nw (default nw). --preview P.png renders the result, as shade's
-      does, and writes nothing else. Prints the pixels it changed, by the key they got:
+      material, say) and the rest K. Facing: the outline pixel's outward normal (shade's, over
+      2px) dotted with the light's direction; above 0 is lit, so a nw light lights the top and
+      left edges and a 45-degree edge (ne, sw) stays K. --light and --preview as for shade.
+      Prints the pixels it changed, by the key they got:
       "changed 12 px: 6->o, 6->l" (outline pixels that already had their key don't count).
 
 CONVERTING
@@ -814,21 +785,22 @@ CONVERTING
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' leaves the 32x32
       props out of a 16x16 tileset.
       Several files and directories export together, file by file in the order named; a
-      directory stands for every .px under it (palette files skipped, --exclude as for sheet):
-      'export town/ --frames out/'. No two frames may get one name: an id two files share (each
-      file's idle/0; two animations of one name too), or, with --frames, two ids that differ
-      only in case (Door, door: one file on macOS), is E_DUP_FRAME, and nothing is written.
-      --prefix-file ids them FILE/ID, FILE being the file's path under its directory without
-      .px, or a named file's stem (roofs/roof-red, props/well/well; an unnamed grid is FILE
-      alone), in the PNG paths, the Aseprite filenames and tags and the Tiled animations.
+      directory stands for every .px under it (palette files skipped, --exclude as for
+      sheet): 'export town/ --frames out/'. No two frames may get one name: an id two files
+      share (each file's idle/0; two animations of one name too), or, with --frames, two ids
+      that differ only in case (Door, door: one file on macOS), is E_DUP_FRAME, and nothing
+      is written. --prefix-file ids them FILE/ID, FILE being the file's path under its
+      directory without .px, or a named file's stem (roofs/roof-red, props/well/well; an
+      unnamed grid is FILE alone), in the PNG paths, the Aseprite filenames and tags and the
+      Tiled animations.
       Id order (the Aseprite frame index, the Tiled tile id, the sheet position): 0, 1, 2...
-      over the exported frames, file by file, with each animation group contiguous, groups in order of
-      first appearance, and all top-level frames (no '/' in the id) together as one group
-      where the first of them appears. A file that keeps each group together, and its
-      top-level frames together, gets ids in file order; otherwise a frame moves up to its
-      group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
-      badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others,
-      and a Tiled map painted with the old tileset keeps the old ids.
+      over the exported frames, file by file, with each animation group contiguous, groups
+      in order of first appearance, and all top-level frames (no '/' in the id) together as
+      one group where the first of them appears. A file that keeps each group together, and
+      its top-level frames together, gets ids in file order; otherwise a frame moves up to
+      its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 walk/1 badge -> icon=0
+      badge=1 walk/0=2 walk/1=3. Adding, removing or moving frames can renumber others, and
+      a Tiled map painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -861,13 +833,12 @@ CONVERTING
 
 HELP
   help [all | recipes | TOPIC | CMD]
-      'pxart help recipes' walks through six workflows, command by command (not part of this
-      reference). pxart -h is a short overview and the commands by topic. 'pxart help all' prints this
-      whole reference; 'pxart help TOPIC' one part of it: FORMAT, LOOKING, CHECKING, EDITING,
-      DRAWING, CONVERTING, HELP or ERRORS (any case); 'pxart help CMD' is 'pxart CMD -h', the
-      command's section of it and a see-also line naming the shared notes it relies on.
-      compose and palette open their sections with a short list of rules; 'pxart help
-      compose-rules' and 'pxart help palette-rules' print only that list.
+      'pxart help recipes': six workflows, command by command. 'pxart help all' prints this
+      whole reference; 'pxart help TOPIC' one part of it (FORMAT, LOOKING, CHECKING,
+      EDITING, DRAWING, CONVERTING, HELP or ERRORS, any case); 'pxart help CMD' is 'pxart
+      CMD -h', its section and a see-also line naming the shared notes it relies on. 'pxart
+      help compose-rules' and 'pxart help palette-rules' print only the rules those sections
+      open with.
 
 ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
@@ -877,10 +848,7 @@ ERROR CODES
   Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...'). An
   error in an input file also says which input it came from, then where in the file:
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
-  A file that can't be read is one E_FILE line too, its path relative to the current
-  directory when it is under it, and said to be (see FORMAT: paths): 'render: hero.pxalk/0
-  (from the current directory): E_FILE: No such file or directory; 'hero.pxalk/0' looks like
-  zsh ate a ':' ...'.
+  A file that can't be read is one E_FILE line too (see FORMAT: paths).
   Inputs are named like -h names them: FILE, SRC, --into, -o, OUT, A/B, layer N, item N,
   file N (the Nth of several), --map, --palette, stdin. check reports per file instead.
   A command that fails prints none of its notes or WARNINGs: they describe the write it was

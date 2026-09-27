@@ -3020,7 +3020,8 @@ def test_tint_night_with_a_lit_circle(tmp_path):
 def test_help_documents_tint():
     doc = pxart.__doc__
     assert "--tint '#10183080'" in doc and "those with their own %variant too" in doc
-    assert "tint IN.png '#rrggbbaa' [-o OUT.png]" in doc and "Quote the color in scripts" in doc
+    assert "tint IN.png '#rrggbbaa' [-o OUT.png]" in doc
+    assert "in a script a '#' color needs quotes, or the shell reads a comment" in " ".join(doc.split())
 
 
 # ---------------------------------------------------------------- loop F: mask --invert
@@ -9692,7 +9693,7 @@ def test_seed_palette_returns_left_out_keys(tmp_path):
 
 def test_help_documents_compose_new_palette():
     doc = " ".join(pxart.__doc__.split())
-    assert "A new OUT starts with the layers' whole palettes, used or not" in doc
+    assert "A new OUT gets the layers' whole palettes, drawn with or not (for shade ramps)" in doc
     assert "crop writes a new OUT the same way" in doc
 
 
@@ -11124,12 +11125,13 @@ def test_help_documents_rekey():
     assert ("compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only] "
             "[--variant-map NAME=V1,V2] [--replace] "
             "LAYER@x,y") in doc
-    assert ("--rekey: compose gives those keys the free ones in OUT as it goes (the files are read, never "
-            "written)") in doc
+    assert "--rekey: compose gives those keys the free ones in OUT as it goes, and a note says which" in doc
+    assert "The layers' files are read, never written." in doc
     assert "a copy: 'pxart recolor field.px 's>a' 't>b' -o rekeyed/field.px' (rekeyed/ beside OUT)" in doc
-    assert "with no -o renames them in field.px itself, in every frame" in doc
-    assert "--rekey gives both free keys in DST, as compose's does" in doc
-    assert "--rekey gives both free keys in DST. --rekey o,r moves only those keys" in doc
+    # paste and frames --copy-to say they work as compose does, once each, rather than retelling it
+    assert "SRC's keys join DST as a compose layer's join an existing OUT: E_KEY_CONFLICT, the variant WARNINGs, " \
+        "--rekey [KEYS] and --variant-map work alike" in doc
+    assert "E_KEY_CONFLICT, the variant WARNINGs, --rekey [KEYS] and --variant-map dusk=night work alike" in doc
 
 
 # ---------------------------------------------------------------- each command's E_KEY_CONFLICT in its own nouns
@@ -11403,7 +11405,7 @@ def test_frames_variants_line_is_unchanged(tmp_path, capsys):
 
 def test_help_documents_variant_overrides():
     doc = " ".join(pxart.__doc__.split())
-    assert "then each variant's keys: 'dusk: recolors (darker) o x X c C; inherits: e E q'" in doc
+    assert "each variant's line: 'dusk: recolors (darker) o x X c C; inherits: e E q'" in doc
 
 
 # ---------------------------------------------------------------- anim-set FILE --still: no redundant '@still *'
@@ -11889,10 +11891,12 @@ def test_crop_help_has_the_full_story(capsys):
     assert "crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only]" in out
     assert "'crop hero.px:idle/0 4,0,8,8 -o parts.px:head'" in out
     assert "a rectangle that runs past the frame's edge (or starts at a negative x,y) gets '.' there" in out
-    assert "a new OUT starts with FILE's whole palette (so shade ramps still find their keys)" in out
-    assert "OUT:frame of an existing OUT adds that frame" in out and "or replaces it when it exists" in out
-    assert "A plain OUT with one unnamed grid has the grid replaced" in out
-    assert "A key the cut uses that OUT has in another color is E_KEY_CONFLICT" in out
+    # the rules are compose's, told there once: crop says what they come to for a cut
+    assert "OUT is written as compose writes it, FILE's frame its one layer (see compose): a new OUT gets FILE's " \
+        "whole palette (--used-keys-only: the cut's keys)" in out
+    assert "OUT:frame adds or replaces that frame in an existing OUT" in out
+    assert "a plain OUT with one unnamed grid has it replaced" in out
+    assert "A key OUT has in another color is E_KEY_CONFLICT, with free keys" in out
     assert "--rekey gives the cut those keys in OUT and leaves FILE as it is" in out
     assert "See also, in pxart help all: compose (" in out
 
@@ -13438,7 +13442,7 @@ def test_help_documents_compose_across_packs(capsys):
     assert "--rekey then keeps such keys under free keys in OUT" in doc
     assert "the comments above the layers' key and @variant lines come along, as for palette --extract-to" in doc
     assert "'# lamp colors (l, g) stay lit (renamed l>I g>J)'" in doc
-    assert "so one file's variant never recolors another file's pixels" in doc
+    assert "OUT's night colors each layer's pixels as that layer's own file's night does" in doc
     assert "--variant-map dusk=night,dark (repeatable) builds OUT's dusk from each layer's first of dusk, night, dark" \
         in doc
     assert "--rekey gives such a key a free key of its own" in doc
@@ -13999,8 +14003,8 @@ def test_rekey_moves_helper(tmp_path):
 
 def test_help_documents_variant_aware_imports(capsys):
     doc = " ".join(pxart.__doc__.split())
-    assert "Their keys join DST's palette and DST's variants as compose's layers join an existing OUT" in doc
-    assert "--variant-map dusk=night reads FILE's night as DST's dusk" in doc
+    assert "Their keys join DST's palette and variants as compose's layers join an existing OUT" in doc
+    assert "--variant-map dusk=night reads another name as OUT's dusk" in doc
     assert "crop, paste and frames --copy-to bring keys in the same way" in doc
     assert "With an existing OUT, whose variants stay its own, the map says which of each layer's variants" in doc
     assert "Stdin has no variants: a key in FILE's color is FILE's key, variant colors and all" in doc
@@ -15509,7 +15513,7 @@ def test_help_says_the_map_adds(capsys):
     text = " ".join(pxart.__doc__.split())
     assert ("The map adds to the same-name lookup, never replaces it: it says only where OUT's dusk comes from, and "
             "OUT's other variants, night among them, still read each file's variant of the same name") in text
-    assert "reads FILE's night as DST's dusk, and still as DST's night: the map adds, see compose" in text
+    assert "--rekey [KEYS] and --variant-map dusk=night work alike" in text  # frames --copy-to: see compose
 
 
 def test_readme_says_the_map_adds():
@@ -16446,8 +16450,6 @@ EXAMPLE_SKIP = {
     "extract FILE:SEL -o DST": "placeholders",
     "frames FILE:SEL --copy-to OUT": "placeholders",
     "new DST --empty --palette P.px": "placeholders",
-    "pxart recolor FILE ... -o rekeyed/FILE.px": "placeholders",
-    "shade --ramp": "a fragment ('a later 'shade --ramp' or recolor')",
     "shade --ramp XxcCw": "a fragment (the ramp a cloak needs)",
     "pxart help TOPIC": "placeholder",
     "pxart help CMD": "placeholder",
@@ -16661,9 +16663,10 @@ def test_check_missing_file_has_the_command(tmp_path):
 
 
 def test_help_documents_e_file_prefix():
-    assert "'render: hero.pxalk/0 (from the current directory): E_FILE: No such file or directory; 'hero.pxalk/0' " \
-        "looks like zsh" in " ".join(
-        pxart.__doc__.split())
+    text = " ".join(pxart.__doc__.split())
+    assert "'palette: --match (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such " \
+        "file or directory'" in text
+    assert "A file that can't be read is one E_FILE line too (see FORMAT: paths)." in text
 
 
 
@@ -20726,14 +20729,14 @@ def test_rules_are_lines_of_the_reference():
 
 def test_help_documents_the_rules_topics():
     text = " ".join(pxart.__doc__.split())
-    assert "'pxart help compose-rules' and 'pxart help palette-rules' print only that list" in text
+    assert "'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those sections open " \
+        "with" in text
 
 
 def test_detail_paragraphs_are_separated(capsys):
     ref = pxart.reference("compose")
-    for lead in ("A new OUT starts with", "An existing OUT keeps its own palette, @palette and variants; each layer's "
-                 "keys are added", "Key conflicts:", "The report:", "Variants come along", "Comments:",
-                 "Frames and canvas:"):
+    for lead in ("A new OUT (rule 1;", "An existing OUT (rule 2): a layer's key is added", "Key conflicts:",
+                 "The report:", "Variants (rule 3) come along", "Comments:", "Frames and canvas:", "From a map:"):
         i = " ".join(ref.split()).index(lead)
         assert i > 0, lead
     assert "\n\n      Key conflicts:" in ref and "\n\n      Frames and canvas:" in ref
@@ -22317,3 +22320,18 @@ def test_help_section_names_recipes():
 def test_readme_points_at_the_recipes():
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "`pxart help recipes` walks through six workflows end to end" in readme
+
+
+def test_help_all_does_not_grow(capsys):
+    # 67277 bytes at 3dd8747; the recipes are their own topic, and duplicated passages now say things once (crop,
+    # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering)
+    assert run("help", "all") == 0
+    assert len(capsys.readouterr().out.encode()) <= 67277
+
+
+def test_help_says_each_shared_rule_once():
+    doc = " ".join(pxart.__doc__.split())
+    assert doc.count("Quote the color in scripts") == 0 and doc.count("'#' color needs quotes") == 1
+    assert doc.count("OUT:frame of an existing OUT adds that frame") == 0
+    assert doc.count("recolors otherwise in a variant (a market's awning red") == 0
+    assert doc.count("The layers' files are read, never written") == 1
