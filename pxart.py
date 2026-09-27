@@ -214,7 +214,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       other keys must be FILE's. Rows are checked like a file's (widths, keys), errors point
       at stdin's lines, and nothing is written on an error. Only that frame's lines change.
       A frame that doesn't exist yet is added, placed like new; a new FILE is started.
-  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r ... [--dither N] [--invert] [-o OUT]
+  mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r ... [--dither N] [--invert]
+       [--keep-keys K,K | --drop-keys K,K] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
       the pixel to cx,cy <= r). --dither N fades the circle's last N px inside its edge
       with a 4x4 ordered (Bayer) dither: a light radius in one command. --invert erases
@@ -227,6 +228,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       FILE may be a PNG (a rendered scene; no render -> from-png round trip): outside
       pixels become transparent. Coordinates are the PNG's own pixels, so render the scene
       with --scale 1. -o, if given, must be a .png too.
+      --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
+      erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
+      pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
   crop FILE:frame x,y,w,h -o OUT[:frame]         cut a rectangle out into a new frame
       (quietly: the pixels outside the rectangle are what crop is for, so there's no note)
   extract FILE:SEL -o OUT [--inline-palette]
@@ -2168,8 +2172,14 @@ def cmd_mask(a):
         fail("E_SELECT", f"a PNG has no frames to pick: {a.file!r}")
     if png != str(a.o or path).endswith(".png"):
         fail("E_BAD_ARG", "mask writes what it reads: a .px from a .px, a .png from a .png (-o OUT.png)")
-    if not a.keep and not a.keep_circle:
-        fail("E_BAD_ARG", "mask needs a shape: --keep x,y,w,h and/or --keep-circle cx,cy,r (each repeatable)")
+    by_key = a.keep_keys or a.drop_keys
+    if png and by_key:
+        fail("E_BAD_ARG", f"--{'keep' if a.keep_keys else 'drop'}-keys picks palette keys, and a PNG has none")
+    if not a.keep and not a.keep_circle and not by_key:
+        fail("E_BAD_ARG", "mask needs a shape: --keep x,y,w,h and/or --keep-circle cx,cy,r (each repeatable), or "
+             "keys: --keep-keys K,K / --drop-keys K,K")
+    if a.invert and not a.keep and not a.keep_circle:
+        fail("E_BAD_ARG", "--invert turns the shapes inside out, and there are none; to erase keys use --drop-keys")
     if a.dither is not None and (a.dither < 1 or not a.keep_circle):
         fail("E_BAD_ARG", "--dither N wants N >= 1 and --keep-circle")
     shapes = []  # ("rect", x0, y0, w, h) | ("circle", cx, cy, r), in the order given; kept = inside any of them
@@ -2185,7 +2195,7 @@ def cmd_mask(a):
             shapes.append((kind,) + nums)
 
     def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither bands included
-        return any(inside(s, x, y) for s in shapes) != a.invert
+        return not shapes or any(inside(s, x, y) for s in shapes) != a.invert
 
     def inside(s, x, y):
         if s[0] == "rect":
@@ -2215,11 +2225,15 @@ def cmd_mask(a):
         print(f"erased {erased} px; wrote {out}")
         return
     doc, frames, out = edit_target(a.file, a.o)
+    keys = set(key_list(by_key, "--keep-keys" if a.keep_keys else "--drop-keys")) if by_key else set()
+    if keys - set(doc.resolved()):
+        fail("E_SELECT", f"mask: keys {''.join(sorted(keys - set(doc.resolved())))!r} aren't in the palette")
+    kept = (lambda ch: ch in keys) if a.keep_keys else (lambda ch: ch not in keys)  # no keys given: every key's kept
     for f in frames:
         g = [list(row) for row in f.grid]
         for y, row in enumerate(g):
             for x, ch in enumerate(row):
-                if ch != "." and not keep(x, y):
+                if ch != "." and not (keep(x, y) and kept(ch)):
                     row[x], erased = ".", erased + 1
         f.grid = ["".join(row) for row in g]
     print(f"erased {erased} px;", write_doc(doc, out))
@@ -3485,6 +3499,8 @@ def main(argv=None):
     p.add_argument("--keep-circle", action="append", help="cx,cy,r (repeatable)")
     p.add_argument("--dither", type=int, help="ordered-dither falloff band N px wide inside each circle's edge")
     p.add_argument("--invert", action="store_true", help="erase inside the shapes, keep the outside")
+    g = p.add_mutually_exclusive_group(); g.add_argument("--keep-keys", help="erase every pixel whose key isn't one of these")
+    g.add_argument("--drop-keys", help="erase every pixel whose key is one of these")
     p = sub.add_parser("recolor"); p.add_argument("file"); p.add_argument("maps", nargs="+"); p.add_argument("-o")
     p.add_argument("--region")
     p = sub.add_parser("set"); p.add_argument("file"); p.add_argument("key"); p.add_argument("points", nargs="+")

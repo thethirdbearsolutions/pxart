@@ -4439,6 +4439,112 @@ def test_help_documents_still_flags():
     assert "new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]" in doc
 
 
+# ---------------------------------------------------------------- GAMES-295: mask --keep-keys / --drop-keys
+
+MASKK = "W #ffffff\nT #00ff00\nt #008800\nk #000000\n@frame a\nWTtk\nkWTt\n@frame b\nkkkk\nWWWW\n"
+
+
+@pytest.mark.parametrize("keys", ["W,T,t", "WTt"])
+def test_mask_keep_keys(tmp_path, capsys, keys):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", p, "--keep-keys", keys) == 0
+    assert grids(p) == {"a": ["WTt.", ".WTt"], "b": ["....", "WWWW"]}
+    assert capsys.readouterr().out == f"erased 6 px; wrote {p}\n"
+
+
+def test_mask_drop_keys(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", p, "--drop-keys", "W,k") == 0
+    assert grids(p) == {"a": [".Tt.", "..Tt"], "b": ["....", "...."]}
+    assert capsys.readouterr().out == f"erased 12 px; wrote {p}\n"
+
+
+def test_mask_keep_and_drop_split_every_pixel(tmp_path):
+    # --keep-keys S and --drop-keys S erase complementary pixels: together they erase each opaque pixel once.
+    p, q = write(tmp_path, "p.px", MASKK), write(tmp_path, "q.px", MASKK)
+    assert run("mask", p, "--keep-keys", "Tt") == 0 and run("mask", q, "--drop-keys", "Tt") == 0
+    for f in pxart.parse(p).frames:
+        g = pxart.parse(q).get(f.id).grid
+        src = pxart.parse(write(tmp_path, "s.px", MASKK)).get(f.id).grid
+        for r1, r2, r0 in zip(f.grid, g, src):
+            for c1, c2, c0 in zip(r1, r2, r0):
+                assert (c1 == ".") != (c2 == ".") and c0 in (c1, c2)
+
+
+def test_mask_keep_keys_one_frame(tmp_path):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", f"{p}:a", "--keep-keys", "k") == 0
+    assert grids(p) == {"a": ["...k", "k..."], "b": ["kkkk", "WWWW"]}
+
+
+def test_mask_keep_keys_with_shape_is_both(tmp_path):
+    # A pixel stays only inside the rectangle AND with a kept key.
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", f"{p}:a", "--keep", "0,0,2,2", "--keep-keys", "W,k") == 0
+    assert grids(p)["a"] == ["W...", "kW.."]
+
+
+def test_mask_drop_keys_with_inverted_shape(tmp_path):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", f"{p}:a", "--keep", "0,0,2,2", "--invert", "--drop-keys", "t") == 0
+    assert grids(p)["a"] == ["...k", "..T."]  # the left 2 columns go (inverted shape), then every t
+
+
+def test_mask_keys_output_elsewhere(tmp_path):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", p, "--keep-keys", "W", "-o", tmp_path / "o.px") == 0
+    assert p.read_text() == MASKK and grids(tmp_path / "o.px")["b"] == ["....", "WWWW"]
+
+
+def test_mask_keys_no_change(tmp_path, capsys):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", p, "--keep-keys", "WTtk") == 0
+    assert capsys.readouterr().out == f"erased 0 px; no change: {p}\n" and p.read_text() == MASKK
+
+
+def test_mask_keys_transparent_key_counts_as_a_pixel(tmp_path):
+    # A key whose color is transparent is still a key: --drop-keys erases it to '.'.
+    p = write(tmp_path, "m.px", "k #000000\nz transparent\n\nkz\n")
+    assert run("mask", p, "--drop-keys", "z") == 0
+    assert pxart.parse(p).frames[0].grid == ["k."]
+
+
+@pytest.mark.parametrize("argv, code, bit", [
+    (["--keep-keys", "q"], "E_SELECT", "keys 'q' aren't in the palette"),
+    (["--drop-keys", "qz"], "E_SELECT", "keys 'qz' aren't in the palette"),
+    (["--keep-keys", "W,W"], "E_BAD_ARG", "names a key twice"),
+    (["--keep-keys", "W,,T"], "E_BAD_ARG", "wants keys like a,b,c"),
+    (["--invert", "--keep-keys", "W"], "E_BAD_ARG", "use --drop-keys"),
+    (["--dither", "2", "--keep-keys", "W"], "E_BAD_ARG", "--dither N wants N >= 1 and --keep-circle"),
+])
+def test_mask_keys_errors(tmp_path, argv, code, bit):
+    p = write(tmp_path, "m.px", MASKK)
+    msg = run_err("mask", p, *argv)
+    assert code in msg and bit in msg and p.read_text() == MASKK
+
+
+def test_mask_keep_and_drop_keys_together_is_usage_error(tmp_path):
+    p = write(tmp_path, "m.px", MASKK)
+    assert run("mask", p, "--keep-keys", "W", "--drop-keys", "T") == 2 and p.read_text() == MASKK
+
+
+def test_mask_keys_on_png_is_bad_arg(tmp_path):
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(tmp_path / "s.png")
+    msg = run_err("mask", tmp_path / "s.png", "--keep-keys", "W")
+    assert "E_BAD_ARG" in msg and "a PNG has none" in msg
+
+
+def test_mask_needs_shape_or_keys_message(tmp_path):
+    p = write(tmp_path, "m.px", MASKK)
+    msg = run_err("mask", p)
+    assert "E_BAD_ARG" in msg and "--keep-keys" in msg
+
+
+def test_help_documents_mask_keys():
+    doc = pxart.__doc__
+    assert "[--keep-keys K,K | --drop-keys K,K]" in doc and "--keep-keys W,T,t (or WTt) erases every pixel" in doc
+
+
 # ---------------------------------------------------------------- GAMES-295: recolor says how many frames
 
 @pytest.mark.parametrize("target, maps, want", [

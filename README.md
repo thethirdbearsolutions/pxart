@@ -149,7 +149,7 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   call apply together, so none feeds another), `mask` (erase outside `--keep x,y,w,h` or
   `--keep-circle cx,cy,r`, with a `--dither N` edge; `--invert` erases the inside
   instead; both flags repeat, and the kept area is the union, so two lamps are one call;
-  works on a rendered PNG too), `paste` (`+h`/`+v` mirror the source, as in `compose`;
+  works on a rendered PNG too; `--keep-keys W,T,t` or `--drop-keys` mask a .px by key), `paste` (`+h`/`+v` mirror the source, as in `compose`;
   `--under` fills only the empty pixels), `compose` (stack layers into a frame; a new
   frame lands after its animation; a new file gets the layers' whole palette, their shared
   `@palette` re-pointed when they all import the same one, so a later `shade` ramp finds
