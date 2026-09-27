@@ -16925,16 +16925,23 @@ def chk(tmp_path, capsys, *more, text=CHK, name="c.px"):
     return code, p, capsys.readouterr().out.splitlines()
 
 
+def unused_hint(p, keys):
+    """What check adds after 'unused keys K' since loop R."""
+    them = "them" if len(keys) > 1 else "it"
+    return (f" (no frame draws with {them}: 'pxart palette {p} --remove {','.join(keys)}' drops {them}; compose and crop "
+            "give a new OUT their sources' whole palettes unless --used-keys-only)")
+
+
 def test_check_one_line_per_file(tmp_path, capsys):
     code, p, out = chk(tmp_path, capsys)
     assert code == 0
-    assert out == [f"ok   {p}: 5 frames, 2x2, 3x3, 2c", f"     {p}: unused keys z"]
+    assert out == [f"ok   {p}: 5 frames, 2x2, 3x3, 2c", f"     {p}: unused keys z{unused_hint(p, 'z')}"]
 
 
 def test_check_verbose_a_line_per_frame(tmp_path, capsys):
     code, p, out = chk(tmp_path, capsys, "-v")
     assert out == [f"ok   {p}:walk/{i}: 2x2 2c" for i in range(4)] + [f"ok   {p}:big: 3x3 2c",
-                                                                     f"     {p}: unused keys z"]
+                                                                     f"     {p}: unused keys z{unused_hint(p, 'z')}"]
 
 
 def test_check_verbose_long_flag(tmp_path, capsys):
@@ -20497,3 +20504,147 @@ def test_paths_note_is_its_own_see_also_block(capsys):
     out = cmd_help(capsys, "palette")
     assert "FORMAT: paths (what a path is read from: the current directory, or a file's own)" in see_also(out)
     assert "Paths: a path typed" not in pxart.note("FORMAT: selecting frames")
+
+
+# ---------------------------------------------------------------- loop R: keys a new compose OUT doesn't draw with
+# room.px got an unused E from wick.px's walk frames when only idle/0 was composed. The whole-palette default stays (a
+# ramp's keys, and the keys a file needs, are what it is for); compose now says which keys came along undrawn, and
+# check's unused-key note offers the palette --remove that drops them, and --used-keys-only.
+
+WICKISH = ("pxart 1\nD #1a1423\nw #f6eed8\nE #39395a\n@variant dark\nw #403f4a\nE #19182d\n"
+           "@frame idle/0\nDw\nwD\n@frame walk/0\nDE\nEw\n")
+
+
+def test_compose_new_out_names_undrawn_keys(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0") == 0
+    got = capsys.readouterr().out
+    assert (f"note: {out} gets 1 key its frame doesn't draw with, from its layers' whole palettes (for shade ramps "
+            "and recolors): wick.px's E; --used-keys-only leaves it out\n") in got
+
+
+def test_compose_new_out_still_keeps_undrawn_keys(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0") == 0
+    doc = pxart.parse(out)
+    assert "E" in doc.palette and doc.variants["dark"]["E"] == pxart.hex2rgba("#19182d")
+
+
+def test_compose_undrawn_note_several_keys_several_files(tmp_path, capsys):
+    a = write(tmp_path, "wick.px", WICKISH)
+    b = write(tmp_path, "hero.px", "pxart 1\nk #000000\nX #202040\nC #8080e0\n@frame f\nk\n")
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:idle/0@0,0", f"{b}:f@0,0") == 0
+    got = capsys.readouterr().out
+    assert "gets 3 keys its frame doesn't draw with" in got and "wick.px's E; hero.px's X C; --used-keys-only " \
+        "leaves them out" in got
+
+
+def test_compose_undrawn_note_absent_when_every_key_is_drawn(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, "--size", "2x2", f"{p}:idle/0@0,0", f"{p}:walk/0@0,0") == 0
+    assert "doesn't draw with" not in capsys.readouterr().out
+
+
+def test_compose_undrawn_note_absent_with_used_keys_only(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0", "--used-keys-only") == 0
+    assert "doesn't draw with" not in capsys.readouterr().out and "E" not in pxart.parse(out).palette
+
+
+def test_compose_undrawn_note_absent_for_an_existing_out(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = write(tmp_path, "room.px", "pxart 1\nD #1a1423\n@frame a\nD\n")
+    assert run("compose", "-o", f"{out}:b", f"{p}:idle/0@0,0") == 0
+    assert "doesn't draw with" not in capsys.readouterr().out
+
+
+def test_compose_undrawn_note_skips_a_shared_import(tmp_path, capsys):
+    # the imported keys are the palette file's, not key lines of OUT: nothing to name
+    write(tmp_path, "pal.px", "D #1a1423\nw #f6eed8\nE #39395a\n")
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\n@frame f\nDw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, f"{p}:f@0,0") == 0
+    assert "doesn't draw with" not in capsys.readouterr().out
+
+
+def test_compose_undrawn_note_counts_a_cropped_away_key(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\nk #000000\nw #ffffff\n@frame f\nkw\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "1x1", f"{p}:f@0,0") == 0
+    assert "s.px's w;" in capsys.readouterr().out
+
+
+def test_crop_names_the_keys_outside_the_cut(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\nk #000000\nw #ffffff\n@frame f\nkw\n")
+    out = tmp_path / "o.px"
+    assert run("crop", f"{p}:f", "0,0,1,1", "-o", out) == 0
+    assert "gets 1 key its frame doesn't draw with" in capsys.readouterr().out
+
+
+def test_compose_failure_prints_no_undrawn_note(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nk #000000\nE #123456\n@frame f\nk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nk #ffffff\n@frame f\nk\n")
+    run_err("compose", "-o", tmp_path / "o.px", f"{a}:f@0,0", f"{b}:f@0,0")
+    assert "doesn't draw with" not in capsys.readouterr().out
+
+
+def test_check_unused_note_offers_remove_and_used_keys_only(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0") == 0
+    capsys.readouterr()
+    assert run("check", out) == 0
+    got = capsys.readouterr().out
+    assert f"unused keys E (no frame draws with it: 'pxart palette {out} --remove E' drops it; compose and crop give " \
+        "a new OUT their sources' whole palettes unless --used-keys-only)" in got
+
+
+def test_check_unused_note_remove_runs_and_renders_the_same(tmp_path, capsys):
+    p = write(tmp_path, "wick.px", WICKISH)
+    out = tmp_path / "room.px"
+    assert run("compose", "-o", out, f"{p}:idle/0@0,0") == 0
+    before = {v: pxart.parse(out).image(pxart.parse(out).frames[0], v).tobytes() for v in (None, "dark")}
+    capsys.readouterr()
+    run("check", out)
+    cmd = shlex.split(capsys.readouterr().out.split("(no frame draws with it: '")[1].split("' drops")[0])
+    assert run(*cmd[1:]) == 0
+    doc = pxart.parse(out)
+    assert "E" not in doc.palette and "E" not in doc.variants["dark"]
+    assert {v: doc.image(doc.frames[0], v).tobytes() for v in (None, "dark")} == before
+    capsys.readouterr()
+    run("check", out)
+    assert "unused keys" not in capsys.readouterr().out
+
+
+def test_check_unused_note_several_keys(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\nk #000000\na #111111\nb #222222\n@frame f\nk\n")
+    run("check", p)
+    assert f"unused keys ab (no frame draws with them: 'pxart palette {p} --remove a,b' drops them;" \
+        in capsys.readouterr().out
+
+
+def test_check_unused_note_absent_when_all_used(tmp_path, capsys):
+    p = write(tmp_path, "s.px", "pxart 1\nk #000000\n@frame f\nk\n")
+    run("check", p)
+    assert "unused keys" not in capsys.readouterr().out
+
+
+def test_said_undrawn_unit(tmp_path):
+    d = pxart.parse(write(tmp_path, "wick.px", WICKISH))
+    doc = pxart.Doc(tmp_path / "o.px")
+    doc.palette = {"D": d.palette["D"], "E": d.palette["E"]}
+    target = pxart.Frame("f", ["DD"])
+    assert pxart.said_undrawn("o.px", doc, target, {"D": d, "E": d}).endswith("wick.px's E; --used-keys-only leaves "
+                                                                                "it out")
+    assert pxart.said_undrawn("o.px", doc, pxart.Frame("f", ["DE"]), {"D": d, "E": d}) is None
+
+
+def test_help_documents_the_undrawn_note():
+    text = " ".join(pxart.__doc__.split())
+    assert "a new OUT's note names the keys its frame doesn't draw with, by file" in text
+    assert "check's 'unused keys' note offers the palette --remove that drops them" in text

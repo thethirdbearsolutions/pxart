@@ -516,9 +516,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       colors; a @palette they all import is still imported, since it adds no key lines), so
       check has no 'unused keys' to note. It isn't the default because the unused keys are
       often a material's ramp: a cloak drawn in its base key c still needs X x C w for
-      'shade --ramp XxcCw' to re-shade it. An existing OUT only ever gets the used keys.
-      With OUT:frame, adds or replaces that frame in OUT and keeps its other frames
-      (OUT may be a palette-only file); the 'wrote' line says when it replaced one. A new frame goes after the last frame of its
+      'shade --ramp XxcCw' to re-shade it. An existing OUT only ever gets the used keys. So
+      they are no surprise, a new OUT's note names the keys its frame doesn't draw with, by
+      file ('... from its layers' whole palettes (for shade ramps and recolors): wick.px's E'),
+      and check's 'unused keys' note offers the palette --remove that drops them.
+      With OUT:frame, adds or replaces that frame in OUT and keeps its other frames (OUT may
+      be a palette-only file); the 'wrote' line says when it replaced one. A new frame goes
+      after the last frame of its
       animation (like dup), or at the end when the animation is new. Canvas size: --size,
       else the frame being replaced, else the other frames of its animation, else the first
       layer. Pixels
@@ -2831,7 +2835,10 @@ def cmd_check(a):
                 used = set("".join(r for f in doc.frames for r in f.grid))
                 unused = [k for k, v in doc.palette.items() if k not in used and v[3]]
                 if unused:
-                    notes.append("unused keys " + "".join(unused))
+                    them = "them" if len(unused) > 1 else "it"
+                    notes.append("unused keys " + "".join(unused) + f" (no frame draws with {them}: 'pxart palette "
+                                 f"{path} --remove {','.join(unused)}' drops {them}; compose and crop give a new OUT "
+                                 "their sources' whole palettes unless --used-keys-only)")
             lines, sizes, ncs, nbad = [], [], [], 0
             for it in its:
                 probs = []
@@ -4934,6 +4941,10 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
         doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
+    if fresh and not getattr(a, "used_keys_only", False):
+        said = said_undrawn(opath, doc, target, owners)
+        if said:
+            print(said)
     if fresh:
         docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
@@ -4941,6 +4952,24 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     did = write_doc(doc, opath)
     print(did + (f" frame {osel}" + (" (replaced the frame it had)" if replacing and did.startswith("wrote") else "")
                  if osel else ""))
+
+
+def said_undrawn(opath, doc, target, owners):
+    """A new OUT gets its layers' whole palettes, so the keys its frame doesn't draw with are there on purpose (a shade
+    ramp's, a recolor's), and would otherwise be a surprise in check's 'unused keys': a note naming them by file, and
+    --used-keys-only. None when every key line is drawn with."""
+    drawn = set("".join(target.grid))
+    files = {}
+    for k, c in doc.palette.items():
+        if k not in drawn and c[3]:
+            d = owners.get(k)
+            files.setdefault(d.path.name if d is not None else "?", []).append(k)
+    if not files:
+        return None
+    n = sum(len(ks) for ks in files.values())
+    return (f"note: {opath} gets {n} key{'s' * (n > 1)} its frame doesn't draw with, from its layers' whole palettes "
+            f"(for shade ramps and recolors): " + "; ".join(f"{name}'s {' '.join(ks)}" for name, ks in files.items())
+            + f"; --used-keys-only leaves {'them' if n > 1 else 'it'} out")
 
 
 def said_palette(doc):
