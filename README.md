@@ -111,25 +111,25 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
 (EDITING, FORMAT: selecting frames, ...) rather than repeating them.
 
 - **Looking:** `render`, `sheet` (a directory stands for every `.px` under it, sorted by
-  path, and palette files are skipped with a note; frames with one id from several files are labeled
-  `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or with `--fit`
-  each frame's own, rows as tall as their tallest), `anim` (one GIF, each frame at
-  `--scale` with its 1x and 2x copies beside it in the same picture, plus a motion strip;
-  without `-o` it prints only the per-frame numbers, like `shift +0,-1 then 72px (20%)`,
-  and writes nothing; "rows Y+ still" only when those rows are pixel-identical and the legs
-  keep their shape in every frame (an idle; a walk frame whose legs happen to stay put reads as
-  its bob, `shift +0,+1 then 23px`), and for the rise and the fall of one breath alike; a
-  ground tile or a sparse overlay like falling snow that scrolls with wrap-around reads
-  `shift -1,+4 (wrap)`), `onion` (B over a faded A, and a printed readout of how B's edges
-  moved from A's, like `top -1, bottom +0`, for a 1px jump too faint to see, and the best
-  shift, or for two different characters `different sprites: edges only`; `--feet N` or
-  `--rows Y0-Y1` reads only that band, so a weapon swing doesn't hide the feet, and
-  `--tint-a` draws A as a colored silhouette), `scene` (.px/.png items at x,y, negative
-  allowed, mirrored with a `+h`/`+v` suffix as in `hero.px:walk/0+h@3,4`; `--variant V`
-  recolors the whole room; `--tint '#10183080'` lays a translucent color over the finished
-  scene for night; an item or legend entry ending in `%base` keeps its base palette, a
-  lamp in a night room; `--bg transparent` works, as does `transparent` anywhere a color
-  is typed), and `tint`, which does the same to a PNG.
+  path, and palette files are skipped with a note; frames with one id from several files
+  are labeled `hero:idle/0`, `beast:idle/0`; every cell is the largest frame's size, or
+  with `--fit` each frame's own, rows as tall as their tallest), `anim` (one GIF, each
+  frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
+  motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
+  72px (20%)`, and writes nothing; "rows Y+ still" only when those rows are
+  pixel-identical and the legs keep their shape in every frame (an idle; a walk frame
+  whose legs happen to stay put reads as its bob, `shift +0,+1 then 23px`), and for the
+  rise and the fall of one breath alike; a ground tile or a sparse overlay like falling
+  snow that scrolls with wrap-around reads `shift -1,+4 (wrap)`), `onion` (B over a faded
+  A, and a printed readout of how B's edges moved from A's, like `top -1, bottom +0`, for
+  a 1px jump too faint to see, and the best shift, or for two different characters
+  `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only that band, so a
+  weapon swing doesn't hide the feet, and `--tint-a` draws A as a colored silhouette),
+  `scene` (.px/.png items at x,y, negative allowed, mirrored with a `+h`/`+v` suffix as in
+  `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays
+  a translucent color over the finished scene for night; an item or legend entry ending in
+  `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
+  does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.
 - **Maps** (`scene --map`): a legend line is `<char> <path>`, and the rest of the line
   is the path, so a pack folder with spaces works as is (quotes optional). A legend
   entry that can't load is an error at its legend line. A `#` line before the rows is a
@@ -141,9 +141,9 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   legend entry ending in `+b` (`+hb` with a flip) stands it on its cell instead,
   bottom-aligned and centered (`L props/lamp.px+b`). `pxart -h` has a worked map.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it; notes Cyrillic/Greek/fullwidth letters posing as ASCII and
-  `@anim`/`@still` lines with no frames, which `--strict` fails; exits 1), `stats` (a
-  directory too, as for `sheet`),
+  keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
+  notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
+  no frames, which `--strict` fails; exits 1), `stats` (a directory too, as for `sheet`),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last
@@ -165,22 +165,22 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   `compose`; `--under` fills only the empty pixels), `compose` (stack layers into a frame;
   a new frame lands after its animation; a new file gets the layers' whole palette, their
   shared `@palette` re-pointed when they all import the same one, so a later `shade` ramp
-  finds its keys, or with `--used-keys-only` only the keys its frame uses, and the comments
-  on their key and `@variant` lines; a key its file needs (drawn in other frames, kept lit
-  by a variant) that it has to leave out is a `WARNING`; each variant colors only the
-  layers whose file has it, a note says which stay at their base colors, and
+  finds its keys, or with `--used-keys-only` only the keys its frame uses, and the
+  comments on their key and `@variant` lines; a key its file needs (drawn in other frames,
+  kept lit by a variant) that it has to leave out is a `WARNING`; each variant colors only
+  the layers whose file has it, a note says which stay at their base colors, and
   `--variant-map dusk=night,dark` merges several files' variants into one; `--under` draws
   the layers behind the frame that's there, in its empty pixels; a key a layer has in
   another color than OUT's is `E_KEY_CONFLICT`, one line per source file with free keys
   for it, and `--rekey` gives it those keys in OUT and leaves the source file alone, as it
   does for `crop`, `paste` and `frames --copy-to`; in a new OUT `--rekey` also gives free
   keys to a key two files have in one color but recolor differently in their variants, and
-  to a needed key it would leave out), `dup` (copy a frame), `anim-set`
-  (timing), `palette --add` (with `--variant night` it sets keys in that variant, making it if
-  needed; `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves
-  a sprite's own keys into the palette file it imports; `palette FILE` alone lists the keys, then what each variant
-  recolors, relists in its base color and inherits: `night: recolors k w; relists unchanged:
-  l g; inherits: e E q`). Edits rewrite only the lines
+  to a needed key it would leave out), `dup` (copy a frame), `anim-set` (timing), `palette
+  --add` (with `--variant night` it sets keys in that variant, making it if needed;
+  `--variant night --keep l,g` lets keys inherit the base colors; `--hoist l,g` moves a
+  sprite's own keys into the palette file it imports; `palette FILE` alone lists the keys,
+  then what each variant recolors, relists in its base color and inherits: `night:
+  recolors k w; relists unchanged: l g; inherits: e E q`). Edits rewrite only the lines
   that changed, keeping the file's blank lines and comments, and an edit that changes
   nothing says `no change` and leaves the file alone. `-o OUT` always writes the whole
   file: `flip hero.px:walk/0 -o out.px` is a copy of hero.px with that frame flipped, and

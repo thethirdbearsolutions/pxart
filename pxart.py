@@ -1205,7 +1205,8 @@ def in_dirs(args, exts=(".px",)):
         if not os.path.isdir(arg):
             out.append(arg)
             continue
-        found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.suffix in exts and p.is_file()), key=lambda p: p.parts)
+        found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.suffix in exts and p.is_file()),
+                       key=lambda p: p.parts)
         if not found:
             fail("E_FILE", f"{arg} is a directory with no {' or '.join('*' + e for e in exts)} files under it")
         out += [str(p) for p in found]
@@ -4022,8 +4023,9 @@ def cmd_palette(a):
         sets = [k for k in pal if k in over and k != "." and over[k] != pal[k]]
         same = [k for k in pal if k in over and k != "." and over[k] == pal[k]]
         keeps = [k for k in pal if k not in over and k != "."]
-        print(f"  {name}: recolors {' '.join(sets) or 'nothing'}"
-              + (f"; relists unchanged: {' '.join(same)}" if same else "") + f"; inherits: {' '.join(keeps) or 'nothing'}")
+        print(f"  {name}: recolors {' '.join(sets) or 'nothing'}" + (f"; relists unchanged: {' '.join(same)}" if same
+                                                                      else "")
+              + f"; inherits: {' '.join(keeps) or 'nothing'}")
 
 
 def variant_edit(doc, name, adds, keeps):
@@ -4077,9 +4079,9 @@ def variant_edit(doc, name, adds, keeps):
 
 
 def hoist(doc, keys):
-    """palette FILE --hoist KEYS: FILE's own key lines (and its variant lines for them, and the comments above both) move
-    into the palette file it imports, so its other sprites get them; FILE renders as before. The palette file must be
-    FILE's only import and not have the key in another color."""
+    """palette FILE --hoist KEYS: FILE's own key lines (and its variant lines for them, and the comments above both)
+    move into the palette file it imports, so its other sprites get them; FILE renders as before. The palette file must
+    be FILE's only import and not have the key in another color."""
     if len(doc.palette_refs) != 1:
         fail("E_BAD_ARG", f"--hoist moves keys into the palette file {doc.path} imports, and it imports "
              + (f"{len(doc.palette_refs)}: {', '.join(doc.palette_refs)}; hoist from a file with one @palette"
