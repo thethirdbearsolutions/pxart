@@ -153,8 +153,10 @@ Unknown `@sections` are kept as-is, or rejected with `check --strict`.
   frame removes its `@anim`/`@still` line; `frames hero.px:walk --copy-to beast.px
   [--after ID]` copies frames into another file, in order, with their ms, pivots and
   `@anim` line).
-- **Editing:** `new` (a blank or filled frame, in a new or existing file), `put` (`put
-  hero.px:walk/1 < rows.txt` replaces one frame's grid with rows from stdin, with optional
+- **Editing:** `new` (a blank or filled frame, in a new or existing file; `new party.px
+  --empty --palette palette.px` starts a file with no frames that imports a palette, for
+  `frames --copy-to` to fill), `put` (`put hero.px:walk/1 < rows.txt` replaces one
+  frame's grid with rows from stdin, with optional
   palette lines merged like `compose`'s; checked like a file, errors at stdin's lines,
   nothing written on an error, and only that frame's lines change), `fill` (a region or
   the whole frame with one key), `flip`, `shift` (the pixels it leaves behind become `.`,

@@ -13429,3 +13429,143 @@ def test_help_and_readme_say_a_failed_command_prints_no_notes():
     assert "A command that fails prints none of its notes or WARNINGs" in doc
     readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
     assert "A command that fails prints no notes or WARNINGs" in readme
+
+
+# ---------------------------------------------------------------- new --empty
+
+def empty_pal(tmp_path):
+    return write(tmp_path, "pal.px", "# shared\nk #000000\nw #ffffff\n@variant night\nk #000011\n")
+
+
+def test_new_empty_with_palette_writes_only_the_import(tmp_path, capsys):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    assert run("new", out, "--empty", "--palette", pal) == 0
+    assert out.read_text() == "pxart 1\n@palette pal.px\n"
+    assert capsys.readouterr().out == f"wrote {out} (no frames; imports pal.px)\n"
+
+
+def test_new_empty_without_palette_is_the_version_line(tmp_path, capsys):
+    out = tmp_path / "e.px"
+    assert run("new", out, "--empty") == 0
+    assert out.read_text() == "pxart 1\n" and capsys.readouterr().out == f"wrote {out} (no frames)\n"
+
+
+def test_new_empty_repoints_the_palette_from_a_subdirectory(tmp_path):
+    empty_pal(tmp_path)
+    out = tmp_path / "a" / "b" / "party.px"
+    assert run("new", out, "--empty", "--palette", tmp_path / "pal.px") == 0
+    assert out.read_text() == "pxart 1\n@palette ../../pal.px\n"
+    assert pxart.parse(out, allow_empty=True).resolved()["w"] == (255, 255, 255, 255)
+
+
+def test_new_empty_file_parses_as_a_palette_file(tmp_path):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    run("new", out, "--empty", "--palette", pal)
+    doc = pxart.parse(out, palette_only=True)
+    assert doc.frames == [] and doc.palette == {} and doc.shared_variants["night"]["k"] == (0, 0, 0x11, 255)
+
+
+def test_new_empty_then_copy_to_fills_it(tmp_path, capsys):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    run("new", out, "--empty", "--palette", pal)
+    s = write(tmp_path, "s.px", "@palette pal.px\n@anim walk ms=90\n@frame walk/0\nkw\n@frame walk/1\nwk\n")
+    capsys.readouterr()
+    assert run("frames", f"{s}:walk", "--copy-to", out) == 0
+    got = capsys.readouterr().out
+    assert "note:" not in got and got == f"copied walk/0, walk/1 to {out}; added @anim walk; wrote {out}\n"
+    assert out.read_text() == ("pxart 1\n@palette pal.px\n\n@anim walk ms=90\n\n@frame walk/0\nkw\n\n"
+                               "@frame walk/1\nwk\n")
+
+
+def test_new_empty_then_compose_frame_fills_it(tmp_path):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    run("new", out, "--empty", "--palette", pal)
+    s = write(tmp_path, "s.px", "@palette pal.px\n@frame a\nkw\n")
+    assert run("compose", "-o", f"{out}:x", f"{s}:a@0,0") == 0
+    doc = pxart.parse(out)
+    assert [f.id for f in doc.frames] == ["x"] and doc.frames[0].grid == ["kw"] and doc.palette == {}
+
+
+def test_new_empty_check_and_frames_accept_it(tmp_path, capsys):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    run("new", out, "--empty", "--palette", pal)
+    capsys.readouterr()
+    assert run("check", out, "--strict") == 0
+    assert run("frames", out) == 0
+
+
+@pytest.mark.parametrize("extra, bit", [
+    (["--size", "2x2"], "--size"),
+    (["--key", "k"], "--key"),
+    (["--still"], "--still"),
+    (["--size", "2x2", "--key", "k"], "--size, --key"),
+])
+def test_new_empty_rejects_frame_flags(tmp_path, extra, bit):
+    pal = empty_pal(tmp_path)
+    out = tmp_path / "party.px"
+    msg = run_err("new", out, "--empty", "--palette", pal, *extra)
+    assert "E_BAD_ARG" in msg and f"so {bit} has nothing to apply to" in msg and not out.exists()
+
+
+def test_new_empty_rejects_a_frame_selector(tmp_path):
+    out = tmp_path / "party.px"
+    msg = run_err("new", f"{out}:walk/0", "--empty")
+    assert "E_BAD_ARG" in msg and "drop :walk/0" in msg and not out.exists()
+
+
+def test_new_empty_rejects_an_existing_file(tmp_path):
+    p = write(tmp_path, "p.px", MULTI)
+    msg = run_err("new", p, "--empty")
+    assert "E_BAD_ARG" in msg and "exists" in msg and p.read_text() == MULTI
+
+
+def test_new_empty_with_palette_rejects_an_existing_file(tmp_path):
+    pal = empty_pal(tmp_path)
+    p = write(tmp_path, "p.px", MULTI)
+    assert "E_BAD_ARG" in run_err("new", p, "--empty", "--palette", pal) and p.read_text() == MULTI
+
+
+def test_new_empty_missing_palette_is_an_error(tmp_path):
+    out = tmp_path / "party.px"
+    msg = run_err("new", out, "--empty", "--palette", tmp_path / "no.px")
+    assert "E_PALETTE_FILE" in msg and not out.exists()
+
+
+def test_new_without_size_or_empty_says_which(tmp_path):
+    out = tmp_path / "a.px"
+    msg = run_err("new", out)
+    assert "E_BAD_ARG" in msg and "--size WxH" in msg and "--empty" in msg and not out.exists()
+
+
+def test_copy_to_missing_dst_hint_names_new_empty(tmp_path):
+    s = write(tmp_path, "s.px", CSRC)
+    d = tmp_path / "no.px"
+    msg = run_err("frames", f"{s}:walk", "--copy-to", d)
+    assert f"pxart extract {s}:walk -o {d}" in msg and f"pxart new {d} --empty --palette P.px" in msg
+    assert "with these frames and" in msg and not d.exists()
+
+
+def test_new_help_has_both_usage_lines(capsys):
+    out = cmd_help(capsys, "new")
+    assert "  new OUT[:frame] --size WxH" in out and "  new OUT --empty [--palette P.px]" in out
+    assert "--empty starts a new OUT with no frames" in out and "'new party.px --empty --palette palette.px'" in out
+
+
+def test_reference_takes_a_second_usage_line_of_the_same_command():
+    sec = pxart.reference("new")
+    assert sec.splitlines()[1] == "  new OUT --empty [--palette P.px]" and "--empty starts" in sec
+
+
+def test_frames_help_says_how_to_start_dst(capsys):
+    out = " ".join(cmd_help(capsys, "frames").split())
+    assert "'new DST --empty --palette P.px' one with no frames that imports P" in out
+
+
+def test_readme_documents_new_empty():
+    readme = " ".join((pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text().split())
+    assert "`new party.px --empty --palette palette.px` starts a file with no frames that imports a palette" in readme

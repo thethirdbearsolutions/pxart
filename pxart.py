@@ -224,6 +224,8 @@ CHECKING
       is E_KEY_CONFLICT, as for compose, and --rekey gives it a free key in DST as compose's
       does. A frame id DST already has is E_DUP_FRAME. To put
       back a frame removed by mistake, copy it from a copy of the file, --after its neighbor.
+      DST must exist: 'extract FILE:SEL -o DST' starts one with FILE's palette, and 'new DST
+      --empty --palette P.px' one with no frames that imports P.
 
 EDITING (writes .px; -o defaults to editing the input in place)
   -o OUT always gets the whole file: with FILE:SEL, OUT is a copy of FILE with the selected
@@ -248,10 +250,15 @@ EDITING (writes .px; -o defaults to editing the input in place)
   set FILE[:frame] KEY x,y [x,y ...] [-o OUT]    paint single pixels ('.' erases)
   fill FILE[:frame] KEY [--region x,y,w,h] [-o OUT]   paint a rectangle (default: the frame)
   new OUT[:frame] --size WxH [--key K] [--palette P.px] [--still]
+  new OUT --empty [--palette P.px]
       A blank frame ('.'), or one filled with K, in a new file or added to an existing one
       (placed like compose). --palette P.px starts a new OUT that imports P. A frame that
       already exists is E_DUP_FRAME: fill it instead. --still marks its group '@still GROUP'
       (new ui.px:icons/life --still); a top-level frame is never animated and needs none.
+      --empty starts a new OUT with no frames: the version line and, with --palette, its
+      @palette line. It is where frames --copy-to puts another file's frames against a
+      shared palette: 'new party.px --empty --palette palette.px', then 'frames
+      keeper.px:walk --copy-to party.px --rekey'.
   put FILE[:frame] [-o OUT] < grid.txt
       Replace one frame's grid with the rows on stdin: 'pxart put hero.px:walk/1 < w1.txt'.
       Stdin is rows, or palette lines then rows; the keys the rows use join FILE's palette
@@ -2310,8 +2317,9 @@ def frames_copy(a, doc, sel, picked):
             fail("E_SELECT", f"--copy-to {', '.join(missing)}: no such frame" + (f" in {sel!r}" if sel else ""))
         picked = [f for f in picked if f.id in ids]
     if not pathlib.Path(dpath).exists():
-        fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames: pxart extract "
-             f"{doc.path}{':' + sel if sel else ''} -o {dpath}")
+        fail("E_FILE", f"--copy-to {dpath}: no such file; to start one with these frames and {doc.path}'s palette: "
+             f"pxart extract {doc.path}{':' + sel if sel else ''} -o {dpath}; to copy them into a file that imports "
+             f"another palette, start it empty first: pxart new {dpath} --empty --palette P.px")
     with reading(f"--copy-to ({dpath})"):
         dst = parse(dpath, allow_empty=True)
     if dst.implicit:
@@ -2884,6 +2892,11 @@ def cmd_new(a):
     note_suffix(opath)
     if a.palette and pathlib.Path(opath).exists():
         fail("E_BAD_ARG", f"--palette starts a new file, and {opath} exists (it keeps its own palette)")
+    if a.empty:
+        return new_empty(a, opath, osel)
+    if not a.size:
+        fail("E_BAD_ARG", f"new needs --size WxH for the frame (or --empty for a file with no frames: pxart new "
+             f"{opath} --empty --palette P.px)")
     w, h = parse_size(a.size)
     with reading(f"OUT ({a.out})"):
         had_grid = not osel and pathlib.Path(opath).exists() and parse(opath, allow_empty=True).implicit
@@ -2902,6 +2915,22 @@ def cmd_new(a):
     elif a.still and not target.group:
         print(f"note: {doc.label(target)} is a top-level frame, never animated: no @still line needed")
     print(write_doc(doc, opath) + (f" frame {osel}" if osel else "") + still)
+
+
+def new_empty(a, opath, osel):
+    """new OUT --empty [--palette P.px]: a file with no frames (and no palette lines), only the version line and P's
+    @palette import, for frames --copy-to or compose -o OUT:ID to fill."""
+    if osel:
+        fail("E_BAD_ARG", f"--empty starts a file with no frames; drop :{osel} (then add frames with frames --copy-to or "
+             f"compose -o {opath}:{osel})")
+    given = [f for f, v in (("--size", a.size), ("--key", a.key), ("--still", a.still)) if v]
+    if given:
+        fail("E_BAD_ARG", f"--empty makes no frame, so {', '.join(given)} has nothing to apply to")
+    if pathlib.Path(opath).exists():
+        fail("E_BAD_ARG", f"--empty starts a new file, and {opath} exists")
+    with reading(f"OUT ({a.out})"):
+        doc = start_doc(opath, a.palette)
+    print(write_doc(doc, opath) + (f" (no frames; imports {doc.palette_refs[0]})" if a.palette else " (no frames)"))
 
 
 def cmd_put(a):
@@ -4408,12 +4437,14 @@ def reference(cmd):
     """CMD's section of pxart -h: its usage line (an indent of 2, then CMD and a usage word, not prose) and the lines
     under it, up to the next line indented 2 or less that isn't blank. None when -h has no section for it."""
     lines = __doc__.splitlines()
-    start = next((i for i, l in enumerate(lines[lines.index("LOOKING"):], lines.index("LOOKING"))
-                  if re.match(rf"^  {re.escape(cmd)}( +(?![a-z]+( |$))\S|$)", l)), None)
+    usage = re.compile(rf"^  {re.escape(cmd)}( +(?![a-z]+( |$))\S|$)")
+    start = next((i for i, l in enumerate(lines[lines.index("LOOKING"):], lines.index("LOOKING")) if usage.match(l)),
+                 None)
     if start is None:
         return None
-    end = next((i for i in range(start + 1, len(lines))
-                if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 2), len(lines))
+    end = next((i for i in range(start + 1, len(lines))  # a second usage line of CMD (new OUT --empty) is its section too
+                if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 2 and not usage.match(lines[i])),
+               len(lines))
     return "\n".join(lines[start:end]).rstrip()
 
 
@@ -4512,9 +4543,10 @@ def parser(describe=True):
     p.add_argument("--at", required=True); p.add_argument("--region"); p.add_argument("-o")
     p.add_argument("--under", action="store_true", help="only onto --into's empty pixels (behind what's there)")
     p.add_argument("--rekey", action="store_true", help=REKEY_HELP)
-    p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", required=True)
+    p = sub.add_parser("new"); p.add_argument("out"); p.add_argument("--size", help="WxH of the frame")
     p.add_argument("--key", help="fill with this key (default '.')"); p.add_argument("--palette", help="new OUT imports this .px")
     p.add_argument("--still", action="store_true", help="mark the frame's group '@still GROUP'")
+    p.add_argument("--empty", action="store_true", help="a new OUT with no frames (with --palette: only its import)")
     p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
