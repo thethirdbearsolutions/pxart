@@ -133,6 +133,7 @@ layers=(
 )
 txt conflict.txt compose -o dock.px --size 80x48 "${layers[@]}" --replace
 txt rekey.txt compose -o dock.px --size 80x48 --rekey "${layers[@]}" --replace
+txt rekey-v.txt compose -o dock.px --size 80x48 --rekey -v "${layers[@]}" --replace
 pxart scene --size 80x48 -o dock-halfdusk.x4.png dock.px%dusk@0,0
 txt compose.txt compose -o dock.px --size 80x48 --rekey --variant-map dusk=night,dark "${layers[@]}" --replace
 pxart scene --size 80x48 -o dock-dusk.x4.png dock.px%dusk@0,0

@@ -171,19 +171,22 @@ pxart compose --map rooms/glade.map -o glade.px --rekey \
   ([05 · Compose across packs](../05-compose) explains it step by step).
 - `--replace` starts `glade.px` over if your copy of the folder already has one.
 
-It prints eight notes and `wrote glade.px` (all in [`compose.txt`](compose.txt)). One
-per file it rekeyed, like the hero's:
+It prints five notes and `wrote glade.px` (all in [`compose.txt`](compose.txt)). One
+counts the letters it rekeyed in each file:
 
 ```text
 ...
-note: --rekey gives sprites/hero.px's keys free ones in glade.px: 'S>I' 'b>J' 'g>K' 'h>L' 's>N' 't>O' (sprites/hero.px is unchanged)
+note: --rekey gave 18 keys free ones in glade.px: rooms/../layers/mid.px 7, rooms/../tiles/field.px 3, rooms/../tiles/tree.px 2, sprites/hero.px 6 (the files are unchanged)
 ...
+note: that's 7 notes in short; -v prints each in full
 ```
 
-Some notes name layers by number, like `layers 115-118 (rooms/../tiles/tree.px)`. Those
-aren't the map's four layers: compose stacks every tile the map places as a layer of its
-own, in order. Here that's 118 of them: the sky, the tree line, 112 ground tiles and the
-4 trees, so the trees are layers 115 to 118.
+The last one says they stand for seven. With `-v`, compose prints each in full: which
+letters became which (the hero's `S` is `I` in `glade.px`), and which layers left out a
+color, by number, like `layers 115-118 (rooms/../tiles/tree.px)`. Those aren't the map's
+four layers: compose stacks every tile the map places as a layer of its own, in order.
+Here that's 118 of them: the sky, the tree line, 112 ground tiles and the 4 trees, so the
+trees are layers 115 to 118.
 
 `check` confirms it's one frame, 256x224, with 51 colors:
 

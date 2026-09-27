@@ -13037,7 +13037,7 @@ def test_three_packs_rekey_separates_the_shared_awning_red(tmp_path, capsys):
 
 
 def test_three_packs_rekey_note_names_the_red(tmp_path, capsys):
-    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey", "-v")
     line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith(f"note: --rekey gives {keeper}'s"))
     assert "'r>" in line and "'k>" in line and "'l>" in line and "'g>" in line
 
@@ -13077,7 +13077,7 @@ def test_three_packs_left_out_is_one_line_per_file(tmp_path, capsys):
 
 
 def test_three_packs_rekey_coverage_notes(tmp_path, capsys):
-    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey", "-v")
     lines = capsys.readouterr().out.splitlines()
     assert f"note: {out}'s @variant dusk covers layer 1 ({stall}:stall) only: layer 2 ({keeper}:idle) and layer 3 " \
            f"({candle}:idle) stay at base colors in it" in lines
@@ -13087,6 +13087,80 @@ def test_three_packs_rekey_coverage_notes(tmp_path, capsys):
            f"({keeper}:idle) stay at base colors in it" in lines
     assert ("note: to give every layer one variant, merge them: --variant-map dusk=night,dark (each layer takes the "
             "first of dusk, night, dark its file has)") in lines
+
+
+def test_three_packs_rekey_notes_in_short_without_v(tmp_path, capsys):
+    # Ten dense notes were the heaviest wall of text in the tutorials: without -v, one line per kind, with counts.
+    code, out, (stall, keeper, candle) = compose_packs(tmp_path, "--rekey")
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0 and lines[-1] == f"wrote {out}"
+    assert lines[-2].startswith("note: that's ") and lines[-2].endswith(" notes in short; -v prints each in full")
+    assert not any(" covers layer" in l or "--rekey gives" in l or " leaves out " in l for l in lines)
+    rekey = next(l for l in lines if l.startswith("note: --rekey gave "))
+    assert f"free ones in {out}: {keeper} " in rekey and f", {candle} " in rekey
+    assert rekey.endswith(" (the files are unchanged)")
+    variants = next(l for l in lines if "of " + f"{out}'s variants cover only some layers" in l)
+    assert variants.startswith(f"note: 3 of {out}'s variants cover only some layers, the others staying at base colors "
+                               f"in each: dusk ({stall}), night ({keeper}), dark ({candle}); --variant-map dusk=night,dark "
+                               "gives every layer one")
+    assert len(lines) <= 6
+
+
+def test_three_packs_notes_in_short_count_matches_v(tmp_path, capsys):
+    (tmp_path / "a").mkdir(), (tmp_path / "b").mkdir()
+    compose_packs(tmp_path / "a", "--rekey", "-v")
+    full = [l for l in capsys.readouterr().out.splitlines() if l.startswith("note:")]
+    compose_packs(tmp_path / "b", "--rekey")
+    short = capsys.readouterr().out.splitlines()
+    assert short[-2] == f"note: that's {len(full)} notes in short; -v prints each in full"
+
+
+def test_three_packs_notes_in_short_write_the_same_file(tmp_path, capsys):
+    (tmp_path / "a").mkdir(), (tmp_path / "b").mkdir()
+    _, a, _ = compose_packs(tmp_path / "a", "--rekey", "-v")
+    _, b, _ = compose_packs(tmp_path / "b", "--rekey")
+    assert unstamped(a).replace(" -v", "").replace("/a/", "/b/") == unstamped(b)
+
+
+def test_three_packs_variant_map_drops_the_merge_hint_from_the_short_notes(tmp_path, capsys):
+    compose_packs(tmp_path, "--rekey", "--variant-map", "dusk=night,dark")
+    out = capsys.readouterr().out
+    assert "--variant-map" not in out and "variants cover" not in out
+
+
+def test_compose_few_notes_print_in_full(tmp_path, capsys):
+    # three notes or fewer read fine as they are: no summary, no -v hint
+    a, b = write(tmp_path, "a.px", "k #000000\n\nk\n"), write(tmp_path, "b.px", "k #111111\n\nk\n")
+    out = tmp_path / "o.px"
+    assert run("compose", "-o", out, "--size", "2x1", f"{a}@0,0", f"{b}@1,0", "--rekey") == 0
+    assert capsys.readouterr().out == f"note: --rekey gives {b}'s keys free ones in {out}: 'k>a' ({b} is unchanged)\n" \
+        f"wrote {out}\n"
+
+
+def test_compose_notes_in_short_keep_warnings(tmp_path, capsys, monkeypatch):
+    # WARNINGs aren't grouped: they print in full, whatever the count
+    monkeypatch.setattr(pxart, "GROUP_NOTES", 0)
+    t, f, k = report_packs(tmp_path)
+    k2 = write(tmp_path, "keeper2.px", R_KEEPER.replace("k #2a1f33", "j #2a1f33").replace("Sk", "Sj"))
+    out = tmp_path / "dock.px"
+    assert run("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k2}:idle/0@4,0") == 0
+    lines = capsys.readouterr().out.splitlines()
+    warns = [l for l in lines if l.startswith("WARNING:")]
+    assert len(warns) == 2 and all("needs it" in w and "compose --rekey keeps S under free keys" in w for w in warns)
+    assert lines[-2] == "note: that's 1 note in short; -v prints it in full"
+
+
+def test_crop_notes_are_never_grouped(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(pxart, "GROUP_NOTES", 0)
+    p = write(tmp_path, "s.px", "k #000000\nj #ffffff\n\nkj\njk\n")
+    assert run("crop", p, "0,0,1,1", "-o", tmp_path / "c.px") == 0
+    assert "in short" not in capsys.readouterr().out
+
+
+def test_compose_help_names_verbose(capsys):
+    assert run("compose", "-h") == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "-v, --verbose" in out and "every note in full" in out
 
 
 def test_three_packs_notes_come_before_wrote(tmp_path, capsys):
@@ -13194,7 +13268,7 @@ def test_variant_clash_owner_decides_without_rekey(tmp_path, capsys):
 def test_variant_clash_rekey_gives_the_scarf_its_own_key(tmp_path, capsys):
     a, b = write(tmp_path, "awning.px", AWNING), write(tmp_path, "scarf.px", SCARF)
     out = tmp_path / "o.px"
-    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey", "-v") == 0
     assert capsys.readouterr().out.splitlines()[0] == (
         f"note: --rekey gives {b}'s keys free ones in {out}: 'r>a' ({b} is unchanged): r has {out}'s base color but "
         "other variant colors")
@@ -14221,7 +14295,7 @@ def test_report_error_moves_are_the_moves_rekey_makes(tmp_path, capsys):
     argv = ["compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0"]
     offered = [m for m in fix_of(run_err(*argv)) if ">" in m]
     capsys.readouterr()
-    assert run(*argv, "--rekey") == 0
+    assert run(*argv, "--rekey", "-v") == 0
     line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {k}'s" in l)
     assert line.split(": ", 2)[2].split(" (")[0] == " ".join(f"'{m}'" for m in offered)
 
@@ -14232,7 +14306,7 @@ def test_report_note_for_the_tiles_says_why_s_is_no_conflict(tmp_path, capsys):
     t = write(tmp_path, "tiles.px", "pxart 1\nk #2b1e2f\ng #8f8a96\nS #b9745c\n@frame cobble\ngk\n")
     out = tmp_path / "dock.px"
     assert run("compose", "-o", out, "--size", "6x1", f"{t}:cobble@0,0", f"{f}:kid/0@2,0", f"{k}:idle/0@4,0",
-               "--rekey") == 0
+               "--rekey", "-v") == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == (f"note: {out} leaves out layer 1 ({t}:cobble)'s colors for S, a key that layer doesn't draw "
                         f"with (so it doesn't conflict), and has other layers' colors for it: 'S' #b9745c (#c98a6e "
@@ -14241,7 +14315,7 @@ def test_report_note_for_the_tiles_says_why_s_is_no_conflict(tmp_path, capsys):
 
 
 def test_report_tiles_rekey_keeps_s_needed_by_a_frame_not_composed(tmp_path, capsys):
-    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey", "-v")
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == (f"note: --rekey gives {t}'s keys free ones in {out}: 'S>b' ({t} is unchanged): its layers here "
                         "don't draw with S, but tiles.px needs it (S: its frame sign draws with it)")
@@ -14271,7 +14345,7 @@ def test_report_one_line_per_source_file(tmp_path, capsys):
 
 def test_report_rekey_and_left_out_of_one_file_share_its_line(tmp_path, capsys):
     # The folk file: --rekey keeps its needed S under a free key; that is the one line for the file.
-    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey", "-v")
     lines = capsys.readouterr().out.splitlines()
     folk = [l for l in lines if str(f) in l]
     assert len(folk) == 1 and folk[0].startswith(f"note: --rekey gives {f}'s keys free ones in {out}: 'S>")
@@ -14279,7 +14353,7 @@ def test_report_rekey_and_left_out_of_one_file_share_its_line(tmp_path, capsys):
 
 
 def test_report_keeper_line_says_its_key_moved_for_its_color(tmp_path, capsys):
-    code, out, (t, f, k) = report_compose(tmp_path, "--rekey")
+    code, out, (t, f, k) = report_compose(tmp_path, "--rekey", "-v")
     line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {k}'s" in l)
     assert line == f"note: --rekey gives {k}'s keys free ones in {out}: 'k>a' ({k} is unchanged)"
 
@@ -14291,7 +14365,7 @@ def test_report_rekey_reasons_grouped(tmp_path, capsys):
     b = write(tmp_path, "b.px", "r #c4473a\nk #111111\nl #fff000\n@variant night\nr #83344e\n@frame s\nrk\n"
                                 "@frame lamp\nl.\n")
     out = tmp_path / "o.px"
-    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey") == 0
+    assert run("compose", "-o", out, "--size", "2x2", f"{a}:a@0,0", f"{b}:s@0,1", "--rekey", "-v") == 0
     line = next(l for l in capsys.readouterr().out.splitlines() if f"--rekey gives {b}'s" in l)
     assert line == (f"note: --rekey gives {b}'s keys free ones in {out}: 'k>a' 'r>b' 'l>c' ({b} is unchanged): k is "
                     f"another color there; r has {out}'s base color but other variant colors; its layers here don't "
@@ -17863,7 +17937,7 @@ def test_compose_rekey_three_files_share_one_key(tmp_path, capsys):
     d = write(tmp_path, "d.px", REUSE_GIRL.replace("girl", "dog"))
     out = tmp_path / "glade.px"
     assert run("compose", "-o", out, "--size", "3x4", f"{g}@0,0", f"{b}:boy/0@0,1", f"{c}:girl/0@0,2",
-               f"{d}:dog/0@0,3", "--rekey") == 0
+               f"{d}:dog/0@0,3", "--rekey", "-v") == 0
     doc = pxart.parse(out)
     assert doc.frames[0].grid[2] == doc.frames[0].grid[3] == "bac"
     assert f"T k o share the keys {b} got" in capsys.readouterr().out

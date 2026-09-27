@@ -5819,6 +5819,48 @@ def by_file(entries):
             for es in files.values()]
 
 
+class Note(str):
+    """A compose note of a kind grouped_notes can count (kind: 'rekey', 'left', 'variant', 'merge', 'undrawn'), with
+    what the count needs (data). It prints as itself."""
+    def __new__(cls, text, kind, data=None):
+        note = super().__new__(cls, text)
+        note.kind, note.data = kind, data
+        return note
+
+
+GROUP_NOTES = 3  # compose prints more of these notes than this as grouped_notes, without -v
+
+
+def grouped_notes(opath, lines):
+    """compose's notes in short, one line per kind with its count, for a compose that has many (--rekey across packs):
+    which files --rekey gave free keys, the colors a new OUT left out (keys their layers here don't draw with), the
+    variants that cover only some layers and the --variant-map that merges them, and the keys OUT's frame doesn't
+    draw with (that note as it is). Then how many notes that was and -v for them in full. WARNINGs aren't Notes: they
+    print in full all the same."""
+    notes = [line for line in lines if isinstance(line, Note)]
+    of = {k: [n for n in notes if n.kind == k] for k in ("rekey", "left", "variant", "merge", "undrawn")}
+    out = []
+    if of["rekey"]:
+        n = sum(k for _, k in (x.data for x in of["rekey"]))
+        out.append(f"note: --rekey gave {n} key{'s free ones' if n > 1 else ' a free one'} in {opath}: "
+                   + ", ".join(f"{path} {k}" for path, k in (x.data for x in of["rekey"]))
+                   + f" (the {'files are' if len(of['rekey']) > 1 else 'file is'} unchanged)")
+    if of["left"]:
+        n = sum(len(ks) for _, ks in (x.data for x in of["left"]))
+        out.append(f"note: {opath} left out {n} color{'s' * (n > 1)} for keys some layers don't draw with, and has "
+                   "other layers' colors for them (no conflict): "
+                   + "; ".join(f"{path} {' '.join(ks)}" for path, ks in (x.data for x in of["left"])))
+    if of["variant"]:
+        n = len(of["variant"])
+        out.append(f"note: {n} of {opath}'s variants cover{'s' * (n == 1)} only some layers, the others staying at base "
+                   f"colors in {'it' if n == 1 else 'each'}: "
+                   + ", ".join(f"{name} ({', '.join(paths)})" for name, paths in (x.data for x in of["variant"]))
+                   + "".join(f"; {x.data} gives every layer one" for x in of["merge"]))
+    out += of["undrawn"]
+    n = len(notes)
+    return out + [f"note: that's {n} note{'s' * (n > 1)} in short; -v prints {'each' if n > 1 else 'it'} in full"]
+
+
 def said_left_out(opath, doc, d, label, entries, rekey_said):
     """A new OUT left out some of d's file's keys, which none of its layers here (label) draw with, so they don't
     conflict, and which OUT has in another layer's colors: entries [(key, the layer whose color OUT has, whether it
@@ -5886,9 +5928,9 @@ def said_by_file(opath, layers, doc, left_out, renamed, why, vclashed, added, vm
         if renamed.get(path):
             again = [k for k, v in renamed[path].items() if given.get(v, path) != path]
             whose = list(dict.fromkeys(given[renamed[path][k]] for k in again))
-            lines.append("note: " + said_moves(d.path, opath, renamed[path], mine, d) + (
+            lines.append(Note("note: " + said_moves(d.path, opath, renamed[path], mine, d) + (
                 f"; {' '.join(again)} share the keys {' and '.join(str(w) for w in whose)} got for the same colors "
-                "(in every variant too)" if again else ""))
+                "(in every variant too)" if again else ""), "rekey", (d.path, len(renamed[path]))))
             for v in renamed[path].values():
                 given.setdefault(v, d.path)
             auto = {k: v for k, v in renamed[path].items() if mine.get(k, ("",))[0] != "asked"}
@@ -5900,7 +5942,7 @@ def said_by_file(opath, layers, doc, left_out, renamed, why, vclashed, added, vm
             losing = [e for e in es if any(g == e[1] for _, g, *_ in left_out)]
             loud, text = said_left_out(opath, doc, d, by_file(losing)[0], [(k, *v) for k, v in lost[path].items()],
                                        rekey_said)
-            lines.append(f"{'WARNING' if loud else 'note'}: {text}")
+            lines.append(f"WARNING: {text}" if loud else Note(f"note: {text}", "left", (d.path, list(lost[path]))))
         if path in vclashed:
             lines += said_vclash(by_file(vclashed[path]["layers"])[0], d, sorted(vclashed[path]["keys"]), doc, opath,
                                  vmap, rekey_said, {w[1]: k for k, w in mine.items() if w[0] == "asked"})
@@ -6046,9 +6088,9 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         for n, src in layer_variants(d, vmap).items():
             if n in variant_names(doc):
                 warn_half(d, src)
-    for line in said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap,
-                             rekey_said, fresh) + said_variants(opath, layers, doc, vmap, fresh):
-        print(line)
+    said = said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap, rekey_said,
+                        fresh) + said_variants(opath, layers, doc, vmap, fresh)
+    cuts = []  # the cropping notes, said after these (the drawing decides whether there is an undrawn-keys note)
     map_cut = 0  # a map's cells are one thing to crop, as scene says it
     for lay, x, y, label in layers:
         w, h = lay.frame.size
@@ -6059,13 +6101,13 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         if getattr(lay, "from_map", False):
             map_cut += cut
         elif cut and getattr(a, "cut_note", True):
-            print(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
-                  f"(size from {why}) and were cropped")
+            cuts.append(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
+                        f"(size from {why}) and were cropped")
         with reading(label):
             stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap)
     if map_cut:
-        print(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from {why}) "
-              "and were cropped")
+        cuts.append(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from "
+                    f"{why}) and were cropped")
     if under:  # the frame's own pixels stay on top: the layers show only through its empty ones
         blank = doc.blanks()
         target.grid = ["".join(n if o in blank else o for o, n in zip(was, now)) for was, now in zip(under, target.grid)]
@@ -6073,10 +6115,13 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
         doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
-    if fresh and not getattr(a, "used_keys_only", False):
-        said = said_undrawn(opath, doc, target, owners)
-        if said:
-            print(said)
+    undrawn = said_undrawn(opath, doc, target, owners) if fresh and not getattr(a, "used_keys_only", False) else None
+    grouped = getattr(a, "cmd", None) == "compose" and not getattr(a, "verbose", False) and \
+        sum(isinstance(line, Note) for line in said + [undrawn]) > GROUP_NOTES  # a few read fine in full
+    for line in [line for line in said if not (grouped and isinstance(line, Note))] + cuts:
+        print(line)
+    for line in grouped_notes(opath, said + [undrawn]) if grouped else [undrawn] if undrawn else []:
+        print(line)
     if fresh:
         docs = list({lay.doc.path.resolve(): lay.doc for lay, *_ in layers}.values())  # one per file
         carry_notes(doc, docs, notes or {}, renamed or {}, owners, vmap)
@@ -6154,9 +6199,9 @@ def said_undrawn(opath, doc, target, owners):
     if not files:
         return None
     n = sum(len(ks) for ks in files.values())
-    return (f"note: {opath} gets {n} key{'s' * (n > 1)} its frame doesn't draw with, from its layers' whole palettes "
+    return Note(f"note: {opath} gets {n} key{'s' * (n > 1)} its frame doesn't draw with, from its layers' whole palettes "
             f"(for shade ramps and recolors): " + "; ".join(f"{name}'s {' '.join(ks)}" for name, ks in files.items())
-            + f"; --used-keys-only leaves {'them' if n > 1 else 'it'} out")
+            + f"; --used-keys-only leaves {'them' if n > 1 else 'it'} out", "undrawn")
 
 
 def said_palette(doc):
@@ -6177,12 +6222,13 @@ def said_variants(opath, layers, doc, vmap, fresh):
         if lacks:
             partial.append(name)
             them = by_file(lacks)
-            lines.append(f"note: {opath}'s @variant {name} covers {' and '.join(by_file(has))} only: "
-                         f"{' and '.join(them)} {'stays' if len(them) == 1 and len(lacks) == 1 else 'stay'} at "
-                         "base colors in it")
+            lines.append(Note(f"note: {opath}'s @variant {name} covers {' and '.join(by_file(has))} only: "
+                              f"{' and '.join(them)} {'stays' if len(them) == 1 and len(lacks) == 1 else 'stay'} at "
+                              "base colors in it", "variant", (name, list(dict.fromkeys(str(e[2].path) for e in has)))))
     if len(partial) > 1 and not vmap:
-        lines.append(f"note: to give every layer one variant, merge them: --variant-map {partial[0]}="
-                     f"{','.join(partial[1:])} (each layer takes the first of {', '.join(partial)} its file has)")
+        lines.append(Note(f"note: to give every layer one variant, merge them: --variant-map {partial[0]}="
+                          f"{','.join(partial[1:])} (each layer takes the first of {', '.join(partial)} its file has)",
+                          "merge", f"--variant-map {partial[0]}={','.join(partial[1:])}"))
     return lines
 
 
@@ -8240,6 +8286,8 @@ def parser(describe=True):
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2",
                    help="a new OUT's variant NAME takes each layer's first of NAME, V1, V2 (repeatable)")
     p.add_argument("--replace", action="store_true", help="a plain OUT that exists is started fresh, as if new")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help=f"every note in full (more than {GROUP_NOTES} of them are otherwise put in short, a line per kind)")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
     p.add_argument("--after")
     p.add_argument("--replace", action="store_true", help="NEWID (or NEWGROUP's frames) exists: the copy replaces it")

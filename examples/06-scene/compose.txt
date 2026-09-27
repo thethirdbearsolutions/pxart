@@ -1,10 +1,7 @@
 $ pxart compose --map rooms/glade.map -o glade.px --rekey tiles/field.px:shadow_s@150,154 sprites/hero.px:walk/left/0@147,127 --replace
-note: glade.px leaves out --map (rooms/glade.map) 'F' (../layers/far.px:far)'s colors for 5, a key that layer doesn't draw with (so it doesn't conflict), and has other layers' colors for it: '5' #cfe6ee (#92c45a there, from --map (rooms/glade.map) 'M' (../layers/mid.px:mid), which draws with it)
-note: --rekey gives rooms/../layers/mid.px's keys free ones in glade.px: '1>l' '2>m' '3>q' '4>u' '7>v' '8>w' '9>x' (rooms/../layers/mid.px is unchanged)
-note: --rekey gives rooms/../tiles/field.px's keys free ones in glade.px: 'd>z' 'e>A' 'f>C' (rooms/../tiles/field.px is unchanged)
-note: --rekey gives rooms/../tiles/tree.px's keys free ones in glade.px: 'd>z' 'e>A' (rooms/../tiles/tree.px is unchanged); d e share the keys rooms/../tiles/field.px got for the same colors (in every variant too)
-note: glade.px leaves out layers 115-118 (rooms/../tiles/tree.px)'s colors for f, a key those layers don't draw with (so it doesn't conflict), and has other layers' colors for it: 'f' #f0607a (#325a60 there, from --map (rooms/glade.map) 'F' (../layers/far.px:far), which draws with it)
-note: --rekey gives sprites/hero.px's keys free ones in glade.px: 'S>I' 'b>J' 'g>K' 'h>L' 's>N' 't>O' (sprites/hero.px is unchanged)
 note: 308 px of the map (rooms/glade.map) fall outside the 256x224 canvas (size from --map) and were cropped
+note: --rekey gave 18 keys free ones in glade.px: rooms/../layers/mid.px 7, rooms/../tiles/field.px 3, rooms/../tiles/tree.px 2, sprites/hero.px 6 (the files are unchanged)
+note: glade.px left out 2 colors for keys some layers don't draw with, and has other layers' colors for them (no conflict): rooms/../layers/far.px 5; rooms/../tiles/tree.px f
 note: glade.px gets 4 keys its frame doesn't draw with, from its layers' whole palettes (for shade ramps and recolors): far.px's b e f; mid.px's y; --used-keys-only leaves them out
+note: that's 7 notes in short; -v prints each in full
 wrote glade.px

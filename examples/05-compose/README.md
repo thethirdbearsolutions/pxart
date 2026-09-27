@@ -118,30 +118,38 @@ pxart compose -o dock.px --size 80x48 --rekey "${layers[@]}" --replace
 ```
 
 `--rekey` gives each clashing letter a free one in `dock.px`, so every pixel keeps its
-own color. This time compose prints ten notes and then `wrote dock.px` (all of it is in
-[`rekey.txt`](rekey.txt)). Trimmed here to the start and the end:
+own color. This time compose prints five notes and then `wrote dock.px` (all of it is in
+[`rekey.txt`](rekey.txt)). Trimmed here where a note runs long:
 
 ```text
-note: dock.px leaves out layers 1-17 (harbor-market/harbor.px)'s colors for s S a n, keys those layers don't draw with (so they don't conflict), ...
-note: --rekey gives lighthouse-keeper/keeper.px's keys free ones in dock.px: 'c>e' 'k>j' 'w>q' 'y>v' 'r>F' 'l>H' 'g>I' ...
-...
-note: --rekey gives wick/player.px's keys free ones in dock.px: 'b>x' 'c>z' 'f>C' 'k>D' 'w>E' (wick/player.px is unchanged)
-...
+note: --rekey gave 12 keys free ones in dock.px: lighthouse-keeper/keeper.px 7, wick/player.px 5 (the files are unchanged)
+note: dock.px left out 15 colors for keys some layers don't draw with, and has other layers' colors for them (no conflict): ...
+note: 3 of dock.px's variants cover only some layers, the others staying at base colors in each: dusk (harbor-market/harbor.px), night (lighthouse-keeper/keeper.px), dark (wick/player.px); --variant-map dusk=night,dark gives every layer one
+note: dock.px gets 8 keys its frame doesn't draw with, from its layers' whole palettes (for shade ramps and recolors): ...
+note: that's 10 notes in short; -v prints each in full
 wrote dock.px
 ```
 
-The notes come in four kinds:
+Each note is one kind, counted:
 
-- **`--rekey gives ...`**, one per pack it rekeyed. `'k>D'`: Wick's `k` is written as `D`
-  in `dock.px`. And `wick/player.px is unchanged`: only the new file uses the new letters.
-- **`leaves out ...'s colors for ...`**, three of them. The harbor's palette has `s S a n`,
-  but none of the harbor tiles used here draw with them. The keeper and Wick do, in their
-  own colors, so `dock.px` gives those letters the keeper's and Wick's colors. Nothing
-  changes on screen: the harbor layers never used them.
-- **`@variant ... covers ...`**, three, plus one that starts `to give every layer one
-  variant`. These are the ones that matter next.
+- **`--rekey gave ...`**: how many letters it rekeyed in each pack, 7 of the keeper's and
+  5 of Wick's. `the files are unchanged`: only the new file uses the new letters.
+- **`left out 15 colors ...`**: the harbor's palette has `s S a n`, but none of the harbor
+  tiles used here draw with them. The keeper and Wick do, in their own colors, so
+  `dock.px` gives those letters the keeper's and Wick's colors. Nothing changes on
+  screen: the harbor layers never used them.
+- **`variants cover only some layers`**: this is the one that matters next.
 - **`gets 8 keys its frame doesn't draw with`**: spare colors from the packs' palettes,
   kept in `dock.px` in case you edit it later.
+
+The last note says these stand for ten. Add `-v` to the command to see each of the ten
+in full ([`rekey-v.txt`](rekey-v.txt) has them). Among them, one per pack it rekeyed:
+
+```text
+note: --rekey gives wick/player.px's keys free ones in dock.px: 'b>x' 'c>z' 'f>C' 'k>D' 'w>E' (wick/player.px is unchanged)
+```
+
+`'k>D'`: Wick's `k` is written as `D` in `dock.px`.
 
 Now look at the dock in its dusk colors. `%dusk` picks the variant, as in
 [03 · Palette variants](../03-variants):
@@ -156,15 +164,12 @@ The harbor went dusky, but the keeper and Wick are still in daylight. The notes 
 before said why:
 
 ```text
-...
-note: dock.px's @variant dusk covers layers 1-17 (harbor-market/harbor.px) only: layer 18 (lighthouse-keeper/keeper.px:idle/down/0) and layer 19 (wick/player.px:idle/0) stay at base colors in it
-...
-note: to give every layer one variant, merge them: --variant-map dusk=night,dark (each layer takes the first of dusk, night, dark its file has)
-...
+note: 3 of dock.px's variants cover only some layers, the others staying at base colors in each: dusk (harbor-market/harbor.px), night (lighthouse-keeper/keeper.px), dark (wick/player.px); --variant-map dusk=night,dark gives every layer one
 ```
 
-Each pack calls its darker colors something else: the harbor's is `dusk`, the keeper's
-`night` and Wick's `dark`.
+`dock.px`'s `dusk` comes from the harbor alone: each pack calls its darker colors
+something else, the harbor's `dusk`, the keeper's `night` and Wick's `dark`, and the
+layers of a pack without a `dusk` stay in their daytime colors in it.
 
 
 ## Step 5: One dusk for everyone
