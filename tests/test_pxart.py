@@ -18187,6 +18187,27 @@ def test_import_from_another_directory_is_repointed(tmp_path, capsys):
     assert pxart.parse(b).palette_refs == ["../pal/cast.px"] and renders(b) == before
 
 
+def test_import_with_o_names_the_file_written(tmp_path, capsys):
+    # palette FILE --import P -o OUT: OUT gets the variant, and the readout says so (FILE is unchanged)
+    pal, b = imp(tmp_path, boy="pxart 1\nk #965340\n\nk\n")
+    had = b.read_text()
+    out = tmp_path / "boy-shared.px"
+    assert run("palette", b, "--import", pal, "-o", out) == 0
+    said = capsys.readouterr().out
+    assert f"boy-shared.px now has {pal}'s @variant dusk" in said and "boy.px now has" not in said
+    assert said.startswith(f"imported {pal} (@palette pal.px); ") and said.endswith(f"; wrote {out}\n")
+    assert b.read_text() == had and pxart.parse(out).palette_refs == ["pal.px"]
+
+
+def test_import_with_o_elsewhere_gives_the_line_out_has(tmp_path, capsys):
+    pal, b = imp(tmp_path, boy="pxart 1\nk #965340\n\nk\n")
+    out = tmp_path / "sub" / "boy.px"
+    assert run("palette", b, "--import", pal, "-o", out) == 0
+    said = capsys.readouterr().out
+    assert f"imported {pal} (@palette ../pal.px); " in said and f"boy.px now has {pal}'s @variant dusk" in said
+    assert pxart.parse(out).palette_refs == ["../pal.px"]
+
+
 def test_import_keeps_a_variant_the_file_had(tmp_path, capsys):
     # boy's dusk lists nothing for k; pal's dusk recolors k: boy's dusk gets k's color on a line of its own.
     pal, b = imp(tmp_path, boy="pxart 1\nk #965340\n\n@variant dusk\nq #111111\nq #111111\n\nk\n".replace(

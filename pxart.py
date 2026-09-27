@@ -7105,7 +7105,10 @@ def import_palette(doc, pal):
             if k != "." and now[k] != c:
                 doc.variants.setdefault(n, {})[k] = c
                 kept.setdefault(n, []).append(k)
-    said = [f"imported {pal} (@palette {ref})"]
+    out = pathlib.Path(doc.dest or doc.path)  # palette -o: the file written, and its @palette line as written there
+    shown = ref if out.resolve().parent == doc.path.resolve().parent else \
+        pathlib.Path(os.path.relpath(target, out.resolve().parent)).as_posix()
+    said = [f"imported {pal} (@palette {shown})"]
     if same:
         said.append(f"dropped {' '.join(same)} ({'their key lines' if len(same) > 1 else 'its key line'}"
                     + (f" and {len(lines)} line{'s' * (len(lines) > 1)} in @variant {', '.join(dict.fromkeys(lines))}"
@@ -7115,7 +7118,7 @@ def import_palette(doc, pal):
                     f"{'them' if len(ks) > 1 else 'it'})")
     new = [n for n in variant_names(doc) if n not in names]
     if new:
-        said.append(f"{doc.path.name} now has {pal}'s @variant {', '.join(new)}")
+        said.append(f"{out.name} now has {pal}'s @variant {', '.join(new)}")
     return "; ".join(said + [write_doc(doc)])
 
 

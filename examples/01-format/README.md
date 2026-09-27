@@ -153,7 +153,7 @@ pxart palette gem.px --import palette.px -o gem-shared.px
 pxart says what it did:
 
 ```text
-imported palette.px (@palette palette.px); dropped k w p r (their key lines: the same colors in palette.px); gem.px now has palette.px's @variant dusk; wrote gem-shared.px
+imported palette.px (@palette palette.px); dropped k w p r (their key lines: the same colors in palette.px); gem-shared.px now has palette.px's @variant dusk; wrote gem-shared.px
 ```
 
 The top of [`gem-shared.px`](gem-shared.px) is now just:
