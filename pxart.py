@@ -161,10 +161,6 @@ LOOKING
       chars ('.' = empty). In a legend line the rest of the line is the path, relative to
       the map file: spaces are fine ('b ../png/trees and bushes/bush.png'), "quotes"
       optional. A legend entry that can't load is an error at its legend line.
-      A legend line may list tiles to vary among: '1 sand.png sand2.png sand3.png' (two or
-      more, each a .png or .px[:frame], quoted if it has spaces). Each cell drawn with 1
-      gets one, picked by a hash of (room, x, y), the room being the map's file name without
-      .map; scene, compose --map and export --tiled all pick the same one.
       Items are then drawn on top. '#' lines are comments only before the first row;
       after that every non-blank line is a row, so '#' works as a map char (a wall row
       '####'). Before the rows, a line that is exactly
@@ -245,11 +241,6 @@ CHECKING
       wip'.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame (errors point at the legend line).
-      A world.src.json is checked as export --tiled compiles it (its rooms, door pairs and
-      start, then the world rules), writing nothing: 'ok   world.src.json: 3 rooms placed,
-      interior tower, 1 door pair, start in shore', or FAIL and every error at
-      file:line:col; the world rules' warnings follow as WARNING lines. A directory checks
-      its *.src.json files too. --tile and --tileset are export's.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -788,14 +779,13 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
          [--prefix-file] [--exclude GLOB]
-  export world.src.json|ROOM.map... --tiled [--tile 16x16] [--tileset T.tsj]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
         pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
         Aseprite writes them: meta.slices = one slice "pivot" with a key per frame index,
         {"frame": N, "bounds": {"x": 0, "y": 0, "w": W, "h": H}, "pivot": {"x": X, "y": Y}},
         bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
-      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
+      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations (worlds: help worlds)
       (--aseprite x.json and --tiled x.tsj write the same x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
@@ -816,31 +806,6 @@ CONVERTING
       its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
       walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
       painted with the old tileset keeps the old ids.
-      Worlds: --tiled (no X.tsj) on world sources writes Tiled's files beside them:
-      rooms/NAME.map -> rooms/NAME.tmj, world.src.json -> world.world. The source:
-          {"layout": ["shore point", "cove  ."],
-           "start": {"room": "shore", "at": "@"},
-           "doors": [["point D", "tower d"], ["shore H", "hut h", {"trigger": "use"}]]}
-      layout draws where rooms sit ('.': none; a column as wide as its widest room, a row as
-      tall as its tallest); a room only doors name is an interior, not in the .world. The
-      start is a point (class start) at the feet of the cell shore.map draws '@' on. A pair
-      is two doors (class door), each the rectangle of cells its char is drawn on, with
-      target (the other's .tmj), entry (its name) and the {...} (trigger: touch or use).
-      A .map layer's one-tile cells make a tile layer ('layer N'); +b entries, art of
-      another size, and cells an earlier object overlaps are tile objects named by their
-      char ('layer N objects'), where scene draws them: Tiled renders what scene does. Art is
-      found in <dir>/tiled/*.tsj above it (its pack's) and --tileset's: a PNG by a tile's
-      png property, a .px frame by its pixels; a GID is firstgid + that tile's stable id.
-      Object ids are stable: a recompile keeps the previous .tmj's id for the same class
-      and name at the same cell, new objects take nextobjectid, ids are never reused. A
-      .tmj whose 'source' isn't its .map (made in Tiled) is never overwritten (E_GENERATED).
-      Every error is said at once, at file:line:col, and nothing is written: a ragged row
-      (E_ROW_WIDTH), E_UNKNOWN_KEY, art no tileset has (E_TILESET), a door or start char not
-      drawn as one rectangle or cell (E_DOOR, E_START), a bad source (E_WORLD). Then the
-      world rules (spec and fixtures: tests/fixtures/world_rules/ in the pxart repo) run on
-      the output: 'E_WORLD: door-arrival: ...', or a WARNING (an edge walkable on one side
-      only). A layer of fewer rows than the room, and art bigger than a cell without +b
-      (placed by its top-left), get a WARNING. A lone .map is a room with no doors or start.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -871,9 +836,9 @@ CONVERTING
 
 HELP
   help [all | recipes | TOPIC | CMD]
-      'pxart help recipes': seven workflows, command by command. 'pxart help all' prints this
-      whole reference; 'pxart help TOPIC' one part of it (a heading here, any case); 'pxart
-      help CMD' is 'pxart CMD -h': its section and the shared notes it relies on, named.
+      'pxart help recipes': seven workflows, command by command; 'help worlds': Tiled worlds.
+      'pxart help all' prints this whole reference; 'pxart help TOPIC' one part of
+      it (a heading here, any case); 'pxart help CMD' is 'pxart CMD -h'.
       'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
       sections open with.
 
@@ -881,8 +846,7 @@ ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
   E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_UNKNOWN_SECTION
-  E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE E_MAP_SIZE E_TILESET E_GENERATED E_WORLD
-  E_DOOR E_START
+  E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
   Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...'). An
   error in an input file also says which input it came from, then where in the file:
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
@@ -894,6 +858,65 @@ ERROR CODES
 """
 import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
+
+WORLDS = """WORLDS (pxart help worlds)
+  export world.src.json|ROOM.map|DIR... --tiled [--tile 16x16] [--tileset T.tsj]
+  check world.src.json|DIR... [--tile 16x16] [--tileset T.tsj]
+      A world is rooms drawn as .map files (scene --map's format) and a world.src.json that
+      places them and wires their doors. --tiled (with no X.tsj) compiles them to Tiled's
+      files, beside them: rooms/NAME.map -> rooms/NAME.tmj, world.src.json -> world.world
+      (NAME.src.json -> NAME.world). check runs the same compile and writes nothing: 'ok
+      world.src.json: 3 rooms placed, interior tower, 1 door pair, start in shore', or FAIL
+      and every error. A DIR stands for the world sources under it (a rooms/ directory is
+      an error naming its world). --tile: the rooms' tile size (default 16x16).
+      The source:
+          {"layout": ["shore point", "cove  ."],
+           "start": {"room": "shore", "at": "@"},
+           "doors": [["point D", "tower d"], ["shore H", "hut h", {"trigger": "use"}]]}
+      layout draws where rooms sit ('.': none; a column as wide as its widest room, a row as
+      tall as its tallest, an empty one as the largest room). A room only doors name is an
+      interior: compiled, not in the .world. start: a point object (class start) at the
+      feet (bottom centre) of the one cell shore.map draws '@' on. A door pair is two door
+      objects (class door), each the rectangle of cells its char is drawn on, with target
+      (the other's .tmj), entry (the other's name) and the pair's {...} as properties
+      (trigger: touch, the default, or use; target and entry are the compiler's).
+      Variant tiles: a legend line may list tiles, '1 sand.png sand2.png sand3.png' (two or
+      more, each a .png or .px[:frame], quoted if it has spaces). Each cell drawn with 1
+      gets one, picked by cell_hash(room, x, y), the room being the map's file name without
+      .map; scene, compose --map and export --tiled pick the same one.
+      What a room compiles to: a layer's one-tile cells make a tile layer ('layer N'); +b
+      entries, art of another size, and cells an earlier object in the layer overhangs are
+      tile objects named by their char ('layer N objects', in draw order), where scene
+      draws them, so Tiled renders what scene --map does, pixel for pixel. Flips are GID
+      flags. The .tmj's 'source' property names its .map.
+      Tilesets: a cell's art is found in <dir>/tiled/*.tsj in the directories above it (its
+      pack's; the search stops at a directory holding a *.src.json or .git) and in
+      --tileset's: a PNG by a tile's png property (or image), a .px frame by its pixels. A
+      GID is firstgid + that tile's stable id. Tilesets start at firstgid 1, 1001, 2001...
+      (a bigger one at the next such after its end), so one that grows moves no other; a
+      tileset keeps its previous firstgid while it fits.
+      Object ids are stable: a recompile reads the previous .tmj and keeps the id of the
+      object of the same layer, class and name at the same cell; a new object takes
+      nextobjectid; an id is never reused. An object in the previous .tmj that isn't from
+      the source (added in Tiled) is dropped, with a WARNING. A .tmj whose 'source' isn't
+      its .map (a room made in Tiled) is never overwritten (E_GENERATED). A .map that's a
+      world's room (rooms/ beside a *.src.json, or a .tmj with doors or a start) isn't
+      compiled alone (E_WORLD): compile its world.
+      Errors are said all at once, at file:line:col, and nothing is written: a ragged row
+      (E_ROW_WIDTH), a ground (layer 1) shorter than the room (E_MAP_SIZE), an unknown char
+      (E_UNKNOWN_KEY), art no tileset has (E_TILESET), a door or start char not drawn as one
+      rectangle or at one cell (E_DOOR, E_START), a bad world source (E_WORLD). A shorter
+      layer above the ground, and art bigger than a cell without +b (placed by its
+      top-left), get a WARNING. Then the world rules run on the compiled files: doors pair
+      up and have a walkable cell beside them, one start, not in a solid, every door
+      reachable from it, rooms don't overlap. A broken rule is 'E_WORLD: door-arrival:
+      ...'; a warning (an edge walkable on one side only, a room nothing reaches) is a
+      WARNING line. The rules are one spec with shared fixtures, run by pxart and the
+      harness: tests/fixtures/world_rules/ (SPEC.md) in the pxart repo.
+      Error codes: E_MAP_SIZE E_TILESET E_GENERATED E_WORLD E_DOOR E_START, and the map's
+      own (E_ROW_WIDTH E_UNKNOWN_KEY E_BAD_ROW E_FILE).
+"""
+
 
 RECIPES = """RECIPES (pxart help recipes)
   Seven workflows, end to end. Each runs as written from a folder holding the files it names;
@@ -9575,6 +9598,8 @@ def cmd_help(a):
         print(__doc__.rstrip())
     elif want.lower() == "recipes":
         print(RECIPES.rstrip())
+    elif want.lower() == "worlds":
+        print(WORLDS.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):

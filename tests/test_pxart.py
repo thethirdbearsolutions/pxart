@@ -22754,10 +22754,10 @@ def test_readme_points_at_the_recipes():
 
 def test_help_all_does_not_grow(capsys):
     # 67277 bytes at 3dd8747; the recipes are their own topic, and duplicated passages now say things once (crop,
-    # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering). 70349 with
-    # GAMES-327's worlds (export --tiled on world.src.json and .map rooms, legend variant lists, check on worlds).
+    # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering). Worlds
+    # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 70349
+    assert len(capsys.readouterr().out.encode()) <= 67277
 
 
 def test_help_says_each_shared_rule_once():

@@ -519,9 +519,9 @@ def test_variant_list_with_flips_and_bottom_anchor(tmp_path):
 
 
 def test_help_documents_variant_lists():
-    doc = " ".join(pxart.__doc__.split())
-    assert "'1 sand.png sand2.png sand3.png'" in doc and "hash of (room, x, y)" in doc
-    assert "scene, compose --map and export --tiled all pick the same one" in doc
+    doc = " ".join(pxart.WORLDS.split())
+    assert "'1 sand.png sand2.png sand3.png'" in doc and "cell_hash(room, x, y)" in doc
+    assert "scene, compose --map and export --tiled pick the same one" in doc
 
 
 # ================================================================ a small pack, W1-shaped, to compile against
@@ -1836,15 +1836,39 @@ def test_export_px_tiled_still_works(tmp_path):
 
 
 def test_help_documents_worlds():
-    doc = " ".join(pxart.__doc__.split())
-    for s in ("export world.src.json|ROOM.map... --tiled", "rooms/NAME.map -> rooms/NAME.tmj",
-              "a room only doors name is an interior", "Object ids are stable", "never reused",
-              "tests/fixtures/world_rules/", "E_GENERATED", "A world.src.json is checked as export --tiled compiles it",
-              "a PNG by a tile's png property, a .px frame by its pixels"):
+    doc = " ".join(pxart.WORLDS.split())
+    for s in ("export world.src.json|ROOM.map|DIR... --tiled", "rooms/NAME.map -> rooms/NAME.tmj",
+              "A room only doors name is an interior", "Object ids are stable", "an id is never reused",
+              "tests/fixtures/world_rules/", "E_GENERATED", "check runs the same compile and writes nothing",
+              "a PNG by a tile's png property (or image), a .px frame by its pixels", "firstgid 1, 1001, 2001",
+              "same layer, class and name at the same cell", "isn't compiled alone (E_WORLD)",
+              "a ground (layer 1) shorter than the room (E_MAP_SIZE)", "the search stops at a directory holding",
+              "added in Tiled) is dropped, with a WARNING", "A DIR stands for the world sources under it"):
         assert s in doc, s
-    codes = doc.split("ERROR CODES", 1)[1]
+    codes = doc.split("Error codes:", 1)[1]
     for c in ("E_MAP_SIZE", "E_TILESET", "E_GENERATED", "E_WORLD", "E_DOOR", "E_START"):
         assert c in codes, c
+
+
+def test_help_worlds_prints_the_topic(capsys):
+    assert run("help", "worlds") == 0
+    out = capsys.readouterr().out
+    assert out == pxart.WORLDS.rstrip() + "\n" and out.startswith("WORLDS (pxart help worlds)")
+    assert run("help", "WORLDS") == 0
+
+
+def test_worlds_not_in_help_all_but_pointed_at():
+    assert "WORLDS (pxart help worlds)" not in pxart.__doc__ and "rooms/NAME.map -> rooms/NAME.tmj" not in pxart.__doc__
+    doc = " ".join(pxart.__doc__.split())
+    assert "'help worlds': Tiled worlds." in doc and "(worlds: help worlds)" in doc
+
+
+def test_unknown_help_topic_lists_worlds():
+    assert "worlds, compose-rules" in run_err("help", "nope")
+
+
+def test_help_worlds_lines_fit():
+    assert all(len(l) <= 92 for l in pxart.WORLDS.splitlines())
 
 
 def test_every_new_error_code_is_used():
