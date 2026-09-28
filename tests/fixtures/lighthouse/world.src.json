@@ -1,0 +1,10 @@
+{
+  "layout": [
+    "shore point",
+    "cove  ."
+  ],
+  "start": {"room": "shore", "at": "@"},
+  "doors": [
+    ["point D", "tower d"]
+  ]
+}

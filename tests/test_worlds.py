@@ -1860,3 +1860,338 @@ def test_issue_prints_line_and_col():
     assert str(pxart.Issue("E_X", "m", "a.map", 3, col=7)) == "a.map:3:7: E_X: m"
     assert str(pxart.Issue("E_X", "m", "a.map", 3)) == "a.map:3: E_X: m"
     assert str(pxart.Issue("E_X", "m", "a.map", None, col=7)) == "a.map: E_X: m"
+
+
+# ================================================================ parity: .map -> .tmj -> render equals scene --map
+
+def tiled_render(tmj_path, hide=("world",)):
+    """A small Tiled renderer (the way Tiled draws orthogonal maps): tile layers cell by cell, each tile's art with
+    its bottom-left on the cell's bottom-left; object layers in index order, a tile object's art with its bottom-left
+    at x,y, scaled to its size; GID flip flags; external sheet and collection tilesets. What pxart's scene draws must
+    be this, pixel for pixel (ADR 0005, rule 4)."""
+    tmj_path = pathlib.Path(tmj_path)
+    t = load(tmj_path)
+    sets = []
+    for ts in t["tilesets"]:
+        p = tmj_path.parent / ts["source"]
+        sets.append((ts["firstgid"], load(p), p.parent))
+    sets.sort(key=lambda s: s[0])
+    cache = {}
+
+    def art(gid):
+        g = gid & ~pxart.GID_FLAGS
+        first, ts, where = max((s for s in sets if s[0] <= g), key=lambda s: s[0])
+        tid = g - first
+        if (first, tid) not in cache:
+            if ts.get("image"):
+                sheet = Image.open(where / ts["image"]).convert("RGBA")
+                tw, th, cols = ts["tilewidth"], ts["tileheight"], ts["columns"]
+                m, sp = ts.get("margin", 0), ts.get("spacing", 0)
+                x, y = m + (tid % cols) * (tw + sp), m + (tid // cols) * (th + sp)
+                img = sheet.crop((x, y, x + tw, y + th))
+            else:
+                tile = next(x for x in ts["tiles"] if x["id"] == tid)
+                img = Image.open(where / tile["image"]).convert("RGBA")
+            cache[(first, tid)] = img
+        img = cache[(first, tid)]
+        if gid & pxart.GID_H:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if gid & pxart.GID_V:
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        return img
+    tw, th = t["tilewidth"], t["tileheight"]
+    canvas = Image.new("RGBA", (t["width"] * tw, t["height"] * th), (0, 0, 0, 0))
+    for layer in t["layers"]:
+        if layer["name"] in hide or not layer.get("visible", True):
+            continue
+        if layer["type"] == "tilelayer":
+            for i, g in enumerate(layer["data"]):
+                if g:
+                    img = art(g)
+                    x, y = (i % layer["width"]) * tw, (i // layer["width"] + 1) * th - img.height
+                    pxart.draw_at(canvas, img, x, y)
+        elif layer["type"] == "objectgroup":
+            for o in layer["objects"]:
+                if o.get("gid"):
+                    img = art(o["gid"])
+                    if img.size != (o["width"], o["height"]):
+                        img = img.resize((int(o["width"]), int(o["height"])), Image.NEAREST)
+                    pxart.draw_at(canvas, img, int(o["x"]), int(o["y"] - o["height"]))
+    return canvas
+
+
+def scene_render(map_path, out, *extra):
+    assert run("scene", "--map", map_path, "--bg", "transparent", "--scale", "1", "-o", out, *extra) == 0
+    return Image.open(out).convert("RGBA")
+
+
+def same_pixels(a, b):
+    return a.size == b.size and a.tobytes() == b.tobytes()
+
+
+def diff_count(a, b):
+    return sum(1 for p, q in zip(a.getdata(), b.getdata()) if p != q)
+
+
+def lighthouse(tmp_path):
+    """A copy of the design's example world (sources, and the W1 pack tilesets with the pack PNGs they name)."""
+    dst = tmp_path / "lighthouse"
+    shutil.copytree(LIGHTHOUSE, dst)
+    return dst
+
+
+ROOMS = ("shore", "point", "cove", "tower")
+
+
+@pytest.fixture(scope="module")
+def compiled_lighthouse(tmp_path_factory):
+    d = lighthouse(tmp_path_factory.mktemp("lh"))
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    return d
+
+
+@pytest.mark.parametrize("room", ROOMS)
+def test_parity_lighthouse_room_renders_as_scene(compiled_lighthouse, room, tmp_path):
+    d = compiled_lighthouse
+    tiled = tiled_render(d / "rooms" / f"{room}.tmj")
+    scene = scene_render(d / "rooms" / f"{room}.map", tmp_path / "s.png")
+    assert same_pixels(tiled, scene), (room, diff_count(tiled, scene))
+
+
+@pytest.mark.parametrize("room", ROOMS)
+def test_parity_lighthouse_room_renders_as_the_design_committed_it(compiled_lighthouse, room):
+    # the design's example/rooms/*.png: its pxart scene --map renders
+    tiled = tiled_render(compiled_lighthouse / "rooms" / f"{room}.tmj")
+    assert same_pixels(tiled, Image.open(LIGHTHOUSE / "expected" / "rooms" / f"{room}.png").convert("RGBA")), room
+
+
+def test_parity_lighthouse_world_composite(compiled_lighthouse, tmp_path):
+    d = compiled_lighthouse
+    w = load(d / "world.world")
+    width = max(m["x"] + m["width"] for m in w["maps"])
+    height = max(m["y"] + m["height"] for m in w["maps"])
+    tiled, scene = (Image.new("RGBA", (width, height)) for _ in range(2))
+    for m in w["maps"]:
+        room = pathlib.Path(m["fileName"]).stem
+        tiled.alpha_composite(tiled_render(d / m["fileName"]), (m["x"], m["y"]))
+        scene.alpha_composite(scene_render(d / "rooms" / f"{room}.map", tmp_path / f"{room}.png"), (m["x"], m["y"]))
+    assert same_pixels(tiled, scene)
+
+
+def test_parity_the_world_layer_draws_nothing(compiled_lighthouse):
+    d = compiled_lighthouse
+    for room in ROOMS:
+        assert same_pixels(tiled_render(d / "rooms" / f"{room}.tmj", hide=()),
+                           tiled_render(d / "rooms" / f"{room}.tmj")), room
+
+
+def test_parity_variant_lists(tmp_path):
+    d = lighthouse(tmp_path)
+    m = d / "rooms" / "point.map"
+    text = m.read_text().replace("1 ../lighthouse-keeper/world/sand.png\n",
+                                 "1 ../lighthouse-keeper/world/sand.png ../lighthouse-keeper/world/sand2.png "
+                                 "../lighthouse-keeper/world/sand3.png ../lighthouse-keeper/world/sand4.png "
+                                 "../lighthouse-keeper/world/sand5.png\n")
+    m.write_text(text)
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    tiled = tiled_render(d / "rooms" / "point.tmj")
+    assert same_pixels(tiled, scene_render(m, tmp_path / "s.png"))
+    assert not same_pixels(tiled, Image.open(LIGHTHOUSE / "expected" / "rooms" / "point.png").convert("RGBA"))
+    data = next(l for l in load(d / "rooms" / "point.tmj")["layers"] if l["type"] == "tilelayer")["data"]
+    sands = {gid_png(d / "rooms" / "point.tmj", g)[0] for g in data} & {
+        f"world/sand{n}.png" for n in ("", "2", "3", "4", "5")}
+    assert len(sands) == 5  # 100-odd sand cells: every variant turns up
+
+
+def test_parity_variant_pick_per_cell_matches_scene_exactly(tmp_path):
+    # the cell-by-cell check (the render check covers it too): the compiled tile is scene's pick
+    d = lighthouse(tmp_path)
+    m = d / "rooms" / "cove.map"
+    sands = [f"../lighthouse-keeper/world/sand{n}.png" for n in ("", "2", "3", "4", "5")]
+    m.write_text(m.read_text().replace("1 ../lighthouse-keeper/world/sand.png\n", "1 " + " ".join(sands) + "\n"))
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    placed, _ = pxart.read_map(m, (16, 16))
+    t = load(d / "rooms" / "cove.tmj")
+    data = next(l for l in t["layers"] if l["type"] == "tilelayer")["data"]
+    for arg, x, y in placed:
+        if "sand" in arg:
+            got = gid_png(d / "rooms" / "cove.tmj", data[(y // 16) * 16 + x // 16])[0]
+            assert got == "world/" + pathlib.Path(arg).name
+
+
+def test_parity_synthetic_room_with_every_kind_of_cell(tmp_path):
+    legend = LEGEND + f"S {P}/props/tree.png\nv {P}/props/lamp.png+v\n"
+    ground = ["VVVVVVVV", "V~~~VVVV", "VVWWVVVV", "VVVVVVVV", "VVVVVVVV", "VVVVVVVV"]
+    props = ["........", ".T.t....", "..S..R..", "..l.L.p.", ".@...c..", "....v..."]
+    src = game(tmp_path, {"mix": room_text(ground, props, legend=legend)},
+               {"layout": ["mix"], "start": {"room": "mix", "at": "@"}})
+    assert run("export", src, "--tiled") == 0
+    m = src.parent / "rooms" / "mix.map"
+    tiled = tiled_render(src.parent / "rooms" / "mix.tmj")
+    scene = scene_render(m, tmp_path / "s.png")
+    assert same_pixels(tiled, scene), diff_count(tiled, scene)
+
+
+def test_parity_needs_the_overhang_rule(tmp_path):
+    # without it (every one-tile cell a tile), Tiled would draw the lamp under S's overhang, not over it
+    legend = LEGEND + f"S {P}/props/tree.png\n"
+    src = game(tmp_path, {"a": room_text(OPEN5, ["......", ".S....", ".l.l..", "......", "....@."], legend=legend)},
+               {"layout": ["a"], "start": {"room": "a", "at": "@"}})
+    assert run("export", src, "--tiled") == 0
+    p = src.parent / "rooms" / "a.tmj"
+    scene = scene_render(src.parent / "rooms" / "a.map", tmp_path / "s.png")
+    assert same_pixels(tiled_render(p), scene)
+    t = load(p)
+    objs_layer = next(l for l in t["layers"] if l["name"] == "layer 2 objects")
+    lamp = objs_layer["objects"].pop(1)
+    tiles = next(l for l in t["layers"] if l["name"] == "layer 2")
+    tiles["data"][2 * 6 + 1] = lamp["gid"]
+    p.write_text(json.dumps(t))
+    assert not same_pixels(tiled_render(p), scene)
+
+
+def test_parity_lone_map_with_flips_and_offsets(tmp_path):
+    make_pack(tmp_path / "assets")
+    (tmp_path / "game" / "rooms").mkdir(parents=True)
+    m = tmp_path / "game" / "rooms" / "flips.map"
+    legend = LEGEND + f"x {P}/props/lamp.png+hv\nS {P}/props/tree.png\n"
+    m.write_text(room_text(["111111", "111111", "111111", "111111"],
+                           ["S.t.T.", "..l.L.", ".x..R.", "p....c"], legend=legend))
+    assert run("export", m, "--tiled") == 0
+    assert same_pixels(tiled_render(m.with_suffix(".tmj")), scene_render(m, tmp_path / "s.png"))
+
+
+def glade_tilesets(tmp_path):
+    """The glade example's art as Tiled tilesets, made with pxart's own export --tiled (sheets of same-size frames,
+    no png property): the compiler finds each .px legend entry in them by its pixels."""
+    out = tmp_path / "ts"
+    out.mkdir()
+    field = EXAMPLES / "06-scene" / "tiles" / "field.px"
+    square = [f.id for f in pxart.parse(field).frames if f.size == (16, 16)]
+    sels = {"field": f"{field}:{','.join(square)}", "tree": f"{EXAMPLES}/06-scene/tiles/tree.px:tree",
+            "pine": f"{EXAMPLES}/06-scene/tiles/tree.px:pine", "far": f"{EXAMPLES}/06-scene/layers/far.px",
+            "mid": f"{EXAMPLES}/06-scene/layers/mid.px"}
+    for name, sel in sels.items():
+        assert run("export", sel, "--tiled", out / f"{name}.tsj") == 0
+    return [out / f"{n}.tsj" for n in sels]
+
+
+def test_parity_pxart_example_glade(tmp_path, capsys):
+    # every map in pxart's examples: the glade (layers of different heights, a big top-left sky, flipped trees)
+    maps = sorted(EXAMPLES.rglob("*.map"))
+    assert [m.relative_to(EXAMPLES).as_posix() for m in maps] == ["06-scene/rooms/glade.map"]
+    shutil.copytree(EXAMPLES / "06-scene", tmp_path / "06-scene")
+    tsj = glade_tilesets(tmp_path)
+    m = tmp_path / "06-scene" / "rooms" / "glade.map"
+    args = [x for t in tsj for x in ("--tileset", t)]
+    assert run("export", m, "--tiled", *args) == 0
+    out = capsys.readouterr().out
+    assert "legend 'F' is 256x112, bigger than a 16x16 cell, with no +b" in out
+    assert "layer 1 has 7 rows, the room has 14" in out
+    tiled = tiled_render(m.with_suffix(".tmj"))
+    assert same_pixels(tiled, scene_render(m, tmp_path / "s.png"))
+    t = load(m.with_suffix(".tmj"))
+    assert any(o["gid"] & pxart.GID_H for l in t["layers"] for o in l.get("objects", ()) if o["name"] == "t")
+
+
+# ================================================================ golden: the design's example, compiled for real
+
+def golden_room(room_path, room):
+    """A .tmj's content with every GID resolved to the pack path its tileset names (so the design's hand-compiled
+    example and the real compile, on different tilesets, compare): the tile layers' cells, and each object."""
+    t = load(room_path)
+    out = {k: t[k] for k in ("width", "height", "tilewidth", "tileheight", "orientation", "renderorder", "infinite",
+                             "properties", "nextobjectid", "nextlayerid")}
+    out["layers"] = []
+    for l in t["layers"]:
+        entry = {k: l[k] for k in ("id", "name", "type")}
+        if l["type"] == "tilelayer":
+            entry["cells"] = [gid_png(room_path, g) if g else None for g in l["data"]]
+        else:
+            entry["objects"] = [{k: (gid_png(room_path, v) if k == "gid" else v) for k, v in o.items()}
+                                for o in l["objects"]]
+        out["layers"].append(entry)
+    return out
+
+
+@pytest.mark.parametrize("room", ROOMS)
+def test_golden_room_matches_the_design_example(compiled_lighthouse, room):
+    got = golden_room(compiled_lighthouse / "rooms" / f"{room}.tmj", room)
+    want = golden_room(LIGHTHOUSE / "expected" / "rooms" / f"{room}.tmj", room)
+    assert got == want, room
+
+
+@pytest.mark.parametrize("room", ROOMS)
+def test_golden_the_differences_are_only_these(compiled_lighthouse, room):
+    """What differs from the design's throwaway compile, and why: its tilesets were stand-ins (../tilesets/), W1's
+    are the pack's; it said draworder topdown (Tiled sorts by y), and the compiler says index (pxart's draw order, so
+    Tiled renders what scene renders); it said tiledversion (it was saved through Tiled), and a compile isn't Tiled."""
+    got = load(compiled_lighthouse / "rooms" / f"{room}.tmj")
+    want = load(LIGHTHOUSE / "expected" / "rooms" / f"{room}.tmj")
+    assert set(want) - set(got) == {"tiledversion"} and set(got) - set(want) == set()
+    assert [ts["source"] for ts in want["tilesets"]] == ["../tilesets/lighthouse-ground.tsj",
+                                                         "../tilesets/lighthouse-props.tsj"]
+    assert [ts["source"] for ts in got["tilesets"]] == ["../lighthouse-keeper/tiled/lighthouse-keeper-ground.tsj",
+                                                        "../lighthouse-keeper/tiled/lighthouse-keeper-props.tsj"]
+    for gl, wl in zip(got["layers"], want["layers"]):
+        if wl["type"] == "objectgroup":
+            assert wl["draworder"] == "topdown" and gl["draworder"] == "index"
+        rest = {k for k in wl if k not in ("draworder", "data", "objects")}
+        assert {k: gl[k] for k in rest} == {k: wl[k] for k in rest}
+
+
+def test_golden_world_file_is_exact(compiled_lighthouse):
+    assert load(compiled_lighthouse / "world.world") == load(LIGHTHOUSE / "expected" / "world.world")
+
+
+def test_golden_example_doors_and_start_exactly(compiled_lighthouse):
+    d = compiled_lighthouse
+    point = next(o for o in objs(load(d / "rooms" / "point.tmj"), "world"))
+    assert point == {"id": 4, "name": "D", "type": "door", "x": 160, "y": 112, "width": 16, "height": 16,
+                     "rotation": 0, "visible": True,
+                     "properties": [{"name": "entry", "type": "string", "value": "d"},
+                                    {"name": "target", "type": "file", "value": "tower.tmj"}]}
+    start = next(o for o in objs(load(d / "rooms" / "shore.tmj"), "world"))
+    assert (start["id"], start["x"], start["y"], start["point"]) == (7, 88, 128, True)
+
+
+def test_golden_example_check_says_ok_and_the_cove_edge(tmp_path, capsys):
+    d = lighthouse(tmp_path)
+    assert run("check", d / "world.src.json") == 0
+    out = capsys.readouterr().out
+    assert "ok   " in out and "3 rooms placed, interior tower, 1 door pair, start in shore" in out
+    # cove's top-left: sand at 1,0 under shore's shore tile at 1,11 (a real finding in the example: T1's shape)
+    assert re.search(r"WARNING: \S*rooms/cove\.map:9:2: edge-one-side: cove's north edge from cell 1,0 \(1 cell\)", out)
+
+
+def test_golden_recompiling_the_example_keeps_every_id(compiled_lighthouse, tmp_path):
+    d = lighthouse(tmp_path)
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    for room in ROOMS:
+        assert (d / "rooms" / f"{room}.tmj").read_bytes() == (compiled_lighthouse / "rooms" / f"{room}.tmj").read_bytes()
+
+
+def test_golden_example_insert_a_prop(tmp_path):
+    # the rule-3 test on the example itself: a crate added to shore's props, recompiled
+    d = lighthouse(tmp_path)
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    before = {(o["type"], o["name"], pxart.object_cell(o, 16, 16)): o["id"] for o in objs(load(d / "rooms/shore.tmj"))}
+    lines = (d / "rooms" / "shore.map").read_text().split("\n")
+    i = lines.index("---") + 2
+    lines[i] = lines[i][:3] + "c" + lines[i][4:]
+    (d / "rooms" / "shore.map").write_text("\n".join(lines))
+    assert run("export", d / "world.src.json", "--tiled") == 0
+    t = load(d / "rooms" / "shore.tmj")
+    after = {(o["type"], o["name"], pxart.object_cell(o, 16, 16)): o["id"] for o in objs(t)}
+    assert {k: after[k] for k in before} == before
+    assert [v for k, v in after.items() if k not in before] == [8] and t["nextobjectid"] == 9
+
+
+def test_golden_pack_tilesets_are_w1s(compiled_lighthouse):
+    # the fixture's tilesets are RGG's W1 output (GAMES-326), byte for byte as committed there: stable ids, a
+    # nextid property, a png property and a class on every tile
+    for name in ("lighthouse-keeper-ground", "lighthouse-keeper-props"):
+        ts = load(LIGHTHOUSE / "lighthouse-keeper" / "tiled" / f"{name}.tsj")
+        assert any(p["name"] == "nextid" for p in ts["properties"])
+        for tile in ts["tiles"]:
+            assert tile["type"] and any(p["name"] == "png" for p in tile["properties"])

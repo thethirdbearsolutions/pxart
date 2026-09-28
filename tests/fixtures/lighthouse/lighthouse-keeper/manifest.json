@@ -1,0 +1,2363 @@
+{
+ "schema_version": 1,
+ "pack": {
+  "slug": "lighthouse-keeper",
+  "display_name": "Lighthouse Keeper (pxart)",
+  "base_tile_px": 16,
+  "index_eligible": true,
+  "license": {
+   "spdx": "CC0-1.0",
+   "source_url": "static/games/assets/lighthouse-keeper/pxart",
+   "verified": {
+    "by": "pending-human",
+    "date": null,
+    "where": null
+   }
+  },
+  "attribution": "Generated with pxart (github.com/thethirdbearsolutions/pxart) by Claude",
+  "themes": [
+   "seaside",
+   "beach",
+   "lighthouse",
+   "cozy"
+  ],
+  "mirrors": {
+   "right": "left"
+  },
+  "variants": [
+   "night"
+  ],
+  "notes": "Lighthouse keeper: a cozy seaside kit. 32x32 keeper (idle, 6-frame walks, a lantern raise that plays once), 16px beach and lighthouse-interior tiles, larger props (lighthouse 24x48, stair 32x32, table 32x24, rug 44x26). The keeper walks right by mirroring left. The art's room maps (rooms/*.map) are not part of the pack. Agent-made pixel art (pxart .px sources in pxart/). Animated tiles: variant_group = animation, frames <file>/<group>/<n>.png in play order (frames@ms): shore 2@600ms, water 2@500ms. A kit's ground_tiles already animates the ones its grid chars use. Each character_frame's fps (in the loaded manifest) is the art's own timing; Sprites.animate() uses it unless you pass {fps}. Palette variant (recolour of the whole pack, unrelated to tile variant groups) `night`: the art's own palette (colours a variant doesn't set, like lights, keep their base colour); the colours and descriptions above are the base palette's. `night`: cool moonlight over beach, keeper and interior; the lamp colours stay lit. Prefix any path, character, variant_group or kit name with `night/`, e.g. Sprites.animate('night/keeper', 'idle', null), Sprites.object('night/world/crate.png'), Sprites.kit('night/beach'); a `night/` kit's ground_tiles and ground_colors are night too, and Sprites.fitCanvas(canvas, {kit: 'night/beach'}) frames the canvas in it. Light a scene with one palette: don't mix `night/` art with base art in the same view. Not in schema v1, not exported: per-frame durations (keeper lantern/down \u2014 no fps emitted); play-count (keeper lantern/down x1)."
+ },
+ "sprites": [
+  {
+   "path": "keeper/idle/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 0",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 0,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/idle/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 1",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 1,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/idle/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 2",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 2,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/idle/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 3",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 3,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 0",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 1",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 2",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 3",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 4",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/down/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 5",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 0",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 1",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 2",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 3",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 4",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/up/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 5",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 0",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 1",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 2",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 3",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 4",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/walk/left/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 5",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 0",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 0,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 1",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 1,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 2",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 2,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 3",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 3,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 4",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 4,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "keeper/lantern/down/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 5",
+   "layer": "actor",
+   "character": "keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/sand.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand",
+   "layer": "ground",
+   "variant_group": "sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/water/0.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world water 0",
+   "layer": "obstacle",
+   "variant_group": "water",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/water/1.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world water 1",
+   "layer": "obstacle",
+   "variant_group": "water",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/shore/0.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world shore 0",
+   "layer": "obstacle",
+   "variant_group": "shore",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/shore/1.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world shore 1",
+   "layer": "obstacle",
+   "variant_group": "shore",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/crate.png",
+   "kind": "object",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world crate",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     12,
+     16,
+     3
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/rope.png",
+   "kind": "decor",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world rope",
+   "layer": "ground_decor",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/gull/0.png",
+   "kind": "character_frame",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world gull 0",
+   "layer": "actor",
+   "character": "gull",
+   "animation": "gull",
+   "direction": null,
+   "frame": 0,
+   "fps": 2.5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/gull/1.png",
+   "kind": "character_frame",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world gull 1",
+   "layer": "actor",
+   "character": "gull",
+   "animation": "gull",
+   "direction": null,
+   "frame": 1,
+   "fps": 2.5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/lighthouse.png",
+   "kind": "object",
+   "px": [
+    24,
+    48
+   ],
+   "display_name": "world lighthouse",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     3,
+     36,
+     18,
+     12
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/sand2.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand2",
+   "layer": "ground",
+   "variant_group": "sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/sand3.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand3",
+   "layer": "ground",
+   "variant_group": "sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/sand4.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand4",
+   "layer": "ground",
+   "variant_group": "sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "world/sand5.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand5",
+   "layer": "ground",
+   "variant_group": "sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/wall.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior wall",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/face_upper.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior face_upper",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/face_lower.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior face_lower",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/window.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior window",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/door_upper.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior door_upper",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/door_lower.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior door_lower",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/floor.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor",
+   "layer": "ground",
+   "variant_group": "planks",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/floor2.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor2",
+   "layer": "ground",
+   "variant_group": "planks",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/floor_shadow.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor_shadow",
+   "layer": "ground",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/stair.png",
+   "kind": "object",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "interior stair",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     3,
+     24,
+     26,
+     6
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/table.png",
+   "kind": "object",
+   "px": [
+    32,
+    24
+   ],
+   "display_name": "interior table",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     2,
+     18,
+     26,
+     3
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "interior/rug.png",
+   "kind": "decor",
+   "px": [
+    44,
+    26
+   ],
+   "display_name": "interior rug",
+   "layer": "ground_decor",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/idle/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 0 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 0,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/idle/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 1 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 1,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/idle/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 2 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 2,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/idle/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper idle down 3 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "idle",
+   "direction": null,
+   "frame": 3,
+   "fps": 3.846,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 0 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 1 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 2 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 3 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 4 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/down/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk down 5 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "down",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 0 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 1 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 2 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 3 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 4 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/up/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk up 5 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "up",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 0 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 0,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 1 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 1,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 2 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 2,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 3 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 3,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 4 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 4,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/walk/left/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper walk left 5 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "walk",
+   "direction": "left",
+   "frame": 5,
+   "fps": 6.667,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/0.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 0 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 0,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/1.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 1 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 1,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/2.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 2 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 2,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/3.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 3 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 3,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/4.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 4 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 4,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/keeper/lantern/down/5.png",
+   "kind": "character_frame",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "keeper lantern down 5 (night)",
+   "layer": "actor",
+   "character": "night/keeper",
+   "animation": "lantern",
+   "direction": null,
+   "frame": 5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/sand.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand (night)",
+   "layer": "ground",
+   "variant_group": "night/sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/water/0.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world water 0 (night)",
+   "layer": "obstacle",
+   "variant_group": "night/water",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/water/1.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world water 1 (night)",
+   "layer": "obstacle",
+   "variant_group": "night/water",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/shore/0.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world shore 0 (night)",
+   "layer": "obstacle",
+   "variant_group": "night/shore",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/shore/1.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world shore 1 (night)",
+   "layer": "obstacle",
+   "variant_group": "night/shore",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/crate.png",
+   "kind": "object",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world crate (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     12,
+     16,
+     3
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/rope.png",
+   "kind": "decor",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world rope (night)",
+   "layer": "ground_decor",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/gull/0.png",
+   "kind": "character_frame",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world gull 0 (night)",
+   "layer": "actor",
+   "character": "night/gull",
+   "animation": "gull",
+   "direction": null,
+   "frame": 0,
+   "fps": 2.5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/gull/1.png",
+   "kind": "character_frame",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world gull 1 (night)",
+   "layer": "actor",
+   "character": "night/gull",
+   "animation": "gull",
+   "direction": null,
+   "frame": 1,
+   "fps": 2.5,
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/lighthouse.png",
+   "kind": "object",
+   "px": [
+    24,
+    48
+   ],
+   "display_name": "world lighthouse (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     3,
+     36,
+     18,
+     12
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/sand2.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand2 (night)",
+   "layer": "ground",
+   "variant_group": "night/sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/sand3.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand3 (night)",
+   "layer": "ground",
+   "variant_group": "night/sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/sand4.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand4 (night)",
+   "layer": "ground",
+   "variant_group": "night/sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/world/sand5.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "world sand5 (night)",
+   "layer": "ground",
+   "variant_group": "night/sand",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/wall.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior wall (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/face_upper.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior face_upper (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/face_lower.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior face_lower (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/window.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior window (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/door_upper.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior door_upper (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/door_lower.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior door_lower (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     0,
+     0,
+     16,
+     16
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/floor.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor (night)",
+   "layer": "ground",
+   "variant_group": "night/planks",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/floor2.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor2 (night)",
+   "layer": "ground",
+   "variant_group": "night/planks",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/floor_shadow.png",
+   "kind": "tile_fill",
+   "px": [
+    16,
+    16
+   ],
+   "display_name": "interior floor_shadow (night)",
+   "layer": "ground",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/stair.png",
+   "kind": "object",
+   "px": [
+    32,
+    32
+   ],
+   "display_name": "interior stair (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     3,
+     24,
+     26,
+     6
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/table.png",
+   "kind": "object",
+   "px": [
+    32,
+    24
+   ],
+   "display_name": "interior table (night)",
+   "layer": "obstacle",
+   "collision": {
+    "rect": [
+     2,
+     18,
+     26,
+     3
+    ]
+   },
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  },
+  {
+   "path": "night/interior/rug.png",
+   "kind": "decor",
+   "px": [
+    44,
+    26
+   ],
+   "display_name": "interior rug (night)",
+   "layer": "ground_decor",
+   "provenance": {
+    "method": "pxart",
+    "confidence": 1.0,
+    "reviewed": false
+   }
+  }
+ ],
+ "compositions": [],
+ "kits": [
+  {
+   "name": "beach",
+   "featured": false,
+   "ground": [
+    "world/sand.png",
+    "world/sand2.png",
+    "world/sand3.png",
+    "world/sand4.png",
+    "world/sand5.png"
+   ],
+   "ground_colors": {
+    "1": "#ecd49e",
+    "~": "#3a7ca5",
+    "=": "#3a7ca5"
+   },
+   "ground_tiles": {
+    "1": [
+     "world/sand.png",
+     "world/sand2.png",
+     "world/sand3.png",
+     "world/sand4.png",
+     "world/sand5.png"
+    ],
+    "~": {
+     "animation": [
+      "world/water/0.png",
+      "world/water/1.png"
+     ],
+     "ms": 500
+    },
+    "=": {
+     "animation": [
+      "world/shore/0.png",
+      "world/shore/1.png"
+     ],
+     "ms": 600
+    }
+   },
+   "ground_decor": [
+    "world/rope.png"
+   ],
+   "obstacles": [
+    "world/lighthouse.png",
+    "world/crate.png"
+   ],
+   "characters": [
+    "keeper",
+    "gull"
+   ]
+  },
+  {
+   "name": "lighthouse-interior",
+   "featured": false,
+   "ground": [
+    "interior/floor.png",
+    "interior/floor2.png",
+    "interior/floor_shadow.png"
+   ],
+   "ground_colors": {
+    ",": "#8b5a3c",
+    ";": "#8b5a3c",
+    "v": "#8b5a3c",
+    "#": "#252c52",
+    "U": "#ecd49e",
+    "F": "#ecd49e"
+   },
+   "ground_tiles": {
+    ",": "interior/floor.png",
+    ";": "interior/floor2.png",
+    "v": "interior/floor_shadow.png",
+    "#": "interior/wall.png",
+    "U": "interior/face_upper.png",
+    "F": "interior/face_lower.png"
+   },
+   "ground_decor": [
+    "interior/rug.png"
+   ],
+   "obstacles": [
+    "interior/stair.png",
+    "interior/table.png",
+    "interior/wall.png"
+   ],
+   "characters": [
+    "keeper"
+   ]
+  },
+  {
+   "name": "night/beach",
+   "featured": false,
+   "ground": [
+    "night/world/sand.png",
+    "night/world/sand2.png",
+    "night/world/sand3.png",
+    "night/world/sand4.png",
+    "night/world/sand5.png"
+   ],
+   "ground_colors": {
+    "1": "#8d8ba6",
+    "~": "#1c3d66",
+    "=": "#1c3d66"
+   },
+   "ground_tiles": {
+    "1": [
+     "night/world/sand.png",
+     "night/world/sand2.png",
+     "night/world/sand3.png",
+     "night/world/sand4.png",
+     "night/world/sand5.png"
+    ],
+    "~": {
+     "animation": [
+      "night/world/water/0.png",
+      "night/world/water/1.png"
+     ],
+     "ms": 500
+    },
+    "=": {
+     "animation": [
+      "night/world/shore/0.png",
+      "night/world/shore/1.png"
+     ],
+     "ms": 600
+    }
+   },
+   "ground_decor": [
+    "night/world/rope.png"
+   ],
+   "obstacles": [
+    "night/world/lighthouse.png",
+    "night/world/crate.png"
+   ],
+   "characters": [
+    "night/keeper",
+    "night/gull"
+   ]
+  },
+  {
+   "name": "night/lighthouse-interior",
+   "featured": false,
+   "ground": [
+    "night/interior/floor.png",
+    "night/interior/floor2.png",
+    "night/interior/floor_shadow.png"
+   ],
+   "ground_colors": {
+    ",": "#5c4150",
+    ";": "#5c4150",
+    "v": "#5c4150",
+    "#": "#161b3e",
+    "U": "#8d8ba6",
+    "F": "#8d8ba6"
+   },
+   "ground_tiles": {
+    ",": "night/interior/floor.png",
+    ";": "night/interior/floor2.png",
+    "v": "night/interior/floor_shadow.png",
+    "#": "night/interior/wall.png",
+    "U": "night/interior/face_upper.png",
+    "F": "night/interior/face_lower.png"
+   },
+   "ground_decor": [
+    "night/interior/rug.png"
+   ],
+   "obstacles": [
+    "night/interior/stair.png",
+    "night/interior/table.png",
+    "night/interior/wall.png"
+   ],
+   "characters": [
+    "night/keeper"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,142 @@
+{
+ "type": "map",
+ "version": "1.10",
+ "tiledversion": "1.12.2",
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "width": 16,
+ "height": 12,
+ "tilewidth": 16,
+ "tileheight": 16,
+ "infinite": false,
+ "compressionlevel": -1,
+ "nextlayerid": 4,
+ "nextobjectid": 5,
+ "properties": [
+  {
+   "name": "source",
+   "type": "file",
+   "value": "tower.map"
+  }
+ ],
+ "layers": [
+  {
+   "id": 1,
+   "name": "layer 1",
+   "type": "tilelayer",
+   "width": 16,
+   "height": 12,
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "data": [
+    10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,
+    11,11,11,11,11,13,11,11,11,11,13,11,11,11,11,11,
+    12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,
+    18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+    16,16,17,16,16,16,16,17,16,16,16,16,16,17,16,16,
+    16,16,16,16,17,16,16,16,16,16,17,16,16,16,16,16,
+    16,17,16,16,16,16,16,16,16,16,16,16,16,16,17,16,
+    16,16,16,16,16,16,17,16,16,16,17,16,16,16,16,16,
+    16,16,17,16,16,16,16,16,16,16,16,16,16,16,16,16,
+    16,16,16,16,16,16,16,16,17,16,16,16,17,16,16,16,
+    16,16,16,16,17,16,16,16,16,16,16,16,16,16,16,16,
+    10,10,10,10,10,10,10,15,10,10,10,10,10,10,10,10
+   ]
+  },
+  {
+   "id": 2,
+   "name": "layer 2 objects",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 1,
+     "name": "S",
+     "type": "",
+     "gid": 52,
+     "x": 200,
+     "y": 80,
+     "width": 32,
+     "height": 32,
+     "rotation": 0,
+     "visible": true
+    },
+    {
+     "id": 2,
+     "name": "T",
+     "type": "",
+     "gid": 53,
+     "x": 40,
+     "y": 112,
+     "width": 32,
+     "height": 24,
+     "rotation": 0,
+     "visible": true
+    },
+    {
+     "id": 3,
+     "name": "R",
+     "type": "",
+     "gid": 54,
+     "x": 98,
+     "y": 144,
+     "width": 44,
+     "height": 26,
+     "rotation": 0,
+     "visible": true
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "world",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 4,
+     "name": "d",
+     "type": "door",
+     "x": 112,
+     "y": 176,
+     "width": 16,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "entry",
+       "type": "string",
+       "value": "D"
+      },
+      {
+       "name": "target",
+       "type": "file",
+       "value": "point.tmj"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "../tilesets/lighthouse-ground.tsj"
+  },
+  {
+   "firstgid": 19,
+   "source": "../tilesets/lighthouse-props.tsj"
+  }
+ ]
+}
