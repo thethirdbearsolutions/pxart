@@ -834,14 +834,13 @@ CONVERTING
       Object ids are stable: a recompile keeps the previous .tmj's id for the same class
       and name at the same cell, new objects take nextobjectid, ids are never reused. A
       .tmj whose 'source' isn't its .map (made in Tiled) is never overwritten (E_GENERATED).
-      Every error is said at once, at file:line:col, and nothing is written: a row or layer
-      not the room's size (E_ROW_WIDTH, E_MAP_SIZE), E_UNKNOWN_KEY, art no tileset has
-      (E_TILESET), a door or start char not drawn as one rectangle or cell (E_DOOR,
-      E_START), a bad source (E_WORLD). Then the world rules (the spec and its fixtures:
-      tests/fixtures/world_rules/ in the pxart repo) run on the output: 'E_WORLD:
-      door-arrival: ...', or a WARNING for an edge walkable on one side only. Art bigger
-      than a cell without +b is placed by its top-left, with a WARNING. A lone .map is a
-      room with no doors or start.
+      Every error is said at once, at file:line:col, and nothing is written: a ragged row
+      (E_ROW_WIDTH), E_UNKNOWN_KEY, art no tileset has (E_TILESET), a door or start char not
+      drawn as one rectangle or cell (E_DOOR, E_START), a bad source (E_WORLD). Then the
+      world rules (spec and fixtures: tests/fixtures/world_rules/ in the pxart repo) run on
+      the output: 'E_WORLD: door-arrival: ...', or a WARNING (an edge walkable on one side
+      only). A layer of fewer rows than the room, and art bigger than a cell without +b
+      (placed by its top-left), get a WARNING. A lone .map is a room with no doors or start.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -3178,7 +3177,7 @@ def parse_map(path):
     return legend, layers, notes, where
 
 
-MAP_TOKEN_RE = re.compile(r"^\S+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?(\+[hvb]{1,3})?(%[A-Za-z0-9_\-]+)?$")
+MAP_TOKEN_RE = re.compile(r"^.+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?(\+[hvb]{1,3})?(%[A-Za-z0-9_\-]+)?$")
 
 
 def variant_list(rest):
@@ -8069,7 +8068,7 @@ class RoomSrc:
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.id = map_room(path)
-        self.issues, self.notes = [], []
+        self.issues, self.notes, self.warns = [], [], []
         self.legend, self.layers, self.where, self.cells = {}, [], {}, {}
         self.lead = {}
         try:
@@ -8079,21 +8078,23 @@ class RoomSrc:
             self.issues.append(Issue("E_FILE", e.strerror or str(e), str(self.path)))
             self.layers, lines = [[]], []
         self.lead = {n: len(lines[n - 1]) - len(lines[n - 1].lstrip()) for rows in self.layers for n, _ in rows}
-        rows0 = self.layers[0] if self.layers else []
-        self.w, self.h = (len(rows0[0][1]), len(rows0)) if rows0 else (0, 0)
-        if not rows0:
+        rows_all = [(n, r) for rows in self.layers for n, r in rows]
+        self.w = max((len(r) for _, r in rows_all), default=0)  # as scene: the widest row, the tallest layer
+        self.h = max((len(rows) for rows in self.layers), default=0)
+        if not rows_all:
             self.issues.append(Issue("E_MAP_SIZE", "no rows: a room is a legend, a blank line, then rows",
                                      str(self.path)))
+        widest = next((n for n, r in rows_all if len(r) == self.w), None)
         for li, rows in enumerate(self.layers, 1):
-            if rows0 and len(rows) != self.h:
-                n = rows[min(len(rows), self.h) - 1][0] if len(rows) > self.h else rows[-1][0]
-                self.issues.append(Issue("E_MAP_SIZE", f"layer {li} has {len(rows)} rows, the room has {self.h} "
-                                         f"(layer 1's); every layer is the room's size", str(self.path), n))
+            if rows and len(rows) < self.h:
+                self.warns.append(f"{self.path}:{rows[-1][0]}: layer {li} has {len(rows)} rows, the room has "
+                                  f"{self.h}: they're its top {len(rows)} (a row left out in the middle moves "
+                                  "everything under it up one)")
             for y, (n, row) in enumerate(rows):
                 if len(row) != self.w:
-                    self.issues.append(Issue("E_ROW_WIDTH", f"row is {len(row)} wide, the room is {self.w} "
-                                             f"(layer 1's first row, line {rows0[0][0]})", str(self.path), n,
-                                             col=self.lead[n] + min(len(row), self.w) + 1))
+                    self.issues.append(Issue("E_ROW_WIDTH", f"row is {len(row)} wide, the room is {self.w} (its "
+                                             f"widest row, line {widest}); scene pads it, leaving a hole",
+                                             str(self.path), n, col=self.lead[n] + len(row) + 1))
                 for x, ch in enumerate(row):
                     if ch == ".":
                         continue
@@ -8576,6 +8577,7 @@ def compile_world(src_path, tile, finder):
     rooms = {r: s for r, s in w.rooms.items() if s}
     for s in rooms.values():
         issues += s.issues
+        warns += s.warns
     src_dir = w.path.parent
     others = sorted(p for p in (src_dir / "rooms").glob("*.map") if p.stem not in rooms) \
         if (src_dir / "rooms").is_dir() else []
@@ -8982,6 +8984,7 @@ def export_tiled(a, files):
         else:
             src = RoomSrc(f)
             notes += src.notes
+            warns += src.warns
             if src.issues:
                 issues += src.issues
                 continue

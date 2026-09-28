@@ -1,0 +1,163 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "name": "rules",
+ "tilewidth": 16,
+ "tileheight": 16,
+ "tilecount": 5,
+ "columns": 5,
+ "margin": 0,
+ "spacing": 0,
+ "image": "tiles.png",
+ "imagewidth": 80,
+ "imageheight": 16,
+ "tiles": [
+  {
+   "id": 0,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "floor.png"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "wall.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 2,
+   "type": "object",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "crate.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 12,
+      "width": 16,
+      "height": 4,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "character_frame",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "hero.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "half.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 8,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  }
+ ]
+}

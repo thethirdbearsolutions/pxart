@@ -1,0 +1,81 @@
+{
+ "about": "A Tiled author drew the start as a rectangle over cell 1,1, not a point: its feet are its bottom centre, on that cell.",
+ "world": "world.world",
+ "files": {
+  "world.world": {
+   "type": "world",
+   "onlyShowAdjacentMaps": false,
+   "maps": [
+    {
+     "fileName": "rooms/a.tmj",
+     "x": 0,
+     "y": 0,
+     "width": 80,
+     "height": 64
+    }
+   ]
+  },
+  "rooms/a.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      2, 1, 1, 1, 2,
+      2, 1, 1, 1, 2,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "spawn",
+       "type": "start",
+       "rotation": 0,
+       "visible": true,
+       "x": 16,
+       "y": 16,
+       "width": 16,
+       "height": 16
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  }
+ },
+ "expect": []
+}
