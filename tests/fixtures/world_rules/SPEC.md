@@ -135,10 +135,12 @@ The order issues come out in isn't part of the spec; fixtures compare them as a 
 
 - **Source errors** (a `.map`'s ragged rows or unknown chars, a `world.src.json` door naming a char its map doesn't
   draw, and so on) are the compiler's own: a source has no Tiled form yet. See `pxart export -h`.
-- **Unsupported map formats** (infinite maps, compressed or base64 layer data, non-orthogonal maps) are the
-  harness loader's to reject (design, 02 · Formats), before these rules run. The features within a supported map
-  that the rules can't place are `tiled-unsupported`, above; everything else in a map (parallax, tints, image
-  layers, text objects) doesn't bear on the rules and is ignored.
+- **Unsupported formats** are the loader's to reject (design, 02 · Formats), before these rules run, in the harness
+  and in pxart's reader of compiled worlds (`pxart check W.world`, `pxart world`) alike: infinite maps, compressed
+  or base64 layer data, non-orthogonal maps, a `.world` that places its maps by `patterns` (list them in `maps`),
+  and Tiled's XML files (a `.tmx` map, a `.tsx` tileset: save or export them as JSON, `.tmj` and `.tsj`). The
+  features within a supported map that the rules can't place are `tiled-unsupported`, above; everything else in a
+  map (parallax, tints, image layers, text objects) doesn't bear on the rules and is ignored.
 
 ## Reserved (ADR 0010)
 

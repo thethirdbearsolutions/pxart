@@ -290,7 +290,8 @@ def test_the_model_hook_changes_nothing(name):
     read = lambda p: f["files"].get(p) if p in f["files"] else pxart.read_json(str(RULES / p))  # noqa: E731
     hooked = pxart.world_rules(f["world"], read, model)
     assert [i.key() for i in plain] == [i.key() for i in hooked]
-    assert set(model) == {"world_path", "world", "rooms", "placed", "live", "partner", "start", "reached"}
+    assert set(model) == {"world_path", "world", "rooms", "placed", "live", "partner", "start", "reached", "targets",
+                          "dup_doors", "crossings"}
 
 
 def test_one_path_check_world_and_compile_all_call_world_rules(tmp_path, monkeypatch, capsys):
@@ -1307,7 +1308,7 @@ def test_help_worlds_documents_the_preview_and_compiled_check():
               "A lone ROOM.tmj is a world of that one room", "a band per cell", "exactly as the compile runs them",
               "A broken world still draws (exit 0): check is the verdict", "'export world.src.json --tiled' first",
               "rooms/point.tmj: E_WORLD: door-pair [D, cell 10,7]", "interiors in a column to the right",
-              "markers cyan rings", "A DIR checks world sources only", "CSV (JSON array) tile data"):
+              "markers cyan rings", "but not a .world beside a *.src.json", "CSV (JSON array) tile data"):
         assert s in doc, s
 
 
@@ -1315,7 +1316,7 @@ def test_help_all_has_the_world_usage_line_and_stays_small(capsys):
     assert "  world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]" in pxart.__doc__.splitlines()
     assert run("help", "all") == 0
     assert len(capsys.readouterr().out.encode()) <= 67277
-    assert "a .world or .tmj: help worlds" in " ".join(pxart.__doc__.split())
+    assert ".world, .tmj: help worlds" in " ".join(pxart.__doc__.split())
 
 
 def test_world_dash_h(capsys):
@@ -1353,3 +1354,367 @@ def test_world_whose_only_room_is_missing_draws_it_crossed_out(tmp_path, capsys)
     assert "[1] " in out and "room-missing" in out and "[2] " in out and "start-count" in out
     img = Image.open(tmp_path / "m.png").convert("RGBA")
     assert px(img, M, M + L) == pxart.WP_ISSUE and px(img, M + 32, M + L + 32) == pxart.WP_ISSUE
+
+
+# ================================================================ review follow-ups (GAMES-334)
+
+BASELINE = load(FIXTURES / "world_preview" / "rules-at-d40fcce.json")
+
+
+def as_rows(issues):
+    return [[i.level, i.code, i.room, i.name, i.cell, i.msg] for i in issues]
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_rules_output_is_byte_identical_to_main(name):
+    # rules-at-d40fcce.json: world_rules' output on main (d40fcce), before the model hook; keys, messages, order
+    f = fixture(name)
+    assert as_rows(pxart.world_rules_files(f["files"], f["world"], str(RULES))) == BASELINE[name]
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_rules_output_with_the_model_is_byte_identical_to_main(name):
+    f = fixture(name)
+    read = lambda p: f["files"].get(p) if p in f["files"] else pxart.read_json(str(RULES / p))  # noqa: E731
+    assert as_rows(pxart.world_rules(f["world"], read, {})) == BASELINE[name]
+
+
+def test_rules_output_on_the_compiled_lighthouse_is_identical_to_main(lh):
+    assert as_rows(pxart.world_rules("world.world", pxart.read_json, {})) == BASELINE["lighthouse (compiled)"]
+    issues, _, _ = pxart.load_tiled("world.world")
+    assert as_rows(issues) == BASELINE["lighthouse (compiled)"]
+
+
+def test_baseline_covers_every_fixture():
+    assert set(BASELINE) == set(FIXTURE_NAMES) | {"lighthouse (compiled)"}
+
+
+# ---- 1. tags never cover each other
+
+def tag_rects(wp, scale=2):
+    issues, model, shown = pxart.load_tiled(str(wp))
+    tags = []
+    img, _ = pxart.world_preview(model, issues, shown, scale, tags)
+    return img, issues, model, tags
+
+
+def overlaps(a, b):
+    return a[1] < b[1] + b[3] and b[1] < a[1] + a[3] and a[2] < b[2] + b[4] and b[2] < a[2] + a[4]
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+@pytest.mark.parametrize("scale", [1, 2])
+def test_every_issue_has_a_visible_tag(name, scale, tmp_path):
+    f = fixture(name)
+    wp = materialize(f, tmp_path / "f")
+    img, issues, model, tags = tag_rects(wp, scale)
+    assert [t[0] for t in tags] == list(range(1, len(issues) + 1)), name
+    for i, a in enumerate(tags):
+        for b in tags[i + 1:]:
+            assert not overlaps(a, b), (name, a, b)
+        n, x, y, w, h = a
+        assert 0 <= x and x + w <= img.width and 0 <= y and y + h <= img.height, (name, a)
+        assert px(img, x, y) == pxart.WP_ISSUE and px(img, x + w - 1, y + h - 1) == pxart.WP_ISSUE, (name, a)
+
+
+def test_door_entry_not_there_shows_2_and_3(tmp_path):
+    # [2] door-pair and [3] door-unreachable are both at b's door E, cell 2,1: [3] moves aside
+    f = fixture("door-entry-not-there")
+    img, issues, model, tags = tag_rects(materialize(f, tmp_path / "f"))
+    assert [(i.code, i.cell) for i in issues][1:3] == [("door-pair", [2, 1]), ("door-unreachable", [2, 1])]
+    t2, t3 = tags[1], tags[2]
+    assert not overlaps(t2, t3)
+    b = next(r for r in model["live"] if r.id == "b")
+    x0, y0 = pxart.cell_box(boxes(model, 2)["b"], b, (2, 1), 2)[:2]
+    assert (t2[1], t2[2]) == (x0, y0) and t3[2] == y0 and t3[1] >= t2[1] + t2[3]
+    # and [4], room-unreachable, sits after b's 'unreachable' label, not on it
+    t4 = tags[3]
+    bx, by = boxes(model, 2)["b"][:2]
+    assert t4[2] == by - L and t4[1] > bx + 40
+
+
+def test_many_issues_in_one_room_all_show(tmp_path):
+    # six starts in one cell row of a: six start-count tags; plus a door without a target on the same cell
+    objs = [start(k, k % 5, 0) for k in range(1, 7)] + [door(9, "D", 0, 0, "", "E")]
+    wp = write_world(tmp_path / "w", [("a", 0, 0)], {"a": room(["....."] * 4, objs)})
+    img, issues, model, tags = tag_rects(wp)
+    assert len(issues) >= 7 and len(tags) == len(issues)
+    for i, a in enumerate(tags):
+        for b in tags[i + 1:]:
+            assert not overlaps(a, b), (a, b)
+        assert px(img, a[1], a[2]) == pxart.WP_ISSUE
+
+
+def test_place_tag_moves_right_then_down():
+    taken = []
+    assert pxart.place_tag(taken, 20, 10, 20, 13, 200) == (20, 10)
+    assert pxart.place_tag(taken, 20, 10, 20, 13, 200) == (40, 10)
+    assert pxart.place_tag(taken, 20, 10, 20, 13, 200) == (60, 10)
+    assert pxart.place_tag([(0, 0, 200, 13)], 20, 0, 20, 13, 60) == (M, 14)
+    assert pxart.place_tag([], 0, 0, 20, 13, 200) == (M, 0)
+    assert pxart.place_tag([], 190, 0, 20, 13, 200) == (180, 0)  # kept inside the picture
+
+
+# ---- 2. the key wraps
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_every_key_entry_fits(name, tmp_path):
+    f = fixture(name)
+    img, issues, model, tags = tag_rects(materialize(f, tmp_path / "f"), 1)
+    font = pxart.strip_font()
+    d = pxart.ImageDraw.Draw(img)
+    rows = pxart.key_rows(d, font, img.width)
+    assert [w for row in rows for _, w, _ in row] == [w for _, w in pxart.WP_KEY]
+    for row in rows:
+        for _, what, x in row:
+            assert x + 11 + int(d.textlength(what, font=font)) <= img.width - M + 14, (name, what)
+
+
+def swatch(img, color):
+    """Whether img has an 8x8 block of exactly color (a key swatch)."""
+    w, h = img.size
+    data = pixels(img)
+    for y in range(h - 8):
+        for x in range(w - 8):
+            if data[y * w + x] == color and all(data[(y + j) * w + x + i] == color for j in range(8) for i in range(8)):
+                return True
+    return False
+
+
+def test_single_room_fixture_shows_all_five_key_entries(tmp_path):
+    f = fixture("start-none")
+    img, issues, model, tags = tag_rects(materialize(f, tmp_path / "f"), 1)
+    below = img.crop((0, max(b[1] + b[3] for b in pxart.world_layout(model, 1)[0].values()), img.width, img.height))
+    for color, what in pxart.WP_KEY:
+        assert swatch(below, color), what
+    rows = pxart.key_rows(pxart.ImageDraw.Draw(img), pxart.strip_font(), img.width)
+    assert len(rows) >= 2  # a narrow picture: the key takes two rows or more
+
+
+def test_wide_picture_key_is_one_row(lh):
+    img, model, _ = preview("world.world")
+    assert len(pxart.key_rows(pxart.ImageDraw.Draw(img), pxart.strip_font(), img.width)) == 1
+
+
+# ---- 3. door-name-dup outlines the duplicate
+
+def test_door_name_dup_outlines_the_duplicate_not_the_first(tmp_path):
+    f = fixture("door-names-twice")
+    img, issues, model, tags = tag_rects(materialize(f, tmp_path / "f"))
+    a = next(r for r in model["live"] if r.id == "a")
+    [(ra, dup)] = model["dup_doors"]
+    assert ra is a and (dup["x"], dup["y"]) == (48, 16)
+    assert [(o["x"], o["y"]) for o in a.doors] == [(48, 32)]  # the rules still skip it
+    first = pxart.door_box(boxes(model, 2)["a"], a, a.doors[0], 2)
+    second = pxart.door_box(boxes(model, 2)["a"], a, dup, 2)
+    assert px(img, first[2], first[3]) == pxart.WP_DOOR
+    assert px(img, second[2], second[3]) == pxart.WP_ISSUE
+
+
+def test_dup_doors_empty_when_none(tmp_path):
+    _, model, _ = pxart.load_tiled(str(two_room_world(tmp_path)))
+    assert model["dup_doors"] == []
+
+
+# ---- 4. edges and targets from the rules' model
+
+def test_crossings_are_the_rules_own(tmp_path):
+    wp = two_room_world(tmp_path)
+    _, model, issues = preview(wp)
+    got = sorted((a.id, side, c, b.id, n) for a, side, c, b, n in model["crossings"])
+    assert got == sorted([("a", "east", (4, y), "b", (0, y)) for y in range(4)]
+                         + [("b", "west", (0, y), "a", (4, y)) for y in range(4)])
+
+
+def test_crossings_offset_rooms(tmp_path):
+    wp = write_world(tmp_path / "w", [("a", 0, 0), ("b", 80, 32)],
+                     {"a": room(["....."] * 4, [start(1, 1, 1)]), "b": room(["....."] * 4)})
+    _, model, _ = preview(wp)
+    assert sorted((c, n) for a, s, c, b, n in model["crossings"] if a.id == "a") == [((4, 2), (0, 0)),
+                                                                                     ((4, 3), (0, 1))]
+
+
+def test_crossings_lighthouse_edge_one_side_is_one_of_them(lh):
+    _, model, _ = preview("world.world")
+    hits = [(a.id, s, c, b.id, n) for a, s, c, b, n in model["crossings"] if a.walkable(c) and not b.walkable(n)]
+    assert hits == [("cove", "north", (1, 0), "shore", (1, 11))]
+
+
+def test_preview_does_not_derive_edges_itself():
+    assert not hasattr(pxart, "shared_edges") and not hasattr(pxart, "edge_crossings")
+
+
+def test_targets_are_the_rules_own(tmp_path):
+    wp = two_room_world(tmp_path, a_objs=[start(1, 1, 1), door(2, "D", 3, 1, "b.tmj", "E"),
+                                          door(3, "N", 0, 0, "nowhere.tmj", "E"), door(4, "Z", 2, 3, "", "E")])
+    _, model, _ = preview(wp)
+    a = next(r for r in model["live"] if r.id == "a")
+    got = {o["name"]: model["targets"][(a.path, id(o))] for o in a.doors}
+    wd = pathlib.PurePath(wp).parent.as_posix()
+    assert got == {"D": f"{wd}/rooms/b.tmj", "N": f"{wd}/rooms/nowhere.tmj", "Z": None}
+
+
+def test_marker_is_the_tiles_class_whatever_the_objects_own(tmp_path):
+    # SPEC: a marker is a tile object whose tile's class is character_frame, even with a class of its own
+    wp = two_room_world(tmp_path, a_objs=[start(1, 1, 1), door(2, "D", 3, 1, "b.tmj", "E"),
+                                          {**marker(3, "g", 1, 3), "type": "npc"}])
+    img, model, issues = preview(wp, 2)
+    a = next(r for r in model["live"] if r.id == "a")
+    o = next(x for x in a.data["layers"][1]["objects"] if x.get("name") == "g")
+    assert pxart.is_marker(a, o) and a.cls(o) == "npc"
+    x, y = boxes(model, 2)["a"][:2]
+    cx, cy, rad = x + 24 * 2, y + 56 * 2, 18
+    assert pxart.WP_MARKER in {px(img, cx, cy - rad), px(img, cx, cy - rad + 1)}
+
+
+def test_a_crate_is_not_a_marker(tmp_path):
+    wp = two_room_world(tmp_path, a_objs=[start(1, 1, 1), door(2, "D", 3, 1, "b.tmj", "E"),
+                                          {**marker(3, "c", 1, 3), "gid": 3, "type": "character_frame"}])
+    _, model, _ = preview(wp)
+    a = next(r for r in model["live"] if r.id == "a")
+    o = next(x for x in a.data["layers"][1]["objects"] if x.get("name") == "c")
+    assert not pxart.is_marker(a, o)
+
+
+# ---- 5a. a room beside a world that can't be loaded
+
+@pytest.mark.parametrize("text, why", [("{nope", "isn't JSON"), ("[1]", 'no "maps" list'),
+                                       ('{"maps": {}}', 'no "maps" list')])
+def test_room_beside_a_broken_world_says_so(tmp_path, capsys, text, why):
+    d = tmp_path / "w"
+    write_world(d, [], {"a": room(A_ROWS, [start(1, 1, 1)])})
+    (d / "world.world").write_text(text)
+    assert run("check", d / "rooms" / "a.tmj") == 1
+    out = capsys.readouterr().out
+    assert "world.world is beside it and can't be loaded" in out and why in out and "fix " in out
+    assert "1 room placed" not in out
+    assert "can't be loaded" in run_err("world", d / "rooms" / "a.tmj", "-o", tmp_path / "p.png")
+
+
+def test_room_beside_a_world_whose_room_is_unreadable(tmp_path, capsys):
+    d = tmp_path / "w"
+    write_world(d, [("a", 0, 0), ("b", 80, 0)], {"a": room(A_ROWS, [start(1, 1, 1)]), "b": room(B_ROWS)})
+    t = load(d / "rooms" / "b.tmj")
+    t["infinite"] = True
+    (d / "rooms" / "b.tmj").write_text(json.dumps(t))
+    (d / "lone.tmj").write_text(json.dumps(room(A_ROWS, [start(1, 1, 1)])))
+    assert run("check", d / "lone.tmj") == 1
+    assert "can't be loaded (" in capsys.readouterr().out
+
+
+# ---- 5b. check DIR picks up Tiled-only worlds
+
+def test_check_dir_checks_a_tiled_only_world(tmp_path, capsys, monkeypatch):
+    two_room_world(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    capsys.readouterr()
+    assert run("check", "w") == 0
+    out = capsys.readouterr().out
+    assert "ok   w/world.world: 2 rooms placed, 1 door pair, start in a" in out and "edge-one-side" in out
+
+
+def test_check_dir_fails_on_a_broken_tiled_only_world(tmp_path, capsys, monkeypatch):
+    two_room_world(tmp_path, b_objs=[door(1, "E", 1, 1, "a.tmj", "X")])
+    monkeypatch.chdir(tmp_path)
+    capsys.readouterr()
+    assert run("check", "w") == 1
+    assert "FAIL w/world.world" in capsys.readouterr().out
+
+
+def test_check_dir_skips_a_compiled_world_beside_its_source(lh, capsys, monkeypatch):
+    monkeypatch.chdir(lh.parent)
+    capsys.readouterr()
+    assert run("check", "lighthouse", "--exclude", "lighthouse-keeper") == 0
+    out = capsys.readouterr().out
+    assert "ok   lighthouse/world.src.json" in out and "lighthouse/world.world" not in out
+
+
+def test_check_dir_given_world_explicitly_is_still_checked(lh, capsys):
+    capsys.readouterr()
+    assert run("check", "world.world", "world.src.json") == 0
+    assert "ok   world.world" in capsys.readouterr().out
+
+
+def test_check_dir_of_rooms_only_points_at_the_world(tmp_path, monkeypatch):
+    two_room_world(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    msg = run_err("check", "w/rooms")
+    assert "holds Tiled rooms (.tmj) only" in msg and "'check w/world.world'" in msg
+    assert "('check w/rooms/a.tmj')" in msg
+
+
+def test_check_dir_of_lone_rooms_points_at_check_w_world(tmp_path):
+    (tmp_path / "r").mkdir()
+    (tmp_path / "r" / "a.tmj").write_text(json.dumps(room(A_ROWS, [start(1, 1, 1)])))
+    msg = run_err("check", tmp_path / "r")
+    assert "'check W.world'" in msg and "a.tmj" in msg
+
+
+def test_check_empty_dir_names_the_kinds(tmp_path):
+    (tmp_path / "e").mkdir()
+    assert "no *.px, *.map, *.src.json or *.world files under it" in run_err("check", tmp_path / "e")
+
+
+def test_check_dir_with_two_tiled_worlds(tmp_path, capsys, monkeypatch):
+    two_room_world(tmp_path / "one")
+    two_room_world(tmp_path / "two")
+    monkeypatch.chdir(tmp_path)
+    capsys.readouterr()
+    assert run("check", ".") == 0
+    out = capsys.readouterr().out
+    assert out.count("ok   ") == 2 and "2 files" in out
+
+
+# ---- 5c. Tiled XML files
+
+def test_tsx_tileset_says_export_as_json(tmp_path, capsys):
+    wp = two_room_world(tmp_path)
+    t = load(tmp_path / "w" / "rooms" / "a.tmj")
+    t["tilesets"] = [{"firstgid": 1, "source": "../tiles.tsx"}]
+    (tmp_path / "w" / "rooms" / "a.tmj").write_text(json.dumps(t))
+    assert run("check", wp) == 1
+    assert "export the tileset as JSON (.tsj)" in capsys.readouterr().out
+    assert "export the tileset as JSON (.tsj)" in run_err("world", wp, "-o", tmp_path / "p.png")
+
+
+def test_tmx_map_says_save_as_json(tmp_path, capsys):
+    p = tmp_path / "w.world"
+    p.write_text('{"type": "world", "maps": [{"fileName": "a.tmx", "x": 0, "y": 0}]}')
+    assert run("check", p) == 1
+    assert "save each map as JSON (.tmj)" in capsys.readouterr().out
+
+
+def test_spec_lists_the_loader_rejections():
+    spec = " ".join((RULES / "SPEC.md").read_text().split())
+    for s in ("infinite maps", "base64 layer data", "non-orthogonal maps", "`patterns`", "`.tmx`", "`.tsx`",
+              "pxart check W.world"):
+        assert s in spec, s
+
+
+# ---- 6. help
+
+def test_help_says_a_warning_is_a_note_line():
+    assert "(', 1 failed' when one did; a warning is a note line)" in " ".join(pxart.__doc__.split())
+
+
+# ---- 7. door labels on the top row go below the door
+
+def test_top_row_door_label_is_below_it(tmp_path):
+    wp = two_room_world(tmp_path, a_objs=[start(1, 1, 1), door(2, "D", 2, 0, "b.tmj", "E")],
+                        b_objs=[door(1, "E", 1, 1, "a.tmj", "D")])
+    img, model, _ = preview(wp, 2)
+    a = next(r for r in model["live"] if r.id == "a")
+    db = pxart.door_box(boxes(model, 2)["a"], a, a.doors[0], 2)
+    x, y = boxes(model, 2)["a"][:2]
+    above = img.crop((db[0], y - L, db[2], y - 1))
+    assert pxart.WP_DOOR not in colors(above)  # the room label's strip stays clear
+    below = img.crop((db[0], db[3] + 2, db[2], db[3] + L))
+    assert pxart.WP_DOOR in colors(below)
+
+
+def test_lower_door_label_stays_above(tmp_path):
+    wp = two_room_world(tmp_path)
+    img, model, _ = preview(wp, 2)
+    a = next(r for r in model["live"] if r.id == "a")
+    db = pxart.door_box(boxes(model, 2)["a"], a, a.doors[0], 2)
+    assert pxart.WP_DOOR in colors(img.crop((db[0], db[1] - L + 1, db[0] + 8, db[1] - 1)))

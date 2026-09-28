@@ -12559,7 +12559,7 @@ def test_check_dir_and_file_checked_once(tmp_path, capsys):
 def test_check_empty_dir_is_e_file(tmp_path):
     (tmp_path / "e").mkdir()
     msg = run_err("check", tmp_path / "e")
-    assert msg.startswith("check: E_FILE: ") and "no *.px, *.map or *.src.json files under it" in msg
+    assert msg.startswith("check: E_FILE: ") and "no *.px, *.map, *.src.json or *.world files under it" in msg
 
 
 def test_sheet_dir_skips_the_palette_file_with_a_note(tmp_path, capsys):

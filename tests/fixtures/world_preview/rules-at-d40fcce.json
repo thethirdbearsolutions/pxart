@@ -1,0 +1,422 @@
+{
+ "door-arrival-split": [
+  [
+   "warning",
+   "door-arrival-split",
+   "a",
+   "D",
+   [
+    3,
+    1
+   ],
+   "door 'D' in a has walkable cells beside it in separate regions, so where you arrive decides where you can go (the runtime arrives facing into the room)"
+  ]
+ ],
+ "door-bad-trigger": [
+  [
+   "error",
+   "door-trigger",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a: trigger is 'touch' or 'use', not 'step'"
+  ]
+ ],
+ "door-entry-not-there": [
+  [
+   "error",
+   "door-entry",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a enters b at 'x', and b has no door 'x'"
+  ],
+  [
+   "error",
+   "door-pair",
+   "b",
+   "E",
+   [
+    2,
+    1
+   ],
+   "door 'E' in b leads to 'D' in a, which doesn't lead back to 'E' in b (doors pair up)"
+  ],
+  [
+   "error",
+   "door-unreachable",
+   "b",
+   "E",
+   [
+    2,
+    1
+   ],
+   "door 'E' in b can't be reached from the start"
+  ],
+  [
+   "warning",
+   "room-unreachable",
+   "b",
+   null,
+   null,
+   "no walkable cell of b can be reached from the start"
+  ]
+ ],
+ "door-names-twice": [
+  [
+   "error",
+   "door-name-dup",
+   "a",
+   "D",
+   [
+    3,
+    1
+   ],
+   "a has two doors named 'D'; a door's entry names one"
+  ]
+ ],
+ "door-not-paired": [
+  [
+   "error",
+   "door-pair",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a leads to 'E' in b, which doesn't lead back to 'D' in a (doors pair up)"
+  ]
+ ],
+ "door-to-a-missing-room": [
+  [
+   "error",
+   "door-target",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a leads to 'gone.tmj', which can't be loaded"
+  ]
+ ],
+ "door-unreachable": [
+  [
+   "error",
+   "door-unreachable",
+   "a",
+   "D",
+   [
+    5,
+    1
+   ],
+   "door 'D' in a can't be reached from the start"
+  ],
+  [
+   "error",
+   "door-unreachable",
+   "i",
+   "d",
+   [
+    2,
+    2
+   ],
+   "door 'd' in i can't be reached from the start"
+  ],
+  [
+   "warning",
+   "room-unreachable",
+   "i",
+   null,
+   null,
+   "no walkable cell of i can be reached from the start"
+  ]
+ ],
+ "door-walled-in": [
+  [
+   "error",
+   "door-arrival",
+   "b",
+   "E",
+   [
+    2,
+    1
+   ],
+   "door 'E' in b has no walkable cell beside it, so arriving there would put the player inside a solid"
+  ],
+  [
+   "warning",
+   "room-unreachable",
+   "b",
+   null,
+   null,
+   "no walkable cell of b can be reached from the start"
+  ]
+ ],
+ "door-without-entry": [
+  [
+   "error",
+   "door-entry",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a has no entry"
+  ],
+  [
+   "warning",
+   "room-unreachable",
+   "b",
+   null,
+   null,
+   "no walkable cell of b can be reached from the start"
+  ]
+ ],
+ "door-without-target": [
+  [
+   "error",
+   "door-target",
+   "a",
+   "D",
+   [
+    3,
+    2
+   ],
+   "door 'D' in a has no target"
+  ]
+ ],
+ "edge-walkable-one-side": [
+  [
+   "warning",
+   "edge-one-side",
+   "a",
+   "east",
+   [
+    4,
+    1
+   ],
+   "a's east edge from cell 4,1 (2 cells) is walkable, and across it b is solid: walking over puts the player in a solid"
+  ]
+ ],
+ "room-id-twice": [
+  [
+   "error",
+   "room-id-dup",
+   "a",
+   null,
+   null,
+   "2 rooms are called 'a' (rooms/a.tmj, more/a.tmj); a room's id is its file name"
+  ]
+ ],
+ "room-missing": [
+  [
+   "error",
+   "room-missing",
+   "gone",
+   null,
+   null,
+   "the world places 'rooms/gone.tmj', which can't be loaded"
+  ]
+ ],
+ "room-overlap": [
+  [
+   "error",
+   "room-overlap",
+   "b",
+   "a",
+   null,
+   "b and a overlap in the world: rooms may share a side, never area"
+  ]
+ ],
+ "room-unreachable": [
+  [
+   "warning",
+   "room-unreachable",
+   "b",
+   null,
+   null,
+   "no walkable cell of b can be reached from the start"
+  ]
+ ],
+ "start-in-a-wall": [
+  [
+   "error",
+   "start-solid",
+   "a",
+   "start",
+   [
+    0,
+    1
+   ],
+   "the start in a is at cell 0,1, which is solid"
+  ]
+ ],
+ "start-none": [
+  [
+   "error",
+   "start-count",
+   null,
+   null,
+   null,
+   "the world has no start (a point object of class 'start', in exactly one room)"
+  ]
+ ],
+ "start-on-a-crate": [
+  [
+   "error",
+   "start-solid",
+   "a",
+   "start",
+   [
+    2,
+    2
+   ],
+   "the start in a is at cell 2,2, which is solid"
+  ]
+ ],
+ "start-on-a-half-tile": [
+  [
+   "error",
+   "start-solid",
+   "a",
+   "start",
+   [
+    2,
+    1
+   ],
+   "the start in a is at cell 2,1, which is solid"
+  ]
+ ],
+ "start-outside-the-room": [
+  [
+   "error",
+   "start-solid",
+   "a",
+   "start",
+   [
+    2,
+    5
+   ],
+   "the start in a is at cell 2,5, outside the room"
+  ]
+ ],
+ "start-two": [
+  [
+   "error",
+   "start-count",
+   "a",
+   "start",
+   [
+    1,
+    1
+   ],
+   "2 starts in the world; there is exactly one"
+  ],
+  [
+   "error",
+   "start-count",
+   "b",
+   "start",
+   [
+    2,
+    2
+   ],
+   "2 starts in the world; there is exactly one"
+  ]
+ ],
+ "start-under-the-log": [
+  [
+   "error",
+   "start-solid",
+   "a",
+   "start",
+   [
+    1,
+    1
+   ],
+   "the start in a is at cell 1,1, which is solid"
+  ]
+ ],
+ "tiled-unsupported-layer-offset": [
+  [
+   "error",
+   "tiled-unsupported",
+   "a",
+   "layer offset",
+   null,
+   "a: layer 'ground' is offset (the rules, and the harness, don't read that)"
+  ]
+ ],
+ "tiled-unsupported-object-alignment": [
+  [
+   "error",
+   "tiled-unsupported",
+   "a",
+   "objectalignment",
+   null,
+   "a: tileset a.tmj aligns objects 'topleft', not bottom-left (the rules, and the harness, don't read that)"
+  ]
+ ],
+ "tiled-unsupported-rotation": [
+  [
+   "error",
+   "tiled-unsupported",
+   "a",
+   "rotation",
+   null,
+   "a: object 2 'c' is rotated (the rules, and the harness, don't read that)"
+  ]
+ ],
+ "tileset-missing-keeps-its-range": [
+  [
+   "error",
+   "tileset-missing",
+   "a",
+   null,
+   null,
+   "a: tileset ../nope.tsj can't be loaded"
+  ]
+ ],
+ "tileset-missing": [
+  [
+   "error",
+   "tileset-missing",
+   "a",
+   null,
+   null,
+   "a: tileset ../nope.tsj can't be loaded"
+  ]
+ ],
+ "valid-door-as-a-tile-object": [],
+ "valid-interior": [],
+ "valid-log-flipped-away": [],
+ "valid-marker-at-the-start": [],
+ "valid-reached-across-an-edge": [],
+ "valid-start-as-a-rectangle": [],
+ "valid-start-as-a-tile-object": [],
+ "valid-two-rooms-and-a-door": [],
+ "valid-use-trigger-and-tiled-1-9-class": [],
+ "valid-wide-door": [],
+ "lighthouse (compiled)": [
+  [
+   "warning",
+   "edge-one-side",
+   "cove",
+   "north",
+   [
+    1,
+    0
+   ],
+   "cove's north edge from cell 1,0 (1 cell) is walkable, and across it shore is solid: walking over puts the player in a solid"
+  ]
+ ]
+}
