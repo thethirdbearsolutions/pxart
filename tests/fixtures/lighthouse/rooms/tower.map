@@ -1,0 +1,38 @@
+# tower: inside the lighthouse. d is the door back out.
+,  ../lighthouse-keeper/interior/floor.png
+;  ../lighthouse-keeper/interior/floor2.png
+v  ../lighthouse-keeper/interior/floor_shadow.png
+U  ../lighthouse-keeper/interior/face_upper.png
+F  ../lighthouse-keeper/interior/face_lower.png
+W  ../lighthouse-keeper/interior/window.png
+d  ../lighthouse-keeper/interior/door_lower.png
+S  ../lighthouse-keeper/interior/stair.png+b
+T  ../lighthouse-keeper/interior/table.png+b
+R  ../lighthouse-keeper/interior/rug.png+b
+# ../lighthouse-keeper/interior/wall.png
+
+################
+UUUUUWUUUUWUUUUU
+FFFFFFFFFFFFFFFF
+vvvvvvvvvvvvvvvv
+,,;,,,,;,,,,,;,,
+,,,,;,,,,,;,,,,,
+,;,,,,,,,,,,,,;,
+,,,,,,;,,,;,,,,,
+,,;,,,,,,,,,,,,,
+,,,,,,,,;,,,;,,,
+,,,,;,,,,,,,,,,,
+#######d########
+---
+................
+................
+................
+................
+.............S..
+................
+...T............
+................
+.......R........
+................
+................
+................

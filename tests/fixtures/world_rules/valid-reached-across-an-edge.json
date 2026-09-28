@@ -1,0 +1,295 @@
+{
+ "about": "The door is in a room the start isn't in: reached by walking across the shared edge first. Rooms of different sizes: b is as tall as a and c together, and a and c share a walled edge.",
+ "world": "world.world",
+ "files": {
+  "world.world": {
+   "type": "world",
+   "onlyShowAdjacentMaps": false,
+   "maps": [
+    {
+     "fileName": "rooms/a.tmj",
+     "x": 0,
+     "y": 0,
+     "width": 80,
+     "height": 64
+    },
+    {
+     "fileName": "rooms/c.tmj",
+     "x": 0,
+     "y": 64,
+     "width": 80,
+     "height": 64
+    },
+    {
+     "fileName": "rooms/b.tmj",
+     "x": 80,
+     "y": 0,
+     "width": 80,
+     "height": 128
+    }
+   ]
+  },
+  "rooms/a.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "D",
+       "type": "door",
+       "rotation": 0,
+       "visible": true,
+       "x": 16,
+       "y": 16,
+       "width": 16,
+       "height": 16,
+       "properties": [
+        {
+         "name": "entry",
+         "type": "string",
+         "value": "d"
+        },
+        {
+         "name": "target",
+         "type": "file",
+         "value": "i.tmj"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  },
+  "rooms/c.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "start",
+       "type": "start",
+       "rotation": 0,
+       "visible": true,
+       "point": true,
+       "x": 40,
+       "y": 48,
+       "width": 0,
+       "height": 0
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  },
+  "rooms/b.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 8,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 1,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 8,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      2, 1, 1, 1, 1,
+      2, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": []
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  },
+  "rooms/i.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      2, 1, 1, 1, 2,
+      2, 1, 1, 1, 2,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "d",
+       "type": "door",
+       "rotation": 0,
+       "visible": true,
+       "x": 32,
+       "y": 16,
+       "width": 16,
+       "height": 16,
+       "properties": [
+        {
+         "name": "entry",
+         "type": "string",
+         "value": "D"
+        },
+        {
+         "name": "target",
+         "type": "file",
+         "value": "a.tmj"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  }
+ },
+ "expect": []
+}

@@ -785,7 +785,7 @@ CONVERTING
         Aseprite writes them: meta.slices = one slice "pivot" with a key per frame index,
         {"frame": N, "bounds": {"x": 0, "y": 0, "w": W, "h": H}, "pivot": {"x": X, "y": Y}},
         bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
-      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations
+      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations (worlds: help worlds)
       (--aseprite x.json and --tiled x.tsj write the same x.png)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
@@ -836,9 +836,9 @@ CONVERTING
 
 HELP
   help [all | recipes | TOPIC | CMD]
-      'pxart help recipes': seven workflows, command by command. 'pxart help all' prints this
-      whole reference; 'pxart help TOPIC' one part of it (a heading here, any case); 'pxart
-      help CMD' is 'pxart CMD -h': its section and the shared notes it relies on, named.
+      'pxart help recipes': seven workflows, command by command; 'help worlds': Tiled worlds.
+      'pxart help all' prints this whole reference; 'pxart help TOPIC' one part of
+      it (a heading here, any case); 'pxart help CMD' is 'pxart CMD -h'.
       'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
       sections open with.
 
@@ -856,8 +856,67 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, re, shlex, string, sys, textwrap, unicodedata
+import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
+
+WORLDS = """WORLDS (pxart help worlds)
+  export world.src.json|ROOM.map|DIR... --tiled [--tile 16x16] [--tileset T.tsj]
+  check world.src.json|DIR... [--tile 16x16] [--tileset T.tsj]
+      A world is rooms drawn as .map files (scene --map's format) and a world.src.json that
+      places them and wires their doors. --tiled (with no X.tsj) compiles them to Tiled's
+      files, beside them: rooms/NAME.map -> rooms/NAME.tmj, world.src.json -> world.world
+      (NAME.src.json -> NAME.world). check runs the same compile and writes nothing: 'ok
+      world.src.json: 3 rooms placed, interior tower, 1 door pair, start in shore', or FAIL
+      and every error. A DIR stands for the world sources under it (a rooms/ directory is
+      an error naming its world). --tile: the rooms' tile size (default 16x16).
+      The source:
+          {"layout": ["shore point", "cove  ."],
+           "start": {"room": "shore", "at": "@"},
+           "doors": [["point D", "tower d"], ["shore H", "hut h", {"trigger": "use"}]]}
+      layout draws where rooms sit ('.': none; a column as wide as its widest room, a row as
+      tall as its tallest, an empty one as the largest room). A room only doors name is an
+      interior: compiled, not in the .world. start: a point object (class start) at the
+      feet (bottom centre) of the one cell shore.map draws '@' on. A door pair is two door
+      objects (class door), each the rectangle of cells its char is drawn on, with target
+      (the other's .tmj), entry (the other's name) and the pair's {...} as properties
+      (trigger: touch, the default, or use; target and entry are the compiler's).
+      Variant tiles: a legend line may list tiles, '1 sand.png sand2.png sand3.png' (two or
+      more, each a .png or .px[:frame], quoted if it has spaces). Each cell drawn with 1
+      gets one, picked by cell_hash(room, x, y), the room being the map's file name without
+      .map; scene, compose --map and export --tiled pick the same one.
+      What a room compiles to: a layer's one-tile cells make a tile layer ('layer N'); +b
+      entries, art of another size, and cells an earlier object in the layer overhangs are
+      tile objects named by their char ('layer N objects', in draw order), where scene
+      draws them, so Tiled renders what scene --map does, pixel for pixel. Flips are GID
+      flags. The .tmj's 'source' property names its .map.
+      Tilesets: a cell's art is found in <dir>/tiled/*.tsj in the directories above it (its
+      pack's; the search stops at a directory holding a *.src.json or .git) and in
+      --tileset's: a PNG by a tile's png property (or image), a .px frame by its pixels. A
+      GID is firstgid + that tile's stable id. Tilesets start at firstgid 1, 1001, 2001...
+      (a bigger one at the next such after its end), so one that grows moves no other; a
+      tileset keeps its previous firstgid while it fits.
+      Object ids are stable: a recompile reads the previous .tmj and keeps the id of the
+      object of the same layer, class and name at the same cell; a new object takes
+      nextobjectid; an id is never reused. An object in the previous .tmj that isn't from
+      the source (added in Tiled) is dropped, with a WARNING. A .tmj whose 'source' isn't
+      its .map (a room made in Tiled) is never overwritten (E_GENERATED). A .map that's a
+      world's room (rooms/ beside a *.src.json, or a .tmj with doors or a start) isn't
+      compiled alone (E_WORLD): compile its world.
+      Errors are said all at once, at file:line:col, and nothing is written: a ragged row
+      (E_ROW_WIDTH), a ground (layer 1) shorter than the room (E_MAP_SIZE), an unknown char
+      (E_UNKNOWN_KEY), art no tileset has (E_TILESET), a door or start char not drawn as one
+      rectangle or at one cell (E_DOOR, E_START), a bad world source (E_WORLD). A shorter
+      layer above the ground, and art bigger than a cell without +b (placed by its
+      top-left), get a WARNING. Then the world rules run on the compiled files: doors pair
+      up and have a walkable cell beside them, one start, not in a solid, every door
+      reachable from it, rooms don't overlap. A broken rule is 'E_WORLD: door-arrival:
+      ...'; a warning (an edge walkable on one side only, a room nothing reaches) is a
+      WARNING line. The rules are one spec with shared fixtures, run by pxart and the
+      harness: tests/fixtures/world_rules/ (SPEC.md) in the pxart repo.
+      Error codes: E_MAP_SIZE E_TILESET E_GENERATED E_WORLD E_DOOR E_START, and the map's
+      own (E_ROW_WIDTH E_UNKNOWN_KEY E_BAD_ROW E_FILE).
+"""
+
 
 RECIPES = """RECIPES (pxart help recipes)
   Seven workflows, end to end. Each runs as written from a folder holding the files it names;
@@ -963,18 +1022,18 @@ PAL_SKIP = "\n     (unknown-key checks were skipped: those keys may come from th
 # ---------------------------------------------------------------------------- errors
 
 class Issue:
-    def __init__(self, code, msg, path=None, line=None, frame=None, row=None, cols=None):
+    def __init__(self, code, msg, path=None, line=None, frame=None, row=None, cols=None, col=None):
         self.code, self.msg, self.path, self.line = code, msg, path, line
-        self.frame, self.row, self.cols = frame, row, cols
+        self.frame, self.row, self.cols, self.col = frame, row, cols, col  # col: 1-based, printed as path:line:col
         self.ctx = None  # which input of the command it came from: 'layer 2 (parts.px:hat)' (see reading())
 
     def __str__(self):
         if self.ctx and self.ctx != str(self.path):
-            here = Issue(self.code, self.msg, self.path, self.line, self.frame, self.row, self.cols)
+            here = Issue(self.code, self.msg, self.path, self.line, self.frame, self.row, self.cols, self.col)
             return f"{self.ctx}: {here}"
         where = str(self.path or "")
         if self.line:
-            where += f":{self.line}"
+            where += f":{self.line}" + (f":{self.col}" if self.col else "")
         loc = []
         if self.frame:
             loc.append(f"frame {self.frame}")
@@ -1672,10 +1731,12 @@ def in_dirs(args, exts=(".px",), exclude=()):
             if not excluded(split_sel(arg)[0].replace(os.sep, "/")):
                 out.append(arg)
             continue
-        found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.suffix in exts and p.is_file()),
+        found = sorted((p for p in pathlib.Path(arg).rglob("*") if p.name.endswith(exts) and p.is_file()),
                        key=lambda p: p.parts)
         if not found:
-            fail("E_FILE", f"{arg} is a directory with no {' or '.join('*' + e for e in exts)} files under it")
+            kinds = ["*" + e for e in exts]
+            said = f"{', '.join(kinds[:-1])} or {kinds[-1]}" if len(kinds) > 1 else kinds[0]
+            fail("E_FILE", f"{arg} is a directory with no {said} files under it")
         out += [str(p) for p in found if not excluded(p.relative_to(arg).as_posix())]
     if exclude and not out:
         fail("E_FILE", f"--exclude {' --exclude '.join(exclude)} leaves out every file")
@@ -3120,6 +3181,10 @@ def parse_map(path):
             q = MAP_QUOTED_RE.match(rest)
             if ch != "#" or q or MAP_HASH_RE.match(rest):
                 target = rest[1:-1] if len(rest) > 1 and rest[0] == rest[-1] == '"' else rest
+                picks = None if q or ch == "#" else variant_list(rest)
+                if picks:  # '1 sand.png sand2.png sand3.png': one per cell, by cell_hash (room, x, y)
+                    legend[ch], where[ch] = tuple(str(path.parent / t) for t in picks), (n, picks)
+                    continue
                 legend[ch], where[ch] = str(path.parent / target), (n, target)
                 if ch == "#":
                     notes.append(f"{path}:{n}: {s!r} is the legend line for '#', not a comment: '#' in the rows "
@@ -3136,9 +3201,59 @@ def parse_map(path):
     return legend, layers, notes, where
 
 
+MAP_TOKEN_RE = re.compile(r"^.+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?(\+[hvb]{1,3})?(%[A-Za-z0-9_\-]+)?$")
+
+
+def variant_list(rest):
+    """A legend line's rest as a list of tiles ('sand.png sand2.png sand3.png', "quoted" ones too), when it is two or
+    more tokens and every one names a .png or .px[:frame]; else None (one path, spaces and all)."""
+    try:
+        toks = shlex.split(rest)
+    except ValueError:
+        return None
+    return toks if len(toks) > 1 and all(MAP_TOKEN_RE.match(t) for t in toks) else None
+
+
+def legend_entries(legend, where):
+    """[(char, item_arg, the path as written)], a variant list's tiles each in turn."""
+    out = []
+    for ch, arg in legend.items():
+        written = where[ch][1]
+        if isinstance(arg, tuple):
+            out += [(ch, a, w) for a, w in zip(arg, written)]
+        else:
+            out.append((ch, arg, written))
+    return out
+
+
+def cell_hash(room, x, y):
+    """The variant pick's hash of (room, x, y), unsigned 32-bit: FNV-1a over the room's name (UTF-8), xor'd with the
+    beach kit's cell mix (sprites.js groundTilePath: x*73856093 ^ y*19349663, then two xorshift-multiplies). scene
+    --map, compose --map and export --tiled all pick with it, so a render is what the compiled room ships."""
+    m = 0xFFFFFFFF
+    h = 2166136261
+    for b in room.encode("utf-8"):
+        h = ((h ^ b) * 16777619) & m
+    h ^= ((x * 73856093) & m) ^ ((y * 19349663) & m)
+    h = ((h ^ (h >> 13)) * 0x5bd1e995) & m
+    return (h ^ (h >> 15)) & m
+
+
+def pick_variant(arg, room, x, y):
+    """A legend entry's tile for cell x,y of room: the entry, or one of a variant list's by cell_hash."""
+    return arg[cell_hash(room, x, y) % len(arg)] if isinstance(arg, tuple) else arg
+
+
+def map_room(path):
+    """A map's room name, the hash's room: its file name without .map (rooms/point.map is 'point')."""
+    return pathlib.Path(path).stem
+
+
 def read_map(path, tile, notes=None):
-    """Returns [(item_arg, x, y)] and the map size in px; '#' legend notes go to `notes`."""
+    """Returns [(item_arg, x, y)] and the map size in px; '#' legend notes go to `notes`. A variant list's cell gets
+    its pick (pick_variant)."""
     path = pathlib.Path(path)
+    room = map_room(path)
     legend, layers, found, _ = parse_map(path)
     if notes is not None:
         notes += found
@@ -3154,7 +3269,7 @@ def read_map(path, tile, notes=None):
                 hint = " (map rows start after the legend's blank line, so '#' there is a map char, not a comment; " \
                     "define it with a legend line '# FILE', or '# \"FILE\"' for a path with spaces)" if ch == "#" else ""
                 fail("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line{hint}", path=str(path), line=n, cols=[x])
-            out.append((legend[ch], x * tile[0], y * tile[1]))
+            out.append((pick_variant(legend[ch], room, x, y), x * tile[0], y * tile[1]))
     width = max((len(r) for rows in layers for _, r in rows), default=0) * tile[0]
     return out, (width, max(len(rows) for rows in layers) * tile[1])
 
@@ -3165,8 +3280,8 @@ def load_legend(path, variant=None):
     written."""
     legend, _, _, where = parse_map(path)
     imgs, failed = {}, []  # failed: (ch, line, as written, code, what went wrong, the line saying it for one entry)
-    for ch, arg in legend.items():
-        n, written = where[ch]
+    for ch, arg, written in legend_entries(legend, where):
+        n = where[ch][0]
         try:
             imgs[arg] = place_item(arg, f"legend {ch!r}", variant, anchor=True)
         except PxError as e:
@@ -3399,12 +3514,17 @@ def cmd_check(a):
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
-    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map"), a.exclude or ())):
+    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map", WORLD_SRC), a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
         bad_before = failed
         failed = False
         try:
+            if is_world_src(path):
+                ok, said = check_world(path, parse_tile(a.tile), a.tileset or ())
+                failed |= not ok
+                tally["warnings"] += said
+                continue
             if path.endswith(".map"):
                 ok, said = check_map(path)
                 failed |= not ok
@@ -6469,7 +6589,7 @@ def map_layers(a):
     for n in notes:
         print("note:", n)
     legend, _, _, where = parse_map(a.map)
-    written = {arg: (ch, where[ch][1]) for ch, arg in legend.items()}
+    written = {arg: (ch, w) for ch, arg, w in legend_entries(legend, where)}
     for arg, it in its.items():
         variant = split_variant(split_flip(arg)[0])[1]
         if it.doc is not None and variant:
@@ -7682,6 +7802,25 @@ def pivot_slices(its):
 
 
 def cmd_export(a):
+    if isinstance(a.tiled, str) and (is_room_src(a.tiled) or os.path.isdir(a.tiled)):
+        a.files, a.tiled = [a.tiled] + a.files, True  # 'export --tiled world.src.json ...': a source, not X.tsj
+    if a.tiled is True:
+        a.files = source_args(a.files)
+    if not a.files:
+        fail("E_BAD_ARG", "export: give FILE|DIR... (.px frames), or world.src.json / .map sources with --tiled")
+    srcs = [f for f in a.files if is_room_src(f)]
+    if srcs:
+        if len(srcs) < len(a.files):
+            fail("E_BAD_ARG", "export: world sources (world.src.json, .map) and .px frames go in separate exports: "
+                 + ", ".join(f for f in a.files if not is_room_src(f)))
+        if a.tiled is not True or a.frames or a.aseprite:
+            fail("E_BAD_ARG", "export --tiled on world sources takes no X.tsj: each .map compiles to the .tmj beside "
+                 "it, a world.src.json to <name>.world and rooms/*.tmj ('export world.src.json --tiled')")
+        return export_tiled(a, srcs)
+    if a.tiled is True:
+        fail("E_BAD_ARG", "export --tiled X.tsj: name the tileset to write (or give world.src.json / .map sources)")
+    if a.tileset or a.tile != "16x16":
+        fail("E_BAD_ARG", "--tileset and --tile are for world sources (world.src.json, .map)")
     if not (a.frames or a.aseprite or a.tiled):
         fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json and/or --tiled X.tsj")
     variants = {split_variant(f)[1] for f in a.files} - {None}
@@ -7765,6 +7904,1287 @@ def cmd_export(a):
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
     print("wrote", " ".join(wrote))
+
+
+# ---------------------------------------------------------------------------- worlds: .map + world.src.json -> Tiled
+
+GID_H, GID_V, GID_D = 0x80000000, 0x40000000, 0x20000000  # Tiled's flip flags, the top bits of a GID
+GID_FLAGS = 0xF0000000
+TILED_FORMAT = "1.10"  # the JSON format version Tiled 1.10+ writes (as export --tiled's tilesets say)
+WORLD_SRC = ".src.json"
+WORLD_KEYS = ("layout", "start", "doors")
+DOOR_RESERVED = ("target", "entry")  # a door pair's own properties: written by the compiler, never by hand
+MARKER_CLASS = "character_frame"  # a tile object of this class is a marker: not drawn by the harness, never solid
+ROOM_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def is_world_src(p):
+    return str(p).endswith(WORLD_SRC)
+
+
+def is_room_src(p):
+    return str(p).endswith(".map") or is_world_src(p)
+
+
+def tiled_props(obj):
+    """A Tiled object's (or map's, tile's) properties as {name: value}."""
+    return {p.get("name"): p.get("value") for p in obj.get("properties") or () if isinstance(p, dict)}
+
+
+def tiled_class(obj):
+    """An object's class: 'type', or 'class' as Tiled 1.9 saved it."""
+    return obj.get("type") or obj.get("class") or ""
+
+
+def posix_rel(path, start):
+    return pathlib.PurePath(os.path.relpath(path, start)).as_posix()
+
+
+class Tileset:
+    """One .tsj as the compiler and the world rules read it: tiles by id, each tile's size, class, collision
+    rectangles (its objectgroup, as bounding boxes) and identity (the pack path its `png` property names, else a
+    collection tile's own image)."""
+
+    def __init__(self, path, data):
+        self.path, self.data = pathlib.Path(path), data
+        self.tiles = {int(t["id"]): t for t in data.get("tiles") or () if isinstance(t, dict) and "id" in t}
+        self.sheet = bool(data.get("image"))
+        self._ids = None
+        ids = list(self.tiles) + [int(data.get("tilecount") or 0) - 1, int(tiled_props(data).get("nextid") or 0) - 1]
+        self.span = max(ids + [-1]) + 1  # every id the tileset has or has issued: its GID range
+        self._pixels = None
+
+    def has(self, tid):
+        return tid in self.tiles or (self.sheet and 0 <= tid < int(self.data.get("tilecount") or 0))
+
+    def size(self, tid):
+        t = self.tiles.get(tid, {})
+        if self.sheet:
+            return int(self.data["tilewidth"]), int(self.data["tileheight"])
+        if "width" in t and "x" in t:
+            return int(t["width"]), int(t["height"])
+        return int(t.get("imagewidth") or 0), int(t.get("imageheight") or 0)
+
+    def cls(self, tid):
+        return tiled_class(self.tiles.get(tid, {}))
+
+    def collision(self, tid):
+        """The tile's collision shapes as (x, y, w, h) in the tile's own pixels: each object's bounding box (a polygon's
+        points' box); points and zero-area shapes block nothing."""
+        out = []
+        for o in (self.tiles.get(tid, {}).get("objectgroup") or {}).get("objects") or ():
+            x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+            pts = o.get("polygon") or o.get("polyline")
+            if pts:
+                xs, ys = [x + p["x"] for p in pts], [y + p["y"] for p in pts]
+                x, y, w, h = min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+            if w > 0 and h > 0 and not o.get("point"):
+                out.append((x, y, w, h))
+        return out
+
+    def identities(self):
+        """{resolved file path: tile id}: a tile's `png` property (a pack path, from the pack's root: the tileset's
+        directory's parent, <pack>/tiled/..), and a collection tile's own image (unless it's a sub-rectangle)."""
+        if self._ids is not None:
+            return self._ids
+        out = self._ids = {}
+        for tid, t in self.tiles.items():
+            png = tiled_props(t).get("png")
+            if png and "rect" not in tiled_props(t) and "x" not in t:
+                out.setdefault(str((self.path.parent.parent / png).resolve()), tid)
+            if t.get("image") and "x" not in t:
+                out.setdefault(str((self.path.parent / t["image"]).resolve()), tid)
+        return out
+
+    def pixels(self):
+        """{(w, h, RGBA bytes): [tile ids]}: every tile's art, for matching a .px frame by what it looks like."""
+        if self._pixels is None:
+            self._pixels = {}
+            sheet = None
+            if self.sheet:
+                sheet = Image.open(self.path.parent / self.data["image"]).convert("RGBA")
+                tw, th = self.size(0)
+                cols = int(self.data.get("columns") or 1)
+                m, sp = int(self.data.get("margin") or 0), int(self.data.get("spacing") or 0)
+            for tid in (range(int(self.data.get("tilecount") or 0)) if self.sheet else self.tiles):
+                if sheet is not None:
+                    x, y = m + (tid % cols) * (tw + sp), m + (tid // cols) * (th + sp)
+                    img = sheet.crop((x, y, x + tw, y + th))
+                else:
+                    t = self.tiles[tid]
+                    if not t.get("image"):
+                        continue
+                    img = Image.open(self.path.parent / t["image"]).convert("RGBA")
+                    if "x" in t:
+                        img = img.crop((t["x"], t["y"], t["x"] + t["width"], t["y"] + t["height"]))
+                if img.getbbox() is None:
+                    continue  # a blank cell (a hole left by a removed tile) is nobody's art
+                self._pixels.setdefault((img.width, img.height, img.tobytes()), []).append(tid)
+        return self._pixels
+
+
+def read_tileset(path):
+    with open(path) as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict) or data.get("type", "tileset") != "tileset":
+        raise ValueError("not a Tiled tileset")
+    return Tileset(path, data)
+
+
+class TileFinder:
+    """Which tileset tile a legend entry is, by identity, never by position: a PNG by its path (a pack tileset's
+    `png` property, or a collection tile's image), a .px frame (or a PNG no tileset names) by its pixels. The
+    tilesets: every <dir>/tiled/*.tsj in a directory above the art (its pack's), plus --tileset ones."""
+
+    def __init__(self, explicit=()):
+        self.sets, self.seen, self.by_dir = [], {}, {}
+        self.explicit = [self.add(p) for p in explicit]
+        self.cache = {}
+
+    def add(self, p):
+        p = pathlib.Path(os.path.abspath(p))
+        key = str(p.resolve())
+        if key not in self.seen:
+            try:
+                ts = read_tileset(p)
+            except (OSError, ValueError) as e:
+                fail("E_TILESET", f"can't read the tileset: {getattr(e, 'strerror', None) or e}", path=str(p))
+            self.seen[key] = ts
+            self.sets.append(ts)
+        return self.seen[key]
+
+    def near(self, art):
+        """The tilesets in <ancestor>/tiled/ of the art's (absolute, unresolved) path, nearest first."""
+        out = []
+        for anc in pathlib.Path(os.path.abspath(art)).parents:
+            d = anc / "tiled"
+            if str(d) not in self.by_dir:
+                self.by_dir[str(d)] = [self.add(t) for t in sorted(d.glob("*.tsj"))] if d.is_dir() else []
+            out += self.by_dir[str(d)]
+            if (anc / ".git").exists() or any(anc.glob("*" + WORLD_SRC)):
+                break  # the game's (or the repository's) root: tilesets above it aren't the art's
+        return out
+
+    def find(self, arg, img):
+        """(Tileset, tile id) for a legend entry (FILE[:frame][%variant][+flips]) and its unflipped image; raises
+        ValueError saying why not."""
+        if arg in self.cache:
+            return self.cache[arg]
+        path = split_sel(split_variant(arg)[0])[0]
+        scope = list(dict.fromkeys(self.near(path) + self.explicit))
+        hits = []
+        if path.endswith(".png"):
+            want = str(pathlib.Path(path).resolve())
+            hits = [(ts, ts.identities()[want]) for ts in self.sets if want in ts.identities()]
+        if not hits:
+            key = (img.width, img.height, img.tobytes())
+            hits = [(ts, tid) for ts in scope for tid in ts.pixels().get(key, ())]
+        if not hits:
+            where = ", ".join(posix_rel(ts.path, os.getcwd()) for ts in scope)
+            raise ValueError("no tileset has this art (" + (f"looked in {where}" if where else
+                                                            "there's no <dir>/tiled/*.tsj above it") +
+                             "; a pack's tilesets are <pack>/tiled/*.tsj, or name one with --tileset)")
+        if len({(str(ts.path), tid) for ts, tid in hits}) > 1:
+            raise ValueError("more than one tile has this art: " + ", ".join(
+                f"{ts.path.name} tile {tid}" for ts, tid in hits[:4]) + "; name the PNG itself in the legend")
+        self.cache[arg] = hits[0]
+        return hits[0]
+
+
+class RoomSrc:
+    """A .map read for compiling: its legend, rows by layer, size, and where each glyph is drawn."""
+
+    def __init__(self, path):
+        self.path = pathlib.Path(path)
+        self.id = map_room(path)
+        self.issues, self.notes, self.warns = [], [], []
+        self.legend, self.layers, self.where, self.cells = {}, [], {}, {}
+        self.lead = {}
+        try:
+            self.legend, self.layers, self.notes, self.where = parse_map(self.path)
+            lines = self.path.read_text().splitlines()
+        except OSError as e:
+            self.issues.append(Issue("E_FILE", e.strerror or str(e), str(self.path)))
+            self.layers, lines = [[]], []
+        self.lead = {n: len(lines[n - 1]) - len(lines[n - 1].lstrip()) for rows in self.layers for n, _ in rows}
+        rows_all = [(n, r) for rows in self.layers for n, r in rows]
+        self.w = max((len(r) for _, r in rows_all), default=0)  # as scene: the widest row, the tallest layer
+        self.h = max((len(rows) for rows in self.layers), default=0)
+        if not rows_all:
+            self.issues.append(Issue("E_MAP_SIZE", "no rows: a room is a legend, a blank line, then rows",
+                                     str(self.path)))
+        widest = next((n for n, r in rows_all if len(r) == self.w), None)
+        for li, rows in enumerate(self.layers, 1):
+            if li == 1 and rows and len(rows) < self.h:
+                self.issues.append(Issue("E_MAP_SIZE", f"the ground (layer 1) has {len(rows)} rows, the room has "
+                                         f"{self.h}: the rows under it would be holes in the floor", str(self.path),
+                                         rows[-1][0]))
+            elif rows and len(rows) < self.h:
+                self.warns.append(f"{self.path}:{rows[-1][0]}: layer {li} has {len(rows)} rows, the room has "
+                                  f"{self.h}: they're its top {len(rows)} (a row left out in the middle moves "
+                                  "everything under it up one)")
+            for y, (n, row) in enumerate(rows):
+                if len(row) != self.w:
+                    self.issues.append(Issue("E_ROW_WIDTH", f"row is {len(row)} wide, the room is {self.w} (its "
+                                             f"widest row, line {widest}); scene pads it, leaving a hole",
+                                             str(self.path), n, col=self.lead[n] + len(row) + 1))
+                for x, ch in enumerate(row):
+                    if ch == ".":
+                        continue
+                    if ch.isspace():
+                        self.issues.append(Issue("E_BAD_ROW", "a space in a row (a legend line is one char, a "
+                                                 "space, then the path)", str(self.path), n, col=self.col(n, x)))
+                    elif ch not in self.legend:
+                        self.issues.append(Issue("E_UNKNOWN_KEY", f"map char {ch!r} has no legend line"
+                                                 + guess(ch, self.legend), str(self.path), n, col=self.col(n, x)))
+                    else:
+                        self.cells.setdefault(ch, [])
+                        if (x, y) not in self.cells[ch]:
+                            self.cells[ch].append((x, y))
+
+    def col(self, n, x):
+        return self.lead.get(n, 0) + x + 1
+
+    def at(self, x, y, layer=0):
+        """(line, col) of cell x,y in a layer (clamped into the room)."""
+        rows = self.layers[layer] if layer < len(self.layers) and self.layers[layer] else self.layers[0]
+        n = rows[max(0, min(y, len(rows) - 1))][0]
+        return n, self.col(n, x)
+
+    def glyph_at(self, ch):
+        """(line, col) where ch is first drawn (layer by layer, row by row)."""
+        for li, rows in enumerate(self.layers):
+            for y, (n, row) in enumerate(rows):
+                if ch in row:
+                    return n, self.col(n, row.index(ch))
+        return self.where.get(ch, (None,))[0], None
+
+    def issue(self, code, msg, cell=None, ch=None):
+        n, c = self.glyph_at(ch) if ch else self.at(*cell) if cell else (None, None)
+        return Issue(code, msg, str(self.path), n, col=c)
+
+    def rect(self, ch):
+        """ch's cells as one rectangle (x, y, w, h), or None when they aren't one."""
+        cells = self.cells.get(ch) or []
+        if not cells:
+            return None
+        xs, ys = [x for x, _ in cells], [y for _, y in cells]
+        x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+        return (x0, y0, x1 - x0 + 1, y1 - y0 + 1) if len(cells) == (x1 - x0 + 1) * (y1 - y0 + 1) else None
+
+
+def object_cell(o, tw, th):
+    """The cell an object stands for, from its geometry alone (so a previous .tmj's objects map to cells too): a
+    point's or a tile object's feet (its bottom-centre; a point on a cell's bottom edge is that cell's), else a
+    rectangle's top-left."""
+    x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+    if o.get("point"):
+        return math.floor(x / tw), math.ceil(y / th) - 1
+    if "gid" in o:
+        return math.floor((x + w / 2) / tw), math.ceil(y / th) - 1
+    return math.floor(x / tw), math.floor(y / th)
+
+
+def start_cell(o, tw, th):
+    """A start's cell: under its feet, the point itself, or a shape's bottom centre (object_cell's rule for feet)."""
+    if o.get("point") or o.get("gid"):
+        return object_cell(o, tw, th)
+    x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+    return math.floor((x + w / 2) / tw), math.ceil((y + h) / th) - 1
+
+
+def object_key(layer, o, tw, th):
+    """What names an object across compiles: its layer's name, class and name, and its cell (object_cell)."""
+    return layer, tiled_class(o), o.get("name", ""), object_cell(o, tw, th)
+
+
+def previous_ids(prev, tw, th):
+    """From a previous .tmj: {object_key: [(id, the object), in file order]} and its next object id (never less than
+    one past every id it has, so an id is never reused)."""
+    keys, top = {}, 0
+    for layer in all_layers(prev.get("layers") or ()):
+        for o in layer.get("objects") or ():
+            if isinstance(o, dict) and isinstance(o.get("id"), int):
+                keys.setdefault(object_key(layer.get("name", ""), o, tw, th), []).append((o["id"], o))
+                top = max(top, o["id"])
+    return keys, max(int(prev.get("nextobjectid") or 1), top + 1)
+
+
+def all_layers(layers):
+    """Every layer, a group's too (depth first, in draw order)."""
+    for layer in layers:
+        if not isinstance(layer, dict):
+            continue
+        yield layer
+        if layer.get("type") == "group":
+            yield from all_layers(layer.get("layers") or ())
+
+
+def assign_ids(objs, prev, tw, th):
+    """ADR 0009: an object keeps the previous .tmj's id for the same layer, class and name at the same cell (in file
+    order when there are several); a new one takes the next id. objs: [(layer name, object)]. Returns (next object
+    id, how many kept, the previous objects nothing took: [(layer name, object)])."""
+    keys, nxt = previous_ids(prev, tw, th) if prev else ({}, 1)
+    kept = 0
+    for layer, o in objs:
+        got = keys.get(object_key(layer, o, tw, th))
+        if got:
+            o["id"] = got.pop(0)[0]
+            kept += 1
+        else:
+            o["id"], nxt = nxt, nxt + 1
+    return nxt, kept, [(k[0], o) for k, left in keys.items() for _, o in left]
+
+
+GID_SLOT = 1000  # tilesets start at firstgid 1, 1001, 2001, ...: room for a tileset to grow without moving the next
+
+
+def gid_slot(end):
+    """The first slot start (1 + a multiple of GID_SLOT) at or after end."""
+    return 1 + math.ceil(max(end - 1, 0) / GID_SLOT) * GID_SLOT
+
+
+def firstgids(used, prev, tmj_dir):
+    """{Tileset: firstgid}: tilesets start on slots (1, 1001, 2001...; a tileset spanning more takes the next slot
+    after its end), so a tileset that grows doesn't move the ones after it. A tileset the previous .tmj had keeps its
+    firstgid while the ranges still fit (GIDs stay put); new ones take the next free slot; if anything would overlap,
+    all are laid out on slots from 1, in that order."""
+    old = {}
+    for t in (prev or {}).get("tilesets") or ():
+        if isinstance(t, dict) and t.get("source"):
+            old[str((tmj_dir / t["source"]).resolve())] = int(t.get("firstgid") or 0)
+    keep = sorted((ts for ts in used if str(ts.path.resolve()) in old), key=lambda ts: old[str(ts.path.resolve())])
+    new = [ts for ts in used if ts not in keep]
+    out = {ts: old[str(ts.path.resolve())] for ts in keep}
+    end = max([g + max(ts.span, 1) for ts, g in out.items()] + [1])
+    for ts in new:
+        out[ts] = gid_slot(end)
+        end = out[ts] + max(ts.span, 1)
+    spans = sorted((g, g + max(ts.span, 1)) for ts, g in out.items())
+    if any(a[1] > b[0] for a, b in zip(spans, spans[1:])) or any(g < 1 for g, _ in spans):
+        out, end = {}, 1
+        for ts in keep + new:
+            out[ts] = gid_slot(end)
+            end = out[ts] + max(ts.span, 1)
+    return out
+
+
+def room_tmj(src, tile, finder, tmj_path, doors=(), start=None):
+    """Compile one room: (the .tmj as a dict, issues, warnings, how many ids were kept). doors: [(glyph, target .tmj
+    path, entry glyph, extra properties)]; start: the glyph whose cell's feet the start goes at, or None."""
+    tw, th = tile
+    tmj_path = pathlib.Path(tmj_path)
+    issues, warns = [], []
+    prev = None
+    if tmj_path.exists():
+        try:
+            prev = json.loads(tmj_path.read_text())
+            if not isinstance(prev, dict):
+                raise ValueError("not a JSON object")
+        except ValueError as e:
+            issues.append(Issue("E_GENERATED", f"the previous {tmj_path.name} can't be read ({e}); its object ids "
+                                "are what keeps saved state pointing at the right objects, so fix or remove it",
+                                str(tmj_path)))
+            prev = None
+        else:
+            source = tiled_props(prev).get("source")
+            want = posix_rel(src.path, tmj_path.parent)
+            if not source:
+                issues.append(Issue("E_GENERATED", f"{tmj_path.name} has no 'source' property, so it wasn't compiled "
+                                    f"from {src.path.name} (a room made in Tiled?); export --tiled won't overwrite "
+                                    "it: move it, or delete it to compile the .map", str(tmj_path)))
+            elif source != want:
+                issues.append(Issue("E_GENERATED", f"{tmj_path.name} was compiled from {source}, not {want}; "
+                                    "export --tiled won't overwrite it", str(tmj_path)))
+    try:
+        imgs = load_legend(src.path)
+    except PxError as e:
+        return None, issues + e.issues, warns, 0
+    looked, found = {}, {}
+    ch_of = {a: ch for ch, a, _ in legend_entries(src.legend, src.where)}
+    for arg, it in imgs.items():
+        how = split_flip(arg)[1]
+        plain = flipped(it.img, how.replace("b", ""))
+        try:
+            ts, tid = finder.find(split_flip(arg)[0], plain)
+        except ValueError as e:
+            issues.append(Issue("E_TILESET", f"legend {ch_of[arg]!r} ({posix_rel(split_flip(arg)[0], src.path.parent)})"
+                                f": {e}", str(src.path), src.where[ch_of[arg]][0]))
+            continue
+        if ts.size(tid) != it.img.size:
+            issues.append(Issue("E_TILESET", f"legend {ch_of[arg]!r}: its art is {it.img.width}x{it.img.height}, "
+                                f"but {ts.path.name} tile {tid} is {ts.size(tid)[0]}x{ts.size(tid)[1]}",
+                                str(src.path), src.where[ch_of[arg]][0]))
+            continue
+        found[arg] = (ts, tid)
+        if "b" not in how and (it.img.width > tw or it.img.height > th):
+            warns.append(f"{src.path}:{src.where[ch_of[arg]][0]}: legend {ch_of[arg]!r} is {it.img.width}x"
+                         f"{it.img.height}, bigger than a {tw}x{th} cell, with no +b: it's placed by its top-left "
+                         "corner, as scene draws it (+b stands its feet on the cell)")
+    if issues:
+        return None, issues, warns, 0
+    W, H = src.w, src.h
+    used, layers = [], []
+    past = set()
+
+    def gid_of(arg):
+        ts, tid = found[arg]
+        if ts not in used:
+            used.append(ts)
+        how = split_flip(arg)[1]
+        return ts, tid, (GID_H if "h" in how else 0) | (GID_V if "v" in how else 0)
+    cells_by_layer = []
+    for li, rows in enumerate(src.layers, 1):
+        data, objs, boxes = [0] * (W * H), [], []
+        for y, (n, row) in enumerate(rows):
+            for x, ch in enumerate(row[:W]):
+                if ch == ".":
+                    continue
+                arg = pick_variant(src.legend[ch], src.id, x, y)
+                img = imgs[arg].img
+                ts, tid, flags = gid_of(arg)
+                bottom = "b" in split_flip(arg)[1]
+                cx, cy = x * tw, y * th
+                over = any(bx < cx + tw and cx < bx + bw and by < cy + th and cy < by + bh for bx, by, bw, bh in boxes)
+                if not bottom and img.size == (tw, th) and not over:
+                    data[y * W + x] = (ts, tid, flags)
+                    continue
+                sx, sy = cell_spot(arg, img, cx, cy, tile)
+                if (sx < 0 or sy < 0 or sx + img.width > W * tw or sy + img.height > H * th) and ch not in past:
+                    past.add(ch)
+                    warns.append(f"{src.path}:{n}:{src.col(n, x)}: {ch!r}'s art at cell {x},{y} reaches past the "
+                                 f"room's edge (scene crops it; the compiled room keeps all of it)")
+                boxes.append((sx, sy, img.width, img.height))
+                objs.append({"id": 0, "name": ch, "type": "", "gid": (ts, tid, flags), "x": sx, "y": sy + img.height,
+                             "width": img.width, "height": img.height, "rotation": 0, "visible": True})
+        cells_by_layer.append((li, data, objs))
+    world_objs = []
+    for ch, target, entry, extra in doors:
+        x, y, w, h = src.rect(ch)
+        props = {"entry": ("string", entry), "target": ("file", posix_rel(target, tmj_path.parent))}
+        for k, v in extra.items():
+            props[k] = ("bool" if isinstance(v, bool) else "int" if isinstance(v, int) else
+                        "float" if isinstance(v, float) else "string", v)
+        world_objs.append({"id": 0, "name": ch, "type": "door", "x": x * tw, "y": y * th, "width": w * tw,
+                           "height": h * th, "rotation": 0, "visible": True,
+                           "properties": [{"name": k, "type": t, "value": v} for k, (t, v) in sorted(props.items())]})
+    if start:
+        (x, y), = src.cells[start]
+        fx = x * tw + tw / 2
+        world_objs.append({"id": 0, "name": "start", "type": "start", "point": True,
+                           "x": int(fx) if fx == int(fx) else fx, "y": y * th + th, "width": 0, "height": 0,
+                           "rotation": 0, "visible": True})
+    nxt, kept, dropped = assign_ids([(f"layer {li} objects", o) for li, _, objs in cells_by_layer for o in objs]
+                                    + [("world", o) for o in world_objs], prev, tw, th)
+    ours = re.compile(r"^(layer \d+( objects)?|world)$")
+    for layer, o in dropped:  # left over from the previous .tmj: a removed cell, or something added in Tiled
+        if not (ours.match(layer) and (o.get("name") in src.legend or o.get("name") == "start")
+                and tiled_class(o) in ("", "door", "start")):
+            warns.append(f"{tmj_path}: object {o.get('id')} {o.get('name', '')!r} (layer {layer!r}) isn't from "
+                         f"{src.path.name}, and this compile drops it: add it to the source, or make the room in "
+                         "Tiled (a .tmj with no 'source')")
+    gids = firstgids(used, prev, tmj_path.parent)
+
+    def gid(t):
+        return 0 if not t else gids[t[0]] + t[1] | t[2]
+    lid = 0
+    for li, data, objs in cells_by_layer:
+        if any(data):
+            lid += 1
+            layers.append({"id": lid, "name": f"layer {li}", "type": "tilelayer", "width": W, "height": H, "x": 0,
+                           "y": 0, "opacity": 1, "visible": True, "data": [gid(t) for t in data]})
+        if objs:
+            for o in objs:
+                o["gid"] = gid(o["gid"])
+            lid += 1
+            layers.append({"id": lid, "name": f"layer {li} objects", "type": "objectgroup", "draworder": "index",
+                           "x": 0, "y": 0, "opacity": 1, "visible": True, "objects": objs})
+    if world_objs:
+        lid += 1
+        layers.append({"id": lid, "name": "world", "type": "objectgroup", "draworder": "index", "x": 0, "y": 0,
+                       "opacity": 1, "visible": True, "objects": world_objs})
+    tmj = {"type": "map", "version": TILED_FORMAT, "orientation": "orthogonal", "renderorder": "right-down",
+           "width": W, "height": H, "tilewidth": tw, "tileheight": th, "infinite": False, "compressionlevel": -1,
+           "nextlayerid": lid + 1, "nextobjectid": nxt,
+           "properties": [{"name": "source", "type": "file", "value": posix_rel(src.path, tmj_path.parent)}],
+           "layers": layers,
+           "tilesets": [{"firstgid": g, "source": posix_rel(ts.path, tmj_path.parent)}
+                        for ts, g in sorted(gids.items(), key=lambda tg: tg[1])]}
+    return tmj, issues, warns, kept
+
+
+def tiled_json(data):
+    """A .tmj/.world as text: indent 1, as W1's tilesets, but a tile layer's data a row to a line."""
+    rows = {}
+
+    def mark(d):
+        if isinstance(d, dict):
+            if d.get("type") == "tilelayer" and isinstance(d.get("data"), list):
+                key = f"@@rows{len(rows)}@@"
+                w = int(d["width"]) or 1
+                rows[key] = [d["data"][i:i + w] for i in range(0, len(d["data"]), w)]
+                return {k: (key if k == "data" else mark(v)) for k, v in d.items()}
+            return {k: mark(v) for k, v in d.items()}
+        if isinstance(d, list):
+            return [mark(v) for v in d]
+        return d
+    text = json.dumps(mark(data), indent=1)
+    for key, rs in rows.items():
+        m = re.search(rf'^( *)"data": "{re.escape(key)}"', text, re.M)
+        pad = m.group(1) + " "
+        body = ",\n".join(pad + ", ".join(str(v) for v in r) for r in rs)
+        text = text.replace(f'"{key}"', "[\n" + body + "\n" + m.group(1) + "]")
+    return text + "\n"
+
+
+def json_at(text, token):
+    """(line, col) of token's first appearance in text (a JSON string, quoted), or (None, None)."""
+    i = text.find(json.dumps(token))
+    if i < 0:
+        return None, None
+    return text.count("\n", 0, i) + 1, i - (text.rfind("\n", 0, i) + 1) + 1
+
+
+class WorldSrc:
+    """A world.src.json read and checked: its rooms (placed by layout, then interiors: rooms only doors name), the
+    start, the door pairs; issues say what's wrong, at file:line:col."""
+
+    def __init__(self, path, tile):
+        self.path, self.tile = pathlib.Path(path), tile
+        self.issues, self.notes = [], []
+        self.grid, self.placed, self.interiors, self.rooms = [], [], [], {}
+        self.start, self.doors = None, []
+        try:
+            self.text = self.path.read_text()
+        except OSError as e:
+            self.issues.append(Issue("E_FILE", e.strerror or str(e), str(self.path)))
+            return
+        try:
+            data = json.loads(self.text)
+        except ValueError as e:
+            self.issues.append(Issue("E_WORLD", f"not JSON: {getattr(e, 'msg', e)}", str(self.path),
+                                     getattr(e, "lineno", None), col=getattr(e, "colno", None)))
+            return
+        if not isinstance(data, dict):
+            self.issues.append(Issue("E_WORLD", 'a world source is a JSON object: {"layout": [...], "start": '
+                                     '{...}, "doors": [...]}', str(self.path), 1))
+            return
+        for k in data:
+            if k not in WORLD_KEYS:
+                self.err(f"unknown key {k!r} (a world source has {', '.join(WORLD_KEYS)}){guess(k, WORLD_KEYS)}", k)
+        self.read_layout(data.get("layout"))
+        self.read_doors(data.get("doors", []))
+        self.read_start(data.get("start"))
+
+    def err(self, msg, token=None, code="E_WORLD"):
+        n, c = json_at(self.text, token) if token is not None else (None, None)
+        self.issues.append(Issue(code, msg, str(self.path), n, col=c))
+
+    def room(self, rid, token):
+        """The room's RoomSrc (read once), or None when there's no rooms/<rid>.map (an issue)."""
+        if rid in self.rooms:
+            return self.rooms[rid]
+        p = self.path.parent / "rooms" / f"{rid}.map"
+        if not p.is_file():
+            there = sorted(q.stem for q in (self.path.parent / "rooms").glob("*.map"))
+            self.err(f"room {rid!r}: no {posix_rel(p, self.path.parent)} (a room is rooms/<name>.map beside "
+                     f"{self.path.name}){guess(rid, there)}", token)
+            self.rooms[rid] = None
+            return None
+        self.rooms[rid] = RoomSrc(p)
+        return self.rooms[rid]
+
+    def read_layout(self, layout):
+        if layout is None:
+            return self.err('no "layout": the rooms drawn where they sit, "layout": ["shore point", "cove ."]')
+        if not isinstance(layout, list) or not all(isinstance(r, str) for r in layout):
+            return self.err('"layout" is a list of strings, a row of room names each ("shore point")', "layout")
+        seen = {}
+        for row in layout:
+            names = row.split()
+            for name in names:
+                if name == ".":
+                    continue
+                if not ROOM_RE.match(name):
+                    self.err(f"layout: {name!r} isn't a room name (letters, digits, - and _; '.' for no room)", row)
+                elif name in seen:
+                    self.err(f"layout: room {name!r} is placed twice (a room sits in one place; reach it again "
+                             "through a door)", row)
+                else:
+                    seen[name] = row
+                    self.room(name, row)
+            self.grid.append(names)
+        self.placed = list(seen)
+        if not seen:
+            self.err('"layout" places no room', "layout")
+
+    def door_end(self, end, token):
+        m = re.match(r"^\s*(\S+)\s+(\S)\s*$", end) if isinstance(end, str) else None
+        if not m or not ROOM_RE.match(m.group(1)):
+            self.err(f"door end {end!r}: write 'ROOM CHAR', a room and the char drawn at the door ('point D')", token)
+            return None
+        return m.group(1), m.group(2)
+
+    def read_doors(self, doors):
+        if not isinstance(doors, list):
+            return self.err('"doors" is a list of pairs: [["point D", "tower d"]]', "doors")
+        ends = {}
+        for pair in doors:
+            token = pair[0] if isinstance(pair, list) and pair and isinstance(pair[0], str) else "doors"
+            if not (isinstance(pair, list) and len(pair) in (2, 3) and all(isinstance(e, str) for e in pair[:2])
+                    and (len(pair) == 2 or isinstance(pair[2], dict))):
+                self.err('a door pair is ["ROOM CHAR", "ROOM CHAR"], and optionally {"trigger": "use", ...} for '
+                         f"both doors' properties; got {json.dumps(pair)}", token)
+                continue
+            a, b = self.door_end(pair[0], pair[0]), self.door_end(pair[1], pair[1])
+            extra = pair[2] if len(pair) == 3 else {}
+            for k, v in extra.items():
+                if k in DOOR_RESERVED:
+                    self.err(f"door {pair[0]!r}: {k!r} is written by the compiler from the pair itself", k)
+                elif k == "trigger" and v not in ("touch", "use"):
+                    self.err(f"door {pair[0]!r}: trigger is 'touch' (the default) or 'use' (fires on "
+                             f"world.use), not {v!r}", k, "E_DOOR")
+                elif isinstance(v, (dict, list)) or v is None:
+                    self.err(f"door {pair[0]!r}: property {k!r} is a string, number or true/false", k)
+            if not a or not b:
+                continue
+            if a == b:
+                self.err(f"door {pair[0]!r} is paired with itself", pair[0], "E_DOOR")
+                continue
+            ok = True
+            for (rid, ch), token in ((a, pair[0]), (b, pair[1])):
+                if (rid, ch) in ends:
+                    self.err(f"door '{rid} {ch}' is in two pairs ({ends[(rid, ch)]!r} and this one); a door leads "
+                             "to one place", token, "E_DOOR")
+                    ok = False
+                    continue
+                ends[(rid, ch)] = token
+                src = self.room(rid, token)
+                if src is None:
+                    ok = False
+                elif ch not in src.cells:
+                    self.err(f"door '{rid} {ch}': no {ch!r} drawn in {posix_rel(src.path, self.path.parent)}"
+                             + guess(ch, src.cells), token, "E_DOOR")
+                    ok = False
+                elif src.rect(ch) is None:
+                    cells = src.cells[ch]
+                    self.issues.append(src.issue("E_DOOR", f"door '{rid} {ch}': {ch!r} is drawn at {len(cells)} "
+                                                 "cells that aren't one rectangle (a door is one rectangle of cells: "
+                                                 "a wide doorway is a row of them)", ch=ch))
+                    ok = False
+            if ok:
+                self.doors.append((a, b, extra))
+        for (rid, _), token in ends.items():
+            if rid not in self.placed and rid not in self.interiors and self.rooms.get(rid):
+                self.interiors.append(rid)
+
+    def read_start(self, start):
+        if start is None:
+            return  # the world rules say it: start-count
+        if not (isinstance(start, dict) and isinstance(start.get("room"), str) and isinstance(start.get("at"), str)
+                and len(start["at"]) == 1):
+            return self.err('"start" is {"room": ROOM, "at": CHAR}: the room, and the char drawn where the player '
+                            'starts ("at": "@")', "start")
+        rid, ch = start["room"], start["at"]
+        if rid not in self.placed and rid not in self.interiors:
+            return self.err(f"start: room {rid!r} isn't in the world (not in the layout, and no door leads there)"
+                            + guess(rid, self.placed + self.interiors), rid, "E_START")
+        src = self.rooms.get(rid)
+        if src is None:
+            return
+        cells = src.cells.get(ch) or []
+        if len(cells) != 1:
+            return self.err(f"start: {ch!r} is drawn at {len(cells)} cells in {posix_rel(src.path, self.path.parent)}"
+                            " (the start is at one)" + (": " + ", ".join(f"{x},{y}" for x, y in cells) if cells else
+                                                        guess(ch, src.cells)), "start", "E_START")
+        self.start = (rid, ch)
+
+    def world_path(self):
+        return self.path.parent / (self.path.name[:-len(WORLD_SRC)] + ".world")
+
+    def tmj(self, rid):
+        return self.path.parent / "rooms" / f"{rid}.tmj"
+
+    def layout_px(self):
+        """[(room, x, y, w, h)] in pixels: a layout column is as wide as its widest room, a row as tall as its
+        tallest; a column or row with no room is the size of the world's largest room."""
+        tw, th = self.tile
+        size = {r: (s.w * tw, s.h * th) for r, s in self.rooms.items() if s}
+        ncols = max((len(r) for r in self.grid), default=0)
+        cols = [max((size[row[c]][0] for row in self.grid if c < len(row) and row[c] in size), default=None)
+                for c in range(ncols)]
+        rows = [max((size[n][1] for n in row if n in size), default=None) for row in self.grid]
+        big_w, big_h = max((s[0] for s in size.values()), default=0), max((s[1] for s in size.values()), default=0)
+        cols, rows = [c if c is not None else big_w for c in cols], [r if r is not None else big_h for r in rows]
+        out = []
+        for ri, row in enumerate(self.grid):
+            for ci, name in enumerate(row):
+                if name in size:
+                    out.append((name, sum(cols[:ci]), sum(rows[:ri]), *size[name]))
+        return out
+
+
+RULE_HINT = {"start-count": ' (in world.src.json: "start": {"room": ROOM, "at": CHAR})'}
+
+
+def compile_world(src_path, tile, finder):
+    """world.src.json -> {path: .tmj/.world dict}, errors, warnings, a summary line. Rooms are rooms/<name>.map beside
+    it; each compiles to rooms/<name>.tmj, the world to <name>.world. The world rules run on the compiled files."""
+    w = WorldSrc(src_path, tile)
+    issues, warns = list(w.issues), []
+    rooms = {r: s for r, s in w.rooms.items() if s}
+    for s in rooms.values():
+        issues += s.issues
+        warns += s.warns
+    src_dir = w.path.parent
+    others = sorted(p for p in (src_dir / "rooms").glob("*.map") if p.stem not in rooms) \
+        if (src_dir / "rooms").is_dir() else []
+    notes = [f"{posix_rel(p, os.getcwd())} isn't in the world (no layout cell or door names {p.stem!r}); not "
+             "compiled" for p in others]
+    if issues:
+        return None, issues, warns, notes, None
+    doors = {r: [] for r in rooms}
+    for (ra, ca), (rb, cb), extra in w.doors:
+        doors[ra].append((ca, w.tmj(rb), cb, extra))
+        doors[rb].append((cb, w.tmj(ra), ca, extra))
+    out, kept = {}, {}
+    for rid in w.placed + w.interiors:
+        s = rooms[rid]
+        tmj, errs, ws, k = room_tmj(s, tile, finder, w.tmj(rid), doors[rid],
+                                    w.start[1] if w.start and w.start[0] == rid else None)
+        issues += errs
+        warns += ws
+        notes += s.notes
+        if tmj:
+            out[str(w.tmj(rid))], kept[rid] = tmj, (k, len([o for l in tmj["layers"] for o in l.get("objects", ())]))
+    if issues:
+        return None, issues, warns, notes, None
+    wp = w.world_path()
+    out[str(wp)] = {"type": "world", "onlyShowAdjacentMaps": False, "maps": [
+        {"fileName": posix_rel(w.tmj(r), wp.parent), "x": x, "y": y, "width": ww, "height": hh}
+        for r, x, y, ww, hh in w.layout_px()]}
+    for ri in world_rules(str(wp), lambda p: out.get(str(pathlib.Path(p))) if str(pathlib.Path(p)) in out
+                          else read_json(p)):
+        s = rooms.get(ri.room)
+        loc = None
+        if s and ri.name and ri.code.startswith("door") and ri.name in s.cells:
+            loc = s.glyph_at(ri.name)
+        elif s and ri.cell:
+            loc = s.at(*ri.cell)
+        msg = f"{ri.code}: {ri.msg}" + RULE_HINT.get(ri.code, "")
+        where = (str(s.path), *loc) if s and loc else (str(s.path), None, None) if s else (str(w.path), None, None)
+        if ri.level == "error":
+            issues.append(Issue("E_WORLD", msg, where[0], where[1], col=where[2]))
+        else:
+            warns.append(f"{where[0]}" + (f":{where[1]}:{where[2]}" if where[1] else "") + f": {msg}")
+    if issues:
+        return None, issues, warns, notes, None
+    summary = (w, kept)
+    return out, issues, warns, notes, summary
+
+
+def read_json(p):
+    try:
+        with open(p) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+# ---- the world rules (the spec: tests/fixtures/world_rules/SPEC.md; its fixtures run here and in the harness)
+
+WORLD_RULES = {  # code: level. The same list as the spec's rules.json; a rule is added to both or the tests fail.
+    "room-missing": "error", "room-id-dup": "error", "tileset-missing": "error",
+    "start-count": "error", "start-solid": "error",
+    "door-target": "error", "door-entry": "error", "door-pair": "error", "door-name-dup": "error",
+    "door-trigger": "error", "door-arrival": "error", "door-unreachable": "error",
+    "tiled-unsupported": "error", "room-overlap": "error",
+    "edge-one-side": "warning", "room-unreachable": "warning", "door-arrival-split": "warning",
+}
+EDGES = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}
+
+
+class RuleIssue:
+    def __init__(self, code, room, name, cell, msg):
+        self.level, self.code, self.room, self.name, self.cell, self.msg = WORLD_RULES[code], code, room, name, \
+            (list(cell) if cell is not None else None), msg
+
+    def key(self):
+        return self.level, self.code, self.room, self.name, self.cell
+
+    def __repr__(self):
+        return f"{self.level} {self.code} room={self.room} name={self.name} cell={self.cell}: {self.msg}"
+
+
+class RuleRoom:
+    """A loaded room as the rules see it: size, which cells are solid, its doors and starts."""
+
+    def __init__(self, path, data, read, out):
+        self.path, self.data, self.out = path, data, out
+        self.id = pathlib.PurePath(path).stem
+        self.tw, self.th = int(data.get("tilewidth") or 1), int(data.get("tileheight") or 1)
+        self.w, self.h = int(data.get("width") or 0), int(data.get("height") or 0)
+        self.pos = None
+        self.solid = set()
+        self.doors, self.starts = [], []
+        sets = []
+        for t in data.get("tilesets") or ():
+            if not isinstance(t, dict):
+                continue
+            if t.get("source"):
+                sp = posixpath.normpath(posixpath.join(posixpath.dirname(path), t["source"]))
+                got = read(sp)
+                if not isinstance(got, dict):
+                    out.append(RuleIssue("tileset-missing", self.id, None, None,
+                                         f"{self.id}: tileset {t['source']} can't be loaded"))
+                    sets.append((int(t.get("firstgid") or 1), None))  # its GIDs stay its own: unresolved
+                    continue
+                sets.append((int(t.get("firstgid") or 1), Tileset(sp, got)))
+            else:
+                sets.append((int(t.get("firstgid") or 1), Tileset(path, t)))
+        self.sets = sorted(sets, key=lambda s: s[0])
+        for _, ts in self.sets:
+            d = ts.data if ts else {}
+            if any(float((d.get("tileoffset") or {}).get(k) or 0) for k in ("x", "y")):
+                self.unsupported("tileoffset", f"tileset {ts.path.name} has a tileoffset")
+            if d.get("objectalignment") not in (None, "unspecified", "bottomleft"):
+                self.unsupported("objectalignment", f"tileset {ts.path.name} aligns objects "
+                                 f"{d.get('objectalignment')!r}, not bottom-left")
+        for layer in all_layers(data.get("layers") or ()):
+            if any(float(layer.get(k) or 0) for k in ("offsetx", "offsety")):
+                self.unsupported("layer offset", f"layer {layer.get('name', '')!r} is offset")
+            if layer.get("type") == "tilelayer":
+                for i, g in enumerate(layer.get("data") or ()):
+                    if g:
+                        cx, cy = i % self.w, i // self.w
+                        self.block(g, cx * self.tw, (cy + 1) * self.th, None, None)
+            elif layer.get("type") == "objectgroup":
+                for o in layer.get("objects") or ():
+                    if not isinstance(o, dict):
+                        continue
+                    cls = self.cls(o)
+                    if float(o.get("rotation") or 0) and (o.get("gid") or cls in ("door", "start")):
+                        self.unsupported("rotation", f"object {o.get('id')} {o.get('name', '')!r} is rotated")
+                    if cls == "door":
+                        self.doors.append(o)
+                    elif cls == "start":
+                        self.starts.append(o)
+                    elif o.get("gid"):
+                        self.block(o["gid"], float(o.get("x") or 0), float(o.get("y") or 0),
+                                   float(o.get("width") or 0), float(o.get("height") or 0))
+
+    def unsupported(self, what, msg):
+        if not any(i.code == "tiled-unsupported" and i.room == self.id and i.name == what for i in self.out):
+            self.out.append(RuleIssue("tiled-unsupported", self.id, what, None, f"{self.id}: {msg} (the rules, "
+                                      "and the harness, don't read that)"))
+
+    def tile(self, gid):
+        """(Tileset, tile id) for a GID: the tileset with the largest firstgid not above it. A missing tileset's
+        range resolves to (None, None), never to the tileset before it."""
+        g = gid & ~GID_FLAGS
+        for first, ts in reversed(self.sets):
+            if g >= first:
+                return (ts, g - first) if ts else (None, None)
+        return None, None
+
+    def cls(self, o):
+        """An object's class: its own, else (a tile object) its tile's."""
+        own = tiled_class(o)
+        if own or not o.get("gid"):
+            return own
+        ts, tid = self.tile(o["gid"])
+        return ts.cls(tid) if ts else ""
+
+    def block(self, gid, left, bottom, w, h):
+        """Mark the cells a tile's collision shapes cover: the tile drawn with its bottom-left at left,bottom (w,h: a
+        tile object's size, scaling the art; None: the art's own), flipped as its GID says. A marker blocks nothing."""
+        ts, tid = self.tile(gid)
+        if ts is None or ts.cls(tid) == MARKER_CLASS:
+            return
+        iw, ih = ts.size(tid)
+        w, h = w or iw, h or ih
+        sx, sy = (w / iw if iw else 1), (h / ih if ih else 1)
+        for x, y, rw, rh in ts.collision(tid):
+            if gid & GID_D:
+                x, y, rw, rh = y, x, rh, rw
+            if gid & GID_H:
+                x = iw - x - rw
+            if gid & GID_V:
+                y = ih - y - rh
+            x0, y0, x1, y1 = left + x * sx, bottom - h + y * sy, left + (x + rw) * sx, bottom - h + (y + rh) * sy
+            for cy in range(math.floor(y0 / self.th), math.ceil(y1 / self.th)):
+                for cx in range(math.floor(x0 / self.tw), math.ceil(x1 / self.tw)):
+                    if min(x1, (cx + 1) * self.tw) > max(x0, cx * self.tw) and \
+                            min(y1, (cy + 1) * self.th) > max(y0, cy * self.th):
+                        self.solid.add((cx, cy))
+
+    def inside(self, c):
+        return 0 <= c[0] < self.w and 0 <= c[1] < self.h
+
+    def walkable(self, c):
+        return self.inside(c) and c not in self.solid
+
+    def door_cells(self, o):
+        """The cells a door's rectangle overlaps (a zero-size door: the cell it's in). A door that is a tile object
+        covers its art: Tiled's y is then its bottom edge."""
+        x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+        if o.get("gid"):
+            y -= h
+        if w <= 0 or h <= 0:
+            return [(math.floor(x / self.tw), math.floor(y / self.th))]
+        return [(cx, cy) for cy in range(math.floor(y / self.th), math.ceil((y + h) / self.th))
+                for cx in range(math.floor(x / self.tw), math.ceil((x + w) / self.tw))]
+
+    def beside(self, o):
+        """Arrival cells: the walkable cells next to the door's rectangle (4 ways), outside it, inside the room."""
+        cells = self.door_cells(o)
+        out = []
+        for cx, cy in cells:
+            for dx, dy in EDGES.values():
+                c = (cx + dx, cy + dy)
+                if c not in cells and c not in out and self.walkable(c):
+                    out.append(c)
+        return out
+
+    def regions(self, cells):
+        """How many separate regions cells fall in: groups joined by 4-connected walkable cells of this room."""
+        left, n = set(cells), 0
+        while left:
+            n += 1
+            todo = [left.pop()]
+            seen = set(todo)
+            while todo:
+                cx, cy = todo.pop()
+                for dx, dy in EDGES.values():
+                    c = (cx + dx, cy + dy)
+                    if c not in seen and self.walkable(c):
+                        seen.add(c)
+                        todo.append(c)
+            left -= seen
+        return n
+
+    def touch(self, o):
+        """Cells the player can stand in and touch the door from: its walkable cells and the arrival cells."""
+        return [c for c in self.door_cells(o) if self.walkable(c)] + self.beside(o)
+
+    def world_cell(self, c):
+        """The world point at the centre of cell c (which may be just outside the room)."""
+        return self.pos[0] + (c[0] + 0.5) * self.tw, self.pos[1] + (c[1] + 0.5) * self.th
+
+    def cell_at(self, px, py):
+        return math.floor((px - self.pos[0]) / self.tw), math.floor((py - self.pos[1]) / self.th)
+
+    def contains(self, px, py):
+        return self.pos[0] <= px < self.pos[0] + self.w * self.tw and self.pos[1] <= py < self.pos[1] + self.h * self.th
+
+
+def world_rules(world_path, read):
+    """The world rules (SPEC.md beside tests/fixtures/world_rules/) over a Tiled world: world_path's .world and the
+    rooms it places, and every room a door leads to (read(path) -> parsed JSON, or None when there's none; paths are
+    POSIX, a file's references resolved from its directory). Returns [RuleIssue], errors and warnings, in a stable
+    order."""
+    out = []
+    world_path = posixpath.normpath(str(pathlib.PurePath(world_path).as_posix()))
+    world = read(world_path) or {}
+    rooms, order, placed = {}, [], []
+
+    def load(p):
+        if p not in rooms:
+            data = read(p)
+            rooms[p] = RuleRoom(p, data, read, out) if isinstance(data, dict) else None
+            if rooms[p]:
+                order.append(p)
+        return rooms[p]
+    for m in world.get("maps") or ():
+        p = posixpath.normpath(posixpath.join(posixpath.dirname(world_path), m.get("fileName", "")))
+        r = load(p)
+        if r is None:
+            out.append(RuleIssue("room-missing", pathlib.PurePath(p).stem, None, None,
+                                 f"the world places {m.get('fileName')!r}, which can't be loaded"))
+            continue
+        r.pos = (float(m.get("x") or 0), float(m.get("y") or 0))
+        placed.append(r)
+
+    for i, a in enumerate(placed):  # placed rooms may touch, never overlap
+        for b in placed[:i]:
+            ax, ay, bx, by = a.pos + b.pos
+            if min(ax + a.w * a.tw, bx + b.w * b.tw) > max(ax, bx) and \
+                    min(ay + a.h * a.th, by + b.h * b.th) > max(ay, by):
+                out.append(RuleIssue("room-overlap", a.id, b.id, None, f"{a.id} and {b.id} overlap in the world: "
+                                     "rooms may share a side, never area"))
+
+    def target_of(r, o):
+        t = tiled_props(o).get("target")
+        return posixpath.normpath(posixpath.join(posixpath.dirname(r.path), t)) if isinstance(t, str) and t else None
+    i = 0
+    while i < len(order):  # interiors: rooms a door leads to, found by following targets
+        r = rooms[order[i]]
+        for o in r.doors:
+            t = target_of(r, o)
+            if t:
+                load(t)
+        i += 1
+    live = [rooms[p] for p in order]
+    ids = {}
+    for r in live:
+        ids.setdefault(r.id, []).append(r)
+    for rid, rs in ids.items():
+        if len(rs) > 1:
+            out.append(RuleIssue("room-id-dup", rid, None, None, f"{len(rs)} rooms are called {rid!r} ("
+                                 + ", ".join(x.path for x in rs) + "); a room's id is its file name"))
+    # doors
+    bad_arrival, partner = set(), {}
+    for r in live:
+        names, doors = {}, []
+        for o in r.doors:
+            name = o.get("name", "")
+            cell = r.door_cells(o)[0]
+            if name in names:
+                out.append(RuleIssue("door-name-dup", r.id, name, cell, f"{r.id} has two doors named {name!r}; a "
+                                     "door's entry names one"))
+                continue
+            doors.append(o)
+            names[name] = o
+            props = tiled_props(o)
+            if props.get("trigger", "touch") not in ("touch", "use"):
+                out.append(RuleIssue("door-trigger", r.id, name, cell, f"door {name!r} in {r.id}: trigger is "
+                                     f"'touch' or 'use', not {props.get('trigger')!r}"))
+            if not r.beside(o):
+                bad_arrival.add((r.path, id(o)))
+                out.append(RuleIssue("door-arrival", r.id, name, cell, f"door {name!r} in {r.id} has no walkable "
+                                     "cell beside it, so arriving there would put the player inside a solid"))
+            elif r.regions(r.beside(o)) > 1:
+                out.append(RuleIssue("door-arrival-split", r.id, name, cell, f"door {name!r} in {r.id} has "
+                                     "walkable cells beside it in separate regions, so where you arrive decides "
+                                     "where you can go (the runtime arrives facing into the room)"))
+            t = target_of(r, o)
+            tr = rooms.get(t) if t else None
+            if tr is None:
+                out.append(RuleIssue("door-target", r.id, name, cell, f"door {name!r} in {r.id} " + (
+                    f"leads to {props.get('target')!r}, which can't be loaded" if t else "has no target")))
+                continue
+            entry = props.get("entry")
+            there = [d for d in tr.doors if d.get("name") == entry] if isinstance(entry, str) and entry else []
+            if not there:
+                out.append(RuleIssue("door-entry", r.id, name, cell, f"door {name!r} in {r.id} " + (
+                    f"enters {tr.id} at {entry!r}, and {tr.id} has no door {entry!r}" if entry else "has no entry")))
+                continue
+            back = there[0]
+            if target_of(tr, back) != r.path or tiled_props(back).get("entry") != name:
+                out.append(RuleIssue("door-pair", r.id, name, cell, f"door {name!r} in {r.id} leads to {entry!r} in "
+                                     f"{tr.id}, which doesn't lead back to {name!r} in {r.id} (doors pair up)"))
+                continue
+            partner[(r.path, id(o))] = (tr, back)
+        r.doors = doors  # a later door with a name taken is left out of everything else
+    # the start
+    starts = [(r, o) for r in live for o in r.starts]
+    start = None
+    if not starts:
+        out.append(RuleIssue("start-count", None, None, None, "the world has no start (a point object of class "
+                             "'start', in exactly one room)"))
+    elif len(starts) > 1:
+        for r, o in starts:
+            out.append(RuleIssue("start-count", r.id, o.get("name", ""), start_cell(o, r.tw, r.th),
+                                 f"{len(starts)} starts in the world; there is exactly one"))
+    else:
+        r, o = starts[0]
+        cell = start_cell(o, r.tw, r.th)
+        if not r.walkable(cell):
+            out.append(RuleIssue("start-solid", r.id, o.get("name", ""), cell, f"the start in {r.id} is at cell "
+                                 f"{cell[0]},{cell[1]}, " + ("which is solid" if r.inside(cell) else
+                                                              "outside the room")))
+        else:
+            start = (r, cell)
+    # reachability: from the start, walking between walkable cells, across shared edges, through paired doors
+    if start:
+        seen = {(start[0].path, start[1])}
+        todo = [(start[0], start[1])]
+        touches = {}
+        for r in live:
+            for o in r.doors:
+                for c in r.touch(o):
+                    touches.setdefault((r.path, c), []).append(o)
+        while todo:
+            r, c = todo.pop()
+            steps = []
+            for dx, dy in EDGES.values():
+                n = (c[0] + dx, c[1] + dy)
+                if r.inside(n):
+                    steps.append((r, n))
+                elif r.pos is not None:
+                    px, py = r.world_cell(n)
+                    for b in placed:
+                        if b is not r and b.contains(px, py):
+                            steps.append((b, b.cell_at(px, py)))
+                            break
+            for o in touches.get((r.path, c), ()):
+                if (r.path, id(o)) in partner:
+                    tr, back = partner[(r.path, id(o))]
+                    steps += [(tr, a) for a in tr.beside(back)]
+            for b, n in steps:
+                if b.walkable(n) and (b.path, n) not in seen:
+                    seen.add((b.path, n))
+                    todo.append((b, n))
+        for r in live:
+            for o in r.doors:
+                if (r.path, id(o)) not in bad_arrival and not any((r.path, c) in seen for c in r.touch(o)):
+                    out.append(RuleIssue("door-unreachable", r.id, o.get("name", ""), r.door_cells(o)[0],
+                                         f"door {o.get('name', '')!r} in {r.id} can't be reached from the start"))
+            if not any(p == r.path for p, _ in seen):
+                out.append(RuleIssue("room-unreachable", r.id, None, None, f"no walkable cell of {r.id} can be "
+                                     "reached from the start"))
+    # shared edges: walkable on one side only (reported from the walkable side, a stretch at a time)
+    for a in placed:
+        for side, (dx, dy) in EDGES.items():
+            border = [(x, 0 if dy < 0 else a.h - 1) for x in range(a.w)] if dy else \
+                [(0 if dx < 0 else a.w - 1, y) for y in range(a.h)]
+            run = None
+            for c in border + [None]:
+                hit = None
+                if c is not None and a.walkable(c):
+                    px, py = a.world_cell((c[0] + dx, c[1] + dy))
+                    b = next((b for b in placed if b is not a and b.contains(px, py)), None)
+                    if b is not None and not b.walkable(b.cell_at(px, py)):
+                        hit = b
+                if run and (hit is not run[0] or c is None):
+                    b, first, n = run
+                    out.append(RuleIssue("edge-one-side", a.id, side, first, f"{a.id}'s {side} edge from cell "
+                                         f"{first[0]},{first[1]} ({n} cell{'s' * (n != 1)}) is walkable, and across "
+                                         f"it {b.id} is solid: walking over puts the player in a solid"))
+                    run = None
+                if hit is not None:
+                    run = (hit, c, 1) if run is None else (run[0], run[1], run[2] + 1)
+    rank = {p: i for i, p in enumerate(order)}
+    return sorted(out, key=lambda i: (i.level != "error", rank.get(next((p for p in order if rooms[p].id == i.room),
+                                                                         ""), -1), i.code, str(i.name), i.cell or []))
+
+
+def world_rules_files(files, world="world.world", root=None):
+    """world_rules over an in-memory world, as the fixtures are: files {POSIX path: parsed JSON}; a path not in it is
+    read from disk under root (a shared tileset)."""
+    def read(p):
+        if p in files:
+            return files[p]
+        return read_json(os.path.join(root, p)) if root else None
+    return world_rules(world, read)
+
+
+def room_summary(tmj):
+    objs = [o for l in tmj["layers"] for o in l.get("objects", ())]
+    return f"{tmj['width']}x{tmj['height']}, {len(objs)} object{'s' * (len(objs) != 1)}"
+
+
+def world_room(map_path, tmj_path):
+    """Why a .map is a world's room, not one to compile alone: a world source beside its rooms/ directory, or a
+    previous .tmj with doors or a start in it. None when it's neither."""
+    map_path = pathlib.Path(map_path)
+    if map_path.parent.name == "rooms":
+        worlds = sorted(map_path.parent.parent.glob("*" + WORLD_SRC))
+        if worlds:
+            return f"{map_path.name} is a room of {posix_rel(worlds[0], os.getcwd())}"
+    prev = read_json(tmj_path) if pathlib.Path(tmj_path).exists() else None
+    if isinstance(prev, dict) and any(tiled_class(o) in ("door", "start") for l in all_layers(prev.get("layers") or ())
+                                      for o in l.get("objects") or () if isinstance(o, dict)):
+        return f"{pathlib.Path(tmj_path).name} has doors or a start (a world's room)"
+    return None
+
+
+def source_args(files):
+    """export --tiled's sources: a directory stands for the world sources under it (a rooms/ directory is an error
+    naming the world source beside it)."""
+    out = []
+    for f in files:
+        if not os.path.isdir(f):
+            out.append(f)
+            continue
+        found = sorted(str(p) for p in pathlib.Path(f).rglob("*" + WORLD_SRC))
+        if not found:
+            beside = sorted(pathlib.Path(f).resolve().parent.glob("*" + WORLD_SRC))
+            fail("E_FILE", f"{f} is a directory with no *{WORLD_SRC} under it" + (
+                f"; its rooms are compiled with their world: export {posix_rel(beside[0], os.getcwd())} --tiled"
+                if beside else "; name the .map files, or the world source"))
+        out += found
+    return out
+
+
+def export_tiled(a, files):
+    """export --tiled on sources: each world.src.json compiles with its rooms, each lone .map as a room with no
+    doors or start."""
+    tile = parse_tile(a.tile)
+    with reading("--tileset"):
+        finder = TileFinder(a.tileset or ())
+    outputs, issues, warns, notes, lines = {}, [], [], [], []
+    for f in files:
+        if is_world_src(f):
+            got, errs, ws, ns, summary = compile_world(f, tile, finder)
+            issues += errs
+            warns += ws
+            notes += ns
+            if got:
+                w, kept = summary
+                for rid in w.placed + w.interiors:
+                    p = str(w.tmj(rid))
+                    k, n = kept[rid]
+                    lines.append((p, f"{room_summary(got[p])} ({k} kept id{'s' * (k != 1)}, {n - k} new)"
+                                  + (", interior" if rid in w.interiors else "")))
+                wp = str(w.world_path())
+                lines.append((wp, f"{len(w.placed)} room{'s' * (len(w.placed) != 1)} placed"
+                              + (f", interior{'s' * (len(w.interiors) != 1)} {', '.join(w.interiors)}"
+                                 if w.interiors else "") + (f", start in {w.start[0]}" if w.start else "")))
+                outputs.update(got)
+        else:
+            src = RoomSrc(f)
+            tp = src.path.with_suffix(".tmj")
+            why = world_room(src.path, tp)
+            if why:
+                issues.append(Issue("E_WORLD", f"{why}: compiled alone it would lose its doors and start; compile "
+                                    "the world instead ('export WORLD.src.json --tiled')", str(src.path)))
+                continue
+            notes += src.notes
+            warns += src.warns
+            if src.issues:
+                issues += src.issues
+                continue
+            tmj, errs, ws, k = room_tmj(src, tile, finder, tp)
+            issues += errs
+            warns += ws
+            if tmj:
+                n = sum(len(l.get("objects", ())) for l in tmj["layers"])
+                outputs[str(tp)] = tmj
+                lines.append((str(tp), f"{room_summary(tmj)} ({k} kept id{'s' * (k != 1)}, {n - k} new)"))
+    for n in notes:
+        print("note:", n)
+    for w_ in warns:
+        print("WARNING:", w_)
+    if issues:
+        raise PxError(issues)
+    for p, data in outputs.items():
+        outpath(p).write_text(tiled_json(data))
+    for p, what in lines:
+        print(f"wrote {p}: {what}")
+
+
+def check_world(path, tile, tilesets=()):
+    """check on a world.src.json: every error export --tiled would stop on, and its warnings; nothing written.
+    (ok, how many warnings and notes it printed)."""
+    try:
+        got, issues, warns, notes, summary = compile_world(path, tile, TileFinder(tilesets))
+    except PxError as e:
+        got, issues, warns, notes, summary = None, e.issues, [], [], None
+    if issues:
+        print(f"FAIL {path}: {len(issues)} error(s)")
+        for i in issues:
+            print(f"     {i}")
+    else:
+        w = summary[0]
+        print(f"ok   {path}: {len(w.placed)} room{'s' * (len(w.placed) != 1)} placed"
+              + (f", interior{'s' * (len(w.interiors) != 1)} {', '.join(w.interiors)}" if w.interiors else "")
+              + f", {len(w.doors)} door pair{'s' * (len(w.doors) != 1)}, start in {w.start[0]}")
+    for n in notes:
+        print(f"     note: {n}")
+    for x in warns:
+        print(f"     WARNING: {x}")
+    return not issues, len(notes) + len(warns)
 
 
 def cmd_from_png(a):
@@ -8114,7 +9534,8 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
     "palette": "List a file's palette and what each variant does; or edit it: add keys and variants, derive a\n"
                "night or dusk, hoist, import, remove, order, comment, export.",
     "export": "Write frames as PNGs (--frames), an Aseprite sheet and JSON (--aseprite) or a Tiled tileset\n"
-              "(--tiled), from files or whole folders.",
+              "(--tiled), from files or whole folders; or compile a world (world.src.json and its .map rooms)\n"
+              "to Tiled maps and a .world (--tiled).",
     "help": "The reference: all of it, a topic, one command, or the seven worked recipes.",
     "from-png": "Convert PNGs (loose, a pack with a labels CSV, or one sheet sliced by --grid) to .px with\n"
                 "exact pixels.",
@@ -8177,6 +9598,8 @@ def cmd_help(a):
         print(__doc__.rstrip())
     elif want.lower() == "recipes":
         print(RECIPES.rstrip())
+    elif want.lower() == "worlds":
+        print(WORLDS.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -8187,7 +9610,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 
@@ -8356,6 +9779,9 @@ def parser(describe=True):
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
+    p.add_argument("--tile", default="16x16", help="a world source's tile size: WxH, or N for NxN (default 16x16)")
+    p.add_argument("--tileset", action="append", metavar="T.tsj",
+                   help="a world source's rooms may draw with this tileset too (repeatable)")
     p = sub.add_parser("stats"); p.add_argument("files", nargs="+")
     p.add_argument("--variant", metavar="V", help="render every frame in V (a FILE's own %%V wins): its bbox and colors")
     p.add_argument("--colors", action="store_true", help="each frame's rendered colors, pixel counts and keys")
@@ -8541,8 +9967,13 @@ def parser(describe=True):
                    "FILE stays as it is")
     g.add_argument("--dry-run", action="store_true", help="print what the edit says and a diff of each file it would "
                    "change; write nothing")
-    p = sub.add_parser("export"); p.add_argument("files", nargs="+"); p.add_argument("--frames"); p.add_argument("--aseprite")
-    p.add_argument("--tiled"); p.add_argument("--variant")
+    p = sub.add_parser("export"); p.add_argument("files", nargs="*"); p.add_argument("--frames"); p.add_argument("--aseprite")
+    p.add_argument("--tile", default="16x16", help="sources: the rooms' tile size, WxH or N for NxN (default 16x16)")
+    p.add_argument("--tiled", nargs="?", const=True, metavar="X.tsj",
+                   help="frames: a Tiled tileset X.tsj; world.src.json or .map sources: their .tmj/.world beside them")
+    p.add_argument("--variant")
+    p.add_argument("--tileset", action="append", metavar="T.tsj",
+                   help="sources: rooms may draw with this tileset too, beside their packs' tiled/*.tsj (repeatable)")
     p.add_argument("--prefix-file", action="store_true",
                    help="id each file's frames FILE/ID (FILE: its path under DIR, or its stem), so ids can't collide")
     p.add_argument("--exclude", action="append", metavar="GLOB",

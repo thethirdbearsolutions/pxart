@@ -1,0 +1,471 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "name": "lighthouse-keeper-ground",
+ "properties": [
+  {
+   "name": "nextid",
+   "type": "int",
+   "value": 18
+  }
+ ],
+ "tilewidth": 16,
+ "tileheight": 16,
+ "tilecount": 20,
+ "columns": 5,
+ "margin": 0,
+ "spacing": 0,
+ "image": "lighthouse-keeper-ground.png",
+ "imagewidth": 80,
+ "imageheight": 64,
+ "tiles": [
+  {
+   "id": 0,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/sand.png"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/water/0.png"
+    }
+   ],
+   "animation": [
+    {
+     "tileid": 1,
+     "duration": 500
+    },
+    {
+     "tileid": 2,
+     "duration": 500
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 2,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/water/1.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/shore/0.png"
+    }
+   ],
+   "animation": [
+    {
+     "tileid": 3,
+     "duration": 600
+    },
+    {
+     "tileid": 4,
+     "duration": 600
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/shore/1.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 5,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/sand2.png"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/sand3.png"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/sand4.png"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "world/sand5.png"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/wall.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 10,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/face_upper.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 11,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/face_lower.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 12,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/window.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 13,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/door_upper.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 14,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/door_lower.png"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "objects": [
+     {
+      "id": 1,
+      "name": "",
+      "type": "",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16,
+      "rotation": 0,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 15,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/floor.png"
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/floor2.png"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "type": "tile_fill",
+   "properties": [
+    {
+     "name": "png",
+     "type": "string",
+     "value": "interior/floor_shadow.png"
+    }
+   ]
+  }
+ ]
+}

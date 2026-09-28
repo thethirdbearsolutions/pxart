@@ -1,0 +1,146 @@
+{
+ "about": "b is placed apart from a, with no door: nothing can reach it.",
+ "world": "world.world",
+ "files": {
+  "world.world": {
+   "type": "world",
+   "onlyShowAdjacentMaps": false,
+   "maps": [
+    {
+     "fileName": "rooms/a.tmj",
+     "x": 0,
+     "y": 0,
+     "width": 80,
+     "height": 64
+    },
+    {
+     "fileName": "rooms/b.tmj",
+     "x": 160,
+     "y": 0,
+     "width": 80,
+     "height": 64
+    }
+   ]
+  },
+  "rooms/a.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      2, 1, 1, 1, 2,
+      2, 1, 1, 1, 2,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "start",
+       "type": "start",
+       "rotation": 0,
+       "visible": true,
+       "point": true,
+       "x": 24,
+       "y": 32,
+       "width": 0,
+       "height": 0
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  },
+  "rooms/b.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 1,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      2, 1, 1, 1, 2,
+      2, 1, 1, 1, 2,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": []
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  }
+ },
+ "expect": [
+  {
+   "level": "warning",
+   "code": "room-unreachable",
+   "room": "b",
+   "name": null,
+   "cell": null
+  }
+ ]
+}

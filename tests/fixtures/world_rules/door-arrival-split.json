@@ -1,0 +1,189 @@
+{
+ "about": "The door is in a wall between two pockets: its arrival cells (2,1 and 4,1) are in separate regions, so which one the runtime picks decides where the player can go. Reachability counts both.",
+ "world": "world.world",
+ "files": {
+  "world.world": {
+   "type": "world",
+   "onlyShowAdjacentMaps": false,
+   "maps": [
+    {
+     "fileName": "rooms/a.tmj",
+     "x": 0,
+     "y": 0,
+     "width": 112,
+     "height": 64
+    }
+   ]
+  },
+  "rooms/a.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 7,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 3,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 7,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2, 2, 2,
+      2, 1, 1, 2, 1, 1, 2,
+      2, 1, 1, 2, 1, 1, 2,
+      2, 2, 2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "start",
+       "type": "start",
+       "rotation": 0,
+       "visible": true,
+       "point": true,
+       "x": 24,
+       "y": 32,
+       "width": 0,
+       "height": 0
+      },
+      {
+       "id": 2,
+       "name": "D",
+       "type": "door",
+       "rotation": 0,
+       "visible": true,
+       "x": 48,
+       "y": 16,
+       "width": 16,
+       "height": 16,
+       "properties": [
+        {
+         "name": "entry",
+         "type": "string",
+         "value": "E"
+        },
+        {
+         "name": "target",
+         "type": "file",
+         "value": "b.tmj"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  },
+  "rooms/b.tmj": {
+   "type": "map",
+   "version": "1.10",
+   "orientation": "orthogonal",
+   "renderorder": "right-down",
+   "width": 5,
+   "height": 4,
+   "tilewidth": 16,
+   "tileheight": 16,
+   "infinite": false,
+   "nextlayerid": 3,
+   "nextobjectid": 2,
+   "layers": [
+    {
+     "id": 1,
+     "name": "ground",
+     "type": "tilelayer",
+     "width": 5,
+     "height": 4,
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "data": [
+      2, 2, 2, 2, 2,
+      2, 1, 1, 1, 2,
+      2, 1, 1, 1, 2,
+      2, 2, 2, 2, 2
+     ]
+    },
+    {
+     "id": 2,
+     "name": "world",
+     "type": "objectgroup",
+     "draworder": "index",
+     "x": 0,
+     "y": 0,
+     "opacity": 1,
+     "visible": true,
+     "objects": [
+      {
+       "id": 1,
+       "name": "E",
+       "type": "door",
+       "rotation": 0,
+       "visible": true,
+       "x": 32,
+       "y": 16,
+       "width": 16,
+       "height": 16,
+       "properties": [
+        {
+         "name": "entry",
+         "type": "string",
+         "value": "D"
+        },
+        {
+         "name": "target",
+         "type": "file",
+         "value": "a.tmj"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "tilesets": [
+    {
+     "firstgid": 1,
+     "source": "../tiles.tsj"
+    }
+   ]
+  }
+ },
+ "expect": [
+  {
+   "level": "warning",
+   "code": "door-arrival-split",
+   "room": "a",
+   "name": "D",
+   "cell": [
+    3,
+    1
+   ]
+  }
+ ]
+}

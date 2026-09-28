@@ -12559,7 +12559,7 @@ def test_check_dir_and_file_checked_once(tmp_path, capsys):
 def test_check_empty_dir_is_e_file(tmp_path):
     (tmp_path / "e").mkdir()
     msg = run_err("check", tmp_path / "e")
-    assert msg.startswith("check: E_FILE: ") and "no *.px or *.map files under it" in msg
+    assert msg.startswith("check: E_FILE: ") and "no *.px, *.map or *.src.json files under it" in msg
 
 
 def test_sheet_dir_skips_the_palette_file_with_a_note(tmp_path, capsys):
@@ -22754,7 +22754,8 @@ def test_readme_points_at_the_recipes():
 
 def test_help_all_does_not_grow(capsys):
     # 67277 bytes at 3dd8747; the recipes are their own topic, and duplicated passages now say things once (crop,
-    # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering)
+    # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering). Worlds
+    # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are.
     assert run("help", "all") == 0
     assert len(capsys.readouterr().out.encode()) <= 67277
 

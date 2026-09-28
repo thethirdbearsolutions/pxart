@@ -1,0 +1,73 @@
+{
+ "spec": "SPEC.md",
+ "rules": {
+  "room-missing": {
+   "level": "error",
+   "meaning": "a .world entry names a room file that can't be loaded"
+  },
+  "room-id-dup": {
+   "level": "error",
+   "meaning": "two rooms of the world have one id (the file name without .tmj)"
+  },
+  "tileset-missing": {
+   "level": "error",
+   "meaning": "a room's tileset can't be loaded, so its collision is unknown"
+  },
+  "tiled-unsupported": {
+   "level": "error",
+   "meaning": "a room uses a Tiled feature the rules don't read: a layer offset, a rotated tile, door or start object, a tileset tileoffset, or objectalignment other than bottom-left"
+  },
+  "room-overlap": {
+   "level": "error",
+   "meaning": "two placed rooms overlap in the world (they may share a side, never area)"
+  },
+  "start-count": {
+   "level": "error",
+   "meaning": "the world has no start object, or more than one"
+  },
+  "start-solid": {
+   "level": "error",
+   "meaning": "the start's cell is solid, or outside its room"
+  },
+  "door-target": {
+   "level": "error",
+   "meaning": "a door has no target, or its target room can't be loaded"
+  },
+  "door-entry": {
+   "level": "error",
+   "meaning": "a door has no entry, or its target room has no door of that name"
+  },
+  "door-pair": {
+   "level": "error",
+   "meaning": "a door's partner doesn't lead back to it"
+  },
+  "door-name-dup": {
+   "level": "error",
+   "meaning": "two doors in one room have one name"
+  },
+  "door-trigger": {
+   "level": "error",
+   "meaning": "a door's trigger isn't 'touch' or 'use'"
+  },
+  "door-arrival": {
+   "level": "error",
+   "meaning": "no walkable cell beside a door, so arriving there lands in a solid"
+  },
+  "door-unreachable": {
+   "level": "error",
+   "meaning": "a door can't be touched from anywhere the start reaches"
+  },
+  "edge-one-side": {
+   "level": "warning",
+   "meaning": "a stretch of shared edge is walkable on one side and solid on the other"
+  },
+  "room-unreachable": {
+   "level": "warning",
+   "meaning": "no walkable cell of a room can be reached from the start"
+  },
+  "door-arrival-split": {
+   "level": "warning",
+   "meaning": "a door's arrival cells are in separate regions of its room"
+  }
+ }
+}
