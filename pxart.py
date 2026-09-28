@@ -1712,7 +1712,8 @@ def in_dirs(args, exts=(".px",), exclude=()):
                        key=lambda p: p.parts)
         if not found:
             kinds = ["*" + e for e in exts]
-            fail("E_FILE", f"{arg} is a directory with no {' or '.join([', '.join(kinds[:-1]), kinds[-1]] if len(kinds) > 1 else kinds)} files under it")
+            said = f"{', '.join(kinds[:-1])} or {kinds[-1]}" if len(kinds) > 1 else kinds[0]
+            fail("E_FILE", f"{arg} is a directory with no {said} files under it")
         out += [str(p) for p in found if not excluded(p.relative_to(arg).as_posix())]
     if exclude and not out:
         fail("E_FILE", f"--exclude {' --exclude '.join(exclude)} leaves out every file")
