@@ -1332,3 +1332,24 @@ def test_world_is_a_looking_command():
 
 def test_help_worlds_lines_fit():
     assert all(len(l) <= 92 for l in pxart.WORLDS.splitlines())
+
+
+def test_world_of_an_empty_world_still_draws(tmp_path, capsys):
+    p = tmp_path / "e.world"
+    p.write_text('{"type": "world", "maps": []}')
+    capsys.readouterr()
+    assert run("world", p, "-o", tmp_path / "e.png") == 0
+    out = capsys.readouterr().out
+    assert "E_WORLD: start-count" in out and "0 rooms placed, 0 door pairs, no start; 1 error, tagged" in out
+    assert pxart.WP_ISSUE in colors(Image.open(tmp_path / "e.png"))
+
+
+def test_world_whose_only_room_is_missing_draws_it_crossed_out(tmp_path, capsys):
+    p = tmp_path / "m.world"
+    p.write_text('{"type": "world", "maps": [{"fileName": "x.tmj", "x": 0, "y": 0, "width": 64, "height": 64}]}')
+    capsys.readouterr()
+    assert run("world", p, "-o", tmp_path / "m.png", "--scale", "1") == 0
+    out = capsys.readouterr().out
+    assert "[1] " in out and "room-missing" in out and "[2] " in out and "start-count" in out
+    img = Image.open(tmp_path / "m.png").convert("RGBA")
+    assert px(img, M, M + L) == pxart.WP_ISSUE and px(img, M + 32, M + L + 32) == pxart.WP_ISSUE
