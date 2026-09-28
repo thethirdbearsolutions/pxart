@@ -13,6 +13,14 @@
    "level": "error",
    "meaning": "a room's tileset can't be loaded, so its collision is unknown"
   },
+  "tiled-unsupported": {
+   "level": "error",
+   "meaning": "a room uses a Tiled feature the rules don't read: a layer offset, a rotated tile, door or start object, a tileset tileoffset, or objectalignment other than bottom-left"
+  },
+  "room-overlap": {
+   "level": "error",
+   "meaning": "two placed rooms overlap in the world (they may share a side, never area)"
+  },
   "start-count": {
    "level": "error",
    "meaning": "the world has no start object, or more than one"
@@ -56,6 +64,10 @@
   "room-unreachable": {
    "level": "warning",
    "meaning": "no walkable cell of a room can be reached from the start"
+  },
+  "door-arrival-split": {
+   "level": "warning",
+   "meaning": "a door's arrival cells are in separate regions of its room"
   }
  }
 }

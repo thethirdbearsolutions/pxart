@@ -719,9 +719,7 @@ def test_compile_tilesets_point_at_the_pack(tmp_path):
     t = tmj(compile_ok(src), "a")
     sources = [ts["source"] for ts in t["tilesets"]]
     assert sources == ["../../assets/mini/tiled/mini-ground.tsj", "../../assets/mini/tiled/mini-props.tsj"]
-    assert t["tilesets"][0]["firstgid"] == 1
-    ground = load(tmp_path / "assets/mini/tiled/mini-ground.tsj")
-    assert t["tilesets"][1]["firstgid"] == 1 + ground["tilecount"]
+    assert [ts["firstgid"] for ts in t["tilesets"]] == [1, 1001]  # slots of 1000: room to grow
 
 
 def test_compile_one_tile_cells_are_a_tile_layer(tmp_path):
@@ -1352,8 +1350,7 @@ def test_firstgids_repack_when_the_old_ones_overlap(tmp_path):
         ts["firstgid"] = 2 if "props" in ts["source"] else 1  # overlapping
     p.write_text(json.dumps(t))
     compile_ok(src)
-    got = [ts["firstgid"] for ts in tmj(g, "a")["tilesets"]]
-    assert got[0] == 1 and got[1] == 1 + load(tmp_path / "assets/mini/tiled/mini-ground.tsj")["tilecount"]
+    assert [ts["firstgid"] for ts in tmj(g, "a")["tilesets"]] == [1, 1001]
 
 
 # ================================================================ generated files
@@ -2084,10 +2081,18 @@ def test_parity_pxart_example_glade(tmp_path, capsys):
     tsj = glade_tilesets(tmp_path)
     m = tmp_path / "06-scene" / "rooms" / "glade.map"
     args = [x for t in tsj for x in ("--tileset", t)]
+    # its layer 1 (the sky) is 7 rows of a 14-row room: a short ground is an error (holes in the floor) ...
+    msg = run_err("export", m, "--tiled", *args)
+    assert "E_MAP_SIZE" in msg and "the ground (layer 1) has 7 rows, the room has 14" in msg
+    # ... so the sky gets its full 14 rows ('.': nothing drawn, the same scene)
+    lines = m.read_text().split("\n")
+    first = lines.index("---")
+    m.write_text("\n".join(lines[:first] + ["." * 16] * 7 + lines[first:]))
+    capsys.readouterr()
     assert run("export", m, "--tiled", *args) == 0
     out = capsys.readouterr().out
     assert "legend 'F' is 256x112, bigger than a 16x16 cell, with no +b" in out
-    assert "layer 1 has 7 rows, the room has 14" in out
+    assert "layer 2 has 3 rows, the room has 14" in out
     tiled = tiled_render(m.with_suffix(".tmj"))
     assert same_pixels(tiled, scene_render(m, tmp_path / "s.png"))
     t = load(m.with_suffix(".tmj"))
@@ -2195,3 +2200,382 @@ def test_golden_pack_tilesets_are_w1s(compiled_lighthouse):
         assert any(p["name"] == "nextid" for p in ts["properties"])
         for tile in ts["tiles"]:
             assert tile["type"] and any(p["name"] == "png" for p in tile["properties"])
+
+
+# ================================================================ review follow-ups
+
+# ---- 1: a short ground is an error; a short prop layer a warning
+
+def test_short_ground_is_an_error(tmp_path):
+    src = two_rooms(tmp_path, a=["111111", "111111", "1111D1"], a_props=["......", "......", ".@....", "......",
+                                                                          "......"])
+    msg = run_err("export", src, "--tiled")
+    assert re.search(r"a\.map:19: E_MAP_SIZE: the ground \(layer 1\) has 3 rows, the room has 5", msg), msg
+    assert not (src.parent / "world.world").exists()
+
+
+def test_short_ground_is_an_error_in_check_too(tmp_path, capsys):
+    src = two_rooms(tmp_path, a=["111111", "111111", "1111D1"], a_props=["......", "......", ".@....", "......",
+                                                                          "......"])
+    assert run("check", src) == 1
+    assert "E_MAP_SIZE" in capsys.readouterr().out
+
+
+def test_short_ground_in_a_lone_map_is_an_error(tmp_path):
+    make_pack(tmp_path / "assets")
+    (tmp_path / "game" / "rooms").mkdir(parents=True)
+    m = tmp_path / "game" / "rooms" / "r.map"
+    m.write_text(room_text(["111111"] * 2, ["......"] * 4))
+    assert "the ground (layer 1) has 2 rows, the room has 4" in run_err("export", m, "--tiled")
+
+
+def test_short_prop_layer_still_a_warning(tmp_path, capsys):
+    src = two_rooms(tmp_path, a_props=["......", "......", ".@...."])
+    assert run("export", src, "--tiled") == 0
+    out = capsys.readouterr().out
+    assert "WARNING:" in out and "layer 2 has 3 rows" in out and "E_MAP_SIZE" not in out
+
+
+def test_short_third_layer_a_warning_too(tmp_path, capsys):
+    src = two_rooms(tmp_path)
+    m = src.parent / "rooms" / "a.map"
+    m.write_text(m.read_text() + "---\n......\n")
+    assert run("export", src, "--tiled") == 0
+    assert "layer 3 has 1 rows, the room has 5" in capsys.readouterr().out
+
+
+# ---- 2: a world's room isn't compiled alone
+
+def test_lone_export_of_a_world_room_is_refused(tmp_path):
+    src = two_rooms(tmp_path)
+    msg = run_err("export", src.parent / "rooms" / "a.map", "--tiled")
+    assert "E_WORLD" in msg and "a.map is a room of" in msg and "world.src.json" in msg
+    assert "compile the world instead" in msg and not (src.parent / "rooms" / "a.tmj").exists()
+
+
+def test_lone_export_refused_when_the_previous_tmj_has_doors(tmp_path):
+    src = two_rooms(tmp_path)
+    g = compile_ok(src)
+    (g / "rooms").rename(g / "rooms-elsewhere")  # no world beside it now; the .tmj still has doors
+    msg = run_err("export", g / "rooms-elsewhere" / "a.map", "--tiled")
+    assert "a.tmj has doors or a start (a world's room)" in msg
+
+
+def test_lone_export_refused_when_the_previous_tmj_has_a_start_only(tmp_path):
+    src = two_rooms(tmp_path, src={"layout": ["a"], "start": {"room": "a", "at": "@"}})
+    g = compile_ok(src)
+    src.unlink()
+    assert "has doors or a start" in run_err("export", g / "rooms" / "a.map", "--tiled")
+
+
+def test_lone_export_then_world_compile_keeps_every_id(tmp_path):
+    src = two_rooms(tmp_path, a_props=["....c.", ".T....", ".@....", "c.....", "......"])
+    g = compile_ok(src)
+    before = {p.name: p.read_bytes() for p in (g / "rooms").glob("*.tmj")}
+    run_err("export", g / "rooms" / "a.map", "--tiled")
+    run_err("export", g / "rooms" / "b.map", "--tiled")
+    assert {p.name: p.read_bytes() for p in (g / "rooms").glob("*.tmj")} == before
+    compile_ok(src)
+    assert {p.name: p.read_bytes() for p in (g / "rooms").glob("*.tmj")} == before
+
+
+def test_lone_export_of_a_plain_map_still_works(tmp_path):
+    make_pack(tmp_path / "assets")
+    (tmp_path / "game" / "rooms").mkdir(parents=True)
+    m = tmp_path / "game" / "rooms" / "solo.map"
+    m.write_text(room_text(OPEN5))
+    assert run("export", m, "--tiled") == 0 and run("export", m, "--tiled") == 0
+
+
+def test_world_room_reasons():
+    assert pxart.world_room("/nowhere/rooms/x.map", "/nowhere/rooms/x.tmj") is None
+
+
+# ---- 3: firstgid slots; the layer in the object key
+
+def props_gids(t):
+    return [o["gid"] for o in objs(t) if o.get("gid")]
+
+
+def test_growing_the_ground_tileset_keeps_every_props_gid(tmp_path):
+    src = two_rooms(tmp_path, a_props=["....c.", ".T.t..", ".@....", "c.....", "......"])
+    g = compile_ok(src)
+    before = props_gids(tmj(g, "a"))
+    ground = tmp_path / "assets/mini/tiled/mini-ground.tsj"
+    ts = load(ground)
+    ts["properties"][0]["value"] = 40  # it has issued 40 ids now
+    ts["tilecount"] = 42
+    ground.write_text(json.dumps(ts))
+    compile_ok(src)
+    after = tmj(g, "a")
+    assert props_gids(after) == before and [x["firstgid"] for x in after["tilesets"]] == [1, 1001]
+
+
+def test_growing_the_ground_tileset_keeps_every_props_gid_from_scratch(tmp_path):
+    # even with no previous .tmj: the slots alone keep the props where they were
+    src = two_rooms(tmp_path, a_props=["....c.", ".T....", ".@....", "c.....", "......"])
+    g = compile_ok(src)
+    before = props_gids(tmj(g, "a"))
+    for p in (g / "rooms").glob("*.tmj"):
+        p.unlink()
+    ground = tmp_path / "assets/mini/tiled/mini-ground.tsj"
+    ts = load(ground)
+    ts["properties"][0]["value"] = 900
+    ground.write_text(json.dumps(ts))
+    compile_ok(src)
+    assert props_gids(tmj(g, "a")) == before
+
+
+def test_a_tileset_spanning_more_than_a_slot_takes_the_next(tmp_path):
+    src = two_rooms(tmp_path)
+    ground = tmp_path / "assets/mini/tiled/mini-ground.tsj"
+    ts = load(ground)
+    ts["properties"][0]["value"] = 1500
+    ground.write_text(json.dumps(ts))
+    t = tmj(compile_ok(src), "a")
+    assert [x["firstgid"] for x in t["tilesets"]] == [1, 2001]
+
+
+def test_a_grown_tileset_past_its_slot_repacks(tmp_path):
+    src = two_rooms(tmp_path)
+    g = compile_ok(src)
+    ground = tmp_path / "assets/mini/tiled/mini-ground.tsj"
+    ts = load(ground)
+    ts["properties"][0]["value"] = 1200  # now overlaps the props at 1001
+    ground.write_text(json.dumps(ts))
+    compile_ok(src)
+    assert [x["firstgid"] for x in tmj(g, "a")["tilesets"]] == [1, 2001]
+
+
+@pytest.mark.parametrize("end,slot", [(1, 1), (2, 1001), (1001, 1001), (1002, 2001), (2001, 2001), (0, 1)])
+def test_gid_slot(end, slot):
+    assert pxart.gid_slot(end) == slot
+
+
+def three_layers(props2, props3):
+    return room_text(["111111", "111111", "1111D1", "111111", "111111"], props2) + "---\n" + "\n".join(props3) + "\n"
+
+
+def test_same_char_same_cell_two_layers_keep_their_own_ids(tmp_path):
+    # review item 5: remove the layer-2 crate at 1,1 and the layer-3 one must keep its id, not take layer 2's
+    src = two_rooms(tmp_path)
+    g = src.parent
+    (g / "rooms" / "a.map").write_text(three_layers(["......", ".c..c.", ".@....", "......", "......"],
+                                                    ["......", ".c....", "......", "......", "......"]))
+    compile_ok(src)
+    by_layer = {(l["name"], o["x"]): o["id"] for l in tmj(g, "a")["layers"] if l["type"] == "objectgroup"
+                for o in l["objects"] if o["name"] == "c"}
+    (g / "rooms" / "a.map").write_text(three_layers(["......", "....c.", ".@....", "......", "......"],
+                                                    ["......", ".c....", "......", "......", "......"]))
+    compile_ok(src)
+    after = {(l["name"], o["x"]): o["id"] for l in tmj(g, "a")["layers"] if l["type"] == "objectgroup"
+             for o in l["objects"] if o["name"] == "c"}
+    assert after == {("layer 2 objects", 64): by_layer[("layer 2 objects", 64)],
+                     ("layer 3 objects", 16): by_layer[("layer 3 objects", 16)]}
+
+
+def test_moving_a_prop_to_another_layer_is_a_new_object(tmp_path):
+    src = two_rooms(tmp_path)
+    g = src.parent
+    (g / "rooms" / "a.map").write_text(three_layers(["......", ".c....", ".@....", "......", "......"],
+                                                    ["......"] * 5))
+    compile_ok(src)
+    old = next(o["id"] for o in objs(tmj(g, "a")) if o["name"] == "c")
+    (g / "rooms" / "a.map").write_text(three_layers(["......", "......", ".@....", "......", "......"],
+                                                    ["......", ".c....", "......", "......", "......"]))
+    compile_ok(src)
+    assert next(o["id"] for o in objs(tmj(g, "a")) if o["name"] == "c") != old
+
+
+def test_object_key_has_the_layer():
+    o = {"name": "c", "type": "", "gid": 1, "x": 16, "y": 32, "width": 16, "height": 16}
+    assert pxart.object_key("layer 2 objects", o, 16, 16) == ("layer 2 objects", "", "c", (1, 1))
+
+
+# ---- 4: the spec's sharper edges (the fixtures pin the rest)
+
+def test_spec_says_the_review_points():
+    spec = " ".join((RULES / "SPEC.md").read_text().split())
+    for s in ("Tiled's `y` is then its bottom edge", "Door and start objects are never solid",
+              "never the tileset before it's", "Invisible layers count", "over-approximate",
+              "must pick the arrival cell facing into the room", "`door-arrival-split`", "`room-overlap`",
+              "`tiled-unsupported`", "`objectalignment`", "`tileoffset`", "`rotation`", "`layer offset`",
+              "Placed rooms never overlap"):
+        assert s in spec, s
+
+
+def test_rules_door_class_from_its_tile():
+    # a tile object with no class of its own whose tile's class is door is a door
+    f = json.loads(json.dumps(fixture("valid-door-as-a-tile-object")))
+    ts = dict(load(RULES / "tiles.tsj"), firstgid=1)
+    ts["image"] = "../tiles.png"
+    ts["tiles"][1] = dict(ts["tiles"][1], type="door")
+    f["files"]["rooms/a.tmj"]["tilesets"] = [ts]
+    d = next(o for o in objects(f["files"], "rooms/a.tmj") if o["name"] == "D")
+    d["type"] = ""
+    assert as_dicts(pxart.world_rules_files(f["files"], f["world"], str(RULES))) == []
+    room = pxart.RuleRoom("rooms/a.tmj", f["files"]["rooms/a.tmj"], lambda p: None, [])
+    assert [o["name"] for o in room.doors] == ["D"]
+    ts["tiles"][1]["type"] = "tile_fill"  # without its tile's class, D is just a tile object: no door
+    room = pxart.RuleRoom("rooms/a.tmj", f["files"]["rooms/a.tmj"], lambda p: None, [])
+    assert room.doors == [] and (2, 3) in room.solid
+
+
+def test_rules_door_as_tile_object_old_cells_would_miss():
+    f = fixture("valid-door-as-a-tile-object")
+    room = pxart.RuleRoom("rooms/a.tmj", f["files"]["rooms/a.tmj"],
+                          lambda p: load(RULES / pathlib.PurePath(p).name), [])
+    d = room.doors[0]
+    assert room.door_cells(d) == [(2, 3)] and room.beside(d) == [(2, 2)]
+
+
+def test_rules_invisible_layers_count():
+    def hide(files):
+        files["rooms/a.tmj"]["layers"][0]["visible"] = False
+    got = json.loads(json.dumps(fixture("start-in-a-wall")))
+    hide(got["files"])
+    assert [d["code"] for d in as_dicts(pxart.world_rules_files(got["files"], "world.world", str(RULES)))] == \
+        ["start-solid"]
+
+
+def test_rules_unsupported_once_per_feature():
+    f = json.loads(json.dumps(fixture("tiled-unsupported-rotation")))
+    objects(f["files"], "rooms/a.tmj").append({"id": 9, "name": "c", "type": "", "gid": 3, "x": 16, "y": 64,
+                                               "width": 16, "height": 16, "rotation": 45})
+    got = as_dicts(pxart.world_rules_files(f["files"], f["world"], str(RULES)))
+    assert [d["code"] for d in got] == ["tiled-unsupported"]
+
+
+def test_rules_rotation_zero_and_bottomleft_are_fine():
+    f = json.loads(json.dumps(fixture("valid-two-rooms-and-a-door")))
+    for room in ("rooms/a.tmj", "rooms/b.tmj"):
+        for o in objects(f["files"], room):
+            o["rotation"] = 0
+        f["files"][room]["layers"][0].update(offsetx=0, offsety=0)
+    assert as_dicts(pxart.world_rules_files(f["files"], f["world"], str(RULES))) == []
+
+
+def test_rules_touching_rooms_do_not_overlap():
+    f = fixture("room-overlap")
+    files = json.loads(json.dumps(f["files"]))
+    files["world.world"]["maps"][1]["x"] = 80
+    assert as_dicts(pxart.world_rules_files(files, "world.world", str(RULES))) == []
+
+
+def test_rules_arrival_split_counts_both_for_reachability():
+    # the right-hand pocket is reached only through arriving at 4,1: no room-unreachable, no door errors
+    got = as_dicts(pxart.world_rules_files(fixture("door-arrival-split")["files"], "world.world", str(RULES)))
+    assert [d["code"] for d in got] == ["door-arrival-split"]
+
+
+def test_compiled_rooms_never_trip_tiled_unsupported(compiled_lighthouse):
+    got = pxart.world_rules(str(compiled_lighthouse / "world.world"), pxart.read_json)
+    assert [i.code for i in got] == ["edge-one-side"]
+
+
+# ---- 6: the nits
+
+def test_export_tiled_before_several_maps(tmp_path):
+    make_pack(tmp_path / "assets")
+    (tmp_path / "game" / "rooms").mkdir(parents=True)
+    ms = []
+    for n in ("one", "two"):
+        m = tmp_path / "game" / "rooms" / f"{n}.map"
+        m.write_text(room_text(OPEN5))
+        ms.append(m)
+    assert run("export", "--tiled", *ms) == 0
+    assert all(m.with_suffix(".tmj").is_file() for m in ms)
+
+
+def test_export_a_directory_of_world_sources(tmp_path):
+    src = two_rooms(tmp_path)
+    assert run("export", src.parent, "--tiled") == 0 and (src.parent / "world.world").is_file()
+    (src.parent / "world.world").unlink()
+    assert run("export", "--tiled", src.parent) == 0 and (src.parent / "world.world").is_file()
+
+
+def test_export_a_rooms_directory_says_compile_the_world(tmp_path):
+    src = two_rooms(tmp_path)
+    msg = run_err("export", src.parent / "rooms", "--tiled")
+    assert "E_FILE" in msg and "no *.src.json under it" in msg and "compiled with their world" in msg
+    assert "world.src.json --tiled" in msg
+
+
+def test_export_an_empty_directory_says_so(tmp_path):
+    (tmp_path / "empty").mkdir()
+    msg = run_err("export", tmp_path / "empty", "--tiled")
+    assert "no *.src.json under it" in msg and "name the .map files, or the world source" in msg
+
+
+def test_recompile_warns_about_objects_added_in_tiled(tmp_path, capsys):
+    src = two_rooms(tmp_path)
+    g = compile_ok(src)
+    p = g / "rooms" / "a.tmj"
+    t = load(p)
+    t["layers"].append({"id": 9, "name": "extras", "type": "objectgroup", "objects": [
+        {"id": 40, "name": "chest", "type": "loot", "x": 16, "y": 16, "width": 16, "height": 16}]})
+    p.write_text(json.dumps(t))
+    capsys.readouterr()
+    assert run("export", src, "--tiled") == 0
+    out = capsys.readouterr().out
+    assert "WARNING:" in out and "object 40 'chest' (layer 'extras') isn't from a.map, and this compile drops it" in out
+
+
+def test_recompile_does_not_warn_about_removed_source_cells(tmp_path, capsys):
+    src = two_rooms(tmp_path, a_props=["......", ".T....", ".@....", "......", "......"])
+    g = compile_ok(src)
+    (g / "rooms" / "a.map").write_text(room_text(["111111", "111111", "1111D1", "111111", "111111"],
+                                                 ["......", "......", ".@....", "......", "......"]))
+    capsys.readouterr()
+    assert run("export", src, "--tiled") == 0
+    assert "isn't from" not in capsys.readouterr().out
+
+
+def test_recompile_warns_about_a_hand_named_object_in_our_layer(tmp_path, capsys):
+    src = two_rooms(tmp_path)
+    g = compile_ok(src)
+    p = g / "rooms" / "a.tmj"
+    t = load(p)
+    next(l for l in t["layers"] if l["name"] == "world")["objects"].append(
+        {"id": 41, "name": "spawn-gull", "type": "", "x": 0, "y": 0, "width": 16, "height": 16})
+    p.write_text(json.dumps(t))
+    capsys.readouterr()
+    assert run("export", src, "--tiled") == 0
+    assert "object 41 'spawn-gull' (layer 'world') isn't from a.map" in capsys.readouterr().out
+
+
+def test_no_tileset_above_says_so_plainly(tmp_path):
+    (tmp_path / "game" / "rooms").mkdir(parents=True)
+    art((16, 16), (1, 2, 3)).save(tmp_path / "game" / "stone.png")
+    m = tmp_path / "game" / "rooms" / "r.map"
+    m.write_text("s ../stone.png\n\nss\n")
+    msg = run_err("export", m, "--tiled")
+    assert "there's no <dir>/tiled/*.tsj above it" in msg and "none found" not in msg
+
+
+def test_tileset_search_stops_at_the_world_root(tmp_path):
+    # a pack's tiled/ above the game's world source isn't the game's: the search stops at the world's directory
+    make_pack(tmp_path)  # tmp/mini/..., and tmp/mini/tiled
+    shutil.copytree(tmp_path / "mini" / "tiled", tmp_path / "tiled")  # tilesets high above the game
+    g = tmp_path / "deep" / "game"
+    (g / "rooms").mkdir(parents=True)
+    art((16, 16), (236, 212, 158)).save(g / "floor.png")  # the pack's floor, by pixels, but no pack above it
+    (g / "rooms" / "r.map").write_text("f ../floor.png\n\nff\n")
+    (g / "world.src.json").write_text(json.dumps({"layout": ["r"]}))
+    finder = pxart.TileFinder()
+    assert finder.near(g / "floor.png") == []
+    assert finder.near(tmp_path / "deep" / "x.png") != []  # no world root on that path: it climbs
+
+
+def test_tileset_search_stops_at_a_git_root(tmp_path):
+    make_pack(tmp_path)
+    shutil.copytree(tmp_path / "mini" / "tiled", tmp_path / "tiled")
+    (tmp_path / "repo" / ".git").mkdir(parents=True)
+    assert pxart.TileFinder().near(tmp_path / "repo" / "art" / "x.png") == []
+
+
+def test_tileset_search_includes_the_roots_own_tiled(tmp_path):
+    make_pack(tmp_path)
+    (tmp_path / "mini" / ".git").mkdir()
+    got = pxart.TileFinder().near(tmp_path / "mini" / "world" / "floor.png")
+    assert sorted(t.path.name for t in got) == ["mini-ground.tsj", "mini-props.tsj"]

@@ -7779,8 +7779,10 @@ def pivot_slices(its):
 
 
 def cmd_export(a):
-    if isinstance(a.tiled, str) and is_room_src(a.tiled) and not any(is_room_src(f) for f in a.files):
-        a.files, a.tiled = [a.tiled] + a.files, True  # 'export --tiled world.src.json': the source, not X.tsj
+    if isinstance(a.tiled, str) and (is_room_src(a.tiled) or os.path.isdir(a.tiled)):
+        a.files, a.tiled = [a.tiled] + a.files, True  # 'export --tiled world.src.json ...': a source, not X.tsj
+    if a.tiled is True:
+        a.files = source_args(a.files)
     if not a.files:
         fail("E_BAD_ARG", "export: give FILE|DIR... (.px frames), or world.src.json / .map sources with --tiled")
     srcs = [f for f in a.files if is_room_src(f)]
@@ -8036,6 +8038,8 @@ class TileFinder:
             if str(d) not in self.by_dir:
                 self.by_dir[str(d)] = [self.add(t) for t in sorted(d.glob("*.tsj"))] if d.is_dir() else []
             out += self.by_dir[str(d)]
+            if (anc / ".git").exists() or any(anc.glob("*" + WORLD_SRC)):
+                break  # the game's (or the repository's) root: tilesets above it aren't the art's
         return out
 
     def find(self, arg, img):
@@ -8053,9 +8057,10 @@ class TileFinder:
             key = (img.width, img.height, img.tobytes())
             hits = [(ts, tid) for ts in scope for tid in ts.pixels().get(key, ())]
         if not hits:
-            where = ", ".join(posix_rel(ts.path, os.getcwd()) for ts in scope) or "none found"
-            raise ValueError(f"no tileset has this art (looked in {where}; a pack's tilesets are <pack>/tiled/*.tsj, "
-                             "or name one with --tileset)")
+            where = ", ".join(posix_rel(ts.path, os.getcwd()) for ts in scope)
+            raise ValueError("no tileset has this art (" + (f"looked in {where}" if where else
+                                                            "there's no <dir>/tiled/*.tsj above it") +
+                             "; a pack's tilesets are <pack>/tiled/*.tsj, or name one with --tileset)")
         if len({(str(ts.path), tid) for ts, tid in hits}) > 1:
             raise ValueError("more than one tile has this art: " + ", ".join(
                 f"{ts.path.name} tile {tid}" for ts, tid in hits[:4]) + "; name the PNG itself in the legend")
@@ -8087,7 +8092,11 @@ class RoomSrc:
                                      str(self.path)))
         widest = next((n for n, r in rows_all if len(r) == self.w), None)
         for li, rows in enumerate(self.layers, 1):
-            if rows and len(rows) < self.h:
+            if li == 1 and rows and len(rows) < self.h:
+                self.issues.append(Issue("E_MAP_SIZE", f"the ground (layer 1) has {len(rows)} rows, the room has "
+                                         f"{self.h}: the rows under it would be holes in the floor", str(self.path),
+                                         rows[-1][0]))
+            elif rows and len(rows) < self.h:
                 self.warns.append(f"{self.path}:{rows[-1][0]}: layer {li} has {len(rows)} rows, the room has "
                                   f"{self.h}: they're its top {len(rows)} (a row left out in the middle moves "
                                   "everything under it up one)")
@@ -8155,20 +8164,25 @@ def object_cell(o, tw, th):
 
 def start_cell(o, tw, th):
     """A start's cell: under its feet, the point itself, or a shape's bottom centre (object_cell's rule for feet)."""
-    if o.get("point"):
+    if o.get("point") or o.get("gid"):
         return object_cell(o, tw, th)
     x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
     return math.floor((x + w / 2) / tw), math.ceil((y + h) / th) - 1
 
 
+def object_key(layer, o, tw, th):
+    """What names an object across compiles: its layer's name, class and name, and its cell (object_cell)."""
+    return layer, tiled_class(o), o.get("name", ""), object_cell(o, tw, th)
+
+
 def previous_ids(prev, tw, th):
-    """From a previous .tmj: {(class, name, cell): [ids, in file order]} and its next object id (never less than one
-    past every id it has, so an id is never reused)."""
+    """From a previous .tmj: {object_key: [(id, the object), in file order]} and its next object id (never less than
+    one past every id it has, so an id is never reused)."""
     keys, top = {}, 0
     for layer in all_layers(prev.get("layers") or ()):
         for o in layer.get("objects") or ():
             if isinstance(o, dict) and isinstance(o.get("id"), int):
-                keys.setdefault((tiled_class(o), o.get("name", ""), object_cell(o, tw, th)), []).append(o["id"])
+                keys.setdefault(object_key(layer.get("name", ""), o, tw, th), []).append((o["id"], o))
                 top = max(top, o["id"])
     return keys, max(int(prev.get("nextobjectid") or 1), top + 1)
 
@@ -8184,23 +8198,34 @@ def all_layers(layers):
 
 
 def assign_ids(objs, prev, tw, th):
-    """ADR 0009: an object keeps the previous .tmj's id for the same class and name at the same cell (in file order
-    when there are several); a new one takes the next id. Returns (next object id, how many kept)."""
+    """ADR 0009: an object keeps the previous .tmj's id for the same layer, class and name at the same cell (in file
+    order when there are several); a new one takes the next id. objs: [(layer name, object)]. Returns (next object
+    id, how many kept, the previous objects nothing took: [(layer name, object)])."""
     keys, nxt = previous_ids(prev, tw, th) if prev else ({}, 1)
     kept = 0
-    for o in objs:
-        got = keys.get((tiled_class(o), o["name"], object_cell(o, tw, th)))
+    for layer, o in objs:
+        got = keys.get(object_key(layer, o, tw, th))
         if got:
-            o["id"] = got.pop(0)
+            o["id"] = got.pop(0)[0]
             kept += 1
         else:
             o["id"], nxt = nxt, nxt + 1
-    return nxt, kept
+    return nxt, kept, [(k[0], o) for k, left in keys.items() for _, o in left]
+
+
+GID_SLOT = 1000  # tilesets start at firstgid 1, 1001, 2001, ...: room for a tileset to grow without moving the next
+
+
+def gid_slot(end):
+    """The first slot start (1 + a multiple of GID_SLOT) at or after end."""
+    return 1 + math.ceil(max(end - 1, 0) / GID_SLOT) * GID_SLOT
 
 
 def firstgids(used, prev, tmj_dir):
-    """{Tileset: firstgid}: a tileset the previous .tmj had keeps its firstgid while the ranges still fit (so GIDs stay
-    put); new ones go after; if anything would overlap, all are packed from 1 in that order."""
+    """{Tileset: firstgid}: tilesets start on slots (1, 1001, 2001...; a tileset spanning more takes the next slot
+    after its end), so a tileset that grows doesn't move the ones after it. A tileset the previous .tmj had keeps its
+    firstgid while the ranges still fit (GIDs stay put); new ones take the next free slot; if anything would overlap,
+    all are laid out on slots from 1, in that order."""
     old = {}
     for t in (prev or {}).get("tilesets") or ():
         if isinstance(t, dict) and t.get("source"):
@@ -8208,14 +8233,16 @@ def firstgids(used, prev, tmj_dir):
     keep = sorted((ts for ts in used if str(ts.path.resolve()) in old), key=lambda ts: old[str(ts.path.resolve())])
     new = [ts for ts in used if ts not in keep]
     out = {ts: old[str(ts.path.resolve())] for ts in keep}
-    end = max([g + ts.span for ts, g in out.items()] + [1])
+    end = max([g + max(ts.span, 1) for ts, g in out.items()] + [1])
     for ts in new:
-        out[ts], end = end, end + max(ts.span, 1)
+        out[ts] = gid_slot(end)
+        end = out[ts] + max(ts.span, 1)
     spans = sorted((g, g + max(ts.span, 1)) for ts, g in out.items())
     if any(a[1] > b[0] for a, b in zip(spans, spans[1:])) or any(g < 1 for g, _ in spans):
         out, end = {}, 1
         for ts in keep + new:
-            out[ts], end = end, end + max(ts.span, 1)
+            out[ts] = gid_slot(end)
+            end = out[ts] + max(ts.span, 1)
     return out
 
 
@@ -8274,7 +8301,7 @@ def room_tmj(src, tile, finder, tmj_path, doors=(), start=None):
     if issues:
         return None, issues, warns, 0
     W, H = src.w, src.h
-    used, layers, objs_all = [], [], []
+    used, layers = [], []
     past = set()
 
     def gid_of(arg):
@@ -8308,7 +8335,6 @@ def room_tmj(src, tile, finder, tmj_path, doors=(), start=None):
                 objs.append({"id": 0, "name": ch, "type": "", "gid": (ts, tid, flags), "x": sx, "y": sy + img.height,
                              "width": img.width, "height": img.height, "rotation": 0, "visible": True})
         cells_by_layer.append((li, data, objs))
-        objs_all += objs
     world_objs = []
     for ch, target, entry, extra in doors:
         x, y, w, h = src.rect(ch)
@@ -8325,7 +8351,15 @@ def room_tmj(src, tile, finder, tmj_path, doors=(), start=None):
         world_objs.append({"id": 0, "name": "start", "type": "start", "point": True,
                            "x": int(fx) if fx == int(fx) else fx, "y": y * th + th, "width": 0, "height": 0,
                            "rotation": 0, "visible": True})
-    nxt, kept = assign_ids(objs_all + world_objs, prev, tw, th)
+    nxt, kept, dropped = assign_ids([(f"layer {li} objects", o) for li, _, objs in cells_by_layer for o in objs]
+                                    + [("world", o) for o in world_objs], prev, tw, th)
+    ours = re.compile(r"^(layer \d+( objects)?|world)$")
+    for layer, o in dropped:  # left over from the previous .tmj: a removed cell, or something added in Tiled
+        if not (ours.match(layer) and (o.get("name") in src.legend or o.get("name") == "start")
+                and tiled_class(o) in ("", "door", "start")):
+            warns.append(f"{tmj_path}: object {o.get('id')} {o.get('name', '')!r} (layer {layer!r}) isn't from "
+                         f"{src.path.name}, and this compile drops it: add it to the source, or make the room in "
+                         "Tiled (a .tmj with no 'source')")
     gids = firstgids(used, prev, tmj_path.parent)
 
     def gid(t):
@@ -8641,7 +8675,8 @@ WORLD_RULES = {  # code: level. The same list as the spec's rules.json; a rule i
     "start-count": "error", "start-solid": "error",
     "door-target": "error", "door-entry": "error", "door-pair": "error", "door-name-dup": "error",
     "door-trigger": "error", "door-arrival": "error", "door-unreachable": "error",
-    "edge-one-side": "warning", "room-unreachable": "warning",
+    "tiled-unsupported": "error", "room-overlap": "error",
+    "edge-one-side": "warning", "room-unreachable": "warning", "door-arrival-split": "warning",
 }
 EDGES = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}
 
@@ -8662,7 +8697,7 @@ class RuleRoom:
     """A loaded room as the rules see it: size, which cells are solid, its doors and starts."""
 
     def __init__(self, path, data, read, out):
-        self.path, self.data = path, data
+        self.path, self.data, self.out = path, data, out
         self.id = pathlib.PurePath(path).stem
         self.tw, self.th = int(data.get("tilewidth") or 1), int(data.get("tileheight") or 1)
         self.w, self.h = int(data.get("width") or 0), int(data.get("height") or 0)
@@ -8679,12 +8714,22 @@ class RuleRoom:
                 if not isinstance(got, dict):
                     out.append(RuleIssue("tileset-missing", self.id, None, None,
                                          f"{self.id}: tileset {t['source']} can't be loaded"))
+                    sets.append((int(t.get("firstgid") or 1), None))  # its GIDs stay its own: unresolved
                     continue
                 sets.append((int(t.get("firstgid") or 1), Tileset(sp, got)))
             else:
                 sets.append((int(t.get("firstgid") or 1), Tileset(path, t)))
         self.sets = sorted(sets, key=lambda s: s[0])
+        for _, ts in self.sets:
+            d = ts.data if ts else {}
+            if any(float((d.get("tileoffset") or {}).get(k) or 0) for k in ("x", "y")):
+                self.unsupported("tileoffset", f"tileset {ts.path.name} has a tileoffset")
+            if d.get("objectalignment") not in (None, "unspecified", "bottomleft"):
+                self.unsupported("objectalignment", f"tileset {ts.path.name} aligns objects "
+                                 f"{d.get('objectalignment')!r}, not bottom-left")
         for layer in all_layers(data.get("layers") or ()):
+            if any(float(layer.get(k) or 0) for k in ("offsetx", "offsety")):
+                self.unsupported("layer offset", f"layer {layer.get('name', '')!r} is offset")
             if layer.get("type") == "tilelayer":
                 for i, g in enumerate(layer.get("data") or ()):
                     if g:
@@ -8694,7 +8739,9 @@ class RuleRoom:
                 for o in layer.get("objects") or ():
                     if not isinstance(o, dict):
                         continue
-                    cls = tiled_class(o)
+                    cls = self.cls(o)
+                    if float(o.get("rotation") or 0) and (o.get("gid") or cls in ("door", "start")):
+                        self.unsupported("rotation", f"object {o.get('id')} {o.get('name', '')!r} is rotated")
                     if cls == "door":
                         self.doors.append(o)
                     elif cls == "start":
@@ -8703,12 +8750,27 @@ class RuleRoom:
                         self.block(o["gid"], float(o.get("x") or 0), float(o.get("y") or 0),
                                    float(o.get("width") or 0), float(o.get("height") or 0))
 
+    def unsupported(self, what, msg):
+        if not any(i.code == "tiled-unsupported" and i.room == self.id and i.name == what for i in self.out):
+            self.out.append(RuleIssue("tiled-unsupported", self.id, what, None, f"{self.id}: {msg} (the rules, "
+                                      "and the harness, don't read that)"))
+
     def tile(self, gid):
+        """(Tileset, tile id) for a GID: the tileset with the largest firstgid not above it. A missing tileset's
+        range resolves to (None, None), never to the tileset before it."""
         g = gid & ~GID_FLAGS
         for first, ts in reversed(self.sets):
             if g >= first:
-                return ts, g - first
+                return (ts, g - first) if ts else (None, None)
         return None, None
+
+    def cls(self, o):
+        """An object's class: its own, else (a tile object) its tile's."""
+        own = tiled_class(o)
+        if own or not o.get("gid"):
+            return own
+        ts, tid = self.tile(o["gid"])
+        return ts.cls(tid) if ts else ""
 
     def block(self, gid, left, bottom, w, h):
         """Mark the cells a tile's collision shapes cover: the tile drawn with its bottom-left at left,bottom (w,h: a
@@ -8740,8 +8802,11 @@ class RuleRoom:
         return self.inside(c) and c not in self.solid
 
     def door_cells(self, o):
-        """The cells a door's rectangle overlaps (a zero-size door: the cell it's in)."""
+        """The cells a door's rectangle overlaps (a zero-size door: the cell it's in). A door that is a tile object
+        covers its art: Tiled's y is then its bottom edge."""
         x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+        if o.get("gid"):
+            y -= h
         if w <= 0 or h <= 0:
             return [(math.floor(x / self.tw), math.floor(y / self.th))]
         return [(cx, cy) for cy in range(math.floor(y / self.th), math.ceil((y + h) / self.th))
@@ -8757,6 +8822,23 @@ class RuleRoom:
                 if c not in cells and c not in out and self.walkable(c):
                     out.append(c)
         return out
+
+    def regions(self, cells):
+        """How many separate regions cells fall in: groups joined by 4-connected walkable cells of this room."""
+        left, n = set(cells), 0
+        while left:
+            n += 1
+            todo = [left.pop()]
+            seen = set(todo)
+            while todo:
+                cx, cy = todo.pop()
+                for dx, dy in EDGES.values():
+                    c = (cx + dx, cy + dy)
+                    if c not in seen and self.walkable(c):
+                        seen.add(c)
+                        todo.append(c)
+            left -= seen
+        return n
 
     def touch(self, o):
         """Cells the player can stand in and touch the door from: its walkable cells and the arrival cells."""
@@ -8800,6 +8882,14 @@ def world_rules(world_path, read):
         r.pos = (float(m.get("x") or 0), float(m.get("y") or 0))
         placed.append(r)
 
+    for i, a in enumerate(placed):  # placed rooms may touch, never overlap
+        for b in placed[:i]:
+            ax, ay, bx, by = a.pos + b.pos
+            if min(ax + a.w * a.tw, bx + b.w * b.tw) > max(ax, bx) and \
+                    min(ay + a.h * a.th, by + b.h * b.th) > max(ay, by):
+                out.append(RuleIssue("room-overlap", a.id, b.id, None, f"{a.id} and {b.id} overlap in the world: "
+                                     "rooms may share a side, never area"))
+
     def target_of(r, o):
         t = tiled_props(o).get("target")
         return posixpath.normpath(posixpath.join(posixpath.dirname(r.path), t)) if isinstance(t, str) and t else None
@@ -8840,6 +8930,10 @@ def world_rules(world_path, read):
                 bad_arrival.add((r.path, id(o)))
                 out.append(RuleIssue("door-arrival", r.id, name, cell, f"door {name!r} in {r.id} has no walkable "
                                      "cell beside it, so arriving there would put the player inside a solid"))
+            elif r.regions(r.beside(o)) > 1:
+                out.append(RuleIssue("door-arrival-split", r.id, name, cell, f"door {name!r} in {r.id} has "
+                                     "walkable cells beside it in separate regions, so where you arrive decides "
+                                     "where you can go (the runtime arrives facing into the room)"))
             t = target_of(r, o)
             tr = rooms.get(t) if t else None
             if tr is None:
@@ -8957,6 +9051,39 @@ def room_summary(tmj):
     return f"{tmj['width']}x{tmj['height']}, {len(objs)} object{'s' * (len(objs) != 1)}"
 
 
+def world_room(map_path, tmj_path):
+    """Why a .map is a world's room, not one to compile alone: a world source beside its rooms/ directory, or a
+    previous .tmj with doors or a start in it. None when it's neither."""
+    map_path = pathlib.Path(map_path)
+    if map_path.parent.name == "rooms":
+        worlds = sorted(map_path.parent.parent.glob("*" + WORLD_SRC))
+        if worlds:
+            return f"{map_path.name} is a room of {posix_rel(worlds[0], os.getcwd())}"
+    prev = read_json(tmj_path) if pathlib.Path(tmj_path).exists() else None
+    if isinstance(prev, dict) and any(tiled_class(o) in ("door", "start") for l in all_layers(prev.get("layers") or ())
+                                      for o in l.get("objects") or () if isinstance(o, dict)):
+        return f"{pathlib.Path(tmj_path).name} has doors or a start (a world's room)"
+    return None
+
+
+def source_args(files):
+    """export --tiled's sources: a directory stands for the world sources under it (a rooms/ directory is an error
+    naming the world source beside it)."""
+    out = []
+    for f in files:
+        if not os.path.isdir(f):
+            out.append(f)
+            continue
+        found = sorted(str(p) for p in pathlib.Path(f).rglob("*" + WORLD_SRC))
+        if not found:
+            beside = sorted(pathlib.Path(f).resolve().parent.glob("*" + WORLD_SRC))
+            fail("E_FILE", f"{f} is a directory with no *{WORLD_SRC} under it" + (
+                f"; its rooms are compiled with their world: export {posix_rel(beside[0], os.getcwd())} --tiled"
+                if beside else "; name the .map files, or the world source"))
+        out += found
+    return out
+
+
 def export_tiled(a, files):
     """export --tiled on sources: each world.src.json compiles with its rooms, each lone .map as a room with no
     doors or start."""
@@ -8984,12 +9111,17 @@ def export_tiled(a, files):
                 outputs.update(got)
         else:
             src = RoomSrc(f)
+            tp = src.path.with_suffix(".tmj")
+            why = world_room(src.path, tp)
+            if why:
+                issues.append(Issue("E_WORLD", f"{why}: compiled alone it would lose its doors and start; compile "
+                                    "the world instead ('export WORLD.src.json --tiled')", str(src.path)))
+                continue
             notes += src.notes
             warns += src.warns
             if src.issues:
                 issues += src.issues
                 continue
-            tp = src.path.with_suffix(".tmj")
             tmj, errs, ws, k = room_tmj(src, tile, finder, tp)
             issues += errs
             warns += ws
@@ -9453,7 +9585,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 
