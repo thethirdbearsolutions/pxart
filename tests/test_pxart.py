@@ -12559,7 +12559,7 @@ def test_check_dir_and_file_checked_once(tmp_path, capsys):
 def test_check_empty_dir_is_e_file(tmp_path):
     (tmp_path / "e").mkdir()
     msg = run_err("check", tmp_path / "e")
-    assert msg.startswith("check: E_FILE: ") and "no *.px, *.map or *.src.json files under it" in msg
+    assert msg.startswith("check: E_FILE: ") and "no *.px, *.map, *.src.json or *.world files under it" in msg
 
 
 def test_sheet_dir_skips_the_palette_file_with_a_note(tmp_path, capsys):
@@ -15518,7 +15518,7 @@ def test_top_help_no_longer_the_whole_reference(capsys):
 def test_commands_by_topic():
     got = pxart.commands_by_topic()
     assert list(got) == ["LOOKING", "CHECKING", "EDITING", "DRAWING", "CONVERTING", "HELP"]
-    assert got["LOOKING"] == ["render", "sheet", "anim", "onion", "scene", "tint"]
+    assert got["LOOKING"] == ["render", "sheet", "anim", "onion", "scene", "tint", "world"]
     assert "frames" in got["CHECKING"] and "transpose" in got["DRAWING"] and "flood" in got["DRAWING"]
     assert got["CONVERTING"] == ["export", "from-png"] and got["HELP"] == ["help"]
 
@@ -16944,6 +16944,7 @@ def error_cases(t):
         ["onion", m, f, "-o", png], ["onion", f"{f}:walk/0", f"{f}:walk/1", "-o", png, "--rows", "x"],
         ["scene", "-o", png, f"{m}@0,0"], ["scene", "-o", png, f"{f}:walk/0"], ["scene", "-o", png, "--tint", "zz"],
         ["tint", t / "missing.png", "#000000"], ["tint", t / "a.png", "nope"],
+        ["world", t / "missing.world", "-o", png], ["world", f, "-o", png], ["world", t / "w.world", "--scale", "0"],
         ["stats", m], ["stats", f"{f}:nope"], ["stats", f, "--at", "9,9"], ["stats", f, "--at", "x"],
         ["diff", m, f], ["diff", f"{f}:walk/0", f"{f}:walk/0", "--variant", "x"], ["diff", f, f"{f}:walk/0"],
         ["frames", m], ["frames", f, "--rm", "nope"], ["frames", f, "--copy-to", m],

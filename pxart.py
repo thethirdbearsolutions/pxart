@@ -214,6 +214,7 @@ LOOKING
       scene --tint on a PNG (a rendered scene): lays the color, at its alpha, over every
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
       IN is rewritten.
+  world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]
   Centering: frames of different sizes are bottom-aligned and centered, with the odd
   pixel going left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
   behind frames; --bg (render, sheet, scene) takes a flat #rrggbb, #rrggbbaa or 'transparent'
@@ -236,11 +237,10 @@ CHECKING
       under it, recursively, sorted by path ('check crossover/'); a palette file (no frames)
       is checked as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a
       .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and
-      @anim/@still lines whose group has no frames (without --strict those are a note). Exit
-      1 on any failure. --exclude GLOB leaves files out, as for sheet: 'check game/ --exclude
-      wip'.
+      @anim/@still lines whose group has no frames (else a note). Exit 1 on any failure.
+      --exclude GLOB leaves files out, as for sheet.
       A .map (scene --map) is checked too: every row char has a legend line and every
-      legend entry loads as one frame (errors point at the legend line).
+      legend entry loads as one frame; .world, .tmj: help worlds.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
       'ｋ') get a note naming the line, row and column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -861,7 +861,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
   export world.src.json|ROOM.map|DIR... --tiled [--tile 16x16] [--tileset T.tsj]
-  check world.src.json|DIR... [--tile 16x16] [--tileset T.tsj]
+  check world.src.json|W.world|ROOM.tmj|DIR... [--tile 16x16] [--tileset T.tsj]
+  world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]
       A world is rooms drawn as .map files (scene --map's format) and a world.src.json that
       places them and wires their doors. --tiled (with no X.tsj) compiles them to Tiled's
       files, beside them: rooms/NAME.map -> rooms/NAME.tmj, world.src.json -> world.world
@@ -913,6 +914,35 @@ WORLDS = """WORLDS (pxart help worlds)
       ...'; a warning (an edge walkable on one side only, a room nothing reaches) is a
       WARNING line. The rules are one spec with shared fixtures, run by pxart and the
       harness: tests/fixtures/world_rules/ (SPEC.md) in the pxart repo.
+      Compiled worlds (the runtime files, so a world made in Tiled too): check W.world runs
+      the world rules on the .world, the rooms it places and every room a door leads to,
+      exactly as the compile runs them: 'ok   world.world: 3 rooms placed, interior tower, 1
+      door pair, start in shore', or FAIL and each error, 'rooms/point.tmj: E_WORLD:
+      door-pair [D, cell 10,7]: ...' (the door's or start's name, or the edge's side, and
+      the cell); a warning is a WARNING line. A lone ROOM.tmj is a world of that one room
+      (placed at 0,0, its doors leading to its interiors); a .tmj that a .world beside it or
+      one directory up has (placed, or through doors) is E_WORLD: give the world (and so
+      is one beside a .world that can't be loaded: fix that). A DIR checks the world
+      sources and the .world files under it, but not a .world beside a *.src.json (its
+      source is the same compile); a DIR of .tmj rooms only says to check their world.
+      Only orthogonal, finite maps with CSV (JSON array) tile data, in JSON files, are read
+      (a .world placing maps by patterns, a .tmx map or .tsx tileset is E_WORLD, naming what
+      to change in Tiled), as the harness reads them: SPEC.md, 'Not rules'.
+      world draws one: each room as Tiled draws it (markers too), the placed ones where
+      the .world puts them, spread apart so a shared side shows as a gap, and interiors in
+      a column to the right. Across each shared edge, a band per cell: yellow where both
+      sides are walkable (you can cross), magenta where only one is (edge-one-side; the
+      walkable cell outlined), nothing where both are solid. Each door is outlined, with a
+      dot on each cell you arrive on beside it and a line to its entry, arrowheads at the
+      doors it leads to (a door that doesn't pair up: magenta, one arrowhead). The start
+      is a green cell, markers cyan rings. Every rule issue is a numbered magenta tag
+      where it is (a cell, a door, a room; tags that would overlap move aside), listed
+      under the picture and printed ('[1]
+      WARNING: rooms/cove.tmj: edge-one-side [north, cell 1,0]: ...'); an unreachable
+      room is hatched, a room the .world names but can't load crossed out. A broken world
+      still draws (exit 0): check is the verdict. world reads compiled files only ('export
+      world.src.json --tiled' first). --scale (default 2) scales the rooms, not the gaps
+      or labels.
       Error codes: E_MAP_SIZE E_TILESET E_GENERATED E_WORLD E_DOOR E_START, and the map's
       own (E_ROW_WIDTH E_UNKNOWN_KEY E_BAD_ROW E_FILE).
 """
@@ -3508,18 +3538,45 @@ def lookalike_notes(path):
     return notes
 
 
+def check_args(files, exclude):
+    """check's files: a DIR stands for the .px, .map, world sources and Tiled worlds under it (in_dirs), except a
+    .world compiled from a *.src.json beside it (the source is checked: the same compile, the same rules). A DIR with
+    only Tiled rooms (.tmj) says to check their world."""
+    for f in files:
+        if os.path.isdir(f) and not any(p.is_file() and p.name.endswith((".px", ".map", WORLD_SRC, ".world"))
+                                        for p in pathlib.Path(f).rglob("*")):
+            rooms = sorted(pathlib.Path(f).rglob("*.tmj"))
+            if rooms:
+                worlds = sorted(pathlib.Path(f).resolve().parent.glob("*.world"))
+                fail("E_FILE", f"{f} holds Tiled rooms (.tmj) only: check their world ("
+                     + (f"'check {posix_rel(worlds[0], os.getcwd())}'" if worlds else "'check W.world'")
+                     + f"), or one room alone ('check {posix_rel(rooms[0], os.getcwd())}')")
+    out = []
+    given = set(files)
+    for arg in in_dirs(files, (".px", ".map", WORLD_SRC, ".world"), exclude):
+        if arg.endswith(".world") and arg not in given and any(pathlib.Path(arg).parent.glob("*" + WORLD_SRC)):
+            continue
+        out.append(arg)
+    return out
+
+
 def cmd_check(a):
     with reading(f"--palette ({a.palette})"):
         allowed = load_palette(a.palette) if a.palette else None
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
-    for arg in dict.fromkeys(in_dirs(a.files, (".px", ".map", WORLD_SRC), a.exclude or ())):
+    for arg in dict.fromkeys(check_args(a.files, a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
         bad_before = failed
         failed = False
         try:
+            if path.endswith(TILED_EXTS):
+                ok, said = check_tiled(path)
+                failed |= not ok
+                tally["warnings"] += said
+                continue
             if is_world_src(path):
                 ok, said = check_world(path, parse_tile(a.tile), a.tileset or ())
                 failed |= not ok
@@ -8878,11 +8935,14 @@ class RuleRoom:
         return self.pos[0] <= px < self.pos[0] + self.w * self.tw and self.pos[1] <= py < self.pos[1] + self.h * self.th
 
 
-def world_rules(world_path, read):
+def world_rules(world_path, read, model=None):
     """The world rules (SPEC.md beside tests/fixtures/world_rules/) over a Tiled world: world_path's .world and the
     rooms it places, and every room a door leads to (read(path) -> parsed JSON, or None when there's none; paths are
     POSIX, a file's references resolved from its directory). Returns [RuleIssue], errors and warnings, in a stable
-    order."""
+    order. model: a dict to fill with what the rules saw, for the world preview to draw (pxart world): the world
+    file's JSON, the rooms by path (None: can't be loaded), placed and live rooms, each door's partner and resolved
+    target, the doors door-name-dup skips, the start, the reachable cells (None when there's no valid start), and
+    every shared-edge crossing (room, side, cell, the room across, its cell)."""
     out = []
     world_path = posixpath.normpath(str(pathlib.PurePath(world_path).as_posix()))
     world = read(world_path) or {}
@@ -8913,9 +8973,14 @@ def world_rules(world_path, read):
                 out.append(RuleIssue("room-overlap", a.id, b.id, None, f"{a.id} and {b.id} overlap in the world: "
                                      "rooms may share a side, never area"))
 
+    targets = {}  # (room path, id(door)): the path its target resolves to, or None
+
     def target_of(r, o):
-        t = tiled_props(o).get("target")
-        return posixpath.normpath(posixpath.join(posixpath.dirname(r.path), t)) if isinstance(t, str) and t else None
+        if (r.path, id(o)) not in targets:
+            t = tiled_props(o).get("target")
+            targets[(r.path, id(o))] = posixpath.normpath(posixpath.join(posixpath.dirname(r.path), t)) \
+                if isinstance(t, str) and t else None
+        return targets[(r.path, id(o))]
     i = 0
     while i < len(order):  # interiors: rooms a door leads to, found by following targets
         r = rooms[order[i]]
@@ -8933,7 +8998,7 @@ def world_rules(world_path, read):
             out.append(RuleIssue("room-id-dup", rid, None, None, f"{len(rs)} rooms are called {rid!r} ("
                                  + ", ".join(x.path for x in rs) + "); a room's id is its file name"))
     # doors
-    bad_arrival, partner = set(), {}
+    bad_arrival, partner, dups = set(), {}, []
     for r in live:
         names, doors = {}, []
         for o in r.doors:
@@ -8942,6 +9007,7 @@ def world_rules(world_path, read):
             if name in names:
                 out.append(RuleIssue("door-name-dup", r.id, name, cell, f"{r.id} has two doors named {name!r}; a "
                                      "door's entry names one"))
+                dups.append((r, o))
                 continue
             doors.append(o)
             names[name] = o
@@ -8995,6 +9061,7 @@ def world_rules(world_path, read):
                                                               "outside the room")))
         else:
             start = (r, cell)
+    reached = None
     # reachability: from the start, walking between walkable cells, across shared edges, through paired doors
     if start:
         seen = {(start[0].path, start[1])}
@@ -9025,6 +9092,7 @@ def world_rules(world_path, read):
                 if b.walkable(n) and (b.path, n) not in seen:
                     seen.add((b.path, n))
                     todo.append((b, n))
+        reached = seen
         for r in live:
             for o in r.doors:
                 if (r.path, id(o)) not in bad_arrival and not any((r.path, c) in seen for c in r.touch(o)):
@@ -9033,7 +9101,9 @@ def world_rules(world_path, read):
             if not any(p == r.path for p, _ in seen):
                 out.append(RuleIssue("room-unreachable", r.id, None, None, f"no walkable cell of {r.id} can be "
                                      "reached from the start"))
-    # shared edges: walkable on one side only (reported from the walkable side, a stretch at a time)
+    # shared edges: walkable on one side only (reported from the walkable side, a stretch at a time). Every border
+    # cell with a room across goes in crossings, for the preview: (room, side, its cell, the room across, that cell)
+    crossings = []
     for a in placed:
         for side, (dx, dy) in EDGES.items():
             border = [(x, 0 if dy < 0 else a.h - 1) for x in range(a.w)] if dy else \
@@ -9041,10 +9111,12 @@ def world_rules(world_path, read):
             run = None
             for c in border + [None]:
                 hit = None
-                if c is not None and a.walkable(c):
+                if c is not None:
                     px, py = a.world_cell((c[0] + dx, c[1] + dy))
                     b = next((b for b in placed if b is not a and b.contains(px, py)), None)
-                    if b is not None and not b.walkable(b.cell_at(px, py)):
+                    if b is not None:
+                        crossings.append((a, side, c, b, b.cell_at(px, py)))
+                    if b is not None and a.walkable(c) and not b.walkable(b.cell_at(px, py)):
                         hit = b
                 if run and (hit is not run[0] or c is None):
                     b, first, n = run
@@ -9054,6 +9126,9 @@ def world_rules(world_path, read):
                     run = None
                 if hit is not None:
                     run = (hit, c, 1) if run is None else (run[0], run[1], run[2] + 1)
+    if model is not None:
+        model.update(world_path=world_path, world=world, rooms=rooms, placed=placed, live=live, partner=partner,
+                     start=start, reached=reached, targets=targets, dup_doors=dups, crossings=crossings)
     rank = {p: i for i, p in enumerate(order)}
     return sorted(out, key=lambda i: (i.level != "error", rank.get(next((p for p in order if rooms[p].id == i.room),
                                                                          ""), -1), i.code, str(i.name), i.cell or []))
@@ -9185,6 +9260,550 @@ def check_world(path, tile, tilesets=()):
     for x in warns:
         print(f"     WARNING: {x}")
     return not issues, len(notes) + len(warns)
+
+
+# ---- compiled worlds: check on a .world or .tmj, and the world preview (GAMES-286 decision 13, W9). Both read the
+# runtime files as they are (a Tiled-authored world too) and run world_rules on them, as the compile does.
+
+TILED_EXTS = (".world", ".tmj")
+
+
+def tiled_format(path, data):
+    """Why a room can't be read at all (the harness loader's rejections, design 02 · Formats, made before the rules
+    run), or None: only orthogonal, finite maps with JSON-array tile data."""
+    if data.get("orientation", "orthogonal") != "orthogonal":
+        return f"{path} is {data.get('orientation')!r}: the rules and the harness read orthogonal maps only"
+    if data.get("infinite"):
+        return f"{path} is an infinite map: in Tiled, Map > Map Properties, untick Infinite"
+    for t in data.get("tilesets") or ():
+        if isinstance(t, dict) and str(t.get("source", "")).endswith(".tsx"):
+            return (f"{path}: tileset {t['source']} is Tiled's XML format: export the tileset as JSON (.tsj) and "
+                    "point the map at it")
+    for layer in all_layers(data.get("layers") or ()):
+        if layer.get("type") == "tilelayer" and not isinstance(layer.get("data"), list):
+            return (f"{path}: layer {layer.get('name', '')!r} isn't a JSON array of tiles: in Tiled, Map > Map "
+                    "Properties, Tile Layer Format: CSV")
+    return None
+
+
+def tiled_reader(fake=None):
+    """read(path) for world_rules over files on disk: parsed JSON, or None when there's none; a room in a format
+    nothing reads is E_WORLD (tiled_format). fake: {path: JSON} served first (a lone .tmj's one-room world)."""
+    def read(p):
+        if fake and p in fake:
+            return fake[p]
+        got = read_json(p)
+        if isinstance(got, dict) and (got.get("type") == "map" or "layers" in got):
+            why = tiled_format(p, got)
+            if why:
+                fail("E_WORLD", why, path=p)
+        return got
+    return read
+
+
+def tiled_world(path):
+    """A .world, or a .tmj as a world of that one room (placed at 0,0; the rooms its doors lead to are its interiors),
+    as world_rules reads it: (the world's path, read). A file that isn't one is an error; so is a .tmj that's a room
+    of a .world beside it or one directory up (its start, edges and doors are that world's: check the world)."""
+    p = posixpath.normpath(pathlib.PurePath(path).as_posix())
+    if is_room_src(p):
+        fail("E_BAD_ARG", f"{path} is a world source; this reads the compiled Tiled files (.world, .tmj): 'pxart export "
+             f"{path} --tiled' writes them beside it, and 'pxart check {path}' checks the source without writing")
+    if not p.endswith(TILED_EXTS):
+        fail("E_BAD_ARG", f"{path}: give a Tiled world (.world) or map (.tmj)")
+    try:
+        with open(p) as fh:
+            data = json.load(fh)
+    except ValueError as e:
+        fail("E_WORLD", f"not JSON: {getattr(e, 'msg', e)}", path=p, line=getattr(e, "lineno", None),
+             col=getattr(e, "colno", None))
+    if p.endswith(".world"):
+        if not isinstance(data, dict) or not isinstance(data.get("maps"), list):
+            fail("E_WORLD", 'a Tiled world is a JSON object with a "maps" list ({"fileName", "x", "y", ...} each)',
+                 path=p)
+        tmx = [m.get("fileName") for m in data["maps"] if isinstance(m, dict) and
+               str(m.get("fileName", "")).endswith(".tmx")]
+        if tmx:
+            fail("E_WORLD", f"places {tmx[0]}, Tiled's XML format: save each map as JSON (.tmj) and name those",
+                 path=p)
+        if data.get("patterns"):
+            fail("E_WORLD", "places its maps by 'patterns' (a regexp over file names); list each map in 'maps' (in "
+                 "Tiled, a world whose rooms you drag places them that way)", path=p)
+        return p, tiled_reader()
+    if not isinstance(data, dict) or not (data.get("type") == "map" or "layers" in data):
+        fail("E_WORLD", 'a Tiled map is a JSON object with "type": "map" and its "layers"', path=p)
+    why = tiled_format(p, data)
+    if why:
+        fail("E_WORLD", why, path=p)
+    held = world_holding(p)
+    if held:
+        fail("E_WORLD", f"{p} is a room of {held[0]} ({held[1]}): its start, edges and doors are the world's; give "
+             f"the world ({held[0]})", path=p)
+    fake = posixpath.join(posixpath.dirname(p), posixpath.basename(p) + ".world")  # a name no file has: the one room
+    return fake, tiled_reader({fake: {"type": "world", "maps": [
+        {"fileName": posixpath.basename(p), "x": 0, "y": 0, "width": int(data.get("width") or 0)
+         * int(data.get("tilewidth") or 0), "height": int(data.get("height") or 0) * int(data.get("tileheight") or 0)}]}})
+
+
+def world_holding(tmj):
+    """The .world beside tmj, or one directory up, whose world has it (placed, or an interior through its doors):
+    (that .world, 'placed' or 'an interior'), or None. Its rooms are found as the rules find them."""
+    want = os.path.realpath(tmj)
+    here = pathlib.Path(tmj).resolve().parent
+    for d in dict.fromkeys((here, here.parent)):
+        for wp in sorted(d.glob("*.world")):
+            name = wp.as_posix() if os.path.isabs(tmj) else posix_rel(wp, os.getcwd())
+            data = read_json(wp)
+            why = "it isn't JSON, or can't be read" if data is None else None
+            if why is None and (not isinstance(data, dict) or not isinstance(data.get("maps"), list)):
+                why = 'it has no "maps" list'
+            model = {}
+            if why is None:
+                try:
+                    world_rules(name, tiled_reader(), model)
+                except PxError as e:
+                    why = "; ".join(i.msg for i in e.issues)
+            if why:  # never checked as a lone room when a world beside it might hold it
+                fail("E_WORLD", f"{name} is beside it and can't be loaded ({why}), so whether {tmj} is one of its "
+                     f"rooms can't be told; fix {name}, or check it", path=tmj)
+            for rp, r in (model.get("rooms") or {}).items():
+                if r is not None and os.path.realpath(rp) == want:
+                    return name, "placed" if r in model["placed"] else "an interior"
+    return None
+
+
+def load_tiled(path):
+    """world_rules on a compiled world (tiled_world): (the issues, the model it filled, the path to name for issues
+    that have no room: the file given)."""
+    wp, read = tiled_world(path)
+    model = {}
+    return world_rules(wp, read, model), model, posixpath.normpath(pathlib.PurePath(path).as_posix())
+
+
+def rule_where(i, model, shown):
+    """The file an issue is about: its room's .tmj (the first of that id), else the file given."""
+    return next((r.path for r in model.get("live") or () if r.id == i.room), shown)
+
+
+def rule_line(i, model, shown):
+    """A rule issue as check and world print it: 'rooms/point.tmj: E_WORLD: door-pair [D, cell 10,7]: ...' for an
+    error, 'rooms/cove.tmj: edge-one-side [north, cell 1,0]: ...' for a warning (check puts WARNING: first)."""
+    tag = [str(i.name)] if i.name not in (None, "") else []
+    tag += [f"cell {i.cell[0]},{i.cell[1]}"] if i.cell is not None else []
+    what = i.code + (f" [{', '.join(tag)}]" if tag else "")
+    return f"{rule_where(i, model, shown)}: " + ("E_WORLD: " if i.level == "error" else "") + f"{what}: {i.msg}"
+
+
+def tiled_summary(model):
+    """'3 rooms placed, interior tower, 1 door pair, start in shore', as check says it of a world source."""
+    placed = model.get("placed") or []
+    inner = [r.id for r in model.get("live") or () if r not in placed]
+    pairs = len(model.get("partner") or {}) // 2
+    start = model.get("start")
+    return (f"{len(placed)} room{'s' * (len(placed) != 1)} placed"
+            + (f", interior{'s' * (len(inner) != 1)} {', '.join(inner)}" if inner else "")
+            + f", {pairs} door pair{'s' * (pairs != 1)}" + (f", start in {start[0].id}" if start else ", no start"))
+
+
+def check_tiled(path):
+    """check on a .world or .tmj: the world rules, exactly as export --tiled runs them on what it compiles. (ok, how
+    many warnings it printed)."""
+    try:
+        issues, model, shown = load_tiled(path)
+    except PxError as e:
+        print(f"FAIL {path}: {len(e.issues)} error(s)")
+        for i in e.issues:
+            print(f"     {i}")
+        return False, 0
+    except OSError as e:
+        print(f"FAIL {path}: 1 error(s)")
+        print(f"     {path}: E_FILE: {e.strerror or e}")
+        return False, 0
+    errs = [rule_line(i, model, shown) for i in issues if i.level == "error"]
+    warns = [rule_line(i, model, shown) for i in issues if i.level != "error"]
+    if errs:
+        print(f"FAIL {path}: {len(errs)} error(s)")
+        for x in errs:
+            print(f"     {x}")
+    else:
+        print(f"ok   {path}: {tiled_summary(model)}")
+    for x in warns:
+        print(f"     WARNING: {x}")
+    return not errs, len(warns)
+
+
+# ---- drawing a room as Tiled does, and the world preview
+
+def tile_art(ts, tid, cache, missing):
+    """A tile's art (RGBA), from its tileset's sheet or its own image; None when the file can't be read (named once
+    in missing)."""
+    key = (str(ts.path), tid)
+    if key in cache:
+        return cache[key]
+    d, t, img = ts.data, ts.tiles.get(tid, {}), None
+    src = d.get("image") if ts.sheet else t.get("image")
+    where = ts.path.parent / src if src else None
+    try:
+        if where is None:
+            raise OSError
+        full = Image.open(where).convert("RGBA")
+    except OSError:
+        missing.setdefault(str(where or f"{ts.path} tile {tid}"), None)
+        cache[key] = None
+        return None
+    if ts.sheet:
+        tw, th = int(d["tilewidth"]), int(d["tileheight"])
+        cols = int(d.get("columns") or max(1, full.width // tw))
+        m, sp = int(d.get("margin") or 0), int(d.get("spacing") or 0)
+        x, y = m + (tid % cols) * (tw + sp), m + (tid // cols) * (th + sp)
+        img = full.crop((x, y, x + tw, y + th))
+    elif "x" in t and "width" in t:  # a collection tile that is part of its image (Tiled 1.9+)
+        x, y = int(t["x"]), int(t.get("y") or 0)
+        img = full.crop((x, y, x + int(t["width"]), y + int(t["height"])))
+    else:
+        img = full
+    cache[key] = img
+    return img
+
+
+def gid_art(room, gid, cache, missing):
+    """A GID's art, flipped as its flags say (diagonal first, then horizontal, then vertical: the rules' order)."""
+    ts, tid = room.tile(gid)
+    img = tile_art(ts, tid, cache, missing) if ts is not None and ts.has(tid) else None
+    if img is None:
+        return None
+    if gid & GID_D:
+        img = img.transpose(Image.TRANSPOSE)
+    if gid & GID_H:
+        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+    if gid & GID_V:
+        img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    return img
+
+
+def tiled_room_image(room, cache=None, missing=None):
+    """A loaded room (RuleRoom) drawn as Tiled draws an orthogonal map, at 1x: visible tile layers cell by cell, each
+    tile's art with its bottom-left on the cell's bottom-left; visible object layers' tile objects (in index order,
+    or by y for draworder topdown), each art's bottom-left at the object's x,y, scaled to its size; GID flips; group
+    layers and their visibility and opacity. Markers draw, as in Tiled. Art that can't be read is left out and
+    named in missing ({path: None})."""
+    cache = {} if cache is None else cache
+    missing = {} if missing is None else missing
+    tw, th = room.tw, room.th
+    canvas = Image.new("RGBA", (room.w * tw, room.h * th), (0, 0, 0, 0))
+
+    def layers(ls, opacity):
+        for layer in ls:
+            if not isinstance(layer, dict) or not layer.get("visible", True):
+                continue
+            op = opacity * float(layer.get("opacity", 1) if layer.get("opacity") is not None else 1)
+            if layer.get("type") == "group":
+                layers(layer.get("layers") or (), op)
+                continue
+            art = []
+            if layer.get("type") == "tilelayer":
+                lw = int(layer.get("width") or room.w)
+                for i, g in enumerate(layer.get("data") or ()):
+                    img = gid_art(room, g, cache, missing) if g else None
+                    if img is not None:
+                        art.append((img, (i % lw) * tw, (i // lw + 1) * th - img.height))
+            elif layer.get("type") == "objectgroup":
+                objs = [o for o in layer.get("objects") or () if isinstance(o, dict) and o.get("gid")
+                        and o.get("visible", True)]
+                if layer.get("draworder", "topdown") == "topdown":
+                    objs = sorted(objs, key=lambda o: float(o.get("y") or 0))
+                for o in objs:
+                    img = gid_art(room, o["gid"], cache, missing)
+                    if img is None:
+                        continue
+                    w, h = round(float(o.get("width") or img.width)), round(float(o.get("height") or img.height))
+                    if (w, h) != img.size and w > 0 and h > 0:
+                        img = img.resize((w, h), Image.NEAREST)
+                    art.append((img, round(float(o.get("x") or 0)), round(float(o.get("y") or 0)) - img.height))
+            if op >= 1:
+                for img, x, y in art:
+                    draw_at(canvas, img, x, y)
+            elif art:
+                sheet = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+                for img, x, y in art:
+                    draw_at(sheet, img, x, y)
+                sheet.putalpha(sheet.getchannel("A").point(lambda v: round(v * max(0.0, op))))
+                canvas.alpha_composite(sheet)
+    layers(room.data.get("layers") or (), 1.0)
+    return canvas
+
+
+WP_BG, WP_ROOM, WP_LINE, WP_TEXT = (30, 33, 45, 255), (44, 48, 62, 255), (96, 102, 120, 255), (220, 224, 235, 255)
+WP_EDGE, WP_DOOR, WP_START = (255, 210, 60, 255), (255, 120, 110, 255), (90, 230, 120, 255)
+WP_MARKER, WP_ISSUE = (110, 210, 255, 255), (255, 60, 220, 255)
+WP_MARGIN, WP_GAP, WP_LABEL = 16, 32, 14  # screen px: around the picture, between rooms, a text line
+WP_KEY = [(WP_EDGE, "edge crossing"), (WP_DOOR, "door, its link, where you arrive"), (WP_START, "start"),
+          (WP_MARKER, "marker"), (WP_ISSUE, "rule issue [n]")]
+
+
+def world_layout(model, scale):
+    """Where each room goes in the preview, in screen px: {room path: (x, y, w, h)}, the placed rooms (and any the
+    .world places but can't load) at their world positions, times scale, spread apart by WP_GAP at each distinct left
+    and top (so rooms that share a side show a gap to draw the edge in, and nothing overlaps that didn't); the
+    interiors in a column to their right. Returns (boxes, the .world's missing entries [(fileName, box)])."""
+    wd = posixpath.dirname(model.get("world_path") or "")
+    rects = []  # (key, world x, y, w, h)
+    for r in model.get("placed") or ():
+        rects.append((r.path, r.pos[0], r.pos[1], r.w * r.tw, r.h * r.th))
+    missing = []
+    for m in (model.get("world") or {}).get("maps") or ():
+        p = posixpath.normpath(posixpath.join(wd, m.get("fileName", "")))
+        if (model.get("rooms") or {}).get(p) is None:
+            rects.append((("missing", p), float(m.get("x") or 0), float(m.get("y") or 0),
+                          float(m.get("width") or 0) or 64, float(m.get("height") or 0) or 64))
+    xs = sorted({x for _, x, _, _, _ in rects})
+    ys = sorted({y for _, _, y, _, _ in rects})
+    x0 = min(xs, default=0)
+    y0 = min(ys, default=0)
+    boxes, right = {}, WP_MARGIN
+    for key, x, y, w, h in rects:
+        sx = WP_MARGIN + round((x - x0) * scale) + WP_GAP * xs.index(x)
+        sy = WP_MARGIN + WP_LABEL + round((y - y0) * scale) + WP_GAP * ys.index(y)
+        boxes[key] = (sx, sy, round(w * scale), round(h * scale))
+        right = max(right, sx + round(w * scale))
+    ix = right + WP_GAP * 2 if rects else WP_MARGIN
+    iy = WP_MARGIN + WP_LABEL
+    for r in model.get("live") or ():
+        if r.path not in boxes:
+            boxes[r.path] = (ix, iy, r.w * r.tw * scale, r.h * r.th * scale)
+            iy += r.h * r.th * scale + WP_GAP
+    return ({k: v for k, v in boxes.items() if not isinstance(k, tuple)},
+            [(k[1], v) for k, v in boxes.items() if isinstance(k, tuple)])
+
+
+def cell_box(box, room, c, scale):
+    """A room's cell c on screen: (x0, y0, x1, y1), x1/y1 inclusive."""
+    x, y = box[0] + c[0] * room.tw * scale, box[1] + c[1] * room.th * scale
+    return x, y, x + room.tw * scale - 1, y + room.th * scale - 1
+
+
+def arrow_head(d, tip, frm, color, size):
+    """A filled arrowhead at tip, pointing away from frm."""
+    ang = math.atan2(tip[1] - frm[1], tip[0] - frm[0])
+    pts = [tip] + [(tip[0] - size * math.cos(ang + s * 0.5), tip[1] - size * math.sin(ang + s * 0.5)) for s in (1, -1)]
+    d.polygon(pts, fill=color)
+
+
+def centre(b):
+    return ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+
+
+def door_box(box, room, o, scale):
+    """A door's cells on screen, as one box (x0, y0, x1, y1) (inclusive)."""
+    cells = room.door_cells(o)
+    bs = [cell_box(box, room, c, scale) for c in cells]
+    return min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs)
+
+
+def key_rows(d, font, width):
+    """The key's entries laid out in rows no wider than width (a row holds at least one): [[(color, text, x)]]."""
+    rows, x = [[]], WP_MARGIN
+    for color, what in WP_KEY:
+        w = 11 + int(d.textlength(what, font=font))
+        if rows[-1] and x + w > width - WP_MARGIN:
+            rows.append([])
+            x = WP_MARGIN
+        rows[-1].append((color, what, x))
+        x += w + 14
+    return rows
+
+
+def is_marker(room, o):
+    """SPEC: a marker is a tile object whose tile's class is character_frame, whatever the object's own class."""
+    if not o.get("gid"):
+        return False
+    ts, tid = room.tile(o["gid"])
+    return ts is not None and ts.cls(tid) == MARKER_CLASS
+
+
+def place_tag(taken, x, y, w, h, right):
+    """Where a tag of w x h goes, at x,y or moved right (then down a row) until it overlaps no tag already placed."""
+    x = max(WP_MARGIN, min(x, right - w))  # inside the picture
+    while any(x < tx + tw and tx < x + w and y < ty + th and ty < y + h for tx, ty, tw, th in taken):
+        x += 2
+        if x + w > right:
+            x, y = WP_MARGIN, y + h + 1
+    taken.append((x, y, w, h))
+    return x, y
+
+
+def world_preview(model, issues, shown, scale=2, tags=None):
+    """The world preview (decision 13): each room drawn as Tiled draws it, the placed ones where the .world puts them
+    (spread apart by a gap) and the interiors to their right, labelled; the shared edges as bands across the gap,
+    from the rules' own crossings (yellow where both sides are walkable, magenta where one side is: edge-one-side,
+    with that cell outlined); each door outlined, with where you arrive beside it (dots) and a line to its entry
+    (arrowheads at the doors it leads to); the start and the markers; and every rule issue as a numbered magenta tag
+    where it is (a cell, a door, a room; tags that would cover each other move aside), listed under the picture.
+    tags: a list to fill with each tag's (n, x, y, w, h). Returns (the image, art it couldn't read)."""
+    font = strip_font()
+    boxes, gone = world_layout(model, scale)
+    live = model.get("live") or []
+    cache, missing = {}, {}
+    W = max([b[0] + b[2] for b in boxes.values()] + [b[0] + b[2] for _, b in gone] + [240]) + WP_MARGIN
+    body = max([b[1] + b[3] for b in boxes.values()] + [b[1] + b[3] for _, b in gone] + [WP_MARGIN]) + WP_MARGIN
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    lines = []
+    for n, i in enumerate(issues, 1):
+        text = f"[{n}] " + ("" if i.level == "error" else "WARNING: ") + rule_line(i, model, shown)
+        lines += fit_lines(probe, text, W - 2 * WP_MARGIN, font)
+    keys = key_rows(probe, font, W)
+    key_h = len(keys) * WP_LABEL + 4
+    H = body + key_h + len(lines) * WP_LABEL + (WP_MARGIN if lines else 4)
+    img = Image.new("RGBA", (W, H), WP_BG)
+    d = ImageDraw.Draw(img)
+    unreachable = {i.room for i in issues if i.code == "room-unreachable"}
+    placed = model.get("placed") or []
+    label_end = {}  # room path: where its label (and 'unreachable') ends, for its room-level tags
+    for r in live:
+        x, y, w, h = boxes[r.path]
+        d.rectangle((x, y, x + w - 1, y + h - 1), fill=WP_ROOM)
+        art = tiled_room_image(r, cache, missing)
+        img.alpha_composite(art.resize((w, h), Image.NEAREST) if scale != 1 else art, (x, y))
+        d.rectangle((x - 1, y - 1, x + w, y + h), outline=WP_LINE)
+        label = r.id + ("" if r in placed else " (interior)")
+        d.text((x, y - WP_LABEL), label, fill=WP_TEXT, font=font)
+        label_end[r.path] = x + int(d.textlength(label, font=font)) + 6
+        if r.id in unreachable:  # hatched: nothing here can be reached
+            hatch = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            hd = ImageDraw.Draw(hatch)
+            for k in range(0, w + h, 8):
+                hd.line((k, 0, k - h, h), fill=WP_ISSUE)
+            img.alpha_composite(hatch, (x, y))
+            d.text((label_end[r.path], y - WP_LABEL), "unreachable", fill=WP_ISSUE, font=font)
+            label_end[r.path] += int(d.textlength("unreachable", font=font)) + 6
+    for fn, (x, y, w, h) in gone:  # crossed out: the .world places a room that can't be loaded
+        d.rectangle((x, y, x + w - 1, y + h - 1), outline=WP_ISSUE)
+        d.line((x, y, x + w - 1, y + h - 1), fill=WP_ISSUE)
+        d.line((x, y + h - 1, x + w - 1, y), fill=WP_ISSUE)
+        d.text((x, y - WP_LABEL), f"{posixpath.basename(fn)} (can't be loaded)", fill=WP_ISSUE, font=font)
+    # the shared edges, from the rules' crossings: a band across the gap per border cell that isn't solid; yellow
+    # when the cell across is walkable too, magenta (and the cell outlined) when it isn't: edge-one-side
+    for a, side, ca, b, cb in model.get("crossings") or ():
+        if not a.walkable(ca):
+            continue  # a wall on this side: the crossing the other way draws it, if that side is walkable
+        color = WP_EDGE if b.walkable(cb) else WP_ISSUE
+        pa, pb = cell_box(boxes[a.path], a, ca, scale), cell_box(boxes[b.path], b, cb, scale)
+        if side in ("east", "west"):
+            ax = pa[2] + 2 if side == "east" else pa[0] - 2
+            bx = pb[0] - 2 if side == "east" else pb[2] + 2
+            d.polygon([(ax, pa[1] + 1), (bx, pb[1] + 1), (bx, pb[3] - 1), (ax, pa[3] - 1)], fill=color)
+        else:
+            ay = pa[3] + 2 if side == "south" else pa[1] - WP_LABEL - 1  # clear of the lower room's label
+            by = pb[1] - WP_LABEL - 1 if side == "south" else pb[3] + 2
+            d.polygon([(pa[0] + 1, ay), (pb[0] + 1, by), (pb[2] - 1, by), (pa[2] - 1, ay)], fill=color)
+        if color == WP_ISSUE:
+            d.rectangle(pa, outline=WP_ISSUE)
+    # doors: outline, arrival dots, the link to the entry. A door an issue names (by its name and first cell) is
+    # magenta, and so is one door-name-dup skips (drawn, with no link: the rules leave it out of everything else)
+    bad = {(i.room, i.name, tuple(i.cell)) for i in issues if i.code.startswith("door") and i.cell is not None}
+    drawn = set()
+    dot = max(1, scale)
+    targets, rooms = model.get("targets") or {}, model.get("rooms") or {}
+
+    def outline(r, o, broken):
+        db = door_box(boxes[r.path], r, o, scale)
+        color = WP_ISSUE if broken else WP_DOOR
+        d.rectangle(db, outline=color, width=max(1, scale // 2 + 1))
+        top = db[1] - WP_LABEL + 1
+        ty = top if top >= boxes[r.path][1] else db[3] + 2  # the top row: below the door, clear of the room's label
+        d.text((db[0], ty), str(o.get("name", "")), fill=color, font=font)
+        return db
+    for r in live:
+        for o in r.doors:
+            db = outline(r, o, (r.id, o.get("name", ""), r.door_cells(o)[0]) in bad)
+            for c in r.beside(o):
+                cx, cy = centre(cell_box(boxes[r.path], r, c, scale))
+                d.rectangle((cx - dot, cy - dot, cx + dot - 1, cy + dot - 1), fill=WP_DOOR)
+            pair = (model.get("partner") or {}).get((r.path, id(o)))
+            if pair:
+                tr, back = pair
+                if (tr.path, id(back)) in drawn:
+                    continue
+                drawn.add((r.path, id(o)))
+                p0, p1 = centre(db), centre(door_box(boxes[tr.path], tr, back, scale))
+                d.line((p0, p1), fill=WP_DOOR, width=max(1, scale))
+                arrow_head(d, p1, p0, WP_DOOR, 4 + 2 * scale)
+                arrow_head(d, p0, p1, WP_DOOR, 4 + 2 * scale)
+                continue
+            tr = rooms.get(targets.get((r.path, id(o))))  # a door that doesn't pair: one-way, where it points
+            there = [x for x in (tr.doors if tr else ()) if x.get("name") == tiled_props(o).get("entry")]
+            if tr is not None and tr.path in boxes and there:
+                p0, p1 = centre(db), centre(door_box(boxes[tr.path], tr, there[0], scale))
+                d.line((p0, p1), fill=WP_ISSUE, width=max(1, scale))
+                arrow_head(d, p1, p0, WP_ISSUE, 4 + 2 * scale)
+    for r, o in model.get("dup_doors") or ():
+        outline(r, o, True)
+    # markers, then the start over them (the start is often a marker's cell: the keeper's @)
+    for r in live:
+        for layer in all_layers(r.data.get("layers") or ()):
+            for o in layer.get("objects") or () if layer.get("type") == "objectgroup" else ():
+                if not isinstance(o, dict) or not is_marker(r, o):
+                    continue
+                x, y, w, h = (float(o.get(k) or 0) for k in ("x", "y", "width", "height"))
+                bx, by = boxes[r.path][:2]
+                cx, cy = bx + (x + w / 2) * scale, by + (y - h / 2) * scale
+                rad = max(w, h) * scale / 2 + 2
+                d.ellipse((cx - rad, cy - rad, cx + rad, cy + rad), outline=WP_MARKER, width=max(1, scale // 2))
+    for r in live:
+        for o in r.starts:
+            c = start_cell(o, r.tw, r.th)
+            ok = model.get("start") is not None and model["start"][0] is r
+            sb = cell_box(boxes[r.path], r, c, scale)
+            d.rectangle(sb, outline=WP_START if ok else WP_ISSUE, width=max(1, scale // 2 + 1))
+            d.text((sb[0], sb[3] + 2), "start", fill=WP_START if ok else WP_ISSUE, font=font)
+    # every issue, numbered where it is; a tag that would cover another moves right (then down)
+    taken = []
+    for n, i in enumerate(issues, 1):
+        r = next((x for x in live if x.id == i.room), None)
+        if r is not None and i.cell is not None:
+            at = cell_box(boxes[r.path], r, i.cell, scale)[:2]
+        elif r is not None:
+            at = (label_end[r.path], boxes[r.path][1] - WP_LABEL)
+        else:
+            g = next((b for fn, b in gone if pathlib.PurePath(fn).stem == i.room), None)
+            at = (g[0], g[1]) if g else (WP_MARGIN, 2)
+        tag = f"[{n}]"
+        tw_ = int(d.textlength(tag, font=font)) + 4
+        x, y = place_tag(taken, at[0], at[1], tw_, WP_LABEL - 1, W)
+        d.rectangle((x, y, x + tw_ - 1, y + WP_LABEL - 2), fill=WP_ISSUE)
+        d.text((x + 2, y), tag, fill=WP_BG, font=font)
+        if tags is not None:
+            tags.append((n, x, y, tw_, WP_LABEL - 1))
+    # the key (wrapped to the picture), then the issues
+    for k, row in enumerate(keys):
+        ky = body + k * WP_LABEL
+        for color, what, x in row:
+            d.rectangle((x, ky + 3, x + 7, ky + 10), fill=color)
+            d.text((x + 11, ky), what, fill=WP_TEXT, font=font)
+    for k, line in enumerate(lines):
+        d.text((WP_MARGIN, body + key_h + k * WP_LABEL), line, fill=WP_ISSUE, font=font)
+    return img, list(missing)
+
+
+def cmd_world(a):
+    """pxart world W.world|ROOM.tmj -o world.png: the world preview (world_preview), and what the rules say."""
+    need_o(a, "world.png")
+    if a.scale < 1:
+        fail("E_BAD_ARG", f"--scale {a.scale}: a whole number, 1 or more")
+    if a.o:
+        save_image(Image.new("RGBA", (1, 1)), a.o, check_only=True)
+    issues, model, shown = load_tiled(a.world)
+    img, missing = world_preview(model, issues, shown, a.scale)
+    for m in missing:
+        print(f"note: {m} can't be read; its tiles are left out of the picture")
+    for n, i in enumerate(issues, 1):
+        print(f"[{n}] " + ("" if i.level == "error" else "WARNING: ") + rule_line(i, model, shown))
+    ne, nw = sum(i.level == "error" for i in issues), sum(i.level != "error" for i in issues)
+    said = [f"{ne} error{'s' * (ne != 1)}"] * bool(ne) + [f"{nw} warning{'s' * (nw != 1)}"] * bool(nw)
+    save_image(img, a.o, about=f"{tiled_summary(model)}, at --scale {a.scale}", smaller="a lower --scale makes "
+               "it smaller")
+    print(wrote(a.o) + f": {shown}, {tiled_summary(model)}" + (
+        f"; {' and '.join(said)}, tagged [n] in the picture" if said else ""))
 
 
 def cmd_from_png(a):
@@ -9471,6 +10090,7 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "anim": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: variants", "LOOKING: centering"],
     "onion": ["FORMAT: pivots and timing", "LOOKING: centering"],
     "scene": ["FORMAT: variants", "FORMAT: paths", "LOOKING: centering"], "tint": ["scene"],
+    "world": ["LOOKING: centering"],
     "check": ["FORMAT: still groups", "FORMAT: paths"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
     "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
@@ -9499,6 +10119,8 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
     "scene": "Place .px/.png items at x,y (or a text tilemap with --map) on one canvas and render it,\n"
              "optionally in a variant (--variant night) or tinted (--tint).",
     "tint": "Lay a translucent color over a PNG, as scene --tint does (a night in one step).",
+    "world": "Draw a compiled world (.world, or a lone .tmj): its rooms where they sit, interiors aside,\n"
+             "edges, doors and where they lead, the start, markers, and every world-rule issue tagged.",
     "check": "Check .px and .map files: format errors with a code and location, size, colors, budget and\n"
              "unused keys; one line per file. Exits 1 on any failure.",
     "stats": "Size, bounding box and colors of frames, a variant's rendered colors (--colors), or one\n"
@@ -9772,6 +10394,8 @@ def parser(describe=True):
     p.add_argument("--tile", default="16x16", help="tile size for --map")
     p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
     p.add_argument("--tint", help="'#rrggbbaa' laid over the finished scene (quote it in scripts)")
+    p = sub.add_parser("world"); p.add_argument("world"); p.add_argument("-o")
+    p.add_argument("--scale", type=int, default=2); p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("tint"); p.add_argument("file"); p.add_argument("color"); p.add_argument("-o")
     p = sub.add_parser("check"); p.add_argument("files", nargs="+"); p.add_argument("--palette")
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
