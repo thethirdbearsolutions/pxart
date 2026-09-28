@@ -62,7 +62,8 @@ FORMAT (.px)
   names. A file pxart writes elsewhere gets its @palette lines re-pointed (see EDITING). An
   output's missing directory is made, and said: 'created out/'. An E_FILE for a relative
   path says so, and a path option's names the option: 'palette: --match
-  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: ...'.
+  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such file or
+  directory'.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
@@ -236,8 +237,8 @@ CHECKING
       sorted by path ('check crossover/'); a palette file (no frames) is checked as one:
       'ok   palette.px: palette file, 17 key(s), variants night'. P is a .px, .gpl, .hex, or
       text of #rrggbb. --strict also rejects unknown @sections and @anim/@still lines whose
-      group has no frames (else a note). Exit 1 on any failure. --exclude GLOB leaves files out, as for sheet: 'check game/ --exclude
-      wip'.
+      group has no frames (else a note). Exit 1 on any failure. --exclude GLOB leaves files
+      out, as for sheet.
       A .map (scene --map) is checked too: every row char has a legend line and every
       legend entry loads as one frame; a .world or .tmj: help worlds.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
@@ -860,7 +861,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
   export world.src.json|ROOM.map|DIR... --tiled [--tile 16x16] [--tileset T.tsj]
-  check world.src.json|DIR... [--tile 16x16] [--tileset T.tsj]
+  check world.src.json|W.world|ROOM.tmj|DIR... [--tile 16x16] [--tileset T.tsj]
+  world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]
       A world is rooms drawn as .map files (scene --map's format) and a world.src.json that
       places them and wires their doors. --tiled (with no X.tsj) compiles them to Tiled's
       files, beside them: rooms/NAME.map -> rooms/NAME.tmj, world.src.json -> world.world
@@ -912,6 +914,30 @@ WORLDS = """WORLDS (pxart help worlds)
       ...'; a warning (an edge walkable on one side only, a room nothing reaches) is a
       WARNING line. The rules are one spec with shared fixtures, run by pxart and the
       harness: tests/fixtures/world_rules/ (SPEC.md) in the pxart repo.
+      Compiled worlds (the runtime files, so a world made in Tiled too): check W.world runs
+      the world rules on the .world, the rooms it places and every room a door leads to,
+      exactly as the compile runs them: 'ok   world.world: 3 rooms placed, interior tower, 1
+      door pair, start in shore', or FAIL and each error, 'rooms/point.tmj: E_WORLD:
+      door-pair [D, cell 10,7]: ...' (the door's or start's name, or the edge's side, and
+      the cell); a warning is a WARNING line. A lone ROOM.tmj is a world of that one room
+      (placed at 0,0, its doors leading to its interiors); a .tmj that a .world beside it or
+      one directory up has (placed, or through doors) is E_WORLD: give the world. A DIR
+      checks world sources only. Only orthogonal, finite maps with CSV (JSON array) tile
+      data are read; anything else is E_WORLD, naming the Tiled setting to change.
+      world draws one: each room as Tiled draws it (markers too), the placed ones where
+      the .world puts them, spread apart so a shared side shows as a gap, and interiors in
+      a column to the right. Across each shared edge, a band per cell: yellow where both
+      sides are walkable (you can cross), magenta where only one is (edge-one-side; the
+      walkable cell outlined), nothing where both are solid. Each door is outlined, with a
+      dot on each cell you arrive on beside it and a line to its entry, arrowheads at the
+      doors it leads to (a door that doesn't pair up: magenta, one arrowhead). The start
+      is a green cell, markers cyan rings. Every rule issue is a numbered magenta tag
+      where it is (a cell, a door, a room), listed under the picture and printed ('[1]
+      WARNING: rooms/cove.tmj: edge-one-side [north, cell 1,0]: ...'); an unreachable
+      room is hatched, a room the .world names but can't load crossed out. A broken world
+      still draws (exit 0): check is the verdict. world reads compiled files only ('export
+      world.src.json --tiled' first). --scale (default 2) scales the rooms, not the gaps
+      or labels.
       Error codes: E_MAP_SIZE E_TILESET E_GENERATED E_WORLD E_DOOR E_START, and the map's
       own (E_ROW_WIDTH E_UNKNOWN_KEY E_BAD_ROW E_FILE).
 """
@@ -9276,17 +9302,18 @@ def world_holding(tmj):
     """The .world beside tmj, or one directory up, whose world has it (placed, or an interior through its doors):
     (that .world, 'placed' or 'an interior'), or None. Its rooms are found as the rules find them."""
     want = os.path.realpath(tmj)
-    here = pathlib.Path(tmj).parent
+    here = pathlib.Path(tmj).resolve().parent
     for d in dict.fromkeys((here, here.parent)):
         for wp in sorted(d.glob("*.world")):
+            name = wp.as_posix() if os.path.isabs(tmj) else posix_rel(wp, os.getcwd())
             model = {}
             try:
-                world_rules(posix_rel(wp, os.getcwd()) if not os.path.isabs(tmj) else str(wp), tiled_reader(), model)
+                world_rules(name, tiled_reader(), model)
             except PxError:
                 continue
             for rp, r in (model.get("rooms") or {}).items():
                 if r is not None and os.path.realpath(rp) == want:
-                    return posixpath.normpath(wp.as_posix()), "placed" if r in model["placed"] else "an interior"
+                    return name, "placed" if r in model["placed"] else "an interior"
     return None
 
 
@@ -9306,7 +9333,7 @@ def rule_where(i, model, shown):
 def rule_line(i, model, shown):
     """A rule issue as check and world print it: 'rooms/point.tmj: E_WORLD: door-pair [D, cell 10,7]: ...' for an
     error, 'rooms/cove.tmj: edge-one-side [north, cell 1,0]: ...' for a warning (check puts WARNING: first)."""
-    tag = [str(i.name)] if i.name is not None else []
+    tag = [str(i.name)] if i.name not in (None, "") else []
     tag += [f"cell {i.cell[0]},{i.cell[1]}"] if i.cell is not None else []
     what = i.code + (f" [{', '.join(tag)}]" if tag else "")
     return f"{rule_where(i, model, shown)}: " + ("E_WORLD: " if i.level == "error" else "") + f"{what}: {i.msg}"
@@ -9656,14 +9683,8 @@ def world_preview(model, issues, shown, scale=2):
                 p0, p1 = centre(db), centre(door_box(boxes[tr.path], tr, there[0], scale))
                 d.line((p0, p1), fill=WP_ISSUE, width=max(1, scale))
                 arrow_head(d, p1, p0, WP_ISSUE, 4 + 2 * scale)
-    # the start, and markers
+    # markers, then the start over them (the start is often a marker's cell: the keeper's @)
     for r in live:
-        for o in r.starts:
-            c = start_cell(o, r.tw, r.th)
-            ok = model.get("start") is not None and model["start"][0] is r
-            sb = cell_box(boxes[r.path], r, c, scale)
-            d.rectangle(sb, outline=WP_START if ok else WP_ISSUE, width=max(1, scale // 2 + 1))
-            d.text((sb[0], sb[3] + 2), "start", fill=WP_START if ok else WP_ISSUE, font=font)
         for layer in all_layers(r.data.get("layers") or ()):
             for o in layer.get("objects") or () if layer.get("type") == "objectgroup" else ():
                 if not isinstance(o, dict) or not o.get("gid") or r.cls(o) != MARKER_CLASS:
@@ -9673,6 +9694,13 @@ def world_preview(model, issues, shown, scale=2):
                 cx, cy = bx + (x + w / 2) * scale, by + (y - h / 2) * scale
                 rad = max(w, h) * scale / 2 + 2
                 d.ellipse((cx - rad, cy - rad, cx + rad, cy + rad), outline=WP_MARKER, width=max(1, scale // 2))
+    for r in live:
+        for o in r.starts:
+            c = start_cell(o, r.tw, r.th)
+            ok = model.get("start") is not None and model["start"][0] is r
+            sb = cell_box(boxes[r.path], r, c, scale)
+            d.rectangle(sb, outline=WP_START if ok else WP_ISSUE, width=max(1, scale // 2 + 1))
+            d.text((sb[0], sb[3] + 2), "start", fill=WP_START if ok else WP_ISSUE, font=font)
     # every issue, numbered where it is
     for n, i in enumerate(issues, 1):
         r = next((x for x in live if x.id == i.room), None)
