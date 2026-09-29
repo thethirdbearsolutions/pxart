@@ -806,16 +806,14 @@ CONVERTING
       its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
       walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
       painted with the old tileset keeps the old ids.
-  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
+  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px] [--colors N]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
-      to OUT (replacing same-id frames, which the 'wrote' line names with the count of
-      frames written). Two PNGs of one run that would get one id (two packs'
+      to OUT (replacing same-id frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
       tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM
-      by its directory's name ('from-png dungeon/tile_0002.png creatures/tile_0002.png
-      --prefix-dir -o all.px' writes dungeon/tile_0002 and creatures/tile_0002). Colors
+      by its directory's name (dungeon/tile_0002, creatures/tile_0002). Colors
       already in OUT keep their keys, so frames imported in separate runs share one
       palette. --palette P.px starts a new OUT that imports P and reuses its keys.
       Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names
@@ -833,6 +831,8 @@ CONVERTING
       'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
       -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
       is E_BAD_ARG, unless the strip left over is empty (then a note says so).
+      More colors than keys (a photo): --colors N reduces the PNGs to N first, inexactly,
+      and says by how much.
 
 HELP
   help [all | recipes | TOPIC | CMD]
@@ -9854,11 +9854,15 @@ def cmd_from_png(a):
     if named:
         same_ids(entries, names is not None)
     replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
+    if a.colors is not None:
+        entries = reduce_colors(entries, a.colors)
     for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
                 if not free:
-                    fail("E_BAD_ARG", f"{path}: out of palette keys ({len(KEYS)} max)")
+                    fail("E_BAD_ARG", f"{path}: out of palette keys ({len(KEYS)} max)"
+                         + ("" if a.colors is not None else
+                            f"; --colors N reduces the PNGs to N colors first ({len(set().union(*(colors(i) for *_, i in entries)))} now)"))
                 keyof[c] = free.pop(0)
                 doc.palette[keyof[c]] = c
         grid = ["".join(keyof[p] if p[3] else "." for p in (img.getpixel((x, y)) for x in range(img.width)))
@@ -9877,6 +9881,38 @@ def cmd_from_png(a):
                                      + ")" if named else ""))
     else:
         print(doc.text(), end="")
+
+
+def reduce_colors(entries, n):
+    """from-png --colors N: every entry's pixels, all together, reduced to at most N colors (alpha too: octree, no
+    dither), so a photo or a painting fits the palette keys. A fully transparent pixel stays transparent. Prints how far
+    the result is from the PNGs: per channel, alpha-weighted, 0-255."""
+    if not 1 <= n <= len(KEYS):
+        fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
+    before = set().union(*(colors(img) for *_, img in entries))
+    if len(before) <= n:
+        print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
+        return entries
+    # Only the drawn pixels go in, so a dark color can't merge with the transparent background and vanish.
+    drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
+    row = Image.new("RGBA", (len(drawn), 1))
+    row.putdata(drawn)
+    q = iter(pixels(row.quantize(n, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE).convert("RGBA")))
+    out, errs = [], []
+    for fid, path, img in entries:
+        src = list(pixels(img))
+        dst = [next(q) if p[3] else (0, 0, 0, 0) for p in src]
+        r = Image.new("RGBA", img.size)
+        r.putdata(dst)
+        errs += [max(abs(p[3] - d[3]), *(abs(u * p[3] - v * d[3]) // 255 for u, v in zip(p[:3], d[:3])))
+                 for p, d in zip(src, dst) if p[3]]
+        out.append((fid, path, r))
+    after = set().union(*(colors(img) for *_, img in out))
+    far = sum(e > 16 for e in errs)
+    print(f"reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f} "
+          f"on average, {max(errs, default=0)} at most (per channel, alpha-weighted, 0-255); "
+          f"{far} of {len(errs)} drawn px off by more than 16")
+    return out
 
 
 def png_id(path, a, name=None):
@@ -10607,6 +10643,9 @@ def parser(describe=True):
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    p.add_argument("--colors", type=int, metavar="N",
+                   help="reduce the PNGs (all together) to at most N colors first, for a photo or painting with "
+                        "more colors than palette keys; says how far that moved them")
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
     p.add_argument("--names", metavar="A,B,...",
                    help="one frame id per PNG, in order; with --grid: each row's (--by cols: column's) group name")
