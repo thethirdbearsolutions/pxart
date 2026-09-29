@@ -1394,8 +1394,9 @@ def start_doc(path, palette=None, into=None):
                 if not any(i.code == "E_PALETTE_FILE" and "grid rows" in i.msg for i in e.issues):
                     raise
                 fail("E_PALETTE_FILE", "it has grid rows, and --palette imports a palette file "
-                     f"(key lines only). To share its keys: pxart palette {palette} --extract-to P.px --repoint, "
-                     "then --palette P.px" + (f"; to add to it instead: {into} {palette}" if into else ""))
+                     f"(key lines only). To share its keys: pxart palette {shlex.quote(str(palette))} --extract-to "
+                     "P.px --repoint, then --palette P.px" + (f"; to add to it instead: {into} "
+                                                               f"{shlex.quote(str(palette))}" if into else ""))
         imports(doc, pathlib.Path(os.path.relpath(pathlib.Path(palette).resolve(),
                                                   pathlib.Path(path).resolve().parent)).as_posix(), sub)
     return doc
@@ -4683,6 +4684,23 @@ def cmd_mask(a):
     print(f"erased {erased} px;", write_doc(doc, out))
 
 
+def erase_recolor(a, pal):
+    """recolor's call as typed (a.argv, else its parsed args), each 'k>.' of a palette key as 'k=.' and any other
+    'x>.' left out: the command that erases what 'k>.' meant to, quoted to paste."""
+    def fix(t):
+        if len(t) == 3 and t[1:] == ">." and t in a.maps:
+            return [f"{t[0]}=."] if t[0] in pal and t[0] != "." else []
+        return [t]
+    argv = getattr(a, "argv", None) or ["recolor", a.file, *a.maps] + (["-o", a.o] if a.o else []) \
+        + (["--region", a.region] if a.region else []) + (["--variant", a.variant] if a.variant else [])
+    return shlex.join(["pxart"] + [x for t in argv for x in fix(t)])
+
+
+def keys_arg(keys):
+    """KEYS as one argument key_list reads back: 'abc', or 'a,b' when ',' is one of them."""
+    return "".join(keys) if "," not in keys or len(keys) == 1 else ",".join(keys)
+
+
 def cmd_recolor(a):
     """Key moves (a=b, 'a<>b', 'a>b') apply together: each pixel is repainted by the move of the key it had before the
     call, so they can't feed each other, and a key 'a>b' frees ('b>c' in the same call) can be a new key's name: 'a>b'
@@ -4701,9 +4719,8 @@ def cmd_recolor(a):
                 fail("E_SELECT", f"recolor: {m!r}: key {k!r} not in palette" if k != "." else
                      f"recolor: {m!r}: '.' is transparent, not a color to give a new key")
             if v == ".":
-                erase = " ".join(f"'{x[0]}=.'" for x in a.maps if len(x) == 3 and x[1] == ">" and x[2] == ".")
                 fail("E_BAD_ARG", f"recolor: {m!r}: '>' gives {k}'s pixels a new key, and '.' isn't one (it's "
-                     f"transparent); to erase them: pxart recolor {a.file} {erase}")
+                     f"transparent); to erase them: {erase_recolor(a, pal)}")
             if v in renames.values():
                 first = next(said[j] for j, w in renames.items() if w == v)
                 fail("E_BAD_ARG", f"recolor: {m!r} and {first!r} both give pixels the new key {v!r}; each new key "
@@ -7423,11 +7440,15 @@ def remove_keys(doc, keys, to=None, within=None):
             fail("E_BAD_ARG", "--remove '.': '.' is built in (always transparent), not a key line", path=doc.path)
         if k not in doc.palette and k not in doc.shared:
             fail("E_SELECT", f"--remove {k!r}: {doc.path} has no key {k!r}", path=doc.path)
-    erase = f"pxart recolor {doc.path} {' '.join(repr(f'{k}=.') for k in keys)}"
+    src, out = str(doc.path), str(doc.dest or doc.path)
+    rest = [out, "--remove", keys_arg(keys)] + (["--in", within] if within else [])
+
+    def erase(ks):  # recolor writes -o OUT, and --remove then edits OUT: the two act on one file
+        return shlex.join(["pxart", "recolor", src, *(f"{k}=." for k in ks)] + (["-o", out] if doc.dest else []))
     if to == ".":
         fail("E_SELECT", f"--to '.': --to repaints with a key, and '.' isn't one (it's transparent); to erase "
-             f"{''.join(keys)}'s pixels, then remove {'them' if len(keys) > 1 else 'it'}: {erase} && pxart palette "
-             f"{doc.path} --remove {''.join(keys)}", path=doc.path)
+             f"{''.join(keys)}'s pixels, then remove {'them' if len(keys) > 1 else 'it'}: {erase(keys)} && "
+             + shlex.join(["pxart", "palette", *rest]), path=doc.path)
     if to is not None and (to not in pal or to in keys):
         fail("E_SELECT", f"--to {to!r}: " + (f"it is being removed" if to in keys else
                                               f"not a key of {doc.path}"), path=doc.path)
@@ -7444,8 +7465,10 @@ def remove_keys(doc, keys, to=None, within=None):
     if uses and to is None:
         each = "; ".join(f"{k}: {sum(n for _, n in fs)} px in {listed(l for l, _ in fs)}" for k, fs in uses.items())
         fail("E_SELECT", f"--remove {''.join(keys)}: frames still draw with {' '.join(uses)} ({each}); repaint them "
-             f"first (to erase them: {erase}), or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} "
-             "--to K",
+             f"first (to erase them, then remove {'them' if len(keys) > 1 else 'it'}: {erase(uses)} && "
+             + shlex.join(["pxart", "palette", *rest]) + "), or give --to KEY to repaint them as KEY: "
+             + shlex.join(["pxart", "palette", src, "--remove", keys_arg(keys)] + (["--in", within] if within else [])
+                          + (["-o", out] if doc.dest else [])) + " --to K",
              path=doc.path)
     said = []
     if uses:

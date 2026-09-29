@@ -512,29 +512,106 @@ def test_from_png_palette_with_a_sprite_file_points_at_extract_and_o(tmp_path):
 ERASE = "pxart 1\na #ff0000\nm #00ff00\np #0000ff\n\naamp\nmpa.\n"
 
 
-def test_palette_remove_to_dot_names_recolor_to_erase(tmp_path):
+def run_suggested(err, after):
+    """Run, as a shell would, the commands an error suggests after `after` (up to the next ')' or the end):
+    'pxart X ... && pxart Y ...', each through run."""
+    text = err.split(after, 1)[1]
+    cmds = []
+    for part in text.split(" && "):
+        words = shlex.split(part.split("), ")[0].rstrip(")"))
+        assert words[0] == "pxart"
+        cmds.append(words[1:])
+    for argv in cmds:
+        assert run(*argv) == 0, argv
+    return cmds
+
+
+def test_palette_remove_to_dot_names_recolor_to_erase(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     p = write(tmp_path, "e.px", ERASE)
-    err = run_err("palette", p, "--remove", "a", "--to", ".")
-    assert f"to erase a's pixels, then remove it: pxart recolor {p} 'a=.' && pxart palette {p} --remove a" in err
-    assert run("recolor", p, "a=.") == 0 and run("palette", p, "--remove", "a") == 0
+    err = run_err("palette", "e.px", "--remove", "a", "--to", ".")
+    assert "to erase a's pixels, then remove it: pxart recolor e.px a=. && pxart palette e.px --remove a" in err
+    run_suggested(err, "then remove it: ")
     assert p.read_text() == "pxart 1\nm #00ff00\np #0000ff\n\n..mp\nmp..\n"
 
 
-def test_palette_remove_drawn_key_says_how_to_erase_it(tmp_path):
+def test_palette_remove_drawn_key_says_how_to_erase_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     p = write(tmp_path, "e.px", ERASE)
-    err = run_err("palette", p, "--remove", "am")
-    assert f"repaint them first (to erase them: pxart recolor {p} 'a=.' 'm=.'), or give --to KEY" in err
+    err = run_err("palette", "e.px", "--remove", "am")
+    assert "(to erase them, then remove them: pxart recolor e.px a=. m=. && pxart palette e.px --remove am), " \
+           "or give --to KEY" in err
+    run_suggested(err, "then remove them: ")
+    assert p.read_text() == "pxart 1\np #0000ff\n\n...p\n.p..\n"
 
 
-def test_recolor_to_dot_points_at_equals_dot(tmp_path):
+def test_recolor_to_dot_points_at_equals_dot(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     p = write(tmp_path, "e.px", ERASE)
-    err = run_err("recolor", p, "a>.")
-    assert "'a>.': '>' gives a's pixels a new key, and '.' isn't one" in err
-    assert f"to erase them: pxart recolor {p} 'a=.'" in err
-    err = run_err("recolor", p, "m>.", "p>.")
-    assert f"to erase them: pxart recolor {p} 'm=.' 'p=.'" in err and p.read_text() == ERASE
-    assert run("recolor", p, "m=.", "p=.") == 0
+    err = run_err("recolor", "e.px", "a>.")
+    assert "'a>.': '>' gives a's pixels a new key, and '.' isn't one (it's transparent); to erase them: " \
+           "pxart recolor e.px a=." in err
+    err = run_err("recolor", "e.px", "m>.", "p>.")
+    assert err.endswith("to erase them: pxart recolor e.px m=. p=.") and p.read_text() == ERASE
+    run_suggested(err, "to erase them: ")
     assert p.read_text().endswith("\naa..\n..a.\n")
+
+
+QUOTY = "pxart 1\n' #ff0000\n; #00ff00\n* #0000ff\na #111111\n\n';*a\n';*a\n"
+
+
+def test_erase_suggestions_run_verbatim_with_a_spaced_path_and_quote_keys(tmp_path, monkeypatch):
+    # review: a "'" key and a path with a space made suggestions the shell couldn't run
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sp ace").mkdir()
+    p = write(tmp_path / "sp ace", "k.px", QUOTY)
+    err = run_err("recolor", "sp ace/k.px", "'>.")
+    assert run_suggested(err, "to erase them: ") == [["recolor", "sp ace/k.px", "'=."]]
+    assert p.read_text().endswith("\n.;*a\n.;*a\n")
+    p.write_text(QUOTY)
+    err = run_err("palette", "sp ace/k.px", "--remove", "';", "--to", ".")
+    run_suggested(err, "then remove them: ")
+    assert p.read_text() == "pxart 1\n* #0000ff\na #111111\n\n..*a\n..*a\n"
+    p.write_text(QUOTY)
+    err = run_err("palette", "sp ace/k.px", "--remove", "*")
+    assert "pxart palette 'sp ace/k.px' --remove '*' --to K" in err
+    run_suggested(err, "then remove it: ")
+    assert p.read_text() == "pxart 1\n' #ff0000\n; #00ff00\na #111111\n\n';.a\n';.a\n"
+
+
+def test_recolor_erase_suggestion_keeps_o_region_and_other_maps(tmp_path, monkeypatch):
+    # review: the suggestion dropped -o and --region, so running it erased all of r.px in place
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "r.px", "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n")
+    err = run_err("recolor", "r.px", "--region", "0,0,2,1", "-o", "r2.px", "a>.", "q>.", ".>.")
+    assert err.endswith("to erase them: pxart recolor r.px --region 0,0,2,1 -o r2.px a=.")
+    run_suggested(err, "to erase them: ")
+    assert p.read_text() == "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n"
+    assert (tmp_path / "r2.px").read_text() == "pxart 1\na #ff0000\nb #0000ff\n\n..aa\nbbbb\n"
+    err = run_err("recolor", "r.px", "a>.", "b=#00ff00", "--dry-run")
+    assert err.endswith("to erase them: pxart recolor r.px a=. 'b=#00ff00' --dry-run")
+
+
+def test_palette_remove_to_dot_suggestion_writes_o_and_removes_there(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "r.px", "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n")
+    err = run_err("palette", "r.px", "--remove", "a", "--to", ".", "-o", "r3.px")
+    assert "pxart recolor r.px a=. -o r3.px && pxart palette r3.px --remove a" in err
+    run_suggested(err, "then remove it: ")
+    assert p.read_text() == "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n"
+    assert (tmp_path / "r3.px").read_text() == "pxart 1\nb #0000ff\n\n....\nbbbb\n"
+
+
+def test_from_png_palette_sprite_suggestions_quote_the_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sp ace").mkdir()
+    write(tmp_path / "sp ace", "s.px", "pxart 1\nr #fa0000\n\n@frame f\nr\n")
+    row_png(tmp_path / "x.png", [(250, 0, 0, 255)])
+    err = run_err("from-png", "x.png", "-o", "x.px", "--palette", "sp ace/s.px")
+    assert "pxart palette 'sp ace/s.px' --extract-to P.px --repoint" in err and err.endswith("-o 'sp ace/s.px'")
+    assert run(*shlex.split(err.split("To share its keys: pxart ")[1].split(", then")[0])) == 0
+    assert run("from-png", "x.png", "-o", "x.px", "--palette", "P.px") == 0
+    assert run("from-png", "x.png", "--id", "x", *shlex.split(err.split("to add to it instead: ")[1])) == 0
 
 
 def test_mask_drop_keys_erases_a_key(tmp_path):
