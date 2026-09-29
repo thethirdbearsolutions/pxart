@@ -98,8 +98,9 @@ pxart 1
 - **Slots, `f #e0ac69 | #f5cfa0 | #c68642`:** a key's alternatives, for a game that
   recolors sprites at runtime. The first is the key's base color, the one every command
   draws and exports; `render`/`sheet --slots 6` show combinations, and `export --indexed
-  keys.json` writes the frames as key grids with the palette and its slots. `pxart help
-  slots` has the rules and the JSON shape.
+  keys.json` writes the frames as key grids with the palette and its slots. A `@variant`
+  gives a slot one color or a list, one per slot color. `pxart help slots` has the rules
+  and the JSON shape.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`

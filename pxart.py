@@ -1039,24 +1039,37 @@ SLOTS = """SLOTS (pxart help slots)
   it always did.
   - Alternatives are colors like any key's (#rrggbb, #rrggbbaa, transparent); a bad one is
     E_BAD_COLOR. check --palette P fails an alternative P hasn't got, and notes a color a
-    slot lists twice. palette lists them after the key's line; palette --add
-    'f=#e0ac69|#f5cfa0' adds a slot, or sets the alternatives of f if it has that color.
+    slot lists twice. palette lists them with the key's color; palette --add
+    'f=#e0ac69|#f5cfa0' adds a slot, or sets the alternatives of f if it has that color
+    (an imported f gets a line of FILE's own, and says how to set it in the palette file).
+  - The alternatives are part of the key's color. A key another file has in the same colors
+    is the same key; a plain key and a slot of one base color, or two slots with other
+    alternatives, are two colors: compose, paste and frames --copy-to call it E_KEY_CONFLICT
+    (--rekey gives the incoming key a free one), from-png gives a PNG's color a plain key
+    of its own, and diff says '3 px differ only in slot alternatives'.
   - A palette file's slots are imported with its keys. A local line for the key replaces
-    the imported one whole: without '|' it is a plain key there (check notes the override).
-  - A @variant sets one color per key, never alternatives (E_BAD_COLOR): a key it sets
-    draws in the variant's color whatever the slot; the keys it leaves keep their slots.
+    the imported one whole (check notes the override). A plain local line of the import's
+    base color only hides its alternatives: check says so, and palette --import and --remove
+    drop it.
+  - A @variant line for a slot is one color, the key's color in the variant whatever the
+    slot, or a list as long as the slot's, one color per slot color in order:
+      @variant night
+      f #6f5634 | #7a6750 | #634321 | #462a12 | #7f6d56
+    Another length is E_BAD_COLOR. palette --variant night --derive-from base derives
+    each color of a slot, a list. Keys a variant leaves keep their slots.
   - Commands that copy or rename keys (compose, paste, put, frames --copy-to, extract,
     recolor 'a>b', palette --hoist, --extract-to, --import) carry the alternatives with the
-    key; recolor f=#hex changes the base color and keeps them. Keys match by base color: a
-    key another file has in that color is the same key, and the one already there stays.
+    key; recolor f=#hex changes the base color and keeps them.
 
   render|sheet FILE... --slots N|K=I,...
       Draws the frames once per combination of their file's slots: --slots 6 is the base
       colors, then 5 others, drawn from a fixed seed (the same every run; --slots 8 starts
       with --slots 6's), or every combination when there are no more than N. K=I pins slot
-      K to its I-th color (0 is the base): --slots f=2,h=0 draws that one, the other slots
-      at base; --slots 6,f=2 samples the others. Each label ends with its combination
-      (walk/0 h3f2c4p1), and a line per combination prints its colors and the --slots that
+      K to its I-th color (0 is the base), K=#rrggbb to that color: --slots f=2,h=0 draws
+      that one, the other slots at base; --slots 6,f=2 samples the others. A pin a file's
+      slot can't take is E_BAD_ARG naming the file. Each label ends with its combination
+      (walk/0 h3f2c4p1), and a line per combination prints the colors it draws (in
+      --variant V's colors: a note names the slots V gives one color) and the --slots that
       draws it alone. With --rows group each combination of an animation is its own row.
 
   export FILE|DIR[:SEL]... --indexed X.json
@@ -1064,18 +1077,22 @@ SLOTS = """SLOTS (pxart help slots)
       {"version": 1,
        "palette": {"k": "#1a1a1a", "f": "#e0ac69", ...},   every key's base color
        "slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...},   each slot's colors, base first
-       "variants": {"night": {"k": "#000000", ...}},       the keys each variant sets
+       "variants": {"night": {"k": "#000000",              the keys each variant sets:
+                              "f": ["#6f5634", ...]}},     a slot's list, or one color
        "frames": [{"id": "walk/0", "w": 8, "h": 12, "ms": 125, "pivot": {"x": 4, "y": 11},
                    "rows": ["..hhhh..", ...]}, ...],
        "animations": [{"name": "walk", "from": 0, "to": 3, "direction": "forward",
                        "repeat": 0}, ...]}
       rows: a string per row, a key per pixel, '.' transparent. Colors are #rrggbb, or
-      #rrggbbaa when not opaque. "slots", "variants" and "animations" are there when empty
-      too; "pivot" is left out for a frame without one. Frames are in export's id order
-      (help CONVERTING), which "from" and "to" index; a @still group is no animation. repeat
-      0 is forever. --prefix-file ids frames and names animations FILE/ID. Every file shares
-      one palette: a key two files color differently is E_KEY_CONFLICT. --indexed goes alone
-      or with --frames, --aseprite and --tiled; --variant V colors only their PNGs.
+      #rrggbbaa when not opaque. A game draws key k in variant V (slot color i) as V's k
+      (its i-th when a list), else as slots' k's i-th, else as palette's k. "slots",
+      "variants" and "animations" are there when empty too; "pivot" is left out for a
+      frame without one. Frames are in export's id order (help CONVERTING), which "from"
+      and "to" index; a @still group is no animation. repeat 0 is forever. --prefix-file
+      ids frames and names animations FILE/ID. Every file shares one palette and one set of
+      variants: a key two files color differently, in the base or in a variant (a file
+      without that variant draws its base colors there), is E_KEY_CONFLICT. --indexed goes
+      alone or with --frames, --aseprite and --tiled; --variant V colors only their PNGs.
 """
 
 
@@ -10975,7 +10992,8 @@ def overview():
                       *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
-                      "whole reference.", "",
+                      "whole reference.", "Own topics: 'pxart help worlds' (Tiled worlds), 'pxart help slots' (palette "
+                      "slots: a key's", "alternatives for a game to recolor; render --slots, export --indexed).", "",
                       "Start here: 'pxart help recipes' walks through seven workflows end to end: port a pack and "
                       "prove", "it lossless, merge packs with variants, build a dusk or night, slice a sheet, make a "
                       "scene from a", "map, check an animation's feet, stamp an overlay behind an animation."])

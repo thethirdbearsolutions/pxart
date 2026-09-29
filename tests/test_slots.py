@@ -428,7 +428,8 @@ def test_help_slots_is_its_own_topic(capsys):
     assert "[--slots N|K=I]" in doc and "[--indexed X.json]" in doc
     text = " ".join(pxart.SLOTS.split())
     for s in ('"slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...}', "--slots 6,f=2", "E_KEY_CONFLICT",
-              "palette --add 'f=#e0ac69|#f5cfa0'", "A @variant sets one color per key"):
+              "palette --add 'f=#e0ac69|#f5cfa0'", "one color per slot color in order",
+              '"f": ["#6f5634", ...]', "differ only in slot alternatives", "K=#rrggbb", "only hides its alternatives"):
         assert s in text, s
     assert "slots" in run_err("help", "nope")
 
@@ -545,3 +546,7 @@ def test_a_failing_render_prints_no_slot_lines(tmp_path, capsys):
     p = write(tmp_path, "v.px", VILL)
     run_err("render", f"{p}:walk/0", "--slots", "3", "--plain", "-o", tmp_path / "r.png")
     assert capsys.readouterr().out == ""
+
+
+def test_overview_names_the_slots_topic():
+    assert "'pxart help slots'" in pxart.overview()
