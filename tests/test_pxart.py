@@ -27425,6 +27425,94 @@ def test_outline_inside_repaints_a_halo_edge(tmp_path, capsys):
     assert pxart.parse(p).frames[0].grid == ["ooo"]
 
 
+FRINGE = "b #406080\no #101018\nf #4060800e\n@frame a\n"
+
+
+def test_outline_notes_faint_keys_in_the_shape(tmp_path, capsys):
+    p = write(tmp_path, "s.px", FRINGE + ".....\n.fff.\n.fbf.\n.fff.\n.....\n")
+    assert run("outline", f"{p}:a", "--key", "o") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("note: the shape includes faint key f (alpha under 128 in every variant: 8 px); "
+                          "--min-alpha 128 outlines inside them, painting over them where the outline lands\n")
+    assert grid_of(p) == [".ooo.", "offfo", "ofbfo", "offfo", ".ooo."]  # round the near-invisible ring: a gap
+
+
+def test_outline_min_alpha_outlines_inside_faint_px(tmp_path, capsys):
+    p = write(tmp_path, "s.px", FRINGE + ".....\n.fff.\n.fbf.\n.fff.\nf....\n")
+    assert run("outline", f"{p}:a", "--key", "o", "--min-alpha", "128") == 0
+    assert grid_of(p) == [".....", ".fof.", ".obo.", ".fof.", "f...."]  # the fringe stays unless erased
+    out = capsys.readouterr().out
+    assert "faint key" not in out
+    assert f"note: --min-alpha 128: 5 px of f (keys under 128) stay drawn outside the outline; to erase them: " \
+           f"pxart recolor {p}:a f=.\n" in out
+    run_suggested(out.splitlines()[0], "to erase them: ")
+    assert grid_of(p) == [".....", "..o..", ".obo.", "..o..", "....."]
+
+
+def test_outline_min_alpha_counts_a_variant(tmp_path):
+    # a key faint in the base but solid at night is shape: it draws solid in some variant
+    p = write(tmp_path, "s.px", "b #406080\no #101018\nf #4060800e\n@variant night\nf #406080\n\n"
+              "@frame a\n.....\n..f..\n..b..\n.....\n")
+    assert run("outline", f"{p}:a", "--key", "o", "--min-alpha", "128", "--corners") == 0
+    assert grid_of(p) == [".ooo.", ".ofo.", ".obo.", ".ooo."]
+
+
+@pytest.mark.parametrize("n", ["0", "256"])
+def test_outline_min_alpha_range(tmp_path, n):
+    p = write(tmp_path, "s.px", FRINGE + "b\n")
+    assert "outline --min-alpha " + n + ": give 1 to 255" in run_err("outline", p, "--key", "o", "--min-alpha", n)
+
+
+def test_outline_notes_a_shape_on_the_frame_edge_with_the_crop_that_pads_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = shape_file(tmp_path, ["bb.", "bb.", "..."])
+    assert run("outline", "s.px:a", "--key", "o", "-o", "out.px") == 0
+    out = capsys.readouterr().out
+    assert "note: a: its shape touches the frame's left and top edges, so the outline is open there; to pad it 1px " \
+           "at the left and top and outline that: pxart crop s.px:a -1,-1,4,4 -o out.px:a && pxart outline out.px:a " \
+           "--key o\n" in out
+    run_suggested(next(line for line in out.splitlines() if "outline that" in line), "and outline that: ")
+    assert grid_of(tmp_path / "out.px") == [".oo.", "obbo", "obbo", ".oo."]
+    assert grid_of(p) == ["bb.", "bb.", "..."]
+
+
+def test_outline_edge_note_in_place_says_to_pad_the_art_before_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    shape_file(tmp_path, ["...", ".bb", ".bb"])
+    assert run("outline", "s.px:a", "--key", "o", "--light", "se", "--lit", "l") == 0
+    assert "note: a: its shape touches the frame's right and bottom edges, so the outline is open there; to close " \
+           "it, outline a padded frame: pad the art from before this run 1px at the right and bottom (pxart crop " \
+           "s.px:a 0,0,4,4 -o s.px:a), then outline again\n" in capsys.readouterr().out
+
+
+def test_outline_edge_note_keeps_the_calls_flags(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "my s.px", "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n")
+    assert run("outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", "--corners", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "to pad it 1px at the right and outline that: pxart crop 'my s.px' 0,0,4,3 -o 'my s.px' && pxart " \
+           "outline 'my s.px' --key o --lit l --light se --corners --dry-run\n" in out
+    run_suggested(out.splitlines()[0], "and outline that: ")
+
+
+def test_outline_edge_note_pads_every_frame_alike(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n...\n.b.\n.b.\n@frame walk/1\n...\n.b.\n...\n"
+          "@frame walk/2\n...\nb..\n...\n")
+    assert run("outline", "w.px:walk", "--key", "o", "--preview", "p.png") == 0
+    out = capsys.readouterr().out
+    assert "note: walk/0: its shape touches the frame's bottom edge, so the outline is open there; to pad it 1px at " \
+           "the bottom and left (as the other frames, to keep them aligned) and outline that: pxart crop w.px:walk/0 " \
+           "-1,0,4,4 -o w.px:walk/0 && pxart outline w.px:walk/0 --key o --preview p.png\n" in out
+    assert "walk/1:" not in out and "note: walk/2: its shape touches the frame's left edge" in out
+
+
+def test_outline_inside_has_no_edge_note(tmp_path, capsys):
+    p = shape_file(tmp_path, ["bb.", "bb.", "..."])
+    assert run("outline", f"{p}:a", "--key", "o", "--inside") == 0
+    assert capsys.readouterr().out == f"changed 4 px: 4->o; wrote {p}\n"
+
+
 def test_mask_drop_keys_and_keep_keys_go_by_halo_key(tmp_path, capsys):
     p = write(tmp_path, "h.px", HALO)
     assert run("mask", f"{p}:src", "--drop-keys", "L") == 0

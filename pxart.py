@@ -761,17 +761,18 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       darkest first: "changed 24 px: 4->A, 8->B, 8->D, 4->E" (with --preview, "would change").
       'shade hero.px:idle/0 --ramp XxcCw --keys c' shades the cloak c with the ramp X x c C w.
   outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
-          [--corners] [--preview P.png]
-      Outline the frame's shape (every pixel that draws in some variant). --outside (the default)
-      paints the empty pixels touching the shape on a side; --inside repaints the shape's own
-      pixels that have an empty side (off the frame is empty). Sides only is the pixel-perfect
-      rule: a diagonal edge gets a 1px staircase and a square corner is cut, so no doubled
-      (L-shaped) corners; --corners also takes the pixels touching only at a corner (square
-      corners, a 2px staircase). Selective outline (--lit L): outline pixels facing the light get
-      L (a darker tone of the material), the rest K. Facing: an outline pixel's outward normal
-      (shade's, over 2px) dotted with the light's direction; above 0 is lit, so a nw light lights
-      the top and left edges and a 45-degree edge (ne, sw) stays K. --light and --preview as for
-      shade. Prints "changed 12 px: 6->o, 6->l" (by key; px that had it already don't count).
+          [--corners] [--preview P.png] [--min-alpha A]
+      Outline the frame's shape (every pixel that draws in some variant; with --min-alpha A, at
+      alpha A+). --outside (the default) paints the empty pixels touching the shape on a side;
+      --inside repaints the shape's own pixels that have an empty side (off the frame is empty).
+      Sides only is the pixel-perfect rule: a diagonal edge gets a 1px staircase and a square
+      corner is cut, so no doubled (L-shaped) corners; --corners also takes the pixels touching
+      only at a corner (square corners, a 2px staircase). Selective outline (--lit L): outline
+      pixels facing the light get L (a darker tone of the material), the rest K. Facing: an
+      outline pixel's outward normal (shade's, over 2px) dotted with the light's direction; above
+      0 is lit, so a nw light lights the top and left edges and a 45-degree edge (ne, sw) stays K.
+      --light and --preview as for shade. Prints "changed 12 px: 6->o, 6->l" (by key; px that had
+      it already don't count).
 
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
@@ -5548,10 +5549,77 @@ def normal(p, inside, reach=2):
     return (sx / n, sy / n) if n > 1e-9 else (0.0, 0.0)
 
 
-def opaque_set(doc, f):
-    """The frame's shape: its pixels whose key draws (Doc.blanks), a night-only halo's included."""
-    blank = doc.blanks()
+def opaque_set(doc, f, min_alpha=None):
+    """The frame's shape: its pixels whose key draws (Doc.blanks), a night-only halo's included; with min_alpha, only
+    those whose key has at least that alpha in the base or some variant (key_alphas)."""
+    blank = doc.blanks() if min_alpha is None else {k for k, v in key_alphas(doc).items() if v < min_alpha}
     return {(x, y) for y, row in enumerate(f.grid) for x, ch in enumerate(row) if ch not in blank}
+
+
+def key_alphas(doc):
+    """{key: its highest alpha in the base and every variant}: how solid it ever draws."""
+    pals = [doc.resolved()] + [doc.resolved(n) for n in variant_names(doc)]
+    return {k: max(p[k][3] for p in pals) for k in pals[0]}
+
+
+def touched_sides(shape, w, h):
+    """The frame edges a shape's pixels lie on, as outline's note names them: ['left', 'bottom']."""
+    return [side for side, on in (("left", any(x == 0 for x, _ in shape)), ("right", any(x == w - 1 for x, _ in shape)),
+                                  ("top", any(y == 0 for _, y in shape)), ("bottom", any(y == h - 1 for _, y in shape)))
+            if on]
+
+
+def outline_notes(a, doc, frames, shapes, out):
+    """outline's notes, after painting (frames as painted, shapes as they were): faint keys in the shape (no
+    --min-alpha), or the px of keys under --min-alpha the outline left drawn, with the recolor that erases them; and, --outside, each frame whose shape touches the
+    frame's edge (the outline is open there) with the crop that pads it, the same sides for every frame so an
+    animation stays aligned."""
+    alpha, notes = key_alphas(doc), []
+    drawn = collections.Counter(ch for f in frames for row in f.grid for ch in row)
+    sel = split_sel(a.file)[1]
+    if a.min_alpha is None:
+        faint = [k for k in alpha if k != "." and 0 < alpha[k] < 128 and drawn[k]]
+        if faint:
+            notes.append(f"the shape includes faint key{'s' * (len(faint) > 1)} {' '.join(faint)} (alpha under 128 in "
+                         f"every variant: {sum(drawn[k] for k in faint)} px); --min-alpha 128 outlines inside them, "
+                         "painting over them where the outline lands")
+    else:
+        left = collections.Counter(ch for f in frames for row in f.grid for ch in row
+                                   if ch != "." and 0 < alpha[ch] < a.min_alpha)
+        if left:
+            dest = str(out) + (f":{sel}" if sel else "")
+            notes.append(f"--min-alpha {a.min_alpha}: {sum(left.values())} px of {' '.join(left)} (keys under "
+                         f"{a.min_alpha}) stay drawn outside the outline; to erase them: "
+                         + shlex.join(["pxart", "recolor", dest, *(f"{k}=." for k in left)]))
+    if a.inside:
+        return notes
+    sides = list(dict.fromkeys(s for f, shape in zip(frames, shapes) for s in touched_sides(shape, *f.size)))
+    if not sides:
+        return notes
+    wrote = not (a.preview or a.dry_run)
+    for f, shape in zip(frames, shapes):
+        mine = touched_sides(shape, *f.size)
+        if not mine:
+            continue
+        w, h = f.size
+        lf, rt, tp, bt = (int(s in sides) for s in ("left", "right", "top", "bottom"))
+        rect = f"{-lf},{-tp},{w + lf + rt},{h + tp + bt}"
+        name = str(doc.path) if doc.implicit else f"{doc.path}:{doc.label(f)}"
+        dest = str(out) if doc.implicit else f"{out}:{doc.label(f)}"
+        crop = shlex.join(["pxart", "crop", name, rect, "-o", dest])
+        where = f"{doc.label(f)}: its shape touches the frame's {' and '.join(mine)} edge{'s' * (len(mine) > 1)}, " \
+                "so the outline is open there"
+        pad = f"{' and '.join(sides)}" + (" (as the other frames, to keep them aligned)" if sides != mine else "")
+        if wrote and out.resolve() == doc.path.resolve():
+            notes.append(f"{where}; to close it, outline a padded frame: pad the art from before this run 1px at the "
+                         f"{pad} ({crop}), then outline again")
+        else:
+            again = ["pxart", "outline", dest, "--key", a.key] + (["--lit", a.lit] if a.lit else []) \
+                + (["--selective"] if a.selective else []) + (["--light", a.light] if a.light != "nw" else []) \
+                + (["--corners"] if a.corners else []) + (["--min-alpha", str(a.min_alpha)] if a.min_alpha else []) \
+                + (["--preview", a.preview] if a.preview else []) + (["--dry-run"] if a.dry_run else [])
+            notes.append(f"{where}; to pad it 1px at the {pad} and outline that: {crop} && {shlex.join(again)}")
+    return notes
 
 
 def outline_points(shape, w, h, inside=False, corners=False):
@@ -5589,16 +5657,20 @@ def cmd_outline(a):
     for k in (a.key, a.lit):
         if k is not None and k not in pal:
             fail("E_SELECT", f"outline: key {k!r} not in palette (add it with palette --add)")
+    if a.min_alpha is not None and not 1 <= a.min_alpha <= 255:
+        fail("E_BAD_ARG", f"outline --min-alpha {a.min_alpha}: give 1 to 255 (keys under it aren't the shape)")
     L = light_vec(a.light)
     by = dict.fromkeys([a.key] + ([a.lit] if a.lit else []), 0)
-    for f in frames:
+    shapes = [opaque_set(doc, f, a.min_alpha) for f in frames]
+    for f, shape in zip(frames, shapes):
         w, h = f.size
-        shape = opaque_set(doc, f)
         ring = sorted(outline_points(shape, w, h, a.inside, a.corners), key=lambda p: (p[1], p[0]))
         lit = [p for p in ring if a.lit and sum(n * l for n, l in zip(normal(p, shape), L)) > 0]
         if a.lit:
             by[a.lit] += paint(f, lit, a.lit)[0]
         by[a.key] += paint(f, [p for p in ring if p not in set(lit)], a.key)[0]
+    for line in outline_notes(a, doc, frames, shapes, out):
+        print(f"note: {line}")
     if a.preview:
         print(preview(doc, frames, a.preview, changes(by, "would change")))
         return
@@ -10753,6 +10825,9 @@ def parser(describe=True):
     p.add_argument("--preview", help="render the result to this PNG; write nothing else")
     g = p.add_mutually_exclusive_group(); g.add_argument("--inside", action="store_true")
     g.add_argument("--outside", action="store_true"); p.add_argument("--corners", action="store_true")
+    p.add_argument("--min-alpha", type=int, metavar="A",
+                   help="the shape is the keys at alpha A or more (in the base or a variant); fainter px aren't, and "
+                        "the outline paints over those it lands on")
     p.add_argument("-o")
     p = sub.add_parser("shade"); p.add_argument("file"); p.add_argument("--ramp", required=True)
     p.add_argument("--keys", help="the material's keys (default: the ramp's)"); p.add_argument("--base")
