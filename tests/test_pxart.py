@@ -313,6 +313,26 @@ def test_from_png_notes_see_through_pixels(tmp_path, capsys):
            "makes them opaque, or clear if faint" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("flags", [[], ["--hard-edges"], ["--colors", "3"], ["--grid", "3x1"]])
+def test_from_png_without_o_prints_only_the_px_to_stdout(tmp_path, capsys, flags):
+    # 'from-png a.png > a.px': every note goes to stderr, or the file gets a note line (E_BAD_ROW)
+    soft_edge_png(tmp_path / "s.png")
+    assert run("from-png", tmp_path / "s.png", *flags) == 0
+    got = capsys.readouterr()
+    assert "note:" in got.err and "note:" not in got.out
+    doc = pxart.parse(write(tmp_path, "s.px", got.out))
+    assert doc.frames
+
+
+def test_from_png_without_o_failing_prints_the_error_alone(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    img.putpixel((0, 0), (1, 2, 3, 60))
+    img.save(tmp_path / "g.png")
+    assert "out of palette keys" in run_err("from-png", tmp_path / "g.png", "--hard-edges")
+    got = capsys.readouterr()
+    assert got.out == "" and got.err == ""  # the --hard-edges note was about a run that wrote nothing
+
+
 def test_from_png_opaque_pngs_get_no_see_through_note(tmp_path, capsys):
     gradient_png(tmp_path / "g.png", 4, 2)
     assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px") == 0
@@ -27463,48 +27483,143 @@ def test_outline_min_alpha_range(tmp_path, n):
     assert "outline --min-alpha " + n + ": give 1 to 255" in run_err("outline", p, "--key", "o", "--min-alpha", n)
 
 
-def test_outline_notes_a_shape_on_the_frame_edge_with_the_crop_that_pads_it(tmp_path, capsys, monkeypatch):
+def test_outline_edge_note_gives_the_call_with_pad(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     p = shape_file(tmp_path, ["bb.", "bb.", "..."])
-    assert run("outline", "s.px:a", "--key", "o", "-o", "out.px") == 0
+    assert run("outline", "s.px:a", "--key", "o", "-o", "o u t.px") == 0
     out = capsys.readouterr().out
-    assert "note: a: its shape touches the frame's left and top edges, so the outline is open there; to pad it 1px " \
-           "at the left and top and outline that: pxart crop s.px:a -1,-1,4,4 -o out.px:a && pxart outline out.px:a " \
-           "--key o\n" in out
-    run_suggested(next(line for line in out.splitlines() if "outline that" in line), "and outline that: ")
-    assert grid_of(tmp_path / "out.px") == [".oo.", "obbo", "obbo", ".oo."]
+    assert "note: the shape touches the frame's left and top edges (in a), so the outline is open there; --pad grows " \
+           "the frame 1px there first: pxart outline s.px:a --key o -o 'o u t.px' --pad\n" in out
+    run_suggested(next(line for line in out.splitlines() if "--pad grows" in line), "1px there first: ")
+    assert grid_of(tmp_path / "o u t.px") == [".oo.", "obbo", "obbo", ".oo."]
     assert grid_of(p) == ["bb.", "bb.", "..."]
 
 
-def test_outline_edge_note_in_place_says_to_pad_the_art_before_it(tmp_path, capsys, monkeypatch):
+def test_outline_edge_note_after_an_in_place_write_gives_no_command(tmp_path, capsys, monkeypatch):
+    # the file now holds the outline: padding it and outlining again would ring the ring
     monkeypatch.chdir(tmp_path)
     shape_file(tmp_path, ["...", ".bb", ".bb"])
-    assert run("outline", "s.px:a", "--key", "o", "--light", "se", "--lit", "l") == 0
-    assert "note: a: its shape touches the frame's right and bottom edges, so the outline is open there; to close " \
-           "it, outline a padded frame: pad the art from before this run 1px at the right and bottom (pxart crop " \
-           "s.px:a 0,0,4,4 -o s.px:a), then outline again\n" in capsys.readouterr().out
-
-
-def test_outline_edge_note_keeps_the_calls_flags(tmp_path, capsys, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    write(tmp_path, "my s.px", "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n")
-    assert run("outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", "--corners", "--dry-run") == 0
+    assert run("outline", "s.px:a", "--key", "o") == 0
     out = capsys.readouterr().out
-    assert "to pad it 1px at the right and outline that: pxart crop 'my s.px' 0,0,4,3 -o 'my s.px' && pxart " \
-           "outline 'my s.px' --key o --lit l --light se --corners --dry-run\n" in out
-    run_suggested(out.splitlines()[0], "and outline that: ")
+    assert "note: the shape touches the frame's right and bottom edges (in a), so the outline is open there; outlining " \
+           "the art from before this run with --pad closes it (restore s.px first, from git)\n" in out
+    assert "pxart" not in out
 
 
-def test_outline_edge_note_pads_every_frame_alike(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("mode", ["--dry-run", "--preview"])
+def test_outline_edge_note_with_dry_run_or_preview_writes_nothing_itself(tmp_path, capsys, monkeypatch, mode):
     monkeypatch.chdir(tmp_path)
-    write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n...\n.b.\n.b.\n@frame walk/1\n...\n.b.\n...\n"
-          "@frame walk/2\n...\nb..\n...\n")
-    assert run("outline", "w.px:walk", "--key", "o", "--preview", "p.png") == 0
+    p = write(tmp_path, "my s.px", "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n")
+    extra = ["p.png"] if mode == "--preview" else []
+    assert run("outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", mode, *extra) == 0
     out = capsys.readouterr().out
-    assert "note: walk/0: its shape touches the frame's bottom edge, so the outline is open there; to pad it 1px at " \
-           "the bottom and left (as the other frames, to keep them aligned) and outline that: pxart crop w.px:walk/0 " \
-           "-1,0,4,4 -o w.px:walk/0 && pxart outline w.px:walk/0 --key o --preview p.png\n" in out
-    assert "walk/1:" not in out and "note: walk/2: its shape touches the frame's left edge" in out
+    assert shlex.join(["pxart", "outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", mode, *extra,
+                       "--pad"]) in out
+    run_suggested(next(line for line in out.splitlines() if "--pad grows" in line), "1px there first: ")
+    assert p.read_text() == "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n"
+
+
+def test_outline_pad_grows_only_the_touched_sides(tmp_path, capsys):
+    p = shape_file(tmp_path, ["...", ".bb", ".bb"])
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert grid_of(p) == [".oo.", "obbo", "obbo", ".oo."]
+    assert "note: --pad grew a 1px at the right and bottom\n" in capsys.readouterr().out
+
+
+def test_outline_pad_nothing_on_the_edge_changes_no_size(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert capsys.readouterr().out == f"changed 12 px: 12->o; wrote {p}\n"
+
+
+def test_outline_pad_uses_the_min_alpha_shape(tmp_path):
+    p = write(tmp_path, "s.px", FRINGE + "f..\n.b.\n...\n")  # only the faint px is on the edge
+    assert run("outline", f"{p}:a", "--key", "o", "--pad", "--min-alpha", "128") == 0
+    assert grid_of(p) == ["fo.", "obo", ".o."]
+
+
+def test_outline_pad_moves_pivots_and_keeps_an_animation_aligned(tmp_path, capsys):
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@anim walk ms=100 pivot=1,2\n@anim idle ms=100\n"
+              "@frame walk/0\n...\n.b.\n.b.\n@frame walk/1 pivot=0,2\n...\n.b.\n...\n"
+              "@frame idle/0\n...\nbb.\n...\n@frame idle/1\n...\n.b.\n...\n")
+    assert run("outline", p, "--key", "o", "--pad") == 0
+    doc = pxart.parse(p)
+    assert {f.size for f in doc.frames} == {(4, 4)}  # left and bottom, for every frame
+    assert doc.anims["walk"]["pivot"] == (2, 2) and doc.get("walk/1").pivot == (1, 2)
+    # idle had no pivot: bottom-centred on its canvas; padding the bottom would move that, so its @anim gets the pivot
+    # that keeps the art where it was
+    assert doc.anims["idle"]["pivot"] == (2, 2) and doc.get("idle/0").pivot is None
+    assert "; pivots that keep the art where it was: @anim idle\n" in capsys.readouterr().out
+
+
+def test_outline_pad_inherited_pivot_of_a_group_partly_selected(tmp_path):
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@anim walk ms=100 pivot=1,1\n"
+              "@frame walk/0\nb..\n...\n@frame walk/1\n.b.\n...\n")
+    assert run("outline", f"{p}:walk/0", "--key", "o", "--pad") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["pivot"] == (1, 1) and doc.get("walk/0").pivot == (2, 2) and doc.get("walk/1").pivot is None
+
+
+def art_on_anims_canvas(path, ids, key="b"):
+    """Where each frame's px of `key` land on anim's shared canvas (pivot layout, else bottom-centred)."""
+    doc = pxart.parse(path)
+    its = [pxart.one_frame(f"{path}:{i}") for i in ids]
+    lay = pxart.pivot_layout(its)
+    w = lay[0] if lay else max(it.img.width for it in its)
+    h = lay[1] if lay else max(it.img.height for it in its)
+    spots = lay[2] if lay else [((w - it.img.width) // 2, h - it.img.height) for it in its]
+    return [sorted((x + at[0], y + at[1]) for y, row in enumerate(doc.get(i).grid) for x, c in enumerate(row) if c == key)
+            for i, at in zip(ids, spots)]
+
+
+def test_outline_pad_one_frame_of_a_pivotless_group_keeps_it_aligned(tmp_path):
+    # review: padding only walk/1 on the left moved its art 1px against walk/0's on anim's canvas
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n.....\n.....\nbbb..\n.....\n"
+              "@frame walk/1\n.....\n.....\nbbb..\n.....\n")
+    before = art_on_anims_canvas(p, ["walk/0", "walk/1"])
+    assert run("outline", f"{p}:walk/1", "--key", "o", "--pad") == 0
+    after = art_on_anims_canvas(p, ["walk/0", "walk/1"])
+    assert [[(x - after[0][0][0] + before[0][0][0], y) for x, y in a] for a in after] == before
+    doc = pxart.parse(p)
+    assert (doc.get("walk/0").pivot, doc.get("walk/1").pivot) == ((2, 3), (3, 3))
+
+
+def test_outline_pad_of_a_pivotless_group_of_mixed_widths_moves_no_frame(tmp_path):
+    # review: a pivot on the padded frame alone switched the group to pivot layout and moved an untouched frame
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n......\n..bb..\n..bb..\n"
+              "@frame walk/1\n.....\n..b..\n..b..\n@frame walk/2\n.....\n.....\n..b..\n")
+    ids = ["walk/0", "walk/1", "walk/2"]
+    before = art_on_anims_canvas(p, ids)
+    assert run("outline", f"{p}:walk/2", "--key", "o", "--pad") == 0
+    assert art_on_anims_canvas(p, ids) == before
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["pivot"] == (3, 2) and all(f.pivot is None for f in doc.frames)
+
+
+def test_outline_notes_an_outline_already_on_the_edge(tmp_path, capsys):
+    p = shape_file(tmp_path, ["...", ".bb", ".bb"])
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert "outlined already" not in capsys.readouterr().out
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert "note: the shape has o, the outline's key, on the frame's edge: outlined already? outlining an outline " \
+           "rings it again\n" in capsys.readouterr().out
+
+
+def test_outline_pad_and_inside_conflict(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert "--inside stays inside it" in run_err("outline", f"{p}:a", "--key", "o", "--pad", "--inside")
+
+
+def test_outline_min_alpha_faint_px_in_a_hole_get_no_frame_wide_erase(tmp_path, capsys):
+    # a window pane of faint px: the hole's px along its edge get the outline key; erasing f frame-wide would punch
+    # through what the outline kept
+    p = write(tmp_path, "s.px", FRINGE + ".........\n.bbbbbbb.\n" + ".bfffffb.\n" * 5 + ".bbbbbbb.\nf........\n")
+    assert run("outline", f"{p}:a", "--key", "o", "--min-alpha", "128") == 0
+    out = capsys.readouterr().out
+    assert "note: --min-alpha 128: 1 px of f (keys under 128) stay drawn outside the outline\n" in out
+    assert "note: --min-alpha 128: 25 faint px lie in holes of the shape (the outline painted 16, 9 stay)\n" in out
+    assert "recolor" not in out
+    assert grid_of(p)[4] == "obofffobo"
 
 
 def test_outline_inside_has_no_edge_note(tmp_path, capsys):
