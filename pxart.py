@@ -41,6 +41,7 @@ FORMAT (.px)
   imported one's color (with the palette --remove that drops its line when nothing changes).
   A variant a file gets only from its @palette leaves the file's own keys at base colors;
   commands that render it print a WARNING naming them and the fix, and check notes it.
+  Slots, a key's alternatives for runtime recolors ('f #e0ac69 | #f5cfa0'): help slots.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame), or a list of them, FILE:idle,walk/0.
@@ -54,27 +55,27 @@ FORMAT (.px)
   +----------------------------------------------------------------------------------------+
   An output under a file (-o hero.px/walk/0) is E_FILE; an image output with no image
   extension (-o /dev/null, -o x.px) is E_BAD_ARG.
-  Paths: a path typed on the command line is read from the current directory, as the
-  shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
-  --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
-  --frames, --aseprite, --tiled). A path written inside a file is read from that file's
+  Paths: a path typed on the command line is read from the current directory, as the shell's
+  are: FILE, -o OUT, layers and items, and every path option (--palette, --import, --match,
+  --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview, --frames,
+  --aseprite, --tiled, --indexed). A path written inside a file is read from that file's
   directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
   names. A file pxart writes elsewhere gets its @palette lines re-pointed (see EDITING). An
   output's missing directory is made, and said: 'created out/'. An E_FILE for a relative
-  path says so, and a path option's names the option: 'palette: --match
-  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such file or
-  directory'.
+  path says so, and a path option's names it: 'palette: --match (../wick/pal.px%dark):
+  ../wick/pal.px (from the current directory): E_FILE: No such file or directory'.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
-         [--dry-run]
+         [--slots N|K=I] [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
       or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
       (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
       pads and labels).
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
+        [--fit] [--align bottom|pivot] [--rows cols|group] [--slots N|K=I] [--exclude GLOB]
+        [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path (PNGs in it are left out, a
       sheet rendered there too). --exclude GLOB (repeatable) leaves files out: one whose
@@ -106,7 +107,7 @@ LOOKING
       groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
+      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
@@ -126,7 +127,7 @@ LOOKING
   onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
         [--variant V] [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
-      with render's grid and rulers, so where A shows past B is plain to see.
+      with render's grid and rulers: where A shows past B is plain.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
       from A's, then the whole-sprite shift that best explains B, as anim finds it:
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
@@ -149,7 +150,7 @@ LOOKING
       opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
-      Default --scale 4 (not render's 8).
+      Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
@@ -214,8 +215,8 @@ LOOKING
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
       IN is rewritten.
   world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]
-  Centering: frames of different sizes are bottom-aligned and centered, with the odd
-  pixel going left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
+  Centering: frames of different sizes are bottom-aligned and centered, the odd pixel
+  left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
   behind frames; --bg (render, sheet, scene) takes a flat #rrggbb, #rrggbbaa or 'transparent'
   (as does every color typed on the command line: --tint, tint, palette --add
   k=transparent; the '#' may be left off, and in a script a '#' color needs quotes, or the
@@ -362,16 +363,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
       their union, and --dither and --invert work over the union.
       FILE may be a PNG (a scene rendered at --scale 1: coordinates are its pixels): outside
-      pixels become transparent. -o, if given, must be a .png too.
+      pixels become transparent. -o must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
   crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only]
        [--variant-map NAME=V1,V2]
       Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
-      hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
-      what crop is for, so there's no note about them; a rectangle that runs past the frame's
-      edge (or starts at a negative x,y) gets '.' there. FILE:frame must be one .px frame.
+      hero.px:idle/0 4,0,8,8 -o parts.px:head'. The pixels left outside get no note (they're
+      what crop is for); a rectangle that runs past the frame's edge (or starts at a
+      negative x,y) gets '.' there. FILE:frame must be one .px frame.
       OUT is written as compose writes it, FILE's frame its one layer (see compose): a new
       OUT gets FILE's whole palette (--used-keys-only: the cut's keys), OUT:frame adds or
       replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
@@ -388,7 +389,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       lines go. OUT renders exactly like the source frames, in every variant.
   recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h] [--variant V]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
-      keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
+      keys a and b (in the region) in one step; quote it: unquoted < and > are shell
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
       colors): when no pixel keeps a and a is FILE's own key, a's palette lines become b's
       (a rename), else b is added and a stays: it frees a key without a visible change;
@@ -429,7 +430,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
         - OUT:frame adds that frame to OUT, or replaces it; a plain OUT is one unnamed grid.
       Examples: 'compose -o room.px tiles.px:cobble@0,0 hero.px:idle/0@4,2', 'compose -o
       party.px:keeper/walk keeper.px:walk/0@0,0 --rekey' (keeper.px's k is another color in
-      party.px, so it gets a free key there). --dry-run prints what compose says (notes,
+      party.px: it gets a free key there). --dry-run prints what compose says (notes,
       conflicts, --rekey's moves) and OUT's diff (a new OUT: every line); nothing is written.
 
       A new OUT (rule 1; a shared import re-pointed from OUT's directory): local keys follow
@@ -444,9 +445,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       --used-keys-only gives a new OUT only the keys its frame uses (and their variant colors;
       a @palette they all import is still imported, since it adds no key lines), so check has
-      no 'unused keys' to note. It isn't the default because the unused keys are often a
-      material's ramp: a cloak drawn in its base key c still needs X x C w for 'shade --ramp
-      XxcCw' to re-shade it. An existing OUT only ever gets the used keys. So they are no
+      no 'unused keys' to note. Not the default: the unused keys are often a material's
+      ramp: a cloak drawn in its base key c still needs X x C w for 'shade --ramp XxcCw' to
+      re-shade it. An existing OUT only ever gets the used keys. So they're no
       surprise, a new OUT's note names the keys its frame doesn't draw with, by file ('...
       from its layers' whole palettes (for shade ramps and recolors): wick.px's E'), and
       check's 'unused keys' note offers the palette --remove that drops them.
@@ -457,9 +458,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       of them OUT's, gets a note saying so and naming the --variant-map that would read one
       as OUT's). A plain OUT that exists (no :frame) keeps its palette too, keys from an
       earlier run included, and a note says so: 'note: glade.px exists: keeping its palette
-      (61 keys, @variant dusk); --replace starts it fresh' (an E_KEY_CONFLICT says it as
-      well). --replace starts it as if new: the layers' palettes, nothing of the old file
-      (not with OUT:frame, whose other frames it would drop, or with --under).
+      (61 keys, @variant dusk); --replace starts it fresh' (as does an E_KEY_CONFLICT).
+      --replace starts it as if new: the layers' palettes, nothing of the old file (not with
+      OUT:frame, whose other frames it would drop, or with --under).
 
       Key conflicts: a key a layer uses in another color than OUT's (or an earlier layer's) is
       E_KEY_CONFLICT, one line per source file (all its layers: 'layers 1-4, 7 (field.px)')
@@ -542,11 +543,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
       parts.px:body@0,8. OUT:frame keeps OUT's other frames (OUT may be a palette-only file),
       and the 'wrote' line says when it replaced one. A new frame goes after the last frame of
-      its animation (like dup), or at the end when the animation is new. Canvas size: --size,
+      its animation (like dup), or at the end for a new animation. Canvas size: --size,
       else --map's, else the frame being replaced, else the other frames of its animation,
-      else the first layer. Pixels that land outside the canvas are cropped, with a note saying
-      how many. --under keeps OUT's frame and draws the layers behind it: they fill only its
-      empty pixels (a floor or a shadow under a finished sprite). The frame must exist.
+      else the first layer. Pixels outside the canvas are cropped; a note counts them.
+      --under keeps OUT's frame and draws the layers behind it: they fill only its empty
+      pixels (a floor or a shadow under a finished sprite). The frame must exist.
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
@@ -613,7 +614,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       DIR counts the .px files under DIR that import it ('imported by 3 of the .px files under
       crossover/') and, per key, how many of them draw with it ('used by 2 files').
 
-      Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
+      Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds them.
 
       Authoring a variant: with --variant NAME, --add sets the keys in that variant instead,
       over what it had, and makes the variant when FILE has none by that name (the example
@@ -621,7 +622,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       base colors: their lines in the variant go, and a key an imported variant recolors gets
       its base color on a line of FILE's own, since the import can't change from here. --add
       and --keep can share one call; the keys must be in the base palette. A key --add gives
-      the color it already has is left as it is, and said so: 'k is already #0f0f22 in night;
+      the color it already has is left, and said so: 'k is already #0f0f22 in night;
       unchanged'.
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
@@ -776,7 +777,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
 
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
-         [--prefix-file] [--exclude GLOB]
+         [--prefix-file] [--exclude GLOB] [--indexed X.json]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
         pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
@@ -855,7 +856,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -1028,6 +1029,73 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart sheet bat.px:fly,glow --variant night -o glow.png
 """
 
+SLOTS = """SLOTS (pxart help slots)
+  A game that recolors a sprite at runtime (each villager's skin, hair, shirt) picks each
+  key's color from a list. A palette line lists them after the key's color, split by '|':
+    f #e0ac69 | #f5cfa0 | #c68642 | #8d5524 | #ffdbac
+  f is a slot: #e0ac69, the first, is its base color, the one every command draws, checks
+  and exports (render, anim, compose, export's PNGs, Aseprite and Tiled sheets), as if the
+  line ended there; the others are its alternatives. A file with no '|' reads and writes as
+  it always did.
+  - Alternatives are colors like any key's (#rrggbb, #rrggbbaa, transparent); a bad one is
+    E_BAD_COLOR. check --palette P fails an alternative P hasn't got, and notes a color a
+    slot lists twice. palette lists them with the key's color; palette --add
+    'f=#e0ac69|#f5cfa0' adds a slot, or sets the alternatives of f if it has that color
+    (an imported f gets a line of FILE's own, and says how to set it in the palette file).
+  - The alternatives are part of the key's color. A key another file has in the same colors
+    is the same key; a plain key and a slot of one base color, or two slots with other
+    alternatives, are two colors: compose, paste and frames --copy-to call it E_KEY_CONFLICT
+    (--rekey gives the incoming key a free one), and diff says '3 px differ only in slot
+    alternatives'. A PNG has no alternatives: from-png draws a slot's base color with its
+    key.
+  - A palette file's slots are imported with its keys. A local line for the key replaces
+    the imported one whole (check notes the override). A plain local line of the import's
+    base color only hides its alternatives: check says so, and palette --import and --remove
+    drop it.
+  - A @variant line for a slot is one color, the key's color in the variant whatever the
+    slot, or a list as long as the slot's, one color per slot color in order:
+      @variant night
+      f #6f5634 | #7a6750 | #634321 | #462a12 | #7f6d56
+    Another length is E_BAD_COLOR. palette --variant night --derive-from base derives
+    each color of a slot, a list. Keys a variant leaves keep their slots.
+  - Commands that copy or rename keys (compose, paste, put, frames --copy-to, extract,
+    recolor 'a>b', palette --hoist, --extract-to, --import) carry the alternatives with the
+    key; recolor f=#hex changes the base color and keeps them.
+
+  render|sheet FILE... --slots N|K=I,...
+      Draws the frames once per combination of their file's slots: --slots 6 is the base
+      colors, then 5 others, drawn from a fixed seed (the same every run; --slots 8 starts
+      with --slots 6's), or every combination when there are no more than N. K=I pins slot
+      K to its I-th color (0 is the base), K=#rrggbb to that color: --slots f=2,h=0 draws
+      that one, the other slots at base; --slots 6,f=2 samples the others. A pin a file's
+      slot can't take is E_BAD_ARG naming the file. Each label ends with its combination
+      (walk/0 h3f2c4p1), and a line per combination prints the colors it draws (in
+      --variant V's colors: a note names the slots V gives one color) and the --slots that
+      draws it alone. With --rows group each combination of an animation is its own row.
+
+  export FILE|DIR[:SEL]... --indexed X.json
+      The frames as key grids, with the palette that colors them, for a game to recolor:
+      {"version": 1,
+       "palette": {"k": "#1a1a1a", "f": "#e0ac69", ...},   every key's base color
+       "slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...},   each slot's colors, base first
+       "variants": {"night": {"k": "#000000",              the keys each variant sets:
+                              "f": ["#6f5634", ...]}},     a slot's list, or one color
+       "frames": [{"id": "walk/0", "w": 8, "h": 12, "ms": 125, "pivot": {"x": 4, "y": 11},
+                   "rows": ["..hhhh..", ...]}, ...],
+       "animations": [{"name": "walk", "from": 0, "to": 3, "direction": "forward",
+                       "repeat": 0}, ...]}
+      rows: a string per row, a key per pixel, '.' transparent. Colors are #rrggbb, or
+      #rrggbbaa when not opaque. A game draws key k in variant V (slot color i) as V's k
+      (its i-th when a list), else as slots' k's i-th, else as palette's k. "slots",
+      "variants" and "animations" are there when empty too; "pivot" is left out for a
+      frame without one. Frames are in export's id order (help CONVERTING), which "from"
+      and "to" index; a @still group is no animation. repeat 0 is forever. --prefix-file
+      ids frames and names animations FILE/ID. Every file shares one palette and one set of
+      variants: a key two files color differently, in the base or in a variant (a file
+      without that variant draws its base colors there), is E_KEY_CONFLICT. --indexed goes
+      alone or with --frames, --aseprite and --tiled; --variant V colors only their PNGs.
+"""
+
 
 KEY_HELP = "a palette key, or '.' to erase"
 FORMAT_VERSION = 1
@@ -1044,7 +1112,7 @@ FREE_ORDER = [k for k in KEYS if k not in AWKWARD] + [k for k in KEYS if k in AW
 DIRECTIONS = ("forward", "reverse", "pingpong", "pingpong_reverse")
 ID_RE = re.compile(r"^[A-Za-z0-9_\-.]+(/[A-Za-z0-9_\-.]+)*$")
 COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
-PAL_RE = re.compile(r"^(\S)\s+(\S+)$")
+PAL_RE = re.compile(r"^(\S)\s+(\S+(?:\s*\|\s*\S*)*)$")  # 'k #rrggbb', or a slot: 'k #rrggbb | #rrggbb ...'
 PAL_SKIP = "\n     (unknown-key checks were skipped: those keys may come from this palette)"
 
 
@@ -1143,7 +1211,65 @@ def rgba2hex(c):
 
 
 def fmt_color(c):
+    """'#rrggbb[aa]' or 'transparent'; a slot, its colors: '#e0ac69 | #f5cfa0'."""
+    if getattr(c, "alts", ()):
+        return fmt_key(c)
     return "transparent" if c[3] == 0 else rgba2hex(c)
+
+
+class Slot(tuple):
+    """A key's base color (an rgba tuple, and compared as one) with the alternatives a game may swap in for it:
+    'f #e0ac69 | #f5cfa0 | #c68642' is Slot((224, 172, 105, 255), ((245, 207, 160, 255), (198, 134, 66, 255))).
+    Copying the color copies the slot, so a key's line keeps its alternatives wherever it goes. The alternatives are
+    part of the color: a slot equals only a slot of the same colors, never the plain color of its base, so no command
+    takes one for the other (a plain key and a slot of one base color are two colors)."""
+    def __new__(cls, base, alts):
+        s = super().__new__(cls, base)
+        s.alts = tuple(alts)
+        return s
+
+    def __eq__(self, other):
+        return tuple.__eq__(self, other) is True and getattr(other, "alts", ()) == self.alts
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __hash__(self):
+        return hash((tuple(self), self.alts))
+
+    def __reduce__(self):  # copy, deepcopy and pickle rebuild it with its alternatives
+        return Slot, (tuple(self), self.alts)
+
+
+def choices(c):
+    """A key's colors, base first: (base,) for a plain key."""
+    return (tuple(c),) + getattr(c, "alts", ())
+
+
+def hides(local, imported):
+    """A local key line that adds nothing to its import but hides the import's alternatives: the import's base color,
+    plain (palette --import drops it like a line of the same color)."""
+    return not getattr(local, "alts", ()) and bool(getattr(imported, "alts", ())) and tuple(local) == tuple(imported)
+
+
+def same_key(a, b):
+    """Two key colors that mean the same: one base color, and the same alternatives (Slot's ==)."""
+    return a == b
+
+
+def fmt_key(c):
+    """A key line's value: '#e0ac69', or with a slot's alternatives '#e0ac69 | #f5cfa0 | #c68642'."""
+    return " | ".join(fmt_color(x) for x in choices(c))
+
+
+def key_value(v):
+    """A key line's value, '#rrggbb', 'transparent' or a slot '#rrggbb | #rrggbb ...': its color (a Slot with
+    alternatives), or None when one of them isn't a color."""
+    got = [x.strip() for x in v.split("|")]
+    if not all(x == "transparent" or COLOR_RE.match(x) for x in got):
+        return None
+    got = [CLEAR if x == "transparent" else hex2rgba(x) for x in got]
+    return Slot(got[0], got[1:]) if len(got) > 1 else got[0]
 
 
 def fmt_setting(v):
@@ -1211,6 +1337,21 @@ class Doc:
             pal.update(self.shared_variants.get(variant, {}))
             pal.update(self.variants.get(variant, {}))
         return pal
+
+    def slot_color(self, k, i, variant=None):
+        """Slot k's color i (0 the base) as drawn in variant: the variant's own i-th when it gives k a list, its one
+        color when it gives k one (whatever the slot), else the slot's."""
+        c = self.resolved(variant)[k]
+        if variant and variant != "base" and k in {**self.shared_variants.get(variant, {}),
+                                                   **self.variants.get(variant, {})}:
+            got = choices(c)
+            return got[i] if len(got) == len(self.slots()[k]) else got[0]  # a list of another length: parse fails it
+        return self.slots()[k][i]
+
+    def slots(self):
+        """{key: its colors, base first} for each key with alternatives, as this file resolves it (a local line
+        without them overrides an imported slot)."""
+        return {k: choices(c) for k, c in self.resolved().items() if getattr(c, "alts", ())}
 
     def blanks(self):
         """The keys that draw nothing: '.', and a key transparent in the base and in every variant. A key transparent
@@ -1291,9 +1432,13 @@ class Doc:
             out.setdefault(f.group, []).append(f)
         return out
 
-    def image(self, f, variant=None):
+    def image(self, f, variant=None, pick=None):
+        """pick (render --slots): {key: index} of slot colors to draw in, 0 the base; a key the variant sets keeps
+        the variant's color."""
         pal = self.resolved(variant)
         warn_half(self, variant)
+        if pick:
+            pal.update({k: self.slot_color(k, i, variant) for k, i in pick.items() if k in self.slots()})
         w, h = f.size
         img = Image.new("RGBA", (w, h))
         img.putdata([pal[c] for row in f.grid for c in row])
@@ -1318,7 +1463,7 @@ class Doc:
             yield "version", 0, f"pxart {self.version}"
         for r in self.palette_refs:
             yield ("palref", r), 0, f"@palette {r}"
-        keys = [(k, f"{k} {fmt_color(v)}") for k, v in self.palette.items()]
+        keys = [(k, f"{k} {fmt_key(v)}") for k, v in self.palette.items()]
         if self.dot_at is not None:
             keys.insert(self.dot_at, (".", ". transparent"))
         for k, line in keys:
@@ -1581,12 +1726,13 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             if state in ("frame", "grid"):
                 err("E_PALETTE_AFTER_GRID", f"palette line {s!r} after grid rows; palette goes before any grid", n)
                 continue
-            if val == "transparent":
-                color = CLEAR
-            elif COLOR_RE.match(val):
-                color = hex2rgba(val)
-            else:
-                err("E_BAD_COLOR", f"{val!r} isn't #rrggbb, #rrggbbaa, or transparent", n)
+            color = key_value(val)
+            if color is None:
+                err("E_BAD_COLOR", f"{val!r} isn't #rrggbb, #rrggbbaa, or transparent" + (
+                    " (a slot is 'k #rrggbb | #rrggbb ...')" if "|" in val else ""), n)
+                continue
+            if isinstance(color, Slot) and key == ".":
+                err("E_BAD_COLOR", f"{s!r}: alternatives (a slot) go on a palette key's line, not '.'", n)
                 continue
             if key == ".":
                 if color[3] != 0:
@@ -1629,6 +1775,21 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
     doc.frame_gap = max(set(gaps), key=gaps.count) if gaps else None
 
     # --- whole-document checks
+    base = doc.resolved()
+    for name in list(doc.variants) + [n for n in doc.shared_variants if n not in doc.variants]:
+        over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
+        for k, c in over.items():  # a variant's list for a slot: one color per slot color, in order (an imported
+            if isinstance(c, Slot) and k in base and len(choices(c)) != len(choices(base[k])):  # one too, against
+                mine = k in doc.variants.get(name, {})  # the slot this file draws)
+                err("E_BAD_COLOR", f"@variant {name}" + ("" if mine else f" (from {' and '.join(doc.palette_refs)})")
+                    + f" gives {k!r} {len(choices(c))} colors, and {k!r} has "
+                    + (f"{len(choices(base[k]))} ({fmt_color(base[k])})" if len(choices(base[k])) > 1 else
+                       "no alternatives" if mine else f"one ({fmt_color(base[k])})")
+                    + (": give it one color" if mine and len(choices(base[k])) == 1 else
+                       ": a list there is one color per slot color, in order; one color alone is the key's color in "
+                       "the variant whatever the slot" if mine else f"{' here' if k in doc.palette else ''}: give "
+                       f"{k!r} a line of this file's own under @variant {name} (one color, or one per slot color)"),
+                    doc.at.get(("vkey", name, k)) if mine else doc.at.get(("key", k)))
     if palette_only:
         if doc.frames:
             err("E_PALETTE_FILE", "a palette file can't contain grid rows", doc.frames[0].line)
@@ -1735,10 +1896,10 @@ def items(arg, variant=None, strict=False):
     return [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in doc.select(sel)]
 
 
-def all_items(args, variant=None):
+def all_items(args, variant=None, slots=None):
     """render's and sheet's frames, in order. A frame drawn in a variant is labeled with it, 'idle/0%night': an
     argument's own %variant, else --variant, so its cells read apart from the base ones beside them and a whole sheet
-    at night says so."""
+    at night says so. slots (--slots): the frames again in each combination of their file's slots (slot_items)."""
     out, paths, owns = [], [], []
     for n, a in enumerate(args, 1):
         with reading(f"file {n} ({a})"):
@@ -1749,6 +1910,109 @@ def all_items(args, variant=None):
     tell_apart(out, paths)  # by frame id: hero's and beast's idle/0 collide, whatever variant each is in
     for it, own in zip(out, owns):
         it.label += f"%{own}" if own else ""
+        it.variant = own
+    return slot_items(out, slots) if slots is not None else out
+
+
+def slot_spec(s):
+    """--slots: 'N' (N combinations), 'f=2,h=0' (those slots' colors by index, 0 the base, or by color: f=#8d5524),
+    or both: 'N,f=2'. (N, {key: index or rgba}). A count or a key given twice is E_BAD_ARG."""
+    n, pins = None, {}
+    for t in s.split(","):
+        k, eq, v = t[:1], t[1:2], t[2:]
+        if t.isdigit() and int(t) > 0:
+            if n is not None:
+                fail("E_BAD_ARG", f"--slots {s!r}: two counts ({n} and {t}); give one")
+            n = int(t)
+        elif eq == "=" and (v.isdigit() or COLOR_RE.match(v) or COLOR_RE.match("#" + v) or v == "transparent"):
+            if k in pins:
+                fail("E_BAD_ARG", f"--slots {s!r}: {k!r} is pinned twice; give it one color")
+            pins[k] = int(v) if v.isdigit() else parse_color(v, f"--slots {k}=")
+        else:
+            fail("E_BAD_ARG", f"--slots {s!r}: {t!r} isn't a count (--slots 8) or KEY=INDEX (--slots f=2,h=0; 0 is "
+                 "the base color) or KEY=COLOR (f=#8d5524)")
+    return n or 1, pins
+
+
+def pinned(d, spec, k, v, many):
+    """--slots' pin k=v in d's slot k: its index (v, or where d's slot has the color v); E_BAD_ARG when d's slot has
+    no such color, naming d when several files are drawn."""
+    got, where = d.slots()[k], f" in {d.path}" if many else ""
+    if isinstance(v, int) and v < len(got):
+        return v
+    if not isinstance(v, int) and v in got:
+        return got.index(v)
+    fail("E_BAD_ARG", f"--slots {spec}: {k}={v if isinstance(v, int) else fmt_color(v)}, and slot {k!r}{where} has "
+         f"{len(got)} colors: {' '.join(f'{i}={fmt_color(c)}' for i, c in enumerate(got))}")
+
+
+def combos(slots, n, pins):
+    """n combinations of slots ({key: its colors}) as [{key: index}], the same every run: the first the base colors
+    (or pins), then others drawn from a fixed seed, each once, until every combination is there. pins fix keys."""
+    free = [k for k in slots if k not in pins]
+
+    def pick(ix):  # in the palette's order
+        got = {**dict(zip(free, ix)), **pins}
+        return {k: got[k] for k in slots}
+    total = math.prod(len(slots[k]) for k in free)
+    if n >= total:
+        return [pick(ix) for ix in itertools.product(*(range(len(slots[k])) for k in free))]
+    out, seen, rng = [pick((0,) * len(free))], {(0,) * len(free)}, random.Random(0)
+    while len(out) < n:
+        ix = tuple(rng.randrange(len(slots[k])) for k in free)
+        if ix not in seen:
+            seen.add(ix)
+            out.append(pick(ix))
+    return out
+
+
+def slot_items(its, spec):
+    """render/sheet --slots: each file's frames once per combination of its slots (combos), combination by
+    combination, each labeled with its indexes ('walk/0 f2h0'); frames of a file without slots, and PNGs, once.
+    Prints each combination's colors and the --slots that draws it alone."""
+    n, pins = slot_spec(spec)
+    docs = list({id(it.doc): it.doc for it in its if it.doc}.values())
+    have = {k for d in docs for k in d.slots()}
+    for k in pins:
+        if k not in have:
+            fail("E_SELECT", f"--slots {spec}: {k!r} isn't a slot (a key with alternatives: 'k #rrggbb | #rrggbb'); "
+                 + (f"slots: {' '.join(sorted(have))}" if have else "these files have none"))
+    if not have:
+        print(f"note: --slots {spec}: no slots in these files (a slot: 'k #rrggbb | #rrggbb ...'); drawn once")
+        return its
+    many = sum(1 for d in docs if d.slots()) > 1
+    pins = {id(d): {k: pinned(d, spec, k, v, many) for k, v in pins.items() if k in d.slots()} for d in docs}
+    for d in docs:  # a variant that gives a slot one color draws it in that color whatever the slot
+        for v in dict.fromkeys(it.variant for it in its if it.doc is d and it.variant not in (None, "base")):
+            over = {**d.shared_variants.get(v, {}), **d.variants.get(v, {})}
+            one = [k for k in d.slots() if k in over and len(choices(over[k])) == 1]
+            if one:
+                print(f"note: @variant {v}" + (f" of {d.path}" if many else "") + " gives "
+                      + ", ".join(f"{k} one color ({fmt_color(over[k])})" for k in one) + ", whatever the slot; a list "
+                      f"there ('{one[0]} #rrggbb | #rrggbb ...') gives each slot color its own")
+    picks = {id(d): combos(d.slots(), n, pins[id(d)]) for d in docs}
+    out = []
+    for c in range(max(len(p) for p in picks.values())):
+        said = set()
+        for it in its:
+            got = picks.get(id(it.doc)) if it.doc else None
+            if not got:
+                if c == 0:
+                    out.append(it)
+                continue
+            if c >= len(got):
+                continue
+            pick = got[c]
+            tag = "".join(f"{k}{i}" for k, i in pick.items())
+            new = Item(f"{it.label} {tag}", it.doc.image(it.frame, it.variant, pick), it.ms, it.doc, it.frame,
+                       it.variant)
+            new.combo = c
+            out.append(new)
+            if id(it.doc) not in said:
+                said.add(id(it.doc))
+                print(f"slots {tag}" + (f" ({it.doc.path})" if len(docs) > 1 else "") + ": "
+                      + ", ".join(f"{k} {fmt_color(it.doc.slot_color(k, i, it.variant))}" for k, i in pick.items())
+                      + f" (--slots {','.join(f'{k}={i}' for k, i in pick.items())})")
     return out
 
 
@@ -2043,7 +2307,8 @@ def sheet_rows(its, cols, rows="cols"):
         return [list(range(n, min(n + cols, len(its)))) for n in range(0, len(its), cols)]
     groups = {}
     for n, it in enumerate(its):
-        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "") if it.doc else ("png", n)
+        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
+            if it.doc else ("png", n)
         groups.setdefault(key, []).append(n)
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
@@ -2075,7 +2340,7 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
         groups = {}
         for it in its:
             if it.doc and it.frame and it.frame.group:
-                groups.setdefault((it.doc.path.resolve(), it.frame.group), []).append(it)
+                groups.setdefault((it.doc.path.resolve(), it.frame.group, getattr(it, "combo", 0)), []).append(it)
         for g in groups.values():
             lay = pivot_layout(g)
             for it, at in zip(g, lay[2] if lay else ()):
@@ -2317,7 +2582,7 @@ def load_palette(path):
     p = str(path)
     if p.endswith(".px"):
         doc = parse(p, palette_only=not _has_grid(p))
-        return {c[:3] for c in doc.resolved().values() if c[3]}
+        return {x[:3] for c in doc.resolved().values() for x in choices(c) if x[3]}
     text = pathlib.Path(p).read_text()
     if p.endswith(".gpl"):
         return {tuple(int(v) for v in m.groups())
@@ -2821,7 +3086,7 @@ def need_o(a, eg):
 
 
 def cmd_render(a):
-    its = all_items(a.files, a.variant)
+    its = all_items(a.files, a.variant, a.slots)
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -2855,7 +3120,7 @@ def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg") if a.bg else None
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     need_o(a, "sheet.png")
-    its = all_items(files, a.variant)
+    its = all_items(files, a.variant, a.slots)
     note = outsized(its, a.fit)
     if note:
         print(note)
@@ -3616,12 +3881,21 @@ def cmd_check(a):
                 for i in e.issues:
                     print(f"     {i}")
                 continue
-            notes = []
+            notes, slot_off = [], ""
             if its and its[0].doc:
                 doc = its[0].doc
-                over = [k for k in doc.palette if k in doc.shared and doc.palette[k] != doc.shared[k]]
-                if over:
-                    notes.append("local keys override @palette colors: " + "".join(over))
+                over = [k for k in doc.palette if k in doc.shared and not same_key(doc.palette[k], doc.shared[k])]
+                hid = [k for k in over if hides(doc.palette[k], doc.shared[k])]
+                if len(hid) < len(over):
+                    notes.append("local keys override @palette colors: " + "".join(k for k in over if k not in hid))
+                idle = [k for k in hid if redundant(doc, k)]  # a key with variant lines of its own isn't dropped
+                if hid:
+                    notes.append("local keys hide their @palette slots' alternatives (the same base color, none of "
+                                 f"their own): {''.join(hid)}" + (
+                                     f"; dropping {'those lines' if len(idle) > 1 else 'that line'} renders the same: "
+                                     + shlex.join(["pxart", "palette", path, "--remove", keys_arg(idle)]) if idle else "")
+                                 + (f" ({''.join(k for k in hid if k not in idle)}: with a variant line of {path}'s "
+                                    "own)" if len(idle) < len(hid) else ""))
                 same = [k for k in doc.palette if k in doc.shared and k not in over]
                 if same:
                     idle = [k for k in same if redundant(doc, k)]
@@ -3631,6 +3905,13 @@ def cmd_check(a):
                         f" ({''.join(k for k in same if k not in idle)}: with a variant line of {path}'s own"
                         + (f"; 'pxart palette {path} --remove {','.join(idle)}' drops the others' lines and renders "
                            "the same" if idle else "") + ")"))
+                for k, c in doc.slots().items():
+                    twice = [fmt_color(x) for x in dict.fromkeys(c) if c.count(x) > 1]
+                    if twice:
+                        notes.append(f"slot {k!r} lists {' '.join(twice)} more than once")
+                slot_off = {k: [rgba2hex(x) for x in c[1:] if x[3] and x[:3] not in allowed]
+                            for k, c in doc.slots().items()} if allowed is not None else {}
+                slot_off = "; ".join(f"{k} {' '.join(xs)}" for k, xs in slot_off.items() if xs)
                 for f in doc.frames:
                     pv = doc.pivot(f)
                     if pv and not (0 <= pv[0] < f.size[0] and 0 <= pv[1] < f.size[1]):
@@ -3695,6 +3976,9 @@ def cmd_check(a):
                 for bad, l in lines:
                     if bad:
                         print(f"     {l}")
+            if slot_off:  # a slot's alternatives are colors the file can draw in too
+                failed = True
+                print(f"FAIL {path}: slot alternatives off-palette: {slot_off}")
             if soft:
                 notes.append(said_soft(soft, len(its)))
             for note in notes:
@@ -3829,7 +4113,7 @@ def cmd_diff(a):
             alone += 1
             print(f"{lab}: {y}")
             continue
-        said = diff_images(x.img, y.img, a.strict_alpha)
+        said = diff_images(x.img, y.img, a.strict_alpha) or slot_diff(x, y)
         differ += said is not None
         same += said is None
         print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
@@ -3855,6 +4139,29 @@ def cmd_diff(a):
         diff_pictures(a, shown, one)
     if differ or alone:
         sys.exit(1)
+
+
+def slot_diff(x, y):
+    """diff of two .px frames that render alike: the px whose keys' slot colors differ (the alternatives a game may swap
+    in), in the base palette or in a variant either file has (a file without it draws its base there), as '3 px differ
+    only in slot alternatives (f #e0ac69 | #f5cfa0 and #e0ac69)'. None when there are none."""
+    if not (x.frame and y.frame) or x.frame.size != y.frame.size:
+        return None
+    names = [None] + sorted(set(variant_names(x.doc)) | set(variant_names(y.doc)))
+    for n in names:
+        pals = [d.resolved(n if n in variant_names(d) else None) for d in (x.doc, y.doc)]
+        got, pal = 0, {}
+        for ra, rb in zip(x.frame.grid, y.frame.grid):
+            for ka, kb in zip(ra, rb):
+                ca, cb = pals[0][ka], pals[1][kb]
+                if tuple(ca) == tuple(cb) and choices(ca) != choices(cb) and any(c[3] for c in choices(ca) + choices(cb)):
+                    got += 1
+                    pal.setdefault((ka, kb), (ca, cb))
+        if got:
+            return f"{got} px differ only in slot alternatives" + (f" in {n}" if n else "") + " (" + "; ".join(
+                f"{ka} {fmt_color(ca)} and {kb} {fmt_color(cb)}" if ka != kb else f"{ka} {fmt_color(ca)} and "
+                f"{fmt_color(cb)}" for (ka, kb), (ca, cb) in list(pal.items())[:3]) + ")"
+    return None
 
 
 SHEET_BACKDROP = (30, 30, 36, 255)  # render's and sheet's backdrop, around the cells
@@ -4779,8 +5086,10 @@ def cmd_recolor(a):
             said[("#", k)] = m
             # A shared key recolored here becomes a local override for this file only; a key a move makes gets its
             # color once the move has made it.
-            (later if k in made else doc.variants.setdefault(a.variant, {}) if a.variant else doc.palette)[k] = \
-                CLEAR if v == "transparent" else hex2rgba(v)
+            c = CLEAR if v == "transparent" else hex2rgba(v)
+            if not a.variant and k in pal and getattr(pal[k], "alts", ()):
+                c = Slot(c, pal[k].alts)  # a new base color; the slot's alternatives stay
+            (later if k in made else doc.variants.setdefault(a.variant, {}) if a.variant else doc.palette)[k] = c
             continue
         if v not in pal:
             fail("E_SELECT", f"recolor: key {v!r} not in palette (add it with palette --add)")
@@ -7111,14 +7420,17 @@ def set_still(doc, sel, still, no_still):
 
 
 def key_color(m):
-    """palette --add's 'k=#rrggbb', or a palette line as the file has it, 'k #rrggbb': (key, rgba)."""
+    """palette --add's 'k=#rrggbb' (a slot: 'k=#rrggbb|#rrggbb...'), or a palette line as the file has it, 'k #rrggbb':
+    (key, rgba)."""
     got = PAL_RE.match(m.strip())
     k, v = got.groups() if got else (m[0], m[2:]) if len(m) >= 2 and m[1] == "=" else m.partition("=")[::2]
-    if not COLOR_RE.match(v) and v != "transparent":
-        fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent (or 'k #rrggbb')")
+    c = key_value(v)
+    if c is None:
+        fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent (or 'k #rrggbb'; a slot: "
+             "'k=#rrggbb|#rrggbb')")
     if len(k) != 1:
         fail("E_BAD_KEY", f"{k!r}: keys are one character")
-    return k, CLEAR if v == "transparent" else hex2rgba(v)
+    return k, c
 
 
 def cmd_palette(a):
@@ -7205,11 +7517,25 @@ def palette_edit(a):
                              if a.keep else [])
     elif a.add:
         adds = [key_color(m) for m in a.add]
-        same = [(k, c) for k, c in adds if doc.resolved().get(k) == c and k in doc.palette]
-        new = [(k, c) for k, c in dict(adds).items() if k not in doc.resolved()]
+        have = doc.resolved()
+        same = [(k, c) for k, c in adds if have.get(k) == c and k in doc.palette]
+        new = [(k, c) for k, c in dict(adds).items() if k not in have]
+        slot = [(k, c) for k, c in dict(adds).items() if k in have and k != "." and tuple(have[k]) == tuple(c)
+                and have[k] != c]  # the same base color, other alternatives: the slot changes
         for k, c in adds:
-            doc.add_key(k, c)
-        said += ([f"added {', '.join(f'{k} {fmt_color(c)}' for k, c in new)}"] if new else []) \
+            if (k, c) not in slot:
+                doc.add_key(k, c)
+        for k, c in slot:
+            doc.palette[k] = c
+        mine = [(k, c) for k, c in slot if k not in doc.shared]
+        over = [(k, c) for k, c in slot if k in doc.shared]  # imported: a local line of FILE's own says it here
+        said += ([f"added {', '.join(f'{k} {fmt_key(c)}' for k, c in new)}"] if new else []) \
+            + ([f"set {', '.join(f'{k} {fmt_key(c)}' for k, c in mine)}"] if mine else []) \
+            + ([f"set {', '.join(f'{k} {fmt_key(c)}' for k, c in over)} on a line of {doc.path.name}'s own, over "
+                f"{' and '.join(doc.palette_refs)}'s (for every sprite that imports it: pxart palette "
+                f"{shlex.quote(str(doc.path.parent / doc.palette_refs[-1]))} --add "
+                + " ".join(shlex.quote(f"{k}={'|'.join(fmt_color(x) for x in choices(c))}") for k, c in over) + ")"]
+               if over else []) \
             + ([said_already(same)] if same else [])
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
@@ -7253,6 +7579,7 @@ def palette_edit(a):
         print(l)
     if by is not None:
         print(f"imported by {len(by)} of the .px files under {a.within}" + (f": {listed(sorted(by), 5)}" if by else ""))
+    wide = max([11] + [len(fmt_color(v)) for v in pal.values()])  # a slot's colors widen the column
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
         use = f" used {used.get(k, 0)}" if doc.frames else ""
@@ -7260,7 +7587,7 @@ def palette_edit(a):
             n = sum(1 for ks in by.values() if k in ks)
             use = f" used by {n} file{'s' * (n != 1)}"
         said = comment_text(cmts.get(("key", k)))
-        print((f"{k} {fmt_color(v):11} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
+        print((f"{k} {fmt_color(v):{wide}} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
@@ -7358,6 +7685,11 @@ def variant_edit(doc, name, adds, keeps):
         if k not in base or k == ".":
             fail("E_VARIANT_KEY", f"@variant {name} can't set {k!r}: the base palette doesn't define it (add it first: "
                  f"pxart palette {doc.path} --add '{k}=#rrggbb')", path=doc.path)
+    for k, c in adds:
+        if len(choices(c)) > 1 and len(choices(c)) != len(choices(base[k])):
+            fail("E_BAD_COLOR", f"--add {k}={fmt_color(c)}: {len(choices(c))} colors, and {k!r} has "
+                 f"{len(choices(base[k]))} ({fmt_color(base[k])}): a variant's list is one color per slot color, in "
+                 "order; one color alone is the key's color in the variant whatever the slot", path=doc.path)
     said = [f"@variant {name}" if have else f"new @variant {name}"]
     same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c]  # its line says so already
     sets = [(k, c) for k, c in adds if (k, c) not in same]
@@ -7424,15 +7756,19 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     over = doc.variants.setdefault(name, {})
     recolored, held = [], []
     for k, c in base.items():
-        if k == "." or not c[3] or (own and k not in doc.palette):
+        if k == "." or not any(x[3] for x in choices(c)) or (own and k not in doc.palette):
             continue
         if k in lit:
             got = from_[k]
         else:
-            got = derived(matched(from_[k], match[1]) if match else from_[k], darken, color)
-            if brightness(from_[k]) < DARK * from_[k][3] / 255 and brightness(got) > brightness(from_[k]):
-                held.append(k)  # with lift: brightened, as asked
-                got = got if lift else no_brighter(got, from_[k])
+            gots = []  # a slot's colors each derived: the variant's list, one per slot color
+            for x in choices(from_[k]):
+                one = derived(matched(x, match[1]) if match else x, darken, color)
+                if brightness(x) < DARK * x[3] / 255 and brightness(one) > brightness(x):
+                    held += [k] if k not in held else []  # with lift: brightened, as asked
+                    one = one if lift else no_brighter(one, x)
+                gots.append(one)
+            got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
         if got == c and k not in lit:
             if k in over:
                 del over[k]
@@ -7705,7 +8041,7 @@ def import_palette(doc, pal):
     if target in import_chain(doc):
         return f"{doc.path} already imports {pal}; no change: {doc.path}"
     theirs, mine = sub.resolved(), doc.resolved()
-    bad = [k for k in mine if k != "." and k in theirs and theirs[k] != mine[k]]
+    bad = [k for k in mine if k != "." and k in theirs and theirs[k] != mine[k] and not hides(mine[k], theirs[k])]
     if bad:
         moves = new_keys(bad, mine, theirs, set(mine) | set(theirs))
         each = ", ".join(f"{k!r} {fmt_color(mine[k])} ({pal}: {fmt_color(theirs[k])})" for k in bad)
@@ -7720,7 +8056,7 @@ def import_palette(doc, pal):
     before = {n: doc.resolved(n) for n in names}
     ref = pathlib.Path(os.path.relpath(target, doc.path.resolve().parent)).as_posix()
     imports(doc, ref, sub)
-    same = [k for k in doc.palette if k in theirs]
+    same = [k for k in doc.palette if k in theirs and (doc.palette[k] == theirs[k] or hides(doc.palette[k], theirs[k]))]
     order = list(doc.palette)
     if doc.dot_at is not None:
         doc.dot_at -= sum(1 for k in same if order.index(k) < doc.dot_at)
@@ -7765,8 +8101,10 @@ def import_palette(doc, pal):
 
 def redundant(doc, k):
     """doc's own key line for k repeats its import (the same color), and so do its variant lines for k, if any: taking
-    them out (palette --remove) changes no pixel, in the base palette or any variant."""
-    if k not in doc.palette or k not in doc.shared or doc.palette[k] != doc.shared[k]:
+    them out (palette --remove) changes no pixel, in the base palette or any variant. A line that only hides the
+    import's alternatives (hides) is one too: its base color is the import's."""
+    if k not in doc.palette or k not in doc.shared or not (same_key(doc.palette[k], doc.shared[k])
+                                                           or hides(doc.palette[k], doc.shared[k])):
         return False
     return all(doc.variants[n][k] == doc.shared_variants.get(n, {}).get(k, doc.shared[k])
                for n in doc.variants if k in doc.variants[n])
@@ -7884,9 +8222,10 @@ def hoist(doc, keys):
         if k not in doc.palette:
             fail("E_SELECT", f"--hoist {k!r}: not one of {doc.path}'s own keys ("
                  + (f"it comes from {ref} already" if k in doc.shared else "no such key") + ")", path=doc.path)
-        if k in pal.resolved() and pal.resolved()[k] != doc.palette[k]:
-            fail("E_KEY_CONFLICT", f"--hoist {k!r}: {ref} has {k!r} as {fmt_color(pal.resolved()[k])}, not "
-                 f"{fmt_color(doc.palette[k])}, and changing it would recolor every sprite that imports {ref}; give "
+        if k in pal.resolved() and not same_key(pal.resolved()[k], doc.palette[k]) \
+                and not hides(doc.palette[k], pal.resolved()[k]):  # a line that only hides the import's slot: dropped
+            fail("E_KEY_CONFLICT", f"--hoist {k!r}: {ref} has {k!r} as {fmt_key(pal.resolved()[k])}, not "
+                 f"{fmt_key(doc.palette[k])}, and changing it would recolor every sprite that imports {ref}; give "
                  f"{doc.path}'s {k!r} a free key first (pxart recolor {doc.path} '{k}>K')", path=doc.path)
     kept, order = [], list(doc.palette)
     if doc.dot_at is not None:  # a '. transparent' line keeps its place among the keys that stay
@@ -8083,7 +8422,7 @@ def cmd_export(a):
         if len(srcs) < len(a.files):
             fail("E_BAD_ARG", "export: world sources (world.src.json, .map) and .px frames go in separate exports: "
                  + ", ".join(f for f in a.files if not is_room_src(f)))
-        if a.tiled is not True or a.frames or a.aseprite:
+        if a.tiled is not True or a.frames or a.aseprite or a.indexed:
             fail("E_BAD_ARG", "export --tiled on world sources takes no X.tsj: each .map compiles to the .tmj beside "
                  "it, a world.src.json to <name>.world and rooms/*.tmj ('export world.src.json --tiled')")
         return export_tiled(a, srcs)
@@ -8091,12 +8430,17 @@ def cmd_export(a):
         fail("E_BAD_ARG", "export --tiled X.tsj: name the tileset to write (or give world.src.json / .map sources)")
     if a.tileset or a.tile != "16x16":
         fail("E_BAD_ARG", "--tileset and --tile are for world sources (world.src.json, .map)")
-    if not (a.frames or a.aseprite or a.tiled):
-        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json and/or --tiled X.tsj")
+    if not (a.frames or a.aseprite or a.tiled or a.indexed):
+        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json, --tiled X.tsj and/or --indexed X.json")
     variants = {split_variant(f)[1] for f in a.files} - {None}
     if len(variants) > 1:
         fail("E_BAD_ARG", f"export: one variant per export, got %{' %'.join(sorted(variants))}")
     variant = variants.pop() if variants else a.variant
+    if variant and a.indexed:
+        if not (a.frames or a.aseprite or a.tiled):
+            fail("E_BAD_ARG", f"--indexed writes the base palette and every variant's colors, so --variant/%{variant} "
+                 "has nothing to pick; drop it")
+        print(f"note: %{variant} colors the PNGs; --indexed writes the base palette and every variant's colors")
     entries = export_frames(a.files, a.exclude or ())
     export_clashes(entries, a.prefix_file, bool(a.frames))
     its, docs = [], {}
@@ -8173,7 +8517,65 @@ def cmd_export(a):
                 "margin": 0, "spacing": 0, "tiles": tiles}
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
+    if a.indexed:
+        wrote.append(export_indexed(entries, grouped(its), groups(), a.indexed))
     print("wrote", " ".join(wrote))
+
+
+def export_indexed(entries, its, groups, out):
+    """export --indexed X.json: the frames as key grids and the palette that colors them, for a game that recolors
+    at runtime (help slots has the shape). One palette for every file: a key two files color differently (base,
+    alternatives or a variant's) is E_KEY_CONFLICT. its: in export's id order; groups: [(doc, group, frames, tag)]."""
+    pal, slots, variants, whose = {}, {}, {}, {}
+    for doc, _, _ in entries:
+        for k, c in doc.resolved().items():
+            if k == ".":
+                continue
+            if k in pal and not same_key(pal[k], c):
+                fail("E_KEY_CONFLICT", f"--indexed writes one palette, and key {k!r} is {fmt_key(pal[k])} in "
+                     f"{whose[k]}, {fmt_key(c)} in {doc.path}; export them to one --indexed JSON each, or give one "
+                     f"of them a free key first ('pxart recolor {shlex.quote(str(doc.path))} {shlex.quote(k + '>K')}')")
+            pal[k], whose[k] = c, doc.path
+        for n in variant_names(doc):
+            for k, c in {**doc.shared_variants.get(n, {}), **doc.variants.get(n, {})}.items():
+                if k in variants.get(n, {}) and variants[n][k] != c:
+                    fail("E_KEY_CONFLICT", f"--indexed writes one palette, and @variant {n} colors {k!r} "
+                         f"{fmt_color(variants[n][k])} in one file, {fmt_color(c)} in {doc.path}; export them to one "
+                         "--indexed JSON each")
+                variants.setdefault(n, {})[k] = c
+                whose[(n, k)] = doc.path
+    for doc, _, _ in entries:  # each file must draw in every merged variant as the JSON says: its own, or its base
+        mine = variant_names(doc)
+        for n, over in variants.items():
+            got, want = doc.resolved(n if n in mine else None), {**pal, **over}
+            for k, c in got.items():
+                if k != "." and want[k] != c:
+                    fail("E_KEY_CONFLICT", f"--indexed writes one palette, and @variant {n} of it colors {k!r} "
+                         f"{fmt_color(want[k])} (from {whose.get((n, k), whose[k])}), but {doc.path} draws {k!r} "
+                         f"{fmt_color(c)} in " + (f"its {n}" if n in mine else f"{n} (it has no @variant {n}: its base "
+                                                  "color)") + "; export them to one --indexed JSON each")
+    frames, index = [], {}
+    for n, it in enumerate(its):
+        w, h = it.frame.size
+        fr = {"id": it.label, "w": w, "h": h, "ms": it.ms}
+        if it.doc.pivot(it.frame):
+            fr["pivot"] = dict(zip("xy", it.doc.pivot(it.frame)))
+        frames.append({**fr, "rows": list(it.frame.grid)})
+        index[id(it.frame)] = n
+    anims = []
+    for doc, g, fs, tag in groups:
+        if doc.animated(g):
+            meta = doc.anims.get(g, {})
+            anims.append({"name": tag, "from": index[id(fs[0])], "to": index[id(fs[-1])],
+                          "direction": meta.get("direction") or "forward", "repeat": meta.get("repeat") or 0})
+    data = {"version": 1, "palette": {k: rgba2hex(c) for k, c in pal.items()},
+            "slots": {k: [rgba2hex(x) for x in choices(c)] for k, c in pal.items() if getattr(c, "alts", ())},
+            "variants": {n: {k: [rgba2hex(x) for x in choices(c)] if getattr(c, "alts", ()) else rgba2hex(c)
+                             for k, c in over.items()} for n, over in variants.items()},
+            "frames": frames, "animations": anims}
+    p = outpath(out)
+    p.write_text(json.dumps(data, indent=1) + "\n")
+    return str(p)
 
 
 # ---------------------------------------------------------------------------- worlds: .map + world.src.json -> Tiled
@@ -10069,7 +10471,10 @@ def import_pngs(a):
         print(f"note: {out}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
     for n in notes:
         print(f"note: {n}")
-    keyof = {c: k for k, c in doc.resolved().items() if c[3]}
+    keyof = {}  # a PNG's color -> OUT's key: a slot's key takes its base color (a PNG has no alternatives), a plain
+    for k, c in sorted(doc.resolved().items(), key=lambda kc: bool(getattr(kc[1], "alts", ()))):  # key first
+        if c[3]:
+            keyof.setdefault(tuple(c), k)
     free = [k for k in KEYS if k not in doc.resolved()]
     entries = cells if cells is not None else [(png_id(path, a, name), path, img) for (path, img), name
                                                in zip(imgs, names or [None] * len(imgs)) if name != ""]
@@ -10609,7 +11014,8 @@ def overview():
                       *rows, f"  {'(rename)':<11} {RENAME_HINT}", "",
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
-                      "whole reference.", "",
+                      "whole reference.", "Own topics: 'pxart help worlds' (Tiled worlds), 'pxart help slots' (palette "
+                      "slots: a key's", "alternatives for a game to recolor; render --slots, export --indexed).", "",
                       "Start here: 'pxart help recipes' walks through seven workflows end to end: port a pack and "
                       "prove", "it lossless, merge packs with variants, build a dusk or night, slice a sheet, make a "
                       "scene from a", "map, check an animation's feet, stamp an overlay behind an animation."])
@@ -10626,6 +11032,8 @@ def cmd_help(a):
         print(RECIPES.rstrip())
     elif want.lower() == "worlds":
         print(WORLDS.rstrip())
+    elif want.lower() == "slots":
+        print(SLOTS.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -10636,7 +11044,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 
@@ -10744,6 +11152,10 @@ REPLACE_HELP = "with -o FILE:NEWGROUP: NEWGROUP's frames go first, and the copy 
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
 
+SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the base, then others, the same every run), "
+              "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
+
+
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
     ap = argparse.ArgumentParser(prog="pxart", description=overview() if describe else None,
@@ -10759,6 +11171,7 @@ def parser(describe=True):
                    "transparent stays transparent)")
     p.add_argument("--no-grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night)")
+    p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
@@ -10766,6 +11179,7 @@ def parser(describe=True):
     p.add_argument("--grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night), as "
                    "FILE%%V's do, and an argument's own %%VARIANT wins")
+    p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
@@ -11009,6 +11423,8 @@ def parser(describe=True):
     p.add_argument("--tiled", nargs="?", const=True, metavar="X.tsj",
                    help="frames: a Tiled tileset X.tsj; world.src.json or .map sources: their .tmj/.world beside them")
     p.add_argument("--variant")
+    p.add_argument("--indexed", metavar="X.json", help="frames as rows of palette keys, with the palette, its slots "
+                   "and variants, for a game that recolors at runtime (help slots)")
     p.add_argument("--tileset", action="append", metavar="T.tsj",
                    help="sources: rooms may draw with this tileset too, beside their packs' tiled/*.tsj (repeatable)")
     p.add_argument("--prefix-file", action="store_true",
@@ -11084,10 +11500,10 @@ def main(argv=None):
         with contextlib.redirect_stdout(told):
             globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'
-        said_first(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue(), a.cmd))
         sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
-        said_first(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue(), a.cmd))
         sys.exit(file_error(a.cmd, e))
     except BaseException:
         said_first(told.getvalue())
@@ -11104,11 +11520,13 @@ def said_first(text):
     sys.stdout.flush()
 
 
-def unsaid(text):
+def unsaid(text, cmd=None):
     """A command that fails prints none of its notes and WARNINGs: they describe the write it was about to make (a grid
-    renamed, keys rekeyed, colors left out), and that write didn't happen. Its other lines (a 'wrote' for a file an
+    renamed, keys rekeyed, colors left out), nor, for render and sheet, the --slots lines (the combinations it didn't draw): that write
+    didn't happen. Its other lines (a 'wrote' for a file an
     earlier step did write) stay."""
-    return "".join(l for l in text.splitlines(True) if not l.startswith(("note:", "WARNING:")))
+    return "".join(l for l in text.splitlines(True)
+                   if not l.startswith(("note:", "WARNING:") + (("slots ",) if cmd in ("render", "sheet") else ())))
 
 
 if __name__ == "__main__":
