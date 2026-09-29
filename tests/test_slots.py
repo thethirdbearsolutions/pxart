@@ -116,8 +116,10 @@ def test_key_value():
 @pytest.mark.parametrize("text,bit", [
     ("f #e0ac69 | #zzz\n\nf\n", "'#e0ac69 | #zzz' isn't #rrggbb"),
     ("f #e0ac69 | \n\nf\n", "(a slot is 'k #rrggbb | #rrggbb ...')"),
-    ("f #e0ac69\n@variant night\nf #000000 | #111111\n\nf\n", "a variant sets one color per key"),
-    (". transparent | #000000\nf #e0ac69\n\nf\n", "alternatives (a slot) go on a base palette line, not '.'"),
+    ("f #e0ac69\n@variant night\nf #000000 | #111111\n\nf\n", "gives 'f' 2 colors, and 'f' has no alternatives"),
+    ("f #e0ac69 | #f5cfa0 | #c68642\n@variant night\nf #000000 | #111111\n\nf\n",
+     "@variant night gives 'f' 2 colors, and 'f' has 3 (#e0ac69 | #f5cfa0 | #c68642): a list there is one color per"),
+    (". transparent | #000000\nf #e0ac69\n\nf\n", "alternatives (a slot) go on a palette key's line, not '.'"),
 ])
 def test_bad_slots_are_bad_colors(tmp_path, text, bit):
     with pytest.raises(pxart.PxError) as e:
@@ -252,7 +254,10 @@ def test_palette_edits_keep_and_move_slots(tmp_path, capsys):
     assert run("palette", p, "--hoist", "g") == 0
     assert "g #111111 | #333333" in (tmp_path / "pal.px").read_text() and "g #" not in p.read_text()
     # a variant --add can't take alternatives
-    assert "a variant sets one color per key" in run_err("palette", p, "--variant", "night", "--add", "k=#000000|#111111")
+    assert "a variant's list is one color per slot color" in run_err("palette", p, "--variant", "night", "--add",
+                                                                     "k=#000000|#111111")
+    assert run("palette", p, "--variant", "night", "--add", "h=#000000|#111111|#222222") == 0
+    assert "h #000000 | #111111 | #222222" in p.read_text().split("@variant night")[1]
 
 
 def test_palette_import_drops_only_lines_the_file_says_the_same(tmp_path):
@@ -324,7 +329,11 @@ def test_render_slots_pins_one_combination(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("spec,code,bit", [
-    ("f=9", "E_BAD_ARG", "f=9, and slot 'f' has 5 colors (0 to 4)"),
+    ("f=9", "E_BAD_ARG", "f=9, and slot 'f' has 5 colors: 0=#e0ac69 1=#f5cfa0"),
+    ("f=#123456", "E_BAD_ARG", "f=#123456, and slot 'f' has 5 colors"),
+    ("", "E_BAD_ARG", "isn't a count"),
+    ("2,3", "E_BAD_ARG", "two counts"),
+    ("f=1,f=2", "E_BAD_ARG", "'f' is pinned twice"),
     ("k=0", "E_SELECT", "'k' isn't a slot"),
     ("0", "E_BAD_ARG", "isn't a count"),
     ("f2", "E_BAD_ARG", "KEY=INDEX"),
@@ -424,7 +433,6 @@ def test_help_slots_is_its_own_topic(capsys):
     assert "slots" in run_err("help", "nope")
 
 
-
 # ---------------------------------------------------------------- review: alternatives are part of the color
 
 def test_compose_paste_copy_to_never_merge_a_slot_and_a_plain_key(tmp_path):
@@ -475,3 +483,65 @@ def test_diff_says_frames_differ_only_in_alternatives(tmp_path, capsys):
 # ---------------------------------------------------------------- review: a variant's list for a slot
 
 NIGHT = VILL.replace("\n@anim", "@variant night\nf #101010 | #202020 | #303030 | #404040 | #505050\nk #000000\n\n@anim")
+
+
+def test_a_variant_list_colors_each_slot_color(tmp_path, capsys):
+    p = write(tmp_path, "n.px", NIGHT)
+    doc = pxart.parse(p)
+    assert doc.image(doc.frames[0], "night").getpixel((1, 1)) == rgb("#101010")
+    assert doc.image(doc.frames[0], "night", {"f": 3}).getpixel((1, 1)) == rgb("#404040")
+    assert pxart.parse(p).text() == NIGHT
+    assert run("render", f"{p}:walk/0", "--variant", "night", "--slots", "f=3,h=1", "-o", tmp_path / "r.png") == 0
+    out = capsys.readouterr().out
+    assert "slots h1f3c0: h #2b1a0e, f #404040, c #3498db" in out and "note:" not in out
+
+
+def test_a_variant_one_color_for_a_slot_is_noted(tmp_path, capsys):
+    p = write(tmp_path, "n.px", VILL.replace("\n@anim", "@variant night\nf #101010\n\n@anim"))
+    assert run("sheet", f"{p}:walk/0", "--variant", "night", "--slots", "2", "-o", tmp_path / "s.png") == 0
+    out = capsys.readouterr().out
+    assert "note: @variant night gives f one color (#101010), whatever the slot" in out
+    assert out.count(", f #101010,") == 2
+
+
+def test_derive_gives_each_slot_color_its_own(tmp_path):
+    p = write(tmp_path, "d.px", "pxart 1\nf #e0ac69 | #f5cfa0 | #c68642\nk #000000\n\n@frame a\nfk\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
+    night = pxart.parse(p).variants["night"]["f"]
+    assert pxart.choices(night) == (rgb("#705634"), rgb("#7a6850"), rgb("#634321"))
+
+
+def test_export_indexed_writes_variant_lists(tmp_path):
+    p = write(tmp_path, "n.px", NIGHT)
+    assert run("export", p, "--indexed", tmp_path / "k.json") == 0
+    night = json.loads((tmp_path / "k.json").read_text())["variants"]["night"]
+    assert night == {"f": ["#101010", "#202020", "#303030", "#404040", "#505050"], "k": "#000000"}
+
+
+def test_export_indexed_checks_every_file_in_every_variant(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nf #e0ac69\nk #000000\n@variant night\nk #111111\n\n@frame a/0\nfk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69\nk #000000\n@variant night\nf #222222\n\n@frame b/0\nfk\n")
+    msg = run_err("export", a, b, "--indexed", tmp_path / "k.json")
+    assert "E_KEY_CONFLICT" in msg and "@variant night of it colors 'f' #222222 (from" in msg and "#e0ac69 in its night" in msg
+    c = write(tmp_path, "c.px", "pxart 1\nf #e0ac69\nk #000000\n\n@frame c/0\nfk\n")  # no night: its base there
+    msg = run_err("export", a, c, "--indexed", tmp_path / "k.json")
+    assert "draws 'k' #000000 in night (it has no @variant night: its base color)" in msg
+    d = write(tmp_path, "d.px", "pxart 1\nf #e0ac69\nk #000000\n@variant night\nk #111111\n\n@frame d/0\nk\n")
+    assert run("export", a, d, "--indexed", tmp_path / "k.json") == 0
+
+
+# ---------------------------------------------------------------- review: --slots
+
+def test_slots_pin_by_color_and_name_the_file(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL)
+    assert run("render", f"{p}:walk/0", "--slots", "f=#8d5524", "--plain", "-o", tmp_path / "r.png") == 0
+    assert Image.open(tmp_path / "r.png").convert("RGBA").getpixel((1, 1)) == rgb("#8d5524")
+    t = write(tmp_path, "t.px", "pxart 1\nf #e0ac69 | #f5cfa0\n\n@frame t\nf\n")
+    msg = run_err("render", p, t, "--slots", "f=3", "-o", tmp_path / "o.png")
+    assert f"slot 'f' in {t} has 2 colors" in msg
+
+
+def test_a_failing_render_prints_no_slot_lines(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL)
+    run_err("render", f"{p}:walk/0", "--slots", "3", "--plain", "-o", tmp_path / "r.png")
+    assert capsys.readouterr().out == ""

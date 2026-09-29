@@ -1317,6 +1317,16 @@ class Doc:
             pal.update(self.variants.get(variant, {}))
         return pal
 
+    def slot_color(self, k, i, variant=None):
+        """Slot k's color i (0 the base) as drawn in variant: the variant's own i-th when it gives k a list, its one
+        color when it gives k one (whatever the slot), else the slot's."""
+        c = self.resolved(variant)[k]
+        if variant and variant != "base" and k in {**self.shared_variants.get(variant, {}),
+                                                   **self.variants.get(variant, {})}:
+            got = choices(c)
+            return got[i] if len(got) > 1 else got[0]
+        return self.slots()[k][i]
+
     def slots(self):
         """{key: its colors, base first} for each key with alternatives, as this file resolves it (a local line
         without them overrides an imported slot)."""
@@ -1407,9 +1417,7 @@ class Doc:
         pal = self.resolved(variant)
         warn_half(self, variant)
         if pick:
-            slots, v = self.slots(), variant if variant != "base" else None
-            over = {**self.shared_variants.get(v, {}), **self.variants.get(v, {})} if v else {}
-            pal.update({k: slots[k][i] for k, i in pick.items() if k in slots and k not in over})
+            pal.update({k: self.slot_color(k, i, variant) for k, i in pick.items() if k in self.slots()})
         w, h = f.size
         img = Image.new("RGBA", (w, h))
         img.putdata([pal[c] for row in f.grid for c in row])
@@ -1702,9 +1710,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 err("E_BAD_COLOR", f"{val!r} isn't #rrggbb, #rrggbbaa, or transparent" + (
                     " (a slot is 'k #rrggbb | #rrggbb ...')" if "|" in val else ""), n)
                 continue
-            if isinstance(color, Slot) and (key == "." or state == "variant"):
-                err("E_BAD_COLOR", f"{s!r}: alternatives (a slot) go on a base palette line, not "
-                    + ("'.'" if key == "." else f"in @variant {variant}: a variant sets one color per key"), n)
+            if isinstance(color, Slot) and key == ".":
+                err("E_BAD_COLOR", f"{s!r}: alternatives (a slot) go on a palette key's line, not '.'", n)
                 continue
             if key == ".":
                 if color[3] != 0:
@@ -1747,6 +1754,15 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
     doc.frame_gap = max(set(gaps), key=gaps.count) if gaps else None
 
     # --- whole-document checks
+    base = doc.resolved()
+    for name, over in doc.variants.items():  # a variant's list for a slot: one color per slot color, in order
+        for k, c in over.items():
+            if isinstance(c, Slot) and k in base and len(choices(c)) != len(choices(base[k])):
+                err("E_BAD_COLOR", f"@variant {name} gives {k!r} {len(choices(c))} colors, and {k!r} has "
+                    + (f"{len(choices(base[k]))} ({fmt_color(base[k])}): a list there is one color per slot color, "
+                       "in order; one color alone is the key's color in the variant whatever the slot"
+                       if len(choices(base[k])) > 1 else "no alternatives: give it one color"),
+                    doc.at.get(("vkey", name, k)))
     if palette_only:
         if doc.frames:
             err("E_PALETTE_FILE", "a palette file can't contain grid rows", doc.frames[0].line)
@@ -1868,22 +1884,39 @@ def all_items(args, variant=None, slots=None):
     for it, own in zip(out, owns):
         it.label += f"%{own}" if own else ""
         it.variant = own
-    return slot_items(out, slots) if slots else out
+    return slot_items(out, slots) if slots is not None else out
 
 
 def slot_spec(s):
-    """--slots: 'N' (N combinations), 'f=2,h=0' (those slots' colors by index, 0 the base), or both: 'N,f=2'.
-    (N, {key: index})."""
-    n, pins = 1, {}
+    """--slots: 'N' (N combinations), 'f=2,h=0' (those slots' colors by index, 0 the base, or by color: f=#8d5524),
+    or both: 'N,f=2'. (N, {key: index or rgba}). A count or a key given twice is E_BAD_ARG."""
+    n, pins = None, {}
     for t in s.split(","):
+        k, eq, v = t[:1], t[1:2], t[2:]
         if t.isdigit() and int(t) > 0:
+            if n is not None:
+                fail("E_BAD_ARG", f"--slots {s!r}: two counts ({n} and {t}); give one")
             n = int(t)
-        elif len(t) > 2 and t[1] == "=" and t[2:].isdigit():
-            pins[t[0]] = int(t[2:])
+        elif eq == "=" and (v.isdigit() or COLOR_RE.match(v) or COLOR_RE.match("#" + v) or v == "transparent"):
+            if k in pins:
+                fail("E_BAD_ARG", f"--slots {s!r}: {k!r} is pinned twice; give it one color")
+            pins[k] = int(v) if v.isdigit() else parse_color(v, f"--slots {k}=")
         else:
             fail("E_BAD_ARG", f"--slots {s!r}: {t!r} isn't a count (--slots 8) or KEY=INDEX (--slots f=2,h=0; 0 is "
-                 "the base color)")
-    return n, pins
+                 "the base color) or KEY=COLOR (f=#8d5524)")
+    return n or 1, pins
+
+
+def pinned(d, spec, k, v, many):
+    """--slots' pin k=v in d's slot k: its index (v, or where d's slot has the color v); E_BAD_ARG when d's slot has
+    no such color, naming d when several files are drawn."""
+    got, where = d.slots()[k], f" in {d.path}" if many else ""
+    if isinstance(v, int) and v < len(got):
+        return v
+    if not isinstance(v, int) and v in got:
+        return got.index(v)
+    fail("E_BAD_ARG", f"--slots {spec}: {k}={v if isinstance(v, int) else fmt_color(v)}, and slot {k!r}{where} has "
+         f"{len(got)} colors: {' '.join(f'{i}={fmt_color(c)}' for i, c in enumerate(got))}")
 
 
 def combos(slots, n, pins):
@@ -1913,17 +1946,24 @@ def slot_items(its, spec):
     n, pins = slot_spec(spec)
     docs = list({id(it.doc): it.doc for it in its if it.doc}.values())
     have = {k for d in docs for k in d.slots()}
-    for k, i in pins.items():
+    for k in pins:
         if k not in have:
             fail("E_SELECT", f"--slots {spec}: {k!r} isn't a slot (a key with alternatives: 'k #rrggbb | #rrggbb'); "
                  + (f"slots: {' '.join(sorted(have))}" if have else "these files have none"))
-        top = min(len(d.slots()[k]) for d in docs if k in d.slots())
-        if i >= top:
-            fail("E_BAD_ARG", f"--slots {spec}: {k}={i}, and slot {k!r} has {top} colors (0 to {top - 1})")
     if not have:
         print(f"note: --slots {spec}: no slots in these files (a slot: 'k #rrggbb | #rrggbb ...'); drawn once")
         return its
-    picks = {id(d): combos(d.slots(), n, {k: i for k, i in pins.items() if k in d.slots()}) for d in docs}
+    many = sum(1 for d in docs if d.slots()) > 1
+    pins = {id(d): {k: pinned(d, spec, k, v, many) for k, v in pins.items() if k in d.slots()} for d in docs}
+    for d in docs:  # a variant that gives a slot one color draws it in that color whatever the slot
+        for v in dict.fromkeys(it.variant for it in its if it.doc is d and it.variant not in (None, "base")):
+            over = {**d.shared_variants.get(v, {}), **d.variants.get(v, {})}
+            one = [k for k in d.slots() if k in over and len(choices(over[k])) == 1]
+            if one:
+                print(f"note: @variant {v}" + (f" of {d.path}" if many else "") + " gives "
+                      + ", ".join(f"{k} one color ({fmt_color(over[k])})" for k in one) + ", whatever the slot; a list "
+                      f"there ('{one[0]} #rrggbb | #rrggbb ...') gives each slot color its own")
+    picks = {id(d): combos(d.slots(), n, pins[id(d)]) for d in docs}
     out = []
     for c in range(max(len(p) for p in picks.values())):
         said = set()
@@ -1943,9 +1983,8 @@ def slot_items(its, spec):
             out.append(new)
             if id(it.doc) not in said:
                 said.add(id(it.doc))
-                slots = it.doc.slots()
                 print(f"slots {tag}" + (f" ({it.doc.path})" if len(docs) > 1 else "") + ": "
-                      + ", ".join(f"{k} {fmt_color(slots[k][i])}" for k, i in pick.items())
+                      + ", ".join(f"{k} {fmt_color(it.doc.slot_color(k, i, it.variant))}" for k, i in pick.items())
                       + f" (--slots {','.join(f'{k}={i}' for k, i in pick.items())})")
     return out
 
@@ -7346,16 +7385,15 @@ def set_still(doc, sel, still, no_still):
     return f"removed @still {sel}"
 
 
-def key_color(m, slots=True):
+def key_color(m):
     """palette --add's 'k=#rrggbb' (a slot: 'k=#rrggbb|#rrggbb...'), or a palette line as the file has it, 'k #rrggbb':
     (key, rgba)."""
     got = PAL_RE.match(m.strip())
     k, v = got.groups() if got else (m[0], m[2:]) if len(m) >= 2 and m[1] == "=" else m.partition("=")[::2]
     c = key_value(v)
-    if c is None or (isinstance(c, Slot) and not slots):
-        fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent (or 'k #rrggbb')"
-             + ("; a variant sets one color per key, and alternatives (a slot) go on the base palette's line"
-                if c is not None else ""))
+    if c is None:
+        fail("E_BAD_COLOR", f"{m!r}: want key=#rrggbb, key=#rrggbbaa or key=transparent (or 'k #rrggbb'; a slot: "
+             "'k=#rrggbb|#rrggbb')")
     if len(k) != 1:
         fail("E_BAD_KEY", f"{k!r}: keys are one character")
     return k, c
@@ -7441,7 +7479,7 @@ def palette_edit(a):
                                key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
                                match_fit(a.match, a.variant) if a.match else None, a.lift_darks)
     if a.variant and (a.add or a.keep):
-        said += variant_edit(doc, a.variant, [key_color(m, False) for m in a.add or []], key_list(a.keep, "--keep")
+        said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
     elif a.add:
         adds = [key_color(m) for m in a.add]
@@ -7612,6 +7650,11 @@ def variant_edit(doc, name, adds, keeps):
         if k not in base or k == ".":
             fail("E_VARIANT_KEY", f"@variant {name} can't set {k!r}: the base palette doesn't define it (add it first: "
                  f"pxart palette {doc.path} --add '{k}=#rrggbb')", path=doc.path)
+    for k, c in adds:
+        if len(choices(c)) > 1 and len(choices(c)) != len(choices(base[k])):
+            fail("E_BAD_COLOR", f"--add {k}={fmt_color(c)}: {len(choices(c))} colors, and {k!r} has "
+                 f"{len(choices(base[k]))} ({fmt_color(base[k])}): a variant's list is one color per slot color, in "
+                 "order; one color alone is the key's color in the variant whatever the slot", path=doc.path)
     said = [f"@variant {name}" if have else f"new @variant {name}"]
     same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c]  # its line says so already
     sets = [(k, c) for k, c in adds if (k, c) not in same]
@@ -7683,10 +7726,14 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
         if k in lit:
             got = from_[k]
         else:
-            got = derived(matched(from_[k], match[1]) if match else from_[k], darken, color)
-            if brightness(from_[k]) < DARK * from_[k][3] / 255 and brightness(got) > brightness(from_[k]):
-                held.append(k)  # with lift: brightened, as asked
-                got = got if lift else no_brighter(got, from_[k])
+            gots = []  # a slot's colors each derived: the variant's list, one per slot color
+            for x in choices(from_[k]):
+                one = derived(matched(x, match[1]) if match else x, darken, color)
+                if brightness(x) < DARK * x[3] / 255 and brightness(one) > brightness(x):
+                    held += [k] if k not in held else []  # with lift: brightened, as asked
+                    one = one if lift else no_brighter(one, x)
+                gots.append(one)
+            got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
         if got == c and k not in lit:
             if k in over:
                 del over[k]
@@ -8460,6 +8507,17 @@ def export_indexed(entries, its, groups, out):
                          f"{fmt_color(variants[n][k])} in one file, {fmt_color(c)} in {doc.path}; export them to one "
                          "--indexed JSON each")
                 variants.setdefault(n, {})[k] = c
+                whose[(n, k)] = doc.path
+    for doc, _, _ in entries:  # each file must draw in every merged variant as the JSON says: its own, or its base
+        mine = variant_names(doc)
+        for n, over in variants.items():
+            got, want = doc.resolved(n if n in mine else None), {**pal, **over}
+            for k, c in got.items():
+                if k != "." and want[k] != c:
+                    fail("E_KEY_CONFLICT", f"--indexed writes one palette, and @variant {n} of it colors {k!r} "
+                         f"{fmt_color(want[k])} (from {whose.get((n, k), whose[k])}), but {doc.path} draws {k!r} "
+                         f"{fmt_color(c)} in " + (f"its {n}" if n in mine else f"{n} (it has no @variant {n}: its base "
+                                                  "color)") + "; export them to one --indexed JSON each")
     frames, index = [], {}
     for n, it in enumerate(its):
         w, h = it.frame.size
@@ -8476,7 +8534,8 @@ def export_indexed(entries, its, groups, out):
                           "direction": meta.get("direction") or "forward", "repeat": meta.get("repeat") or 0})
     data = {"version": 1, "palette": {k: rgba2hex(c) for k, c in pal.items()},
             "slots": {k: [rgba2hex(x) for x in choices(c)] for k, c in pal.items() if getattr(c, "alts", ())},
-            "variants": {n: {k: rgba2hex(c) for k, c in over.items()} for n, over in variants.items()},
+            "variants": {n: {k: [rgba2hex(x) for x in choices(c)] if getattr(c, "alts", ()) else rgba2hex(c)
+                             for k, c in over.items()} for n, over in variants.items()},
             "frames": frames, "animations": anims}
     p = outpath(out)
     p.write_text(json.dumps(data, indent=1) + "\n")
@@ -11423,9 +11482,10 @@ def said_first(text):
 
 def unsaid(text):
     """A command that fails prints none of its notes and WARNINGs: they describe the write it was about to make (a grid
-    renamed, keys rekeyed, colors left out), and that write didn't happen. Its other lines (a 'wrote' for a file an
+    renamed, keys rekeyed, colors left out), nor render's --slots lines (the combinations it didn't draw): that write
+    didn't happen. Its other lines (a 'wrote' for a file an
     earlier step did write) stay."""
-    return "".join(l for l in text.splitlines(True) if not l.startswith(("note:", "WARNING:")))
+    return "".join(l for l in text.splitlines(True) if not l.startswith(("note:", "WARNING:", "slots ")))
 
 
 if __name__ == "__main__":
