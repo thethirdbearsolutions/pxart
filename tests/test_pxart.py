@@ -313,6 +313,17 @@ def test_from_png_notes_see_through_pixels(tmp_path, capsys):
            "makes them opaque, or clear if faint" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("flags", [[], ["--hard-edges"], ["--colors", "3"], ["--grid", "3x1"]])
+def test_from_png_without_o_prints_only_the_px_to_stdout(tmp_path, capsys, flags):
+    # 'from-png a.png > a.px': every note goes to stderr, or the file gets a note line (E_BAD_ROW)
+    soft_edge_png(tmp_path / "s.png")
+    assert run("from-png", tmp_path / "s.png", *flags) == 0
+    got = capsys.readouterr()
+    assert "note:" in got.err and "note:" not in got.out
+    doc = pxart.parse(write(tmp_path, "s.px", got.out))
+    assert doc.frames
+
+
 def test_from_png_opaque_pngs_get_no_see_through_note(tmp_path, capsys):
     gradient_png(tmp_path / "g.png", 4, 2)
     assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px") == 0

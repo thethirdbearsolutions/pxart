@@ -9936,7 +9936,17 @@ def cmd_world(a):
 
 def cmd_from_png(a):
     """PNG(s) -> .px. Colors already in OUT's palette keep their keys; new colors get free keys. --grid slices one
-    sheet into frames (sheet_cells)."""
+    sheet into frames (sheet_cells). With no -o the .px text is stdout ('from-png a.png > a.px'), so every note goes
+    to stderr."""
+    if a.o:
+        return import_pngs(a)
+    with contextlib.redirect_stdout(sys.stderr):
+        doc = import_pngs(a)
+    print(doc.text(), end="")
+
+
+def import_pngs(a):
+    """from-png's work: the doc, written to -o OUT (and its notes printed), or returned to print."""
     if a.by and not a.grid:
         fail("E_BAD_ARG", "--by goes with --grid WxH (the sheet's cells)")
     if a.grid and len(a.pngs) > 1:
@@ -10013,8 +10023,7 @@ def cmd_from_png(a):
         print(write_doc(doc, out) + (f" ({len(entries)} frame(s)" + (f": {said_cells(entries)}" if a.grid else "")
                                      + (f"; replaced {listed(replaced, 5)}, which {out} had" if replaced else "")
                                      + ")" if named else ""))
-    else:
-        print(doc.text(), end="")
+    return doc
 
 
 def hard_edges(imgs):
