@@ -83,7 +83,8 @@ def test_every_existing_file_round_trips_byte_for_byte():
 def test_a_slot_line_parses_to_its_base_color_with_alternatives(tmp_path):
     doc = pxart.parse(write(tmp_path, "v.px", VILL))
     f = doc.palette["f"]
-    assert f == rgb("#e0ac69") and isinstance(f, pxart.Slot)
+    assert tuple(f) == rgb("#e0ac69") and isinstance(f, pxart.Slot)
+    assert f != rgb("#e0ac69") and rgb("#e0ac69") != f  # the alternatives are part of the color
     assert f.alts == tuple(rgb(x) for x in ("#f5cfa0", "#c68642", "#8d5524", "#ffdbac"))
     assert doc.palette["k"] == rgb("#1a1a1a") and not isinstance(doc.palette["k"], pxart.Slot)
     assert list(doc.slots()) == ["h", "f", "c"] and doc.slots()["h"][0] == rgb("#6b3e1f")
@@ -107,7 +108,9 @@ def test_key_value():
     assert s.alts == (pxart.CLEAR, (0x44, 0x55, 0x66, 0x80))
     assert pxart.key_value("#112233 | nope") is None
     assert pxart.same_key(pxart.key_value("#112233"), (0x11, 0x22, 0x33, 255))
-    assert not pxart.same_key(s, (0x11, 0x22, 0x33, 255)) and s == (0x11, 0x22, 0x33, 255)
+    assert not pxart.same_key(s, (0x11, 0x22, 0x33, 255)) and s != (0x11, 0x22, 0x33, 255)
+    assert s == pxart.key_value("#112233|transparent|#44556680") and len({s, pxart.key_value("#112233")}) == 2
+    assert pxart.hides((0x11, 0x22, 0x33, 255), s) and not pxart.hides(s, s)
 
 
 @pytest.mark.parametrize("text,bit", [
@@ -174,6 +177,12 @@ def test_slots_come_from_a_palette_file_and_a_local_line_replaces_them(tmp_path,
     q = write(tmp_path, "b.px", "pxart 1\n@palette pal.px\nf #e0ac69\n\nhf\n")
     assert list(pxart.parse(q).slots()) == ["h"]
     assert run("check", q) == 0
+    out = capsys.readouterr().out
+    assert "local keys hide their @palette slots' alternatives (the same base color, none of their own): f; dropping "         f"that line renders the same: pxart palette {q} --remove f" in out
+    assert "override" not in out
+    assert run("palette", q, "--remove", "f") == 0 and "f #" not in q.read_text()
+    q2 = write(tmp_path, "b2.px", "pxart 1\n@palette pal.px\nf #e0ac68\n\nhf\n")
+    run("check", q2)
     assert "local keys override @palette colors: f" in capsys.readouterr().out
     r = write(tmp_path, "c.px", "pxart 1\n@palette pal.px\nf #e0ac69 | #f5cfa0\n\nhf\n")
     run("check", r)
@@ -252,9 +261,10 @@ def test_palette_import_drops_only_lines_the_file_says_the_same(tmp_path):
     assert run("palette", a, "--import", tmp_path / "pal.px") == 0
     assert "\nf #" not in a.read_text() and pxart.parse(a).slots()["f"][1] == rgb("#f5cfa0")
     b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69 | #c68642\nk #1a1a1a\n\nfk\n")
-    assert run("palette", b, "--import", tmp_path / "pal.px") == 0
-    assert "f #e0ac69 | #c68642" in b.read_text()  # other alternatives: the local line stays, an override
-    assert pxart.parse(b).slots()["f"][1] == rgb("#c68642")
+    assert "E_KEY_CONFLICT" in run_err("palette", b, "--import", tmp_path / "pal.px")  # other alternatives
+    c = write(tmp_path, "c.px", "pxart 1\nf #e0ac69\nk #1a1a1a\n\nfk\n")  # plain, the import's base: hides only
+    assert run("palette", c, "--import", tmp_path / "pal.px") == 0
+    assert "\nf #" not in c.read_text() and pxart.parse(c).slots()["f"][1] == rgb("#f5cfa0")
 
 
 def test_extract_inline_palette_keeps_imported_slots(tmp_path):
@@ -272,7 +282,8 @@ def test_outline_pad_and_from_png_into_out_keep_slot_lines(tmp_path):
     assert run("from-png", tmp_path / "a.png", "-o", p, "--id", "b") == 0
     text = p.read_text()
     assert text.count("f #e0ac69 | #f5cfa0") == 1 and "@frame b/a" in text
-    assert pxart.parse(p).get("b/a").grid == pxart.parse(p).get("a").grid  # the base color maps back to f
+    doc = pxart.parse(p)  # a PNG's color is plain: not the slot f, though f's base draws it
+    assert doc.get("b/a").grid == [r.replace("f", "a") for r in doc.get("a").grid] and doc.palette["a"] == rgb("#e0ac69")
 
 
 def test_every_palette_line_is_written_by_one_function():
@@ -411,3 +422,56 @@ def test_help_slots_is_its_own_topic(capsys):
               "palette --add 'f=#e0ac69|#f5cfa0'", "A @variant sets one color per key"):
         assert s in text, s
     assert "slots" in run_err("help", "nope")
+
+
+
+# ---------------------------------------------------------------- review: alternatives are part of the color
+
+def test_compose_paste_copy_to_never_merge_a_slot_and_a_plain_key(tmp_path):
+    slot = write(tmp_path, "slot.px", "pxart 1\nh #e0ac69 | #c0392b\nk #000000\n\n@frame v\nhhkk\n")
+    hat = write(tmp_path, "hat.px", "pxart 1\nh #e0ac69\n\n@frame hat\nhh..\n")
+    for layers in ((f"{slot}:v@0,0", f"{hat}:hat@0,0"), (f"{hat}:hat@0,0", f"{slot}:v@0,0")):
+        assert "E_KEY_CONFLICT" in run_err("compose", "-o", tmp_path / "o.px", "--size", "4x1", *layers)
+        assert run("compose", "-o", tmp_path / "o.px", "--size", "4x1", "--replace", "--rekey", *layers) == 0
+        doc = pxart.parse(tmp_path / "o.px")
+        assert sorted(pxart.fmt_color(c) for k, c in doc.palette.items() if tuple(c) == rgb("#e0ac69")) == \
+            ["#e0ac69", "#e0ac69 | #c0392b"]
+    dst = write(tmp_path, "dst.px", "pxart 1\nh #e0ac69\nk #000000\n\n@frame a\nhhhh\n")
+    assert "E_KEY_CONFLICT" in run_err("paste", f"{slot}:v", "--into", f"{dst}:a", "--at", "0,0")
+    assert "E_KEY_CONFLICT" in run_err("frames", f"{slot}:v", "--copy-to", dst)
+    assert run("frames", f"{slot}:v", "--copy-to", dst, "--rekey") == 0
+    assert "a #e0ac69 | #c0392b" in dst.read_text() and "\nh #e0ac69\n" in dst.read_text()
+
+
+def test_slots_with_other_alternatives_are_other_colors(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nf #e0ac69 | #f5cfa0\n\n@frame a\nf\n")
+    b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69 | #111111\n\n@frame b\nf\n")
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", tmp_path / "o.px", f"{a}:a@0,0", f"{b}:b@0,0")
+
+
+def test_palette_add_on_an_imported_key_writes_a_local_line(tmp_path, capsys):
+    write(tmp_path, "pal.px", "pxart 1\nf #e0ac69\nk #000000\n")
+    p = write(tmp_path, "spr.px", "pxart 1\n@palette pal.px\n\nffkk\n")
+    assert run("palette", p, "--add", "f=#e0ac69|#f5cfa0") == 0
+    out = capsys.readouterr().out
+    assert "on a line of spr.px's own, over pal.px's" in out and "--add 'f=#e0ac69|#f5cfa0'" in out
+    assert "f #e0ac69 | #f5cfa0" in p.read_text() and pxart.parse(p).slots()["f"][1] == rgb("#f5cfa0")
+
+
+def test_palette_listing_puts_alternatives_with_the_color(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL)
+    assert run("palette", p) == 0
+    assert "f #e0ac69 | #f5cfa0 | #c68642 | #8d5524 | #ffdbac local    used 6" in capsys.readouterr().out
+
+
+def test_diff_says_frames_differ_only_in_alternatives(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #000000\n\n@frame a\nffk\n")
+    b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69\nk #000000\n\n@frame a\nffk\n")
+    assert run("diff", a, b) == 1
+    assert "2 px differ only in slot alternatives (f #e0ac69 | #f5cfa0 and #e0ac69)" in capsys.readouterr().out
+    assert run("diff", a, a) == 0
+
+
+# ---------------------------------------------------------------- review: a variant's list for a slot
+
+NIGHT = VILL.replace("\n@anim", "@variant night\nf #101010 | #202020 | #303030 | #404040 | #505050\nk #000000\n\n@anim")

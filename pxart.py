@@ -1193,27 +1193,47 @@ def rgba2hex(c):
 
 
 def fmt_color(c):
+    """'#rrggbb[aa]' or 'transparent'; a slot, its colors: '#e0ac69 | #f5cfa0'."""
+    if getattr(c, "alts", ()):
+        return fmt_key(c)
     return "transparent" if c[3] == 0 else rgba2hex(c)
 
 
 class Slot(tuple):
     """A key's base color (an rgba tuple, and compared as one) with the alternatives a game may swap in for it:
     'f #e0ac69 | #f5cfa0 | #c68642' is Slot((224, 172, 105, 255), ((245, 207, 160, 255), (198, 134, 66, 255))).
-    Copying the color copies the slot, so a key's line keeps its alternatives wherever it goes."""
+    Copying the color copies the slot, so a key's line keeps its alternatives wherever it goes. The alternatives are
+    part of the color: a slot equals only a slot of the same colors, never the plain color of its base, so no command
+    takes one for the other (a plain key and a slot of one base color are two colors)."""
     def __new__(cls, base, alts):
         s = super().__new__(cls, base)
         s.alts = tuple(alts)
         return s
 
+    def __eq__(self, other):
+        return tuple.__eq__(self, other) is True and getattr(other, "alts", ()) == self.alts
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __hash__(self):
+        return hash((tuple(self), self.alts))
+
 
 def choices(c):
     """A key's colors, base first: (base,) for a plain key."""
-    return (c,) + getattr(c, "alts", ())
+    return (tuple(c),) + getattr(c, "alts", ())
+
+
+def hides(local, imported):
+    """A local key line that adds nothing to its import but hides the import's alternatives: the import's base color,
+    plain (palette --import drops it like a line of the same color)."""
+    return not getattr(local, "alts", ()) and bool(getattr(imported, "alts", ())) and tuple(local) == tuple(imported)
 
 
 def same_key(a, b):
-    """Two key colors that mean the same: one base color, and the same alternatives."""
-    return a == b and getattr(a, "alts", ()) == getattr(b, "alts", ())
+    """Two key colors that mean the same: one base color, and the same alternatives (Slot's ==)."""
+    return a == b
 
 
 def fmt_key(c):
@@ -3799,8 +3819,13 @@ def cmd_check(a):
             if its and its[0].doc:
                 doc = its[0].doc
                 over = [k for k in doc.palette if k in doc.shared and not same_key(doc.palette[k], doc.shared[k])]
-                if over:
-                    notes.append("local keys override @palette colors: " + "".join(over))
+                hid = [k for k in over if hides(doc.palette[k], doc.shared[k])]
+                if len(hid) < len(over):
+                    notes.append("local keys override @palette colors: " + "".join(k for k in over if k not in hid))
+                if hid:
+                    notes.append("local keys hide their @palette slots' alternatives (the same base color, none of "
+                                 f"their own): {''.join(hid)}; dropping {'those lines' if len(hid) > 1 else 'that line'} "
+                                 "renders the same: " + shlex.join(["pxart", "palette", path, "--remove", keys_arg(hid)]))
                 same = [k for k in doc.palette if k in doc.shared and k not in over]
                 if same:
                     idle = [k for k in same if redundant(doc, k)]
@@ -4018,7 +4043,7 @@ def cmd_diff(a):
             alone += 1
             print(f"{lab}: {y}")
             continue
-        said = diff_images(x.img, y.img, a.strict_alpha)
+        said = diff_images(x.img, y.img, a.strict_alpha) or slot_diff(x, y)
         differ += said is not None
         same += said is None
         print(f"{lab + ': ' if lab else ''}{said or 'same: ' + f'{x.img.width}x{x.img.height}, every pixel'}")
@@ -4044,6 +4069,26 @@ def cmd_diff(a):
         diff_pictures(a, shown, one)
     if differ or alone:
         sys.exit(1)
+
+
+def slot_diff(x, y):
+    """diff of two .px frames that render alike: the px whose keys' slot alternatives differ (the colors a game may
+    swap in), as '3 px differ only in slot alternatives (f #e0ac69 | #f5cfa0 and #e0ac69)'. None when there are none."""
+    if not (x.frame and y.frame) or x.frame.size != y.frame.size:
+        return None
+    px, pal = [x.doc.resolved(), y.doc.resolved()], {}
+    n = 0
+    for ra, rb in zip(x.frame.grid, y.frame.grid):
+        for ka, kb in zip(ra, rb):
+            ca, cb = px[0][ka], px[1][kb]
+            if ca[3] and choices(ca) != choices(cb):
+                n += 1
+                pal.setdefault((ka, kb), (ca, cb))
+    if not n:
+        return None
+    return f"{n} px differ only in slot alternatives (" + "; ".join(
+        f"{ka} {fmt_color(ca)} and {kb} {fmt_color(cb)}" if ka != kb else f"{ka} {fmt_color(ca)} and {fmt_color(cb)}"
+        for (ka, kb), (ca, cb) in list(pal.items())[:3]) + ")"
 
 
 SHEET_BACKDROP = (30, 30, 36, 255)  # render's and sheet's backdrop, around the cells
@@ -7400,16 +7445,25 @@ def palette_edit(a):
                              if a.keep else [])
     elif a.add:
         adds = [key_color(m) for m in a.add]
-        same = [(k, c) for k, c in adds if same_key(doc.resolved().get(k), c) and k in doc.palette]
-        new = [(k, c) for k, c in dict(adds).items() if k not in doc.resolved()]
-        slot = [(k, c) for k, c in dict(adds).items() if k in doc.palette and doc.palette[k] == c
-                and not same_key(doc.palette[k], c)]  # the same base color, other alternatives: the slot changes
+        have = doc.resolved()
+        same = [(k, c) for k, c in adds if have.get(k) == c and k in doc.palette]
+        new = [(k, c) for k, c in dict(adds).items() if k not in have]
+        slot = [(k, c) for k, c in dict(adds).items() if k in have and k != "." and tuple(have[k]) == tuple(c)
+                and have[k] != c]  # the same base color, other alternatives: the slot changes
         for k, c in adds:
-            doc.add_key(k, c)
+            if (k, c) not in slot:
+                doc.add_key(k, c)
         for k, c in slot:
             doc.palette[k] = c
+        mine = [(k, c) for k, c in slot if k not in doc.shared]
+        over = [(k, c) for k, c in slot if k in doc.shared]  # imported: a local line of FILE's own says it here
         said += ([f"added {', '.join(f'{k} {fmt_key(c)}' for k, c in new)}"] if new else []) \
-            + ([f"set {', '.join(f'{k} {fmt_key(c)}' for k, c in slot)}"] if slot else []) \
+            + ([f"set {', '.join(f'{k} {fmt_key(c)}' for k, c in mine)}"] if mine else []) \
+            + ([f"set {', '.join(f'{k} {fmt_key(c)}' for k, c in over)} on a line of {doc.path.name}'s own, over "
+                f"{' and '.join(doc.palette_refs)}'s (for every sprite that imports it: pxart palette "
+                f"{shlex.quote(str(doc.path.parent / doc.palette_refs[-1]))} --add "
+                + " ".join(shlex.quote(f"{k}={'|'.join(fmt_color(x) for x in choices(c))}") for k, c in over) + ")"]
+               if over else []) \
             + ([said_already(same)] if same else [])
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
@@ -7460,8 +7514,7 @@ def palette_edit(a):
             n = sum(1 for ks in by.values() if k in ks)
             use = f" used by {n} file{'s' * (n != 1)}"
         said = comment_text(cmts.get(("key", k)))
-        alts = "".join(f" | {fmt_color(x)}" for x in getattr(v, "alts", ()))
-        print((f"{k} {fmt_color(v):11} {src:8}" + use).rstrip() + alts + (f"  {said}" if said else ""))
+        print((f"{k} {fmt_color(v):11} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
@@ -7906,7 +7959,7 @@ def import_palette(doc, pal):
     if target in import_chain(doc):
         return f"{doc.path} already imports {pal}; no change: {doc.path}"
     theirs, mine = sub.resolved(), doc.resolved()
-    bad = [k for k in mine if k != "." and k in theirs and theirs[k] != mine[k]]
+    bad = [k for k in mine if k != "." and k in theirs and theirs[k] != mine[k] and not hides(mine[k], theirs[k])]
     if bad:
         moves = new_keys(bad, mine, theirs, set(mine) | set(theirs))
         each = ", ".join(f"{k!r} {fmt_color(mine[k])} ({pal}: {fmt_color(theirs[k])})" for k in bad)
@@ -7921,7 +7974,7 @@ def import_palette(doc, pal):
     before = {n: doc.resolved(n) for n in names}
     ref = pathlib.Path(os.path.relpath(target, doc.path.resolve().parent)).as_posix()
     imports(doc, ref, sub)
-    same = [k for k in doc.palette if k in theirs and same_key(doc.palette[k], theirs[k])]  # other alternatives: stays
+    same = [k for k in doc.palette if k in theirs and (doc.palette[k] == theirs[k] or hides(doc.palette[k], theirs[k]))]
     order = list(doc.palette)
     if doc.dot_at is not None:
         doc.dot_at -= sum(1 for k in same if order.index(k) < doc.dot_at)
@@ -7966,8 +8019,10 @@ def import_palette(doc, pal):
 
 def redundant(doc, k):
     """doc's own key line for k repeats its import (the same color), and so do its variant lines for k, if any: taking
-    them out (palette --remove) changes no pixel, in the base palette or any variant."""
-    if k not in doc.palette or k not in doc.shared or not same_key(doc.palette[k], doc.shared[k]):
+    them out (palette --remove) changes no pixel, in the base palette or any variant. A line that only hides the
+    import's alternatives (hides) is one too: its base color is the import's."""
+    if k not in doc.palette or k not in doc.shared or not (same_key(doc.palette[k], doc.shared[k])
+                                                           or hides(doc.palette[k], doc.shared[k])):
         return False
     return all(doc.variants[n][k] == doc.shared_variants.get(n, {}).get(k, doc.shared[k])
                for n in doc.variants if k in doc.variants[n])
