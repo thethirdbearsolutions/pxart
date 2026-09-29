@@ -27546,9 +27546,10 @@ def test_outline_pad_moves_pivots_and_keeps_an_animation_aligned(tmp_path, capsy
     doc = pxart.parse(p)
     assert {f.size for f in doc.frames} == {(4, 4)}  # left and bottom, for every frame
     assert doc.anims["walk"]["pivot"] == (2, 2) and doc.get("walk/1").pivot == (1, 2)
-    # idle had no pivot: bottom-centre (1,2) anchored it; padding the bottom would move that, so it keeps its pixel
-    assert doc.get("idle/0").pivot == (2, 2) == doc.get("idle/1").pivot
-    assert "and idle/0, idle/1 got a pivot on the bottom-centre pixel that anchored them" in capsys.readouterr().out
+    # idle had no pivot: bottom-centred on its canvas; padding the bottom would move that, so its @anim gets the pivot
+    # that keeps the art where it was
+    assert doc.anims["idle"]["pivot"] == (2, 2) and doc.get("idle/0").pivot is None
+    assert "; pivots that keep the art where it was: @anim idle\n" in capsys.readouterr().out
 
 
 def test_outline_pad_inherited_pivot_of_a_group_partly_selected(tmp_path):
@@ -27557,6 +27558,51 @@ def test_outline_pad_inherited_pivot_of_a_group_partly_selected(tmp_path):
     assert run("outline", f"{p}:walk/0", "--key", "o", "--pad") == 0
     doc = pxart.parse(p)
     assert doc.anims["walk"]["pivot"] == (1, 1) and doc.get("walk/0").pivot == (2, 2) and doc.get("walk/1").pivot is None
+
+
+def art_on_anims_canvas(path, ids, key="b"):
+    """Where each frame's px of `key` land on anim's shared canvas (pivot layout, else bottom-centred)."""
+    doc = pxart.parse(path)
+    its = [pxart.one_frame(f"{path}:{i}") for i in ids]
+    lay = pxart.pivot_layout(its)
+    w = lay[0] if lay else max(it.img.width for it in its)
+    h = lay[1] if lay else max(it.img.height for it in its)
+    spots = lay[2] if lay else [((w - it.img.width) // 2, h - it.img.height) for it in its]
+    return [sorted((x + at[0], y + at[1]) for y, row in enumerate(doc.get(i).grid) for x, c in enumerate(row) if c == key)
+            for i, at in zip(ids, spots)]
+
+
+def test_outline_pad_one_frame_of_a_pivotless_group_keeps_it_aligned(tmp_path):
+    # review: padding only walk/1 on the left moved its art 1px against walk/0's on anim's canvas
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n.....\n.....\nbbb..\n.....\n"
+              "@frame walk/1\n.....\n.....\nbbb..\n.....\n")
+    before = art_on_anims_canvas(p, ["walk/0", "walk/1"])
+    assert run("outline", f"{p}:walk/1", "--key", "o", "--pad") == 0
+    after = art_on_anims_canvas(p, ["walk/0", "walk/1"])
+    assert [[(x - after[0][0][0] + before[0][0][0], y) for x, y in a] for a in after] == before
+    doc = pxart.parse(p)
+    assert (doc.get("walk/0").pivot, doc.get("walk/1").pivot) == ((2, 3), (3, 3))
+
+
+def test_outline_pad_of_a_pivotless_group_of_mixed_widths_moves_no_frame(tmp_path):
+    # review: a pivot on the padded frame alone switched the group to pivot layout and moved an untouched frame
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n......\n..bb..\n..bb..\n"
+              "@frame walk/1\n.....\n..b..\n..b..\n@frame walk/2\n.....\n.....\n..b..\n")
+    ids = ["walk/0", "walk/1", "walk/2"]
+    before = art_on_anims_canvas(p, ids)
+    assert run("outline", f"{p}:walk/2", "--key", "o", "--pad") == 0
+    assert art_on_anims_canvas(p, ids) == before
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["pivot"] == (3, 2) and all(f.pivot is None for f in doc.frames)
+
+
+def test_outline_notes_an_outline_already_on_the_edge(tmp_path, capsys):
+    p = shape_file(tmp_path, ["...", ".bb", ".bb"])
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert "outlined already" not in capsys.readouterr().out
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert "note: the shape has o, the outline's key, on the frame's edge: outlined already? outlining an outline " \
+           "rings it again\n" in capsys.readouterr().out
 
 
 def test_outline_pad_and_inside_conflict(tmp_path):

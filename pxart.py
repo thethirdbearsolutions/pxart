@@ -5591,29 +5591,48 @@ def outside_of(shape, w, h):
 
 def pad_frames(doc, frames, sides):
     """outline --pad: each frame grown by 1px of '.' on `sides` (the same for every frame, so an animation stays
-    aligned). Pivots move with the art (move_pivots: a frame's own, or its @anim line's). A frame of an animation
-    with no pivot anywhere is lined up by its bottom-centre pixel, which a pad on the bottom (or on one side only)
-    moves off the art: it gets its own pivot on the pixel that anchored it. Returns the frames given a pivot."""
+    aligned). Pivots move with the art (move_pivots: a frame's own, or its @anim line's), and a frame without one in
+    a group that has pivots (lined up by its bottom-centre pixel) gets one on the pixel that anchored it when the pad
+    moves that. A group with no pivot anywhere is bottom-centred on a canvas as wide as its widest frame, which a pad
+    can shift: every frame of it, padded or not, gets the pivot that keeps its art where it was, written once on the
+    @anim line when they share it. Returns what got pivots: ['@anim walk', 'idle/0', ...]."""
     lf, rt, tp, bt = (int(s in sides) for s in ("left", "right", "top", "bottom"))
-    anchored = []
+    picked, anchored, done = {id(f) for f in frames}, [], set()
+    for g, fs in doc.groups().items():
+        if not (g and doc.animated(g) and any(id(f) in picked for f in fs)) or any(doc.pivot(f) for f in fs):
+            continue
+        wide = max(f.size[0] for f in fs)
+        pvs = {id(f): (wide // 2 - (wide - f.size[0]) // 2 + lf * (id(f) in picked), f.size[1] - 1 + tp * (id(f) in picked))
+               for f in fs}
+        if len(set(pvs.values())) == 1:
+            doc.anims.setdefault(g, {})["pivot"] = next(iter(pvs.values()))
+            anchored.append(f"@anim {g}")
+        else:
+            for f in fs:
+                f.pivot = pvs[id(f)]
+            anchored += [doc.label(f) for f in fs]
+        done |= {id(f) for f in fs}
     for f in frames:
         w, h = f.size
-        if doc.pivot(f) is None and f.id and doc.animated(f.group) and (bt or (w + lf + rt) // 2 != w // 2 + lf):
+        if id(f) not in done and doc.pivot(f) is None and f.id and doc.animated(f.group) \
+                and (bt or (w + lf + rt) // 2 != w // 2 + lf):
             f.pivot = (w // 2 + lf, h - 1 + tp)
             anchored.append(doc.label(f))
-    move_pivots(doc, [f for f in frames if doc.label(f) not in anchored], lambda f: lambda x, y: (x + lf, y + tp))
+            done.add(id(f))
+    move_pivots(doc, [f for f in frames if id(f) not in done], lambda f: lambda x, y: (x + lf, y + tp))
     for f in frames:
         w = f.size[0] + lf + rt
         f.grid = ["." * w] * tp + ["." * lf + r + "." * rt for r in f.grid] + ["." * w] * bt
     return anchored
 
 
-def outline_notes(a, doc, frames, shapes, faint_before, out, padded):
+def outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed=False):
     """outline's notes, after painting (frames as painted, shapes as they were, faint_before: each frame's px of keys
     under --min-alpha before painting): faint keys in the shape (no --min-alpha); with --min-alpha, the faint px the
     outline left drawn outside the shape, with the recolor that erases them when none are in the shape's holes (else
     only counts: a frame-wide recolor would erase those too); --outside without --pad, the frame edges the shape
-    touches, where the outline is open, and the call with --pad (after an in-place write, how to redo it instead)."""
+    touches, where the outline is open, and the call with --pad (after an in-place write, how to redo it instead);
+    ringed: the shape has the outline's key on the frame's edge (an outline already there, padded or not)."""
     alpha, notes = key_alphas(doc), []
     drawn = collections.Counter(ch for f in frames for row in f.grid for ch in row)
     if a.min_alpha is None:
@@ -5647,12 +5666,15 @@ def outline_notes(a, doc, frames, shapes, faint_before, out, padded):
                          f"painted {painted}, {kept} stay)")
     if a.inside:
         return notes
+    if ringed:
+        keys = " or ".join(k for k in (a.key, a.lit) if k)
+        notes.append(f"the shape has {keys}, the outline's key, on the frame's edge: outlined already? outlining an "
+                     "outline rings it again")
     if padded:
         grown, sides, anchored, pivoted = padded
         notes.append(f"--pad grew {listed(grown, 5)} 1px at the {said_sides(sides)}"
                      + ("; pivots moved with the art" if pivoted else "")
-                     + (f", and {listed(anchored, 5)} got a pivot on the bottom-centre pixel that anchored "
-                        f"{'them' if len(anchored) > 1 else 'it'}" if anchored else ""))
+                     + (f"; pivots that keep the art where it was: {listed(anchored, 5)}" if anchored else ""))
         return notes
     touch = [(doc.label(f), touched_sides(shape, *f.size)) for f, shape in zip(frames, shapes)]
     sides = [x for x in ("left", "right", "top", "bottom") if any(x in ss for _, ss in touch)]
@@ -5711,6 +5733,8 @@ def cmd_outline(a):
     if a.pad and a.inside:
         fail("E_BAD_ARG", "outline --pad grows the frame for an outline outside the shape; --inside stays inside it")
     shapes = [opaque_set(doc, f, a.min_alpha) for f in frames]
+    ringed = not a.inside and any(f.grid[y][x] in (a.key, a.lit) for f, shape in zip(frames, shapes) for x, y in shape
+                                  if x in (0, f.size[0] - 1) or y in (0, f.size[1] - 1))
     padded = None
     if a.pad:
         hit = {x for f, shape in zip(frames, shapes) for x in touched_sides(shape, *f.size)}
@@ -5730,7 +5754,7 @@ def cmd_outline(a):
         if a.lit:
             by[a.lit] += paint(f, lit, a.lit)[0]
         by[a.key] += paint(f, [p for p in ring if p not in set(lit)], a.key)[0]
-    for line in outline_notes(a, doc, frames, shapes, faint_before, out, padded):
+    for line in outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed):
         print(f"note: {line}")
     if a.preview:
         print(preview(doc, frames, a.preview, changes(by, "would change")))
@@ -10904,7 +10928,8 @@ def parser(describe=True):
                         "the ones along its edge get the outline key")
     p.add_argument("--pad", action="store_true",
                    help="first grow each frame 1px of '.' on the sides the shape touches (the same for every frame, "
-                        "so an animation stays aligned; pivots move with the art), so the outline closes there")
+                        "so an animation stays aligned; pivots move with the art, and a group with no pivots gets ones that keep "
+                        "every frame's art where anim drew it), so the outline closes there")
     p.add_argument("-o")
     p = sub.add_parser("shade"); p.add_argument("file"); p.add_argument("--ramp", required=True)
     p.add_argument("--keys", help="the material's keys (default: the ramp's)"); p.add_argument("--base")
