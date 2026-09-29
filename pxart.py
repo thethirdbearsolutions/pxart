@@ -856,7 +856,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -9884,8 +9884,8 @@ def cmd_from_png(a):
 
 
 def reduce_colors(entries, n):
-    """from-png --colors N: every entry's pixels, all together, reduced to at most N colors (alpha too: octree, no
-    dither), so a photo or a painting fits the palette keys. A fully transparent pixel stays transparent. Prints how far
+    """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (alpha too, no
+    dither: quantize), so a photo or a painting fits the palette keys. A fully transparent pixel stays transparent. Prints how far
     the result is from the PNGs: per channel, alpha-weighted, 0-255."""
     if not 1 <= n <= len(KEYS):
         fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
@@ -9893,11 +9893,9 @@ def reduce_colors(entries, n):
     if len(before) <= n:
         print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
         return entries
-    # Only the drawn pixels go in, so a dark color can't merge with the transparent background and vanish.
     drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
-    row = Image.new("RGBA", (len(drawn), 1))
-    row.putdata(drawn)
-    q = iter(pixels(row.quantize(n, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE).convert("RGBA")))
+    table = quantize(collections.Counter(drawn), n)
+    q = iter(table[p] for p in drawn)
     out, errs = [], []
     for fid, path, img in entries:
         src = list(pixels(img))
@@ -9913,6 +9911,50 @@ def reduce_colors(entries, n):
           f"on average, {max(errs, default=0)} at most (per channel, alpha-weighted, 0-255); "
           f"{far} of {len(errs)} drawn px off by more than 16")
     return out
+
+
+def quantize(counts, n, rounds=8):
+    """{RGBA color: pixel count} -> {color: its stand-in}, at most n stand-ins. Weighted k-means in premultiplied
+    RGBA, so a faint pixel sits near other faint pixels and can't come out opaque (Pillow's octree ignores most of
+    alpha). Seeds are the most common color, then each time the color farthest from every seed so far, weighted by
+    its count's square root; so a small, distinct detail (an eye) gets a seed before a big area's shading does.
+    Deterministic. Over 4096 colors, near colors (4 bits dropped per channel) are pooled first to bound the work."""
+    def pre(c):
+        return (c[0] * c[3] / 255, c[1] * c[3] / 255, c[2] * c[3] / 255, c[3])
+    pool = collections.defaultdict(list)
+    for c, k in counts.items():
+        pool[tuple(v >> 4 for v in c) if len(counts) > 4096 else c].append((c, k))
+    pts = []  # (premultiplied mean, weight, members)
+    for members in pool.values():
+        w = sum(k for _, k in members)
+        pts.append((tuple(sum(pre(c)[i] * k for c, k in members) / w for i in range(4)), w, members))
+    pts.sort(key=lambda t: (-t[1], t[0]))
+    def d2(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 + (a[3] - b[3]) ** 2
+    seeds = [pts[0][0]]
+    near = [d2(p, seeds[0]) for p, _, _ in pts]
+    while len(seeds) < min(n, len(pts)):
+        i = max(range(len(pts)), key=lambda i: near[i] * pts[i][1] ** 0.5)
+        if near[i] == 0:
+            break
+        seeds.append(pts[i][0])
+        near = [min(a, d2(p, seeds[-1])) for a, (p, _, _) in zip(near, pts)]
+    for _ in range(rounds):
+        owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
+        sums = [[0.0] * 5 for _ in seeds]
+        for (p, w, _), j in zip(pts, owner):
+            for i in range(4):
+                sums[j][i] += p[i] * w
+            sums[j][4] += w
+        moved = [tuple(t[i] / t[4] for i in range(4)) if t[4] else s for t, s in zip(sums, seeds)]
+        if moved == seeds:
+            break
+        seeds = moved
+    owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
+    def color(s):
+        a = max(1, round(s[3])) if s[3] < 250 else 255  # a solid color with a few soft edges averaged in stays solid
+        return tuple(max(0, min(255, round(v * 255 / a))) for v in s[:3]) + (a,)
+    return {c: color(seeds[j]) for (_, _, members), j in zip(pts, owner) for c, _ in members}
 
 
 def png_id(path, a, name=None):

@@ -282,6 +282,26 @@ def test_from_png_colors_reduces_and_says_how_far(tmp_path, capsys):
     assert [p[3] == 0 for p in got] == [p[3] == 0 for p in pxart.pixels(img)]
 
 
+def test_from_png_colors_keeps_faint_pixels_faint(tmp_path):
+    # Pillow's octree ignored most of alpha: an alpha-1 edge pixel came out opaque, a halo round a drawing (GAMES-357)
+    img = gradient_png(tmp_path / "g.png")
+    for y in range(img.height):
+        img.putpixel((1, y), (255, 0, 0, 1 + y))
+    img.save(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", "6") == 0
+    doc = pxart.parse(tmp_path / "g.px")
+    got = pxart.pixels(doc.image(doc.frames[0]))
+    for p, q in zip(pxart.pixels(img), got):
+        if p[3]:
+            assert abs(p[3] - q[3]) < 64
+    assert all(q[3] == 255 for p, q in zip(pxart.pixels(img), got) if p[3] == 255)
+
+
+def test_quantize_is_deterministic_and_keeps_a_small_distinct_color():
+    counts = {(200, 150, 100, 255): 900, (190, 140, 95, 255): 500, (40, 60, 200, 255): 3, (0, 0, 0, 255): 200}
+    a, b = pxart.quantize(counts, 3), pxart.quantize(dict(reversed(list(counts.items()))), 3)
+    assert a == b and a[(40, 60, 200, 255)] == (40, 60, 200, 255)
+
 def test_from_png_colors_shares_one_palette_across_pngs(tmp_path):
     gradient_png(tmp_path / "a.png")
     gradient_png(tmp_path / "b.png", alpha=128)
