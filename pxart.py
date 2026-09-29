@@ -1378,9 +1378,10 @@ def imports(doc, ref, sub):
         doc.shared_variants.setdefault(vname, {}).update(over)
 
 
-def start_doc(path, palette=None):
+def start_doc(path, palette=None, into=None):
     """A new doc for path, not written yet; with palette (a path as typed), importing it, re-pointed from path's
-    directory. Read here, not through the @palette line: path's directory may not exist until the doc is saved."""
+    directory. Read here, not through the @palette line: path's directory may not exist until the doc is saved.
+    A sprite file as palette is E_PALETTE_FILE, pointing at --extract-to (and at `into`, the flag that adds to it)."""
     doc = Doc(path)
     doc.version = FORMAT_VERSION
     if palette:
@@ -1389,6 +1390,12 @@ def start_doc(path, palette=None):
                 sub = parse(palette, palette_only=True)
             except FileNotFoundError:
                 fail("E_PALETTE_FILE", f"can't find palette file {typed_path(palette)}")
+            except PxError as e:
+                if not any(i.code == "E_PALETTE_FILE" and "grid rows" in i.msg for i in e.issues):
+                    raise
+                fail("E_PALETTE_FILE", "it has grid rows, and --palette imports a palette file "
+                     f"(key lines only). To share its keys: pxart palette {palette} --extract-to P.px --repoint, "
+                     "then --palette P.px" + (f"; to add to it instead: {into} {palette}" if into else ""))
         imports(doc, pathlib.Path(os.path.relpath(pathlib.Path(palette).resolve(),
                                                   pathlib.Path(path).resolve().parent)).as_posix(), sub)
     return doc
@@ -9833,7 +9840,7 @@ def cmd_from_png(a):
         with reading(f"-o ({a.o})"):
             doc = parse(out, allow_empty=True)
     else:
-        doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
+        doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette, into="-o")
     named = bool(a.id) or a.prefix_dir or names is not None or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):
@@ -10752,7 +10759,8 @@ def parser(describe=True):
     p = sub.add_parser("help")
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
-    p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys (a sprite's palette: "
+                                     "palette SPRITE --extract-to P.px first)")
     p.add_argument("--colors", type=int, metavar="N",
                    help="reduce the PNGs (all together) to OUT's palette colors and at most N new ones first (0: "
                         "OUT's only), for a photo or painting with more colors than palette keys; says how far that "

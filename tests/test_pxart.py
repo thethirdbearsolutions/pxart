@@ -500,6 +500,15 @@ def test_from_png_colors_uses_a_palette_files_colors(tmp_path):
     assert doc.frames[0].grid[0][:2] == "rb" and len(doc.palette) == 1
 
 
+def test_from_png_palette_with_a_sprite_file_points_at_extract_and_o(tmp_path):
+    sprite = write(tmp_path, "faces.px", "pxart 1\nr #fa0000\n\n@frame f\nr\n")
+    row_png(tmp_path / "x.png", [(250, 0, 0, 255)])
+    err = run_err("from-png", tmp_path / "x.png", "-o", tmp_path / "x.px", "--palette", sprite)
+    assert "E_PALETTE_FILE" in err and "it has grid rows, and --palette imports a palette file" in err
+    assert f"pxart palette {sprite} --extract-to P.px --repoint, then --palette P.px" in err
+    assert f"to add to it instead: -o {sprite}" in err
+
+
 def test_export_frames_aseprite_tiled(tmp_path):
     p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
     assert run("export", p, "--frames", tmp_path / "f", "--aseprite", tmp_path / "s.json",
