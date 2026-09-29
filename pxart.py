@@ -9885,18 +9885,18 @@ def cmd_from_png(a):
 
 def reduce_colors(entries, n, free):
     """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (no dither:
-    quantize), so a photo or a painting fits the palette keys. Transparent stays transparent, opaque stays opaque,
-    see-through stays see-through. Prints a note of how far the result is from the PNGs: each drawn px's worst
+    quantize), so a photo or a painting fits the palette keys. Transparent stays transparent and opaque stays
+    opaque; a see-through pixel stays see-through or joins a near opaque color. Prints a note of how far the result is from the PNGs: each drawn px's worst
     channel, premultiplied, 0-255. `free` is how many keys OUT has left; N can't be more."""
     if not 1 <= n <= len(KEYS):
         fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
+    if n > free:
+        fail("E_BAD_ARG", f"--colors {n}: OUT has {free} free palette key(s) left; give --colors {free} or fewer"
+             if free else "--colors: OUT has no free palette keys left; import into a new file")
     before = set().union(*(colors(img) for *_, img in entries))
     if len(before) <= n:
         print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
         return entries
-    if n > free:
-        fail("E_BAD_ARG", f"--colors {n}: OUT has {free} free palette key(s) left; give --colors {free} or fewer"
-             if free else "--colors: OUT has no free palette keys left; import into a new file")
     drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
     table = quantize(collections.Counter(drawn), n)
     out, errs = [], []
@@ -9935,9 +9935,17 @@ def quantize(counts, n):
     table = {**kmeans(solid, min(len(solid), n - nt)), **kmeans(soft, nt)}
     stand = sorted(set(table.values()))
     pre = [(s[0] * s[3] / 255, s[1] * s[3] / 255, s[2] * s[3] / 255, s[3]) for s in stand]
+    shift = 0  # near see-through colors (low bits dropped, as kmeans pools) share one nearest stand-in
+    while len({tuple(v >> shift for v in c) for c in soft}) > 4096:
+        shift += 1
+    nearest = {}
     for c in soft:
-        q = (c[0] * c[3] / 255, c[1] * c[3] / 255, c[2] * c[3] / 255, c[3])
-        table[c] = stand[min(range(len(stand)), key=lambda j: sum((u - v) ** 2 for u, v in zip(q, pre[j])))]
+        pool = tuple(v >> shift for v in c)
+        if pool not in nearest:
+            r = tuple((v << shift) + (1 << shift >> 1) for v in pool) if shift else c  # the pool's middle
+            q = (r[0] * r[3] / 255, r[1] * r[3] / 255, r[2] * r[3] / 255, r[3])
+            nearest[pool] = stand[min(range(len(stand)), key=lambda j: sum((u - v) ** 2 for u, v in zip(q, pre[j])))]
+        table[c] = nearest[pool]
     return table
 
 

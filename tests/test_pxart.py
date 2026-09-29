@@ -342,6 +342,18 @@ def test_from_png_colors_counts_keys_already_in_out(tmp_path):
     assert run("from-png", tmp_path / "g.png", "--id", "x", "-o", tmp_path / "e.px", "--colors", "9") == 0
 
 
+def test_from_png_colors_over_free_keys_fails_up_front_even_with_nothing_to_reduce(tmp_path):
+    # second review: a 10-color PNG with --colors 20 into an OUT with 4 free keys failed late, with no hint
+    img = Image.new("RGBA", (85, 1))
+    img.putdata([(i, 1, 1, 255) for i in range(85)])
+    img.save(tmp_path / "k.png")
+    assert run("from-png", tmp_path / "k.png", "-o", tmp_path / "o.px", "--id", "k") == 0
+    few = Image.new("RGBA", (10, 1))
+    few.putdata([(200, i, 1, 255) for i in range(10)])
+    few.save(tmp_path / "c.png")
+    assert "OUT has 4 free palette key(s) left" in run_err("from-png", tmp_path / "c.png", "-o", tmp_path / "o.px",
+                                                           "--id", "x", "--colors", "20")
+
 def test_from_png_colors_failing_run_prints_no_reduced_line(tmp_path, capsys):
     img = Image.new("RGBA", (80, 1))
     img.putdata([(i, 0, 0, 255) for i in range(80)])
