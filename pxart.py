@@ -9908,7 +9908,7 @@ def reduce_colors(entries, n):
     after = set().union(*(colors(img) for *_, img in out))
     far = sum(e > 16 for e in errs)
     print(f"reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f} "
-          f"on average, {max(errs, default=0)} at most (per channel, alpha-weighted, 0-255); "
+          f"on average, {max(errs, default=0)} at most (a px's worst channel, premultiplied, 0-255); "
           f"{far} of {len(errs)} drawn px off by more than 16")
     return out
 
@@ -9951,10 +9951,15 @@ def quantize(counts, n, rounds=8):
             break
         seeds = moved
     owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
-    def color(s):
-        a = max(1, round(s[3])) if s[3] < 250 else 255  # a solid color with a few soft edges averaged in stays solid
-        return tuple(max(0, min(255, round(v * 255 / a))) for v in s[:3]) + (a,)
-    return {c: color(seeds[j]) for (_, _, members), j in zip(pts, owner) for c, _ in members}
+    solid = [0] * len(seeds)  # each stand-in's weight of fully opaque source pixels, against its whole weight
+    for (_, w, members), j in zip(pts, owner):
+        solid[j] += sum(k for c, k in members if c[3] == 255) * 2 - w
+    def color(j):
+        # Mostly opaque pixels, or nearly opaque ones, stay opaque: soft edges averaged in don't make a solid outline
+        # see-through.
+        a = 255 if solid[j] > 0 or seeds[j][3] >= 240 else max(1, round(seeds[j][3]))
+        return tuple(max(0, min(255, round(v * 255 / max(1, seeds[j][3])))) for v in seeds[j][:3]) + (a,)
+    return {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
 
 
 def png_id(path, a, name=None):
