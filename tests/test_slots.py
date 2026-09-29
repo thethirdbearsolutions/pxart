@@ -327,3 +327,58 @@ def test_a_variant_overrides_a_slot_key_and_leaves_the_others(tmp_path, capsys):
     assert doc.image(doc.frames[0], None, {"f": 2}).getpixel((1, 1)) == rgb("#c68642")
     assert run("sheet", f"{p}:walk/0", "--slots", "f=2,h=1", "--variant", "night", "-o", tmp_path / "s.png") == 0
     assert "(--slots h=1,f=2,c=0)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- export --indexed
+
+def test_export_indexed_shape(tmp_path):
+    p = write(tmp_path, "v.px", VILL.replace("\n@anim", "@variant night\nk #000000\n\n@still icons\n@anim")
+              + "@frame icons/star\nk\n")
+    out = tmp_path / "keys.json"
+    assert run("export", p, "--indexed", out) == 0
+    data = json.loads(out.read_text())
+    assert list(data) == ["version", "palette", "slots", "variants", "frames", "animations"]
+    assert data["version"] == 1
+    assert data["palette"] == {"h": "#6b3e1f", "f": "#e0ac69", "k": "#1a1a1a", "c": "#3498db"}
+    assert data["slots"]["f"] == ["#e0ac69", "#f5cfa0", "#c68642", "#8d5524", "#ffdbac"] and "k" not in data["slots"]
+    assert data["variants"] == {"night": {"k": "#000000"}}
+    f0, f1, star = data["frames"]
+    assert f0 == {"id": "walk/0", "w": 4, "h": 4, "ms": 125, "pivot": {"x": 1, "y": 3},
+                  "rows": [".hh.", ".fk.", "fccf", ".cc."]}
+    assert "pivot" not in f1 and f1["ms"] == 125 and star["id"] == "icons/star"
+    assert data["animations"] == [{"name": "walk", "from": 0, "to": 1, "direction": "forward", "repeat": 0}]
+
+
+def test_export_indexed_empty_parts_are_there(tmp_path):
+    p = write(tmp_path, "a.px", "k #00000080\n\nk.\n")
+    assert run("export", p, "--indexed", tmp_path / "k.json") == 0
+    data = json.loads((tmp_path / "k.json").read_text())
+    assert data["slots"] == {} and data["variants"] == {} and data["animations"] == []
+    assert data["palette"] == {"k": "#00000080"} and data["frames"][0]["rows"] == ["k."]
+
+
+def test_export_indexed_one_palette_for_every_file(tmp_path):
+    a = write(tmp_path, "a.px", "pxart 1\nf #e0ac69 | #f5cfa0\n\n@frame a/0\nf\n")
+    b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69\n\n@frame b/0\nf\n")
+    msg = run_err("export", a, b, "--indexed", tmp_path / "k.json")
+    assert "E_KEY_CONFLICT" in msg and "key 'f' is #e0ac69 | #f5cfa0 in" in msg and "recolor" in msg
+    c = write(tmp_path, "c.px", "pxart 1\nf #e0ac69 | #f5cfa0\ng #000000\n\n@frame c/0\ng\n")
+    assert run("export", a, c, "--indexed", tmp_path / "k.json") == 0
+    assert [f["id"] for f in json.loads((tmp_path / "k.json").read_text())["frames"]] == ["a/0", "c/0"]
+
+
+def test_export_indexed_with_a_variant(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL.replace("\n@anim", "@variant night\nk #000000\n\n@anim"))
+    assert "--indexed writes the base palette and every variant" in run_err(
+        "export", p, "--indexed", tmp_path / "k.json", "--variant", "night")
+    assert run("export", f"{p}%night", "--indexed", tmp_path / "k.json", "--frames", tmp_path / "f") == 0
+    assert "note: %night colors the PNGs" in capsys.readouterr().out
+    assert json.loads((tmp_path / "k.json").read_text())["palette"]["k"] == "#1a1a1a"
+
+
+def test_export_indexed_prefix_file(tmp_path):
+    d = tmp_path / "town"
+    write(d, "a.px", "pxart 1\nk #000000\n\n@anim walk ms=90\n@frame walk/0\nk\n@frame walk/1\nk\n")
+    assert run("export", d, "--indexed", tmp_path / "k.json", "--prefix-file") == 0
+    data = json.loads((tmp_path / "k.json").read_text())
+    assert [f["id"] for f in data["frames"]] == ["a/walk/0", "a/walk/1"] and data["animations"][0]["name"] == "a/walk"

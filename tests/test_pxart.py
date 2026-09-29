@@ -22270,7 +22270,7 @@ def test_export_few_pngs_listed_on_the_wrote_line(tmp_path, capsys):
 
 def test_export_no_output_flag_is_bad_arg_before_reading(tmp_path, capsys):
     d = town(tmp_path)
-    assert "give --frames DIR, --aseprite X.json and/or --tiled X.tsj" in run_err("export", d)
+    assert "give --frames DIR, --aseprite X.json, --tiled X.tsj and/or --indexed X.json" in run_err("export", d)
 
 
 def test_export_directory_select_is_per_file(tmp_path, capsys):

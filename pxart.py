@@ -8149,7 +8149,7 @@ def cmd_export(a):
         if len(srcs) < len(a.files):
             fail("E_BAD_ARG", "export: world sources (world.src.json, .map) and .px frames go in separate exports: "
                  + ", ".join(f for f in a.files if not is_room_src(f)))
-        if a.tiled is not True or a.frames or a.aseprite:
+        if a.tiled is not True or a.frames or a.aseprite or a.indexed:
             fail("E_BAD_ARG", "export --tiled on world sources takes no X.tsj: each .map compiles to the .tmj beside "
                  "it, a world.src.json to <name>.world and rooms/*.tmj ('export world.src.json --tiled')")
         return export_tiled(a, srcs)
@@ -8157,12 +8157,17 @@ def cmd_export(a):
         fail("E_BAD_ARG", "export --tiled X.tsj: name the tileset to write (or give world.src.json / .map sources)")
     if a.tileset or a.tile != "16x16":
         fail("E_BAD_ARG", "--tileset and --tile are for world sources (world.src.json, .map)")
-    if not (a.frames or a.aseprite or a.tiled):
-        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json and/or --tiled X.tsj")
+    if not (a.frames or a.aseprite or a.tiled or a.indexed):
+        fail("E_BAD_ARG", "export: give --frames DIR, --aseprite X.json, --tiled X.tsj and/or --indexed X.json")
     variants = {split_variant(f)[1] for f in a.files} - {None}
     if len(variants) > 1:
         fail("E_BAD_ARG", f"export: one variant per export, got %{' %'.join(sorted(variants))}")
     variant = variants.pop() if variants else a.variant
+    if variant and a.indexed:
+        if not (a.frames or a.aseprite or a.tiled):
+            fail("E_BAD_ARG", f"--indexed writes the base palette and every variant's colors, so --variant/%{variant} "
+                 "has nothing to pick; drop it")
+        print(f"note: %{variant} colors the PNGs; --indexed writes the base palette and every variant's colors")
     entries = export_frames(a.files, a.exclude or ())
     export_clashes(entries, a.prefix_file, bool(a.frames))
     its, docs = [], {}
@@ -8239,7 +8244,53 @@ def cmd_export(a):
                 "margin": 0, "spacing": 0, "tiles": tiles}
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
+    if a.indexed:
+        wrote.append(export_indexed(entries, grouped(its), groups(), a.indexed))
     print("wrote", " ".join(wrote))
+
+
+def export_indexed(entries, its, groups, out):
+    """export --indexed X.json: the frames as key grids and the palette that colors them, for a game that recolors
+    at runtime (help slots has the shape). One palette for every file: a key two files color differently (base,
+    alternatives or a variant's) is E_KEY_CONFLICT. its: in export's id order; groups: [(doc, group, frames, tag)]."""
+    pal, slots, variants, whose = {}, {}, {}, {}
+    for doc, _, _ in entries:
+        for k, c in doc.resolved().items():
+            if k == ".":
+                continue
+            if k in pal and not same_key(pal[k], c):
+                fail("E_KEY_CONFLICT", f"--indexed writes one palette, and key {k!r} is {fmt_key(pal[k])} in "
+                     f"{whose[k]}, {fmt_key(c)} in {doc.path}; export them to one --indexed JSON each, or give one "
+                     f"of them a free key first ('pxart recolor {shlex.quote(str(doc.path))} {shlex.quote(k + '>K')}')")
+            pal[k], whose[k] = c, doc.path
+        for n in variant_names(doc):
+            for k, c in {**doc.shared_variants.get(n, {}), **doc.variants.get(n, {})}.items():
+                if k in variants.get(n, {}) and variants[n][k] != c:
+                    fail("E_KEY_CONFLICT", f"--indexed writes one palette, and @variant {n} colors {k!r} "
+                         f"{fmt_color(variants[n][k])} in one file, {fmt_color(c)} in {doc.path}; export them to one "
+                         "--indexed JSON each")
+                variants.setdefault(n, {})[k] = c
+    frames, index = [], {}
+    for n, it in enumerate(its):
+        w, h = it.frame.size
+        fr = {"id": it.label, "w": w, "h": h, "ms": it.ms}
+        if it.doc.pivot(it.frame):
+            fr["pivot"] = dict(zip("xy", it.doc.pivot(it.frame)))
+        frames.append({**fr, "rows": list(it.frame.grid)})
+        index[id(it.frame)] = n
+    anims = []
+    for doc, g, fs, tag in groups:
+        if doc.animated(g):
+            meta = doc.anims.get(g, {})
+            anims.append({"name": tag, "from": index[id(fs[0])], "to": index[id(fs[-1])],
+                          "direction": meta.get("direction") or "forward", "repeat": meta.get("repeat") or 0})
+    data = {"version": 1, "palette": {k: rgba2hex(c) for k, c in pal.items()},
+            "slots": {k: [rgba2hex(x) for x in choices(c)] for k, c in pal.items() if getattr(c, "alts", ())},
+            "variants": {n: {k: rgba2hex(c) for k, c in over.items()} for n, over in variants.items()},
+            "frames": frames, "animations": anims}
+    p = outpath(out)
+    p.write_text(json.dumps(data, indent=1) + "\n")
+    return str(p)
 
 
 # ---------------------------------------------------------------------------- worlds: .map + world.src.json -> Tiled
@@ -11064,6 +11115,8 @@ def parser(describe=True):
     p.add_argument("--tiled", nargs="?", const=True, metavar="X.tsj",
                    help="frames: a Tiled tileset X.tsj; world.src.json or .map sources: their .tmj/.world beside them")
     p.add_argument("--variant")
+    p.add_argument("--indexed", metavar="X.json", help="frames as rows of palette keys, with the palette, its slots "
+                   "and variants, for a game that recolors at runtime (help slots)")
     p.add_argument("--tileset", action="append", metavar="T.tsj",
                    help="sources: rooms may draw with this tileset too, beside their packs' tiled/*.tsj (repeatable)")
     p.add_argument("--prefix-file", action="store_true",
