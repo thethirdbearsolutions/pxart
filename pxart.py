@@ -815,8 +815,8 @@ CONVERTING
       to OUT (replacing same-id frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
       tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM
       by its directory's name (dungeon/tile_0002, creatures/tile_0002). Colors
-      already in OUT keep their keys, so frames imported in separate runs share one
-      palette. --palette P.px starts a new OUT that imports P and reuses its keys.
+      already in OUT keep their keys, so separate runs share one palette. --palette P.px
+      starts a new OUT that imports P and reuses its keys.
       Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names
       as PNGs; '' skips one). --labels FILE.csv names them from a CSV, the way packs ship
       one ('filename,proposed_name,...'): each PNG takes the --label-col (default
@@ -832,7 +832,8 @@ CONVERTING
       'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
       -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
       is E_BAD_ARG, unless the strip left over is empty (then a note says so).
-      Too many colors (a photo)? --colors N reduces them to N first, inexactly; says how far.
+      Too many colors (a photo)? --colors N reduces them to OUT's colors and at most N
+      new ones; says how far.
 
 HELP
   help [all | recipes | TOPIC | CMD]
@@ -1377,9 +1378,10 @@ def imports(doc, ref, sub):
         doc.shared_variants.setdefault(vname, {}).update(over)
 
 
-def start_doc(path, palette=None):
+def start_doc(path, palette=None, into=None):
     """A new doc for path, not written yet; with palette (a path as typed), importing it, re-pointed from path's
-    directory. Read here, not through the @palette line: path's directory may not exist until the doc is saved."""
+    directory. Read here, not through the @palette line: path's directory may not exist until the doc is saved.
+    A sprite file as palette is E_PALETTE_FILE, pointing at --extract-to (and at `into`, the flag that adds to it)."""
     doc = Doc(path)
     doc.version = FORMAT_VERSION
     if palette:
@@ -1388,6 +1390,13 @@ def start_doc(path, palette=None):
                 sub = parse(palette, palette_only=True)
             except FileNotFoundError:
                 fail("E_PALETTE_FILE", f"can't find palette file {typed_path(palette)}")
+            except PxError as e:
+                if not any(i.code == "E_PALETTE_FILE" and "grid rows" in i.msg for i in e.issues):
+                    raise
+                fail("E_PALETTE_FILE", "it has grid rows, and --palette imports a palette file "
+                     f"(key lines only). To share its keys: pxart palette {shlex.quote(str(palette))} --extract-to "
+                     "P.px --repoint, then --palette P.px" + (f"; to add to it instead: {into} "
+                                                               f"{shlex.quote(str(palette))}" if into else ""))
         imports(doc, pathlib.Path(os.path.relpath(pathlib.Path(palette).resolve(),
                                                   pathlib.Path(path).resolve().parent)).as_posix(), sub)
     return doc
@@ -4675,6 +4684,23 @@ def cmd_mask(a):
     print(f"erased {erased} px;", write_doc(doc, out))
 
 
+def erase_recolor(a, pal):
+    """recolor's call as typed (a.argv, else its parsed args), each 'k>.' of a palette key as 'k=.' and any other
+    'x>.' left out: the command that erases what 'k>.' meant to, quoted to paste."""
+    def fix(t):
+        if len(t) == 3 and t[1:] == ">." and t in a.maps:
+            return [f"{t[0]}=."] if t[0] in pal and t[0] != "." else []
+        return [t]
+    argv = getattr(a, "argv", None) or ["recolor", a.file, *a.maps] + (["-o", a.o] if a.o else []) \
+        + (["--region", a.region] if a.region else []) + (["--variant", a.variant] if a.variant else [])
+    return shlex.join(["pxart"] + [x for t in argv for x in fix(t)])
+
+
+def keys_arg(keys):
+    """KEYS as one argument key_list reads back: 'abc', or 'a,b' when ',' is one of them."""
+    return "".join(keys) if "," not in keys or len(keys) == 1 else ",".join(keys)
+
+
 def cmd_recolor(a):
     """Key moves (a=b, 'a<>b', 'a>b') apply together: each pixel is repainted by the move of the key it had before the
     call, so they can't feed each other, and a key 'a>b' frees ('b>c' in the same call) can be a new key's name: 'a>b'
@@ -4692,6 +4718,9 @@ def cmd_recolor(a):
             if k not in pal or k == ".":
                 fail("E_SELECT", f"recolor: {m!r}: key {k!r} not in palette" if k != "." else
                      f"recolor: {m!r}: '.' is transparent, not a color to give a new key")
+            if v == ".":
+                fail("E_BAD_ARG", f"recolor: {m!r}: '>' gives {k}'s pixels a new key, and '.' isn't one (it's "
+                     f"transparent); to erase them: {erase_recolor(a, pal)}")
             if v in renames.values():
                 first = next(said[j] for j, w in renames.items() if w == v)
                 fail("E_BAD_ARG", f"recolor: {m!r} and {first!r} both give pixels the new key {v!r}; each new key "
@@ -7411,9 +7440,17 @@ def remove_keys(doc, keys, to=None, within=None):
             fail("E_BAD_ARG", "--remove '.': '.' is built in (always transparent), not a key line", path=doc.path)
         if k not in doc.palette and k not in doc.shared:
             fail("E_SELECT", f"--remove {k!r}: {doc.path} has no key {k!r}", path=doc.path)
-    if to is not None and (to not in pal or to in keys or to == "."):
+    src, out = str(doc.path), str(doc.dest or doc.path)
+    rest = [out, "--remove", keys_arg(keys)] + (["--in", within] if within else [])
+
+    def erase(ks):  # recolor writes -o OUT, and --remove then edits OUT: the two act on one file
+        return shlex.join(["pxart", "recolor", src, *(f"{k}=." for k in ks)] + (["-o", out] if doc.dest else []))
+    if to == ".":
+        fail("E_SELECT", f"--to '.': --to repaints with a key, and '.' isn't one (it's transparent); to erase "
+             f"{''.join(keys)}'s pixels, then remove {'them' if len(keys) > 1 else 'it'}: {erase(keys)} && "
+             + shlex.join(["pxart", "palette", *rest]), path=doc.path)
+    if to is not None and (to not in pal or to in keys):
         fail("E_SELECT", f"--to {to!r}: " + (f"it is being removed" if to in keys else
-                                              "'.' erases; repaint with fill or recolor first" if to == "." else
                                               f"not a key of {doc.path}"), path=doc.path)
     imported = [k for k in keys if k not in doc.palette]
     owners = {k: key_owner(doc, k) for k in imported}
@@ -7428,8 +7465,10 @@ def remove_keys(doc, keys, to=None, within=None):
     if uses and to is None:
         each = "; ".join(f"{k}: {sum(n for _, n in fs)} px in {listed(l for l, _ in fs)}" for k, fs in uses.items())
         fail("E_SELECT", f"--remove {''.join(keys)}: frames still draw with {' '.join(uses)} ({each}); repaint them "
-             f"first, or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} "
-             "--to K",
+             f"first (to erase them, then remove {'them' if len(keys) > 1 else 'it'}: {erase(uses)} && "
+             + shlex.join(["pxart", "palette", *rest]) + "), or give --to KEY to repaint them as KEY: "
+             + shlex.join(["pxart", "palette", src, "--remove", keys_arg(keys)] + (["--in", within] if within else [])
+                          + (["-o", out] if doc.dest else [])) + " --to K",
              path=doc.path)
     said = []
     if uses:
@@ -9832,7 +9871,7 @@ def cmd_from_png(a):
         with reading(f"-o ({a.o})"):
             doc = parse(out, allow_empty=True)
     else:
-        doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette)
+        doc = start_doc(out or imgs[0][0].with_suffix(".px"), a.palette, into="-o")
     named = bool(a.id) or a.prefix_dir or names is not None or len(imgs) > 1 or (doc.frames and not doc.implicit) or (out and out.exists()) or bool(a.grid)
     if named and doc.implicit:
         if not ID_RE.match(doc.stem):
@@ -9855,7 +9894,7 @@ def cmd_from_png(a):
         same_ids(entries, names is not None)
     replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
     if a.colors is not None:
-        entries = reduce_colors(entries, a.colors, len(free))
+        entries = reduce_colors(entries, a.colors, len(free), keyof)
     for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
@@ -9883,22 +9922,31 @@ def cmd_from_png(a):
         print(doc.text(), end="")
 
 
-def reduce_colors(entries, n, free):
-    """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (no dither:
-    quantize), so a photo or a painting fits the palette keys. Transparent stays transparent and opaque stays
-    opaque; a see-through pixel stays see-through or joins a near opaque color. Prints a note of how far the result is from the PNGs: each drawn px's worst
-    channel, premultiplied, 0-255. `free` is how many keys OUT has left; N can't be more."""
-    if not 1 <= n <= len(KEYS):
-        fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
+def reduce_colors(entries, n, free, fixed=()):
+    """from-png --colors N: every entry's drawn pixels, all together, reduced (no dither: quantize) to OUT's palette
+    colors, `fixed`, and at most N new colors, so a photo or a painting fits the palette keys. A pixel takes an OUT
+    color when that is its nearest stand-in, and a second import into one OUT adds only the colors it needs.
+    Transparent stays transparent and opaque stays opaque; a see-through pixel stays see-through or joins a near
+    opaque color. Prints a note of how far the result is from the PNGs: each drawn px's worst channel, premultiplied,
+    0-255, and how many colors are OUT's. `free` is how many keys OUT has left; N can't be more."""
+    fixed = sorted({c for c in fixed if c[3]})
+    lo = 0 if fixed else 1
+    if not lo <= n <= len(KEYS):
+        fail("E_BAD_ARG", f"--colors {n}: give {lo} to {len(KEYS)} (a palette has {len(KEYS)} keys"
+             + ("; 0 draws with OUT's colors only" if fixed else "") + ")")
     if n > free:
         fail("E_BAD_ARG", f"--colors {n}: OUT has {free} free palette key(s) left; give --colors {free} or fewer"
-             if free else "--colors: OUT has no free palette keys left; import into a new file")
+             + (" (N counts new colors; OUT's own are used first)" if fixed else "") if free else
+             f"--colors {n}: OUT has no free palette keys left; --colors 0 draws with the colors it has, or import "
+             "into a new file" if fixed else "--colors: OUT has no free palette keys left; import into a new file")
     before = set().union(*(colors(img) for *_, img in entries))
-    if len(before) <= n:
-        print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
+    new = before - set(fixed)
+    if len(new) <= n:
+        print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already"
+              + (f", {len(before) - len(new)} of them OUT's" if fixed else "") + "; nothing reduced")
         return entries
     drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
-    table = quantize(collections.Counter(drawn), n)
+    table = quantize(collections.Counter(drawn), n, fixed)
     out, errs = [], []
     for fid, path, img in entries:
         src = list(pixels(img))
@@ -9909,31 +9957,43 @@ def reduce_colors(entries, n, free):
                  for p, d in zip(src, dst) if p[3]]
         out.append((fid, path, r))
     after = set().union(*(colors(img) for *_, img in out))
-    print(f"note: reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f}"
+    old = len(after & set(fixed))
+    print(f"note: reduced {len(before)} colors to {len(after)} (--colors {n}"
+          + (f": {old} of OUT's, {len(after) - old} new" if fixed else "")
+          + f"): off by {sum(errs) / max(len(errs), 1):.1f}"
           f" on average, {round(max(errs, default=0))} at most (a px's worst channel, premultiplied, 0-255); "
           f"{sum(e > 16 for e in errs)} of {len(errs)} drawn px off by more than 16")
     return out
 
 
-def quantize(counts, n):
-    """{RGBA color: pixel count} -> {color: its stand-in}, at most n stand-ins. Opaque and see-through colors are
-    reduced apart, n shared between them by the square root of their pixel counts, each getting at least a quarter
-    of n or all its colors (and at least 1, so n must be 2 or more when there are both). An opaque color's stand-in is always opaque, so a solid outline can't turn faint.
-    A see-through color then takes the nearest stand-in of either kind (premultiplied), so a near-opaque edge can
-    join its solid neighbor; a faint one stays near other faint ones and can't come out solid."""
+def quantize(counts, n, fixed=()):
+    """{RGBA color: pixel count} -> {color: its stand-in}: the `fixed` colors (OUT's palette) and at most n new
+    stand-ins. Opaque and see-through colors are reduced apart, n shared between them by the square root of their
+    pixel counts, each getting at least a quarter of n or all its colors (and at least 1 when no fixed color is of
+    its kind, so n must cover that). An opaque color's stand-in is always opaque, so a solid outline can't turn
+    faint. A see-through color then takes the nearest stand-in of either kind (premultiplied), so a near-opaque edge
+    can join its solid neighbor; a faint one stays near other faint ones and can't come out solid."""
     solid = {c: k for c, k in counts.items() if c[3] == 255}
     soft = {c: k for c, k in counts.items() if c[3] < 255}
-    if solid and soft and n < 2:
-        fail("E_BAD_ARG", "--colors 1: the PNGs have opaque and see-through pixels, which never share a color; give 2 "
-             "or more")
-    if not solid or not soft:
-        return kmeans(solid or soft, n)
+    fixed = sorted(set(fixed))
+    fs, ft = [c for c in fixed if c[3] == 255], [c for c in fixed if c[3] < 255]
+    need_s, need_t = int(bool(solid) and not fs), int(bool(soft) and not ft)
+    if n < need_s + need_t:
+        if not fixed:
+            fail("E_BAD_ARG", "--colors 1: the PNGs have opaque and see-through pixels, which never share a color; "
+                 "give 2 or more")
+        fail("E_BAD_ARG", f"--colors {n}: the PNGs have {'opaque' if need_s else 'see-through'} pixels and OUT's "
+             f"palette has no {'opaque' if need_s else 'see-through'} color for them; give {need_s + need_t} or more")
+    if not soft:
+        return kmeans(solid, n, fs)
+    if not solid and not fixed:
+        return kmeans(soft, n)
     ws, wt = sum(solid.values()) ** 0.5, sum(soft.values()) ** 0.5
-    lo_s, lo_t = min(len(solid), max(1, n // 4)), min(len(soft), max(1, n // 4))
+    lo_s, lo_t = min(len(solid), max(need_s, n // 4)), min(len(soft), max(need_t, n // 4))
     ns = min(len(solid), max(lo_s, min(n - lo_t, round(n * ws / (ws + wt)))))
     nt = min(len(soft), n - ns)
-    table = {**kmeans(solid, min(len(solid), n - nt)), **kmeans(soft, nt)}
-    stand = sorted(set(table.values()))
+    table = {**(kmeans(solid, min(len(solid), n - nt), fs) if solid else {}), **kmeans(soft, nt, ft)}
+    stand = sorted(set(table.values()) | set(fixed))
     pre = [(s[0] * s[3] / 255, s[1] * s[3] / 255, s[2] * s[3] / 255, s[3]) for s in stand]
     shift = 0  # near see-through colors (low bits dropped, as kmeans pools) share one nearest stand-in
     while len({tuple(v >> shift for v in c) for c in soft}) > 4096:
@@ -9949,11 +10009,13 @@ def quantize(counts, n):
     return table
 
 
-def kmeans(counts, n, rounds=8):
-    """quantize's work on colors all opaque or all see-through: weighted k-means in premultiplied RGBA. Seeds are the
-    most common color, then each time the color farthest from every seed so far, weighted by its count's square root,
-    so a small, distinct detail (an eye) gets a seed before a big area's shading does. Deterministic. Over 4096
-    colors, near colors are pooled first (low bits dropped until 4096 pools or fewer) to bound the work."""
+def kmeans(counts, n, fixed=(), rounds=8):
+    """quantize's work on colors all opaque or all see-through: weighted k-means in premultiplied RGBA, with the
+    `fixed` colors as stand-ins that never move and at most n new ones. Seeds are the most common color (when nothing
+    is fixed), then each time the color farthest from every seed so far, weighted by its count's square root, so a
+    small, distinct detail (an eye) gets a seed before a big area's shading does. A new seed left with no color is
+    dropped. Deterministic. Over 4096 colors, near colors are pooled first (low bits dropped until 4096 pools or
+    fewer) to bound the work."""
     def pre(c):
         return (c[0] * c[3] / 255, c[1] * c[3] / 255, c[2] * c[3] / 255, c[3])
     shift = 0
@@ -9969,9 +10031,11 @@ def kmeans(counts, n, rounds=8):
     pts.sort(key=lambda t: (-t[1], t[0]))
     def d2(a, b):
         return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 + (a[3] - b[3]) ** 2
-    seeds = [pts[0][0]]
-    near = [d2(p, seeds[0]) for p, _, _ in pts]
-    while len(seeds) < min(n, len(pts)):
+    fixed = sorted(set(fixed))
+    nf = len(fixed)
+    seeds = [pre(c) for c in fixed] or [pts[0][0]]
+    near = [min(d2(p, s) for s in seeds) for p, _, _ in pts]
+    while len(seeds) - nf < min(n, len(pts)):
         i = max(range(len(pts)), key=lambda i: near[i] * pts[i][1] ** 0.5)
         if near[i] == 0:
             break
@@ -9984,15 +10048,19 @@ def kmeans(counts, n, rounds=8):
             for i in range(4):
                 sums[j][i] += p[i] * w
             sums[j][4] += w
-        moved = [tuple(t[i] / t[4] for i in range(4)) if t[4] else s for t, s in zip(sums, seeds)]
+        moved = [s if j < nf or not t[4] else tuple(t[i] / t[4] for i in range(4))
+                 for j, (t, s) in enumerate(zip(sums, seeds))]
         if moved == seeds:
             break
         seeds = moved
     owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
-    def color(s):
+    def color(j):
+        if j < nf:
+            return fixed[j]
+        s = seeds[j]
         a = 255 if s[3] > 254.5 else max(1, min(254, round(s[3])))  # an opaque group's mean is 255.0 exactly
         return tuple(max(0, min(255, round(v * 255 / s[3]))) for v in s[:3]) + (a,)
-    return {c: color(seeds[j]) for (_, _, members), j in zip(pts, owner) for c, _ in members}
+    return {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
 
 
 def png_id(path, a, name=None):
@@ -10722,10 +10790,12 @@ def parser(describe=True):
     p = sub.add_parser("help")
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
-    p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys (a sprite's palette: "
+                                     "palette SPRITE --extract-to P.px first)")
     p.add_argument("--colors", type=int, metavar="N",
-                   help="reduce the PNGs (all together) to at most N colors first, for a photo or painting with "
-                        "more colors than palette keys; says how far that moved them")
+                   help="reduce the PNGs (all together) to OUT's palette colors and at most N new ones first (0: "
+                        "OUT's only), for a photo or painting with more colors than palette keys; says how far that "
+                        "moved them and how many colors are OUT's")
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
     p.add_argument("--names", metavar="A,B,...",
                    help="one frame id per PNG, in order; with --grid: each row's (--by cols: column's) group name")

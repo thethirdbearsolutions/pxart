@@ -400,6 +400,225 @@ def test_from_png_colors_range(tmp_path, n):
     gradient_png(tmp_path / "g.png")
     assert "give 1 to 89" in run_err("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", n)
 
+
+def row_png(path, pixels_, w=None):
+    img = Image.new("RGBA", (w or len(pixels_), 1))
+    img.putdata(pixels_)
+    img.save(path)
+    return img
+
+
+def test_from_png_colors_uses_out_colors_first(tmp_path, capsys):
+    # GAMES-360: a second --colors run into one OUT added 23 new keys, ignoring the near colors OUT had
+    row_png(tmp_path / "a.png", [(250, 0, 0, 255), (0, 0, 250, 255)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    reds = [(240 + i, i, 0, 255) for i in range(10)]
+    blues = [(i, 0, 240 + i, 255) for i in range(10)]
+    greens = [(0, 100 + 10 * i, 0, 255) for i in range(10)]
+    row_png(tmp_path / "b.png", reds + blues + greens + [(0, 0, 0, 0)])
+    capsys.readouterr()
+    assert run("from-png", tmp_path / "b.png", "-o", tmp_path / "o.px", "--id", "b", "--colors", "2") == 0
+    out = capsys.readouterr().out
+    assert re.search(r"reduced 30 colors to 4 \(--colors 2: 2 of OUT's, 2 new\): off by", out)
+    doc = pxart.parse(tmp_path / "o.px")
+    assert len(doc.palette) == 4
+    row = doc.get("b/b").grid[0]
+    red, blue = (next(k for k, c in doc.palette.items() if c == want) for want in ((250, 0, 0, 255), (0, 0, 250, 255)))
+    assert row[:10] == red * 10 and row[10:20] == blue * 10 and row[-1] == "."
+    assert not {red, blue} & set(row[20:30])
+
+
+def test_from_png_colors_second_run_adds_at_most_n_keys(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--id", "a", "--colors", "12") == 0
+    keys = set(pxart.parse(tmp_path / "g.px").palette)
+    capsys.readouterr()
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--id", "b", "--colors", "3") == 0
+    m = re.search(r"\(--colors 3: (\d+) of OUT's, (\d+) new\)", capsys.readouterr().out)
+    doc = pxart.parse(tmp_path / "g.px")
+    assert m and int(m[1]) >= 10 and int(m[2]) <= 3 and len(doc.palette) - len(keys) == int(m[2])
+    got = pxart.pixels(doc.image(doc.get("b/g")))
+    assert [p[3] for p in got] == [p[3] for p in pxart.pixels(img)]
+
+
+def test_from_png_colors_0_draws_with_out_colors_only(tmp_path, capsys):
+    row_png(tmp_path / "a.png", [(250, 0, 0, 255), (0, 0, 250, 255)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    gradient_png(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "0") == 0
+    assert re.search(r"\(--colors 0: [12] of OUT's, 0 new\)", capsys.readouterr().out)
+    assert len(pxart.parse(tmp_path / "o.px").palette) == 2
+
+
+def test_from_png_colors_opaque_never_takes_a_see_through_out_color(tmp_path):
+    p = write(tmp_path, "o.px", "pxart 1\na #fa000080\n\n@frame x\na\n")
+    row_png(tmp_path / "r.png", [(250, i, 0, 255) for i in range(10)])
+    assert "OUT's palette has no opaque color for them; give 1 or more" in run_err(
+        "from-png", tmp_path / "r.png", "-o", p, "--id", "r", "--colors", "0")
+    assert run("from-png", tmp_path / "r.png", "-o", p, "--id", "r", "--colors", "1") == 0
+    doc = pxart.parse(p)
+    assert all(q[3] == 255 for q in pxart.pixels(doc.image(doc.get("r/r"))))
+
+
+def test_quantize_with_fixed_colors_is_deterministic_and_keeps_them_exact():
+    fixed = [(250, 0, 0, 255), (10, 10, 10, 100)]
+    counts = {(245, 3, 0, 255): 5, (0, 200, 0, 255): 4, (0, 190, 10, 255): 4, (12, 9, 10, 90): 3,
+              (200, 200, 250, 30): 2}
+    a = pxart.quantize(counts, 2, fixed)
+    assert a == pxart.quantize(dict(reversed(list(counts.items()))), 2, list(reversed(fixed)))
+    assert a[(245, 3, 0, 255)] == (250, 0, 0, 255) and a[(12, 9, 10, 90)] == (10, 10, 10, 100)
+    assert all(v[3] == 255 for k, v in a.items() if k[3] == 255)
+    assert len(set(a.values()) - set(fixed)) <= 2
+
+
+def test_from_png_colors_no_free_keys_points_at_colors_0(tmp_path):
+    img = Image.new("RGBA", (89, 1))
+    img.putdata([(i, 2, 2, 255) for i in range(89)])
+    img.save(tmp_path / "k.png")
+    assert run("from-png", tmp_path / "k.png", "-o", tmp_path / "o.px", "--id", "k") == 0
+    gradient_png(tmp_path / "g.png")
+    assert "OUT has no free palette keys left; --colors 0 draws with the colors it has" in run_err(
+        "from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "1")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "0") == 0
+    assert len(pxart.parse(tmp_path / "o.px").palette) == 89
+
+
+def test_from_png_colors_over_free_keys_says_n_counts_new_colors(tmp_path):
+    row_png(tmp_path / "a.png", [(i, 0, 0, 255) for i in range(85)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    gradient_png(tmp_path / "g.png")
+    assert "give --colors 4 or fewer (N counts new colors; OUT's own are used first)" in run_err(
+        "from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "5")
+
+
+def test_from_png_colors_uses_a_palette_files_colors(tmp_path):
+    pal = write(tmp_path, "p.px", "pxart 1\nr #fa0000\nb #0000fa\n")
+    row_png(tmp_path / "x.png", [(248, 1, 0, 255), (1, 0, 251, 255), (0, 200, 0, 255), (0, 180, 0, 255),
+                                   (0, 160, 0, 255)])
+    assert run("from-png", tmp_path / "x.png", "-o", tmp_path / "x.px", "--palette", pal, "--colors", "1") == 0
+    doc = pxart.parse(tmp_path / "x.px")
+    assert doc.frames[0].grid[0][:2] == "rb" and len(doc.palette) == 1
+
+
+def test_from_png_palette_with_a_sprite_file_points_at_extract_and_o(tmp_path):
+    sprite = write(tmp_path, "faces.px", "pxart 1\nr #fa0000\n\n@frame f\nr\n")
+    row_png(tmp_path / "x.png", [(250, 0, 0, 255)])
+    err = run_err("from-png", tmp_path / "x.png", "-o", tmp_path / "x.px", "--palette", sprite)
+    assert "E_PALETTE_FILE" in err and "it has grid rows, and --palette imports a palette file" in err
+    assert f"pxart palette {sprite} --extract-to P.px --repoint, then --palette P.px" in err
+    assert f"to add to it instead: -o {sprite}" in err
+
+
+ERASE = "pxart 1\na #ff0000\nm #00ff00\np #0000ff\n\naamp\nmpa.\n"
+
+
+def run_suggested(err, after):
+    """Run, as a shell would, the commands an error suggests after `after` (up to the next ')' or the end):
+    'pxart X ... && pxart Y ...', each through run."""
+    text = err.split(after, 1)[1]
+    cmds = []
+    for part in text.split(" && "):
+        words = shlex.split(part.split("), ")[0].rstrip(")"))
+        assert words[0] == "pxart"
+        cmds.append(words[1:])
+    for argv in cmds:
+        assert run(*argv) == 0, argv
+    return cmds
+
+
+def test_palette_remove_to_dot_names_recolor_to_erase(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("palette", "e.px", "--remove", "a", "--to", ".")
+    assert "to erase a's pixels, then remove it: pxart recolor e.px a=. && pxart palette e.px --remove a" in err
+    run_suggested(err, "then remove it: ")
+    assert p.read_text() == "pxart 1\nm #00ff00\np #0000ff\n\n..mp\nmp..\n"
+
+
+def test_palette_remove_drawn_key_says_how_to_erase_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("palette", "e.px", "--remove", "am")
+    assert "(to erase them, then remove them: pxart recolor e.px a=. m=. && pxart palette e.px --remove am), " \
+           "or give --to KEY" in err
+    run_suggested(err, "then remove them: ")
+    assert p.read_text() == "pxart 1\np #0000ff\n\n...p\n.p..\n"
+
+
+def test_recolor_to_dot_points_at_equals_dot(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("recolor", "e.px", "a>.")
+    assert "'a>.': '>' gives a's pixels a new key, and '.' isn't one (it's transparent); to erase them: " \
+           "pxart recolor e.px a=." in err
+    err = run_err("recolor", "e.px", "m>.", "p>.")
+    assert err.endswith("to erase them: pxart recolor e.px m=. p=.") and p.read_text() == ERASE
+    run_suggested(err, "to erase them: ")
+    assert p.read_text().endswith("\naa..\n..a.\n")
+
+
+QUOTY = "pxart 1\n' #ff0000\n; #00ff00\n* #0000ff\na #111111\n\n';*a\n';*a\n"
+
+
+def test_erase_suggestions_run_verbatim_with_a_spaced_path_and_quote_keys(tmp_path, monkeypatch):
+    # review: a "'" key and a path with a space made suggestions the shell couldn't run
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sp ace").mkdir()
+    p = write(tmp_path / "sp ace", "k.px", QUOTY)
+    err = run_err("recolor", "sp ace/k.px", "'>.")
+    assert run_suggested(err, "to erase them: ") == [["recolor", "sp ace/k.px", "'=."]]
+    assert p.read_text().endswith("\n.;*a\n.;*a\n")
+    p.write_text(QUOTY)
+    err = run_err("palette", "sp ace/k.px", "--remove", "';", "--to", ".")
+    run_suggested(err, "then remove them: ")
+    assert p.read_text() == "pxart 1\n* #0000ff\na #111111\n\n..*a\n..*a\n"
+    p.write_text(QUOTY)
+    err = run_err("palette", "sp ace/k.px", "--remove", "*")
+    assert "pxart palette 'sp ace/k.px' --remove '*' --to K" in err
+    run_suggested(err, "then remove it: ")
+    assert p.read_text() == "pxart 1\n' #ff0000\n; #00ff00\na #111111\n\n';.a\n';.a\n"
+
+
+def test_recolor_erase_suggestion_keeps_o_region_and_other_maps(tmp_path, monkeypatch):
+    # review: the suggestion dropped -o and --region, so running it erased all of r.px in place
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "r.px", "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n")
+    err = run_err("recolor", "r.px", "--region", "0,0,2,1", "-o", "r2.px", "a>.", "q>.", ".>.")
+    assert err.endswith("to erase them: pxart recolor r.px --region 0,0,2,1 -o r2.px a=.")
+    run_suggested(err, "to erase them: ")
+    assert p.read_text() == "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n"
+    assert (tmp_path / "r2.px").read_text() == "pxart 1\na #ff0000\nb #0000ff\n\n..aa\nbbbb\n"
+    err = run_err("recolor", "r.px", "a>.", "b=#00ff00", "--dry-run")
+    assert err.endswith("to erase them: pxart recolor r.px a=. 'b=#00ff00' --dry-run")
+
+
+def test_palette_remove_to_dot_suggestion_writes_o_and_removes_there(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = write(tmp_path, "r.px", "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n")
+    err = run_err("palette", "r.px", "--remove", "a", "--to", ".", "-o", "r3.px")
+    assert "pxart recolor r.px a=. -o r3.px && pxart palette r3.px --remove a" in err
+    run_suggested(err, "then remove it: ")
+    assert p.read_text() == "pxart 1\na #ff0000\nb #0000ff\n\naaaa\nbbbb\n"
+    assert (tmp_path / "r3.px").read_text() == "pxart 1\nb #0000ff\n\n....\nbbbb\n"
+
+
+def test_from_png_palette_sprite_suggestions_quote_the_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sp ace").mkdir()
+    write(tmp_path / "sp ace", "s.px", "pxart 1\nr #fa0000\n\n@frame f\nr\n")
+    row_png(tmp_path / "x.png", [(250, 0, 0, 255)])
+    err = run_err("from-png", "x.png", "-o", "x.px", "--palette", "sp ace/s.px")
+    assert "pxart palette 'sp ace/s.px' --extract-to P.px --repoint" in err and err.endswith("-o 'sp ace/s.px'")
+    assert run(*shlex.split(err.split("To share its keys: pxart ")[1].split(", then")[0])) == 0
+    assert run("from-png", "x.png", "-o", "x.px", "--palette", "P.px") == 0
+    assert run("from-png", "x.png", "--id", "x", *shlex.split(err.split("to add to it instead: ")[1])) == 0
+
+
+def test_mask_drop_keys_erases_a_key(tmp_path):
+    p = write(tmp_path, "e.px", ERASE)
+    assert run("mask", p, "--drop-keys", "a") == 0
+    assert p.read_text().endswith("\n..mp\nmp..\n")
+
 def test_export_frames_aseprite_tiled(tmp_path):
     p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
     assert run("export", p, "--frames", tmp_path / "f", "--aseprite", tmp_path / "s.json",
@@ -5630,7 +5849,7 @@ def test_recolor_rename_with_output_leaves_source(tmp_path):
     ("w>w", "E_BAD_ARG", "gives w's pixels the key they have"),
     ("q>Z", "E_SELECT", "key 'q' not in palette"),
     (".>Z", "E_SELECT", "'.' is transparent"),
-    ("w>.", "E_BAD_ARG", "'.' is already one"),
+    ("w>.", "E_BAD_ARG", "'.' isn't one (it's transparent); to erase them: pxart recolor "),
     ("w>#", "E_BAD_KEY", "can't be a palette key"),
     ("w>@", "E_BAD_KEY", "can't be a palette key"),
 ])
@@ -16831,7 +17050,7 @@ def test_remove_to_bad(tmp_path):
     s = rm_file(tmp_path)
     assert "not a key of" in run_err("palette", s, "--remove", "j", "--to", "Q")
     assert "it is being removed" in run_err("palette", s, "--remove", "j,k", "--to", "k")
-    assert "'.' erases" in run_err("palette", s, "--remove", "j", "--to", ".")
+    assert "'.' isn't one (it's transparent); to erase j's pixels" in run_err("palette", s, "--remove", "j", "--to", ".")
 
 
 def test_remove_to_imported_key(tmp_path, capsys):
