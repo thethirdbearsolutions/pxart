@@ -287,8 +287,26 @@ def test_outline_pad_and_from_png_into_out_keep_slot_lines(tmp_path):
     assert run("from-png", tmp_path / "a.png", "-o", p, "--id", "b") == 0
     text = p.read_text()
     assert text.count("f #e0ac69 | #f5cfa0") == 1 and "@frame b/a" in text
-    doc = pxart.parse(p)  # a PNG's color is plain: not the slot f, though f's base draws it
-    assert doc.get("b/a").grid == [r.replace("f", "a") for r in doc.get("a").grid] and doc.palette["a"] == rgb("#e0ac69")
+    doc = pxart.parse(p)  # a PNG has no alternatives: the slot's base color is the slot's key
+    assert doc.get("b/a").grid == doc.get("a").grid and "a" not in doc.palette
+
+
+def test_from_png_draws_a_slot_base_with_its_key(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #000000\n")
+    img = Image.new("RGBA", (3, 1))
+    img.putdata([rgb("#e0ac69"), rgb("#000000"), rgb("#e0ac6a")])
+    img.save(tmp_path / "h.png")
+    assert run("from-png", tmp_path / "h.png", "--palette", pal, "-o", tmp_path / "h.px") == 0
+    doc = pxart.parse(tmp_path / "h.px")
+    assert doc.frames[0].grid == ["fka"] and list(doc.palette) == ["a"]
+    capsys.readouterr()
+    assert run("from-png", tmp_path / "h.png", "--palette", pal, "-o", tmp_path / "c.px", "--colors", "0") == 0
+    assert "2 of OUT's" in capsys.readouterr().out
+    assert pxart.parse(tmp_path / "c.px").frames[0].grid == ["fkf"]
+    # a plain key of the same color wins over the slot
+    both = write(tmp_path, "both.px", "pxart 1\nf #e0ac69 | #f5cfa0\ng #e0ac69\n\n@frame x\nfg\n")
+    assert run("from-png", tmp_path / "h.png", "-o", both, "--id", "y") == 0
+    assert pxart.parse(both).get("y/h").grid[0][0] == "g"
 
 
 def test_every_palette_line_is_written_by_one_function():
@@ -429,7 +447,7 @@ def test_help_slots_is_its_own_topic(capsys):
     text = " ".join(pxart.SLOTS.split())
     for s in ('"slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...}', "--slots 6,f=2", "E_KEY_CONFLICT",
               "palette --add 'f=#e0ac69|#f5cfa0'", "one color per slot color in order",
-              '"f": ["#6f5634", ...]', "differ only in slot alternatives", "K=#rrggbb", "only hides its alternatives"):
+              '"f": ["#6f5634", ...]', "differ only in slot alternatives", "K=#rrggbb", "only hides its alternatives", "from-png draws a slot's base color with its key"):
         assert s in text, s
     assert "slots" in run_err("help", "nope")
 
@@ -550,3 +568,15 @@ def test_a_failing_render_prints_no_slot_lines(tmp_path, capsys):
 
 def test_overview_names_the_slots_topic():
     assert "'pxart help slots'" in pxart.overview()
+
+
+def test_an_imported_variant_list_must_fit_the_local_slot(tmp_path, capsys):
+    write(tmp_path, "pal.px", "pxart 1\nf #e0ac69 | #f5cfa0 | #c68642\nk #000000\n\n@variant night\nf #111111 | #222222 | #333333\n")
+    for local in ("#e0ac69 | #f5cfa0 | #c68642 | #8d5524", "#e0ac69 | #f5cfa0", "#ff0000"):
+        p = write(tmp_path, "s.px", f"pxart 1\n@palette pal.px\nf {local}\n\n@frame a\nkffk\n")
+        assert run("check", p) == 1
+        assert "@variant night (from pal.px) gives 'f' 3 colors" in capsys.readouterr().out
+        assert "E_BAD_COLOR" in run_err("render", p, "--variant", "night", "--slots", "4", "-o", tmp_path / "o.png")
+        assert "E_BAD_COLOR" in run_err("export", p, "--indexed", tmp_path / "s.json")
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #e0ac69 | #f5cfa0\n@variant night\nf #101010\n\n@frame a\nkffk\n")
+    assert run("check", p) == 0  # its own night line for f fits

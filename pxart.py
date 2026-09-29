@@ -1045,8 +1045,9 @@ SLOTS = """SLOTS (pxart help slots)
   - The alternatives are part of the key's color. A key another file has in the same colors
     is the same key; a plain key and a slot of one base color, or two slots with other
     alternatives, are two colors: compose, paste and frames --copy-to call it E_KEY_CONFLICT
-    (--rekey gives the incoming key a free one), from-png gives a PNG's color a plain key
-    of its own, and diff says '3 px differ only in slot alternatives'.
+    (--rekey gives the incoming key a free one), and diff says '3 px differ only in slot
+    alternatives'. A PNG has no alternatives: from-png draws a slot's base color with its
+    key.
   - A palette file's slots are imported with its keys. A local line for the key replaces
     the imported one whole (check notes the override). A plain local line of the import's
     base color only hides its alternatives: check says so, and palette --import and --remove
@@ -1341,7 +1342,7 @@ class Doc:
         if variant and variant != "base" and k in {**self.shared_variants.get(variant, {}),
                                                    **self.variants.get(variant, {})}:
             got = choices(c)
-            return got[i] if len(got) > 1 else got[0]
+            return got[i] if len(got) == len(self.slots()[k]) else got[0]  # a list of another length: parse fails it
         return self.slots()[k][i]
 
     def slots(self):
@@ -1772,14 +1773,20 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
 
     # --- whole-document checks
     base = doc.resolved()
-    for name, over in doc.variants.items():  # a variant's list for a slot: one color per slot color, in order
-        for k, c in over.items():
-            if isinstance(c, Slot) and k in base and len(choices(c)) != len(choices(base[k])):
-                err("E_BAD_COLOR", f"@variant {name} gives {k!r} {len(choices(c))} colors, and {k!r} has "
-                    + (f"{len(choices(base[k]))} ({fmt_color(base[k])}): a list there is one color per slot color, "
-                       "in order; one color alone is the key's color in the variant whatever the slot"
-                       if len(choices(base[k])) > 1 else "no alternatives: give it one color"),
-                    doc.at.get(("vkey", name, k)))
+    for name in list(doc.variants) + [n for n in doc.shared_variants if n not in doc.variants]:
+        over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
+        for k, c in over.items():  # a variant's list for a slot: one color per slot color, in order (an imported
+            if isinstance(c, Slot) and k in base and len(choices(c)) != len(choices(base[k])):  # one too, against
+                mine = k in doc.variants.get(name, {})  # the slot this file draws)
+                err("E_BAD_COLOR", f"@variant {name}" + ("" if mine else f" (from {' and '.join(doc.palette_refs)})")
+                    + f" gives {k!r} {len(choices(c))} colors, and {k!r} has "
+                    + (f"{len(choices(base[k]))} ({fmt_color(base[k])})" if len(choices(base[k])) > 1 else
+                       "no alternatives" if mine else f"one ({fmt_color(base[k])})")
+                    + (": give it one color" if mine and len(choices(base[k])) == 1 else
+                       ": a list there is one color per slot color, in order; one color alone is the key's color in "
+                       "the variant whatever the slot" if mine else f"{' here' if k in doc.palette else ''}: give "
+                       f"{k!r} a line of this file's own under @variant {name} (one color, or one per slot color)"),
+                    doc.at.get(("vkey", name, k)) if mine else doc.at.get(("key", k)))
     if palette_only:
         if doc.frames:
             err("E_PALETTE_FILE", "a palette file can't contain grid rows", doc.frames[0].line)
@@ -10452,7 +10459,10 @@ def import_pngs(a):
         print(f"note: {out}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
     for n in notes:
         print(f"note: {n}")
-    keyof = {c: k for k, c in doc.resolved().items() if c[3]}
+    keyof = {}  # a PNG's color -> OUT's key: a slot's key takes its base color (a PNG has no alternatives), a plain
+    for k, c in sorted(doc.resolved().items(), key=lambda kc: bool(getattr(kc[1], "alts", ()))):  # key first
+        if c[3]:
+            keyof.setdefault(tuple(c), k)
     free = [k for k in KEYS if k not in doc.resolved()]
     entries = cells if cells is not None else [(png_id(path, a, name), path, img) for (path, img), name
                                                in zip(imgs, names or [None] * len(imgs)) if name != ""]
