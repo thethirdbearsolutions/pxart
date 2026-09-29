@@ -268,3 +268,62 @@ def test_every_palette_line_is_written_by_one_function():
     # Doc.lines() is the one place a key line is spelled; any other would drop the alternatives
     src = (ROOT / "pxart.py").read_text()
     assert src.count("fmt_key(v)}") == 1 and 'f"{k} {fmt_color(v)}") for k, v in self.palette' not in src
+
+
+# ---------------------------------------------------------------- render/sheet --slots
+
+def test_combos_are_deterministic_and_start_at_the_base():
+    slots = {"f": (1, 2, 3, 4, 5), "h": (1, 2, 3)}
+    a = pxart.combos(slots, 6, {})
+    assert a == pxart.combos(slots, 6, {}) and a[0] == {"f": 0, "h": 0} and len(a) == 6
+    assert pxart.combos(slots, 9, {})[:6] == a  # more samples start with the same ones
+    assert len({tuple(c.values()) for c in a}) == 6
+    assert len(pxart.combos(slots, 99, {})) == 15  # every combination, once
+    assert all(c["f"] == 3 for c in pxart.combos(slots, 3, {"f": 3}))
+
+
+def test_sheet_slots_draws_each_combination(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL)
+    o1, o2 = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("sheet", f"{p}:walk", "--slots", "4", "--rows", "group", "--scale", "2", "-o", o1) == 0
+    out = capsys.readouterr().out
+    assert out.count("\nslots ") + out.startswith("slots ") == 4
+    assert "slots h0f0c0: h #6b3e1f, f #e0ac69, c #3498db (--slots h=0,f=0,c=0)" in out
+    assert run("sheet", f"{p}:walk", "--slots", "4", "--rows", "group", "--scale", "2", "-o", o2) == 0
+    assert Image.open(o1).tobytes() == Image.open(o2).tobytes()
+
+
+def test_render_slots_pins_one_combination(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL)
+    assert run("render", f"{p}:walk/0", "--slots", "f=4,h=2,c=1", "--plain", "-o", tmp_path / "r.png") == 0
+    img = Image.open(tmp_path / "r.png").convert("RGBA")
+    assert img.getpixel((1, 1)) == rgb("#ffdbac") and img.getpixel((1, 0)) == rgb("#d9a441")
+    assert img.getpixel((1, 2)) == rgb("#e74c3c") and img.getpixel((2, 1)) == rgb("#1a1a1a")
+
+
+@pytest.mark.parametrize("spec,code,bit", [
+    ("f=9", "E_BAD_ARG", "f=9, and slot 'f' has 5 colors (0 to 4)"),
+    ("k=0", "E_SELECT", "'k' isn't a slot"),
+    ("0", "E_BAD_ARG", "isn't a count"),
+    ("f2", "E_BAD_ARG", "KEY=INDEX"),
+])
+def test_slots_spec_errors(tmp_path, spec, code, bit):
+    p = write(tmp_path, "v.px", VILL)
+    msg = run_err("render", p, "--slots", spec, "-o", tmp_path / "r.png")
+    assert code in msg and bit in msg
+
+
+def test_slots_on_files_without_any_note_it(tmp_path, capsys):
+    p = write(tmp_path, "a.px", "k #000000\n\nk\n")
+    assert run("render", p, "--slots", "3", "-o", tmp_path / "r.png") == 0
+    assert "note: --slots 3: no slots in these files" in capsys.readouterr().out
+
+
+def test_a_variant_overrides_a_slot_key_and_leaves_the_others(tmp_path, capsys):
+    p = write(tmp_path, "v.px", VILL.replace("\n@anim", "@variant night\nf #101010\n\n@anim"))
+    doc = pxart.parse(p)
+    assert doc.image(doc.frames[0], "night", {"f": 2, "h": 1}).getpixel((1, 1)) == rgb("#101010")
+    assert doc.image(doc.frames[0], "night", {"f": 2, "h": 1}).getpixel((1, 0)) == rgb("#2b1a0e")
+    assert doc.image(doc.frames[0], None, {"f": 2}).getpixel((1, 1)) == rgb("#c68642")
+    assert run("sheet", f"{p}:walk/0", "--slots", "f=2,h=1", "--variant", "night", "-o", tmp_path / "s.png") == 0
+    assert "(--slots h=1,f=2,c=0)" in capsys.readouterr().out

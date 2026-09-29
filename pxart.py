@@ -855,7 +855,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -1331,9 +1331,15 @@ class Doc:
             out.setdefault(f.group, []).append(f)
         return out
 
-    def image(self, f, variant=None):
+    def image(self, f, variant=None, pick=None):
+        """pick (render --slots): {key: index} of slot colors to draw in, 0 the base; a key the variant sets keeps
+        the variant's color."""
         pal = self.resolved(variant)
         warn_half(self, variant)
+        if pick:
+            slots, v = self.slots(), variant if variant != "base" else None
+            over = {**self.shared_variants.get(v, {}), **self.variants.get(v, {})} if v else {}
+            pal.update({k: slots[k][i] for k, i in pick.items() if k in slots and k not in over})
         w, h = f.size
         img = Image.new("RGBA", (w, h))
         img.putdata([pal[c] for row in f.grid for c in row])
@@ -1777,10 +1783,10 @@ def items(arg, variant=None, strict=False):
     return [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in doc.select(sel)]
 
 
-def all_items(args, variant=None):
+def all_items(args, variant=None, slots=None):
     """render's and sheet's frames, in order. A frame drawn in a variant is labeled with it, 'idle/0%night': an
     argument's own %variant, else --variant, so its cells read apart from the base ones beside them and a whole sheet
-    at night says so."""
+    at night says so. slots (--slots): the frames again in each combination of their file's slots (slot_items)."""
     out, paths, owns = [], [], []
     for n, a in enumerate(args, 1):
         with reading(f"file {n} ({a})"):
@@ -1791,6 +1797,86 @@ def all_items(args, variant=None):
     tell_apart(out, paths)  # by frame id: hero's and beast's idle/0 collide, whatever variant each is in
     for it, own in zip(out, owns):
         it.label += f"%{own}" if own else ""
+        it.variant = own
+    return slot_items(out, slots) if slots else out
+
+
+def slot_spec(s):
+    """--slots: 'N' (N combinations), 'f=2,h=0' (those slots' colors by index, 0 the base), or both: 'N,f=2'.
+    (N, {key: index})."""
+    n, pins = 1, {}
+    for t in s.split(","):
+        if t.isdigit() and int(t) > 0:
+            n = int(t)
+        elif len(t) > 2 and t[1] == "=" and t[2:].isdigit():
+            pins[t[0]] = int(t[2:])
+        else:
+            fail("E_BAD_ARG", f"--slots {s!r}: {t!r} isn't a count (--slots 8) or KEY=INDEX (--slots f=2,h=0; 0 is "
+                 "the base color)")
+    return n, pins
+
+
+def combos(slots, n, pins):
+    """n combinations of slots ({key: its colors}) as [{key: index}], the same every run: the first the base colors
+    (or pins), then others drawn from a fixed seed, each once, until every combination is there. pins fix keys."""
+    free = [k for k in slots if k not in pins]
+
+    def pick(ix):  # in the palette's order
+        got = {**dict(zip(free, ix)), **pins}
+        return {k: got[k] for k in slots}
+    total = math.prod(len(slots[k]) for k in free)
+    if n >= total:
+        return [pick(ix) for ix in itertools.product(*(range(len(slots[k])) for k in free))]
+    out, seen, rng = [pick((0,) * len(free))], {(0,) * len(free)}, random.Random(0)
+    while len(out) < n:
+        ix = tuple(rng.randrange(len(slots[k])) for k in free)
+        if ix not in seen:
+            seen.add(ix)
+            out.append(pick(ix))
+    return out
+
+
+def slot_items(its, spec):
+    """render/sheet --slots: each file's frames once per combination of its slots (combos), combination by
+    combination, each labeled with its indexes ('walk/0 f2h0'); frames of a file without slots, and PNGs, once.
+    Prints each combination's colors and the --slots that draws it alone."""
+    n, pins = slot_spec(spec)
+    docs = list({id(it.doc): it.doc for it in its if it.doc}.values())
+    have = {k for d in docs for k in d.slots()}
+    for k, i in pins.items():
+        if k not in have:
+            fail("E_SELECT", f"--slots {spec}: {k!r} isn't a slot (a key with alternatives: 'k #rrggbb | #rrggbb'); "
+                 + (f"slots: {' '.join(sorted(have))}" if have else "these files have none"))
+        top = min(len(d.slots()[k]) for d in docs if k in d.slots())
+        if i >= top:
+            fail("E_BAD_ARG", f"--slots {spec}: {k}={i}, and slot {k!r} has {top} colors (0 to {top - 1})")
+    if not have:
+        print(f"note: --slots {spec}: no slots in these files (a slot: 'k #rrggbb | #rrggbb ...'); drawn once")
+        return its
+    picks = {id(d): combos(d.slots(), n, {k: i for k, i in pins.items() if k in d.slots()}) for d in docs}
+    out = []
+    for c in range(max(len(p) for p in picks.values())):
+        said = set()
+        for it in its:
+            got = picks.get(id(it.doc)) if it.doc else None
+            if not got:
+                if c == 0:
+                    out.append(it)
+                continue
+            if c >= len(got):
+                continue
+            pick = got[c]
+            tag = "".join(f"{k}{i}" for k, i in pick.items())
+            new = Item(f"{it.label} {tag}", it.doc.image(it.frame, it.variant, pick), it.ms, it.doc, it.frame,
+                       it.variant)
+            new.combo = c
+            out.append(new)
+            if id(it.doc) not in said:
+                said.add(id(it.doc))
+                slots = it.doc.slots()
+                print(f"slots {tag}" + (f" ({it.doc.path})" if len(docs) > 1 else "") + ": "
+                      + ", ".join(f"{k} {fmt_color(slots[k][i])}" for k, i in pick.items())
+                      + f" (--slots {','.join(f'{k}={i}' for k, i in pick.items())})")
     return out
 
 
@@ -2085,7 +2171,8 @@ def sheet_rows(its, cols, rows="cols"):
         return [list(range(n, min(n + cols, len(its)))) for n in range(0, len(its), cols)]
     groups = {}
     for n, it in enumerate(its):
-        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "") if it.doc else ("png", n)
+        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
+            if it.doc else ("png", n)
         groups.setdefault(key, []).append(n)
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
@@ -2117,7 +2204,7 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
         groups = {}
         for it in its:
             if it.doc and it.frame and it.frame.group:
-                groups.setdefault((it.doc.path.resolve(), it.frame.group), []).append(it)
+                groups.setdefault((it.doc.path.resolve(), it.frame.group, getattr(it, "combo", 0)), []).append(it)
         for g in groups.values():
             lay = pivot_layout(g)
             for it, at in zip(g, lay[2] if lay else ()):
@@ -2863,7 +2950,7 @@ def need_o(a, eg):
 
 
 def cmd_render(a):
-    its = all_items(a.files, a.variant)
+    its = all_items(a.files, a.variant, a.slots)
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -2897,7 +2984,7 @@ def cmd_sheet(a):
     a.bg = parse_color(a.bg, "--bg") if a.bg else None
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     need_o(a, "sheet.png")
-    its = all_items(files, a.variant)
+    its = all_items(files, a.variant, a.slots)
     note = outsized(its, a.fit)
     if note:
         print(note)
@@ -10712,6 +10799,10 @@ REPLACE_HELP = "with -o FILE:NEWGROUP: NEWGROUP's frames go first, and the copy 
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
 
+SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the base, then others, the same every run), "
+              "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
+
+
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
     ap = argparse.ArgumentParser(prog="pxart", description=overview() if describe else None,
@@ -10727,6 +10818,7 @@ def parser(describe=True):
                    "transparent stays transparent)")
     p.add_argument("--no-grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night)")
+    p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
@@ -10734,6 +10826,7 @@ def parser(describe=True):
     p.add_argument("--grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night), as "
                    "FILE%%V's do, and an argument's own %%VARIANT wins")
+    p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
