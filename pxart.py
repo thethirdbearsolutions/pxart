@@ -9959,7 +9959,13 @@ def quantize(counts, n, rounds=8):
         # see-through.
         a = 255 if solid[j] > 0 or seeds[j][3] >= 240 else max(1, round(seeds[j][3]))
         return tuple(max(0, min(255, round(v * 255 / max(1, seeds[j][3])))) for v in seeds[j][:3]) + (a,)
-    return {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
+    table = {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
+    # An opaque source color only ever maps to an opaque stand-in (the nearest one), never to a see-through one.
+    opaque = [color(j) for j in range(len(seeds)) if color(j)[3] == 255]
+    for c in table:
+        if c[3] == 255 and table[c][3] < 255 and opaque:
+            table[c] = min(opaque, key=lambda o: sum((u - v) ** 2 for u, v in zip(c, o)))
+    return table
 
 
 def png_id(path, a, name=None):

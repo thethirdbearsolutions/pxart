@@ -297,6 +297,12 @@ def test_from_png_colors_keeps_faint_pixels_faint(tmp_path):
     assert all(q[3] == 255 for p, q in zip(pxart.pixels(img), got) if p[3] == 255)
 
 
+def test_quantize_opaque_never_maps_to_see_through():
+    # a few opaque pixels among many near-opaque edge pixels of about their color (GAMES-357 loop 3: alpha 229)
+    counts = {(120, 120, 140, 255): 3, (118, 121, 139, 200): 40, (116, 119, 141, 210): 40, (10, 10, 10, 255): 50}
+    table = pxart.quantize(counts, 2)
+    assert table[(120, 120, 140, 255)][3] == 255 and table[(10, 10, 10, 255)][3] == 255
+
 def test_quantize_is_deterministic_and_keeps_a_small_distinct_color():
     counts = {(200, 150, 100, 255): 900, (190, 140, 95, 255): 500, (40, 60, 200, 255): 3, (0, 0, 0, 255): 200}
     a, b = pxart.quantize(counts, 3), pxart.quantize(dict(reversed(list(counts.items()))), 3)
