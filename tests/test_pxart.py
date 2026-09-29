@@ -297,6 +297,68 @@ def test_from_png_colors_keeps_faint_pixels_faint(tmp_path):
     assert all(q[3] == 255 for p, q in zip(pxart.pixels(img), got) if p[3] == 255)
 
 
+def soft_edge_png(path):
+    """A 6x1 PNG: an opaque px, then alpha 200, 128, 127, 14, and a clear px."""
+    img = Image.new("RGBA", (6, 1))
+    for x, a in enumerate((255, 200, 128, 127, 14, 0)):
+        img.putpixel((x, 0), (200, 40, 40, a) if a else (0, 0, 0, 0))
+    img.save(path)
+    return img
+
+
+def test_from_png_notes_see_through_pixels(tmp_path, capsys):
+    soft_edge_png(tmp_path / "s.png")
+    assert run("from-png", tmp_path / "s.png", "-o", tmp_path / "s.px") == 0
+    assert "note: 4 of 5 drawn px are see-through (alpha under 255), 2 of them faint (under 128); --hard-edges " \
+           "makes them opaque, or clear if faint" in capsys.readouterr().out
+
+
+def test_from_png_opaque_pngs_get_no_see_through_note(tmp_path, capsys):
+    gradient_png(tmp_path / "g.png", 4, 2)
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px") == 0
+    assert "see-through" not in capsys.readouterr().out
+
+
+def test_from_png_hard_edges_cuts_at_alpha_128(tmp_path, capsys):
+    soft_edge_png(tmp_path / "s.png")
+    assert run("from-png", tmp_path / "s.png", "-o", tmp_path / "s.px", "--hard-edges") == 0
+    out = capsys.readouterr().out
+    assert "note: --hard-edges: 2 faint px (alpha under 128) cut to clear, 2 see-through px made opaque" in out
+    assert "drawn px are see-through" not in out
+    doc = pxart.parse(tmp_path / "s.px")
+    assert [p[3] for p in pxart.pixels(doc.image(doc.frames[0]))] == [255, 255, 255, 0, 0, 0]
+    assert len(doc.palette) == 1  # one color: the kept px keep their color, alpha aside
+
+
+def test_from_png_hard_edges_on_an_opaque_png_says_so(tmp_path, capsys):
+    gradient_png(tmp_path / "g.png", 4, 2)
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--hard-edges") == 0
+    assert "note: --hard-edges: every drawn px is opaque already; nothing cut" in capsys.readouterr().out
+
+
+def test_from_png_hard_edges_cuts_before_colors(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    for y in range(img.height):
+        img.putpixel((1, y), (255, 0, 0, 10 + 30 * y))
+    img.save(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", "6", "--hard-edges") == 0
+    out = capsys.readouterr().out
+    assert out.index("--hard-edges:") < out.index("reduced")
+    doc = pxart.parse(tmp_path / "g.px")
+    assert all(c[3] == 255 for c in doc.palette.values())  # no see-through key spent
+    got = [p[3] for p in pxart.pixels(doc.image(doc.frames[0]))]
+    assert got[1::16] == [0, 0, 0, 0, 255, 255, 255, 255]  # alpha 10..100 cut, 130..220 kept
+
+
+def test_from_png_hard_edges_with_grid_skips_cells_left_empty(tmp_path):
+    img = Image.new("RGBA", (8, 4))
+    img.putpixel((1, 1), (9, 9, 9, 255))
+    img.putpixel((5, 1), (9, 9, 9, 40))  # the second cell's only px is faint
+    img.save(tmp_path / "s.png")
+    assert run("from-png", tmp_path / "s.png", "--grid", "4x4", "-o", tmp_path / "s.px", "--hard-edges") == 0
+    assert [f.id for f in pxart.parse(tmp_path / "s.px").frames] == ["s/row0/0"]
+
+
 def test_quantize_opaque_never_maps_to_see_through():
     # a few opaque pixels among many near-opaque edge pixels of about their color (GAMES-357 loop 3: alpha 229)
     counts = {(120, 120, 140, 255): 3, (118, 121, 139, 200): 40, (116, 119, 141, 210): 40, (10, 10, 10, 255): 50}
@@ -3948,6 +4010,44 @@ def test_lookalike_table(ch, asc, name):
 @pytest.mark.parametrize("ch", ["a", "k", ".", " ", "é", "ß", "中", "→", "λ", "ж", "　"])
 def test_not_lookalikes(ch):
     assert pxart.lookalike(ch) is None
+
+
+SOFT = "a #ff0000\ng #ff000080\nf #ff00000e\n\n"
+
+
+def test_check_notes_see_through_px_and_keys(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SOFT + "fgaa\naaaa\n")
+    assert run("check", p) == 0
+    assert capsys.readouterr().out == (f"ok   {p}: 4x2 3c\n     {p}: 2 of 8 drawn px are see-through (alpha under "
+                                       "255), 1 of them faint (under 128): keys g f\n")
+
+
+def test_check_see_through_note_names_frames_of_several(tmp_path, capsys):
+    p = write(tmp_path, "s.px", SOFT + "@frame a/0\naa\n@frame a/1\nag\n@frame a/2\nga\n")
+    assert run("check", p, "--strict") == 0  # a note, not a failure: a glow is see-through on purpose
+    out = capsys.readouterr().out
+    assert f"     {p}: 2 of 4 drawn px are see-through (alpha under 255), none faint (under 128): key g; in 2 of 3 " \
+           "frames: a/1, a/2\n" in out
+
+
+def test_check_see_through_note_counts_in_the_summary(tmp_path, capsys):
+    p, q = write(tmp_path, "s.px", "a #ff0000\ng #ff000080\n\naga\n"), write(tmp_path, "q.px", "a #ff0000\n\naaa\n")
+    assert run("check", p, q) == 0
+    out = capsys.readouterr().out
+    assert out.count("see-through") == 1 and out.endswith("2 files, 2 frames, 1 warning\n")
+
+
+def test_check_see_through_png(tmp_path, capsys):
+    soft_edge_png(tmp_path / "s.png")
+    assert run("check", tmp_path / "s.png") == 0
+    assert "4 of 5 drawn px are see-through (alpha under 255), 2 of them faint (under 128)\n" in \
+        capsys.readouterr().out
+
+
+def test_check_no_see_through_note_for_a_key_seen_only_at_night(tmp_path, capsys):
+    p = write(tmp_path, "h.px", "b #3d3656\nL transparent\n@variant night\nL #f6e45a50\n\nLbL\n")
+    assert run("check", p) == 0
+    assert "see-through" not in capsys.readouterr().out  # check reads the base render, as for colors
 
 
 def test_check_notes_lookalike_in_grid_row(tmp_path, capsys):

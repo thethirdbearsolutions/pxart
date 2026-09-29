@@ -227,22 +227,21 @@ LOOKING
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
-      Every format error with a code and location, then size / off-palette colors /
-      color budget / unused keys. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
-      3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames
-      (a file of one frame gets that frame's line); -v prints a line for every frame, as
-      'ok   party.px:walk/down/0: 32x32 9c'. Notes follow their file's line, and checking
-      more than one file ends with a summary: '6 files, 150 frames, 3 warnings' (', 1
-      failed' when one did; a warning is a note line). A directory checks every .px and .map
-      under it, recursively, sorted by path ('check crossover/'); a palette file (no frames)
-      is checked as one: 'ok   palette.px: palette file, 17 key(s), variants night'. P is a
-      .px, .gpl, .hex, or text of #rrggbb. --strict also rejects unknown @sections and
-      @anim/@still lines whose group has no frames (else a note). Exit 1 on any failure.
-      --exclude GLOB leaves files out, as for sheet.
-      A .map (scene --map) is checked too: every row char has a legend line and every
-      legend entry loads as one frame; .world, .tmj: help worlds.
-      Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth
-      'ｋ') get a note naming the line, row and column and the letter they pass for.
+      Every format error with a code and location, then size / off-palette colors / color budget /
+      unused keys / see-through px. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
+      3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames (a file
+      of one frame gets that frame's line); -v prints a line for every frame, as
+      'ok   party.px:walk/down/0: 32x32 9c'. Notes follow their file's line, and checking more than
+      one file ends with a summary: '6 files, 150 frames, 3 warnings' (', 1 failed' when one did;
+      a warning is a note line). A directory checks every .px and .map under it, recursively,
+      sorted by path; a palette file (no frames) is checked as one: 'ok   palette.px: palette file,
+      17 key(s), variants night'. P is a .px, .gpl, .hex, or text of #rrggbb. --strict also
+      rejects unknown @sections and @anim/@still lines whose group has no frames (else a note).
+      Exit 1 on any failure. --exclude GLOB leaves files out, as for sheet.
+      A .map (scene --map) is checked too: every row char has a legend line and every legend
+      entry loads as one frame; .world, .tmj: help worlds.
+      Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
+      a note naming the line, row and column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
       Size, bbox ('x 1..22, y 0..20': ends included), colors (a directory, palette files and
       --exclude as for sheet).
@@ -754,7 +753,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
            tone) --strength px in (default 2: a rim; the shape's radius: full form shading);
         4. banding: 0..1 splits evenly over the lights, -1..0 over the darks, rounding to the
            nearest step, ties toward the base; then a stray pixel (no 8-neighbor of its own
-           tone) takes its neighbors' commonest tone. No noise.
+           tone) takes its neighbors' commonest tone.
       --dither mixes adjacent tones with a 4x4 ordered (Bayer) pattern where the lighting is
       within a quarter step of a band boundary (and skips the stray-pixel pass). --light: n
       ne e se s sw w nw (default nw). --preview P.png renders the result (render's grid and
@@ -763,18 +762,16 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
       'shade hero.px:idle/0 --ramp XxcCw --keys c' shades the cloak c with the ramp X x c C w.
   outline FILE[:frame] --key K [--outside | --inside] [--lit L [--selective]] [--light nw]
           [--corners] [--preview P.png]
-      Outline the frame's shape (every pixel that draws in some variant). --outside (the
-      default) paints the empty pixels touching the shape on a side; --inside repaints the
-      shape's own pixels that have an empty side (off the frame counts as empty). Sides only is
-      the pixel-perfect rule: a diagonal edge gets a 1px staircase and a square corner is cut,
-      so there are no doubled (L-shaped) corners; --corners also takes the pixels touching only
-      at a corner (square corners, a 2px staircase). Selective outline (--lit L, or
-      --selective --lit L): outline pixels facing the light get L (a darker tone of the
-      material, say) and the rest K. Facing: the outline pixel's outward normal (shade's, over
-      2px) dotted with the light's direction; above 0 is lit, so a nw light lights the top and
-      left edges and a 45-degree edge (ne, sw) stays K. --light and --preview as for shade.
-      Prints the pixels it changed, by the key they got:
-      "changed 12 px: 6->o, 6->l" (outline pixels that already had their key don't count).
+      Outline the frame's shape (every pixel that draws in some variant). --outside (the default)
+      paints the empty pixels touching the shape on a side; --inside repaints the shape's own
+      pixels that have an empty side (off the frame is empty). Sides only is the pixel-perfect
+      rule: a diagonal edge gets a 1px staircase and a square corner is cut, so no doubled
+      (L-shaped) corners; --corners also takes the pixels touching only at a corner (square
+      corners, a 2px staircase). Selective outline (--lit L): outline pixels facing the light get
+      L (a darker tone of the material), the rest K. Facing: an outline pixel's outward normal
+      (shade's, over 2px) dotted with the light's direction; above 0 is lit, so a nw light lights
+      the top and left edges and a 45-degree edge (ne, sw) stays K. --light and --preview as for
+      shade. Prints "changed 12 px: 6->o, 6->l" (by key; px that had it already don't count).
 
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
@@ -807,33 +804,33 @@ CONVERTING
       walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
       painted with the old tileset keeps the old ids.
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px] [--colors N]
-           [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
+           [--hard-edges] [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
-           [--colors N]
-      PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
-      Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
-      to OUT (replacing same-id frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
-      tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM
-      by its directory's name (dungeon/tile_0002, creatures/tile_0002). Colors
-      already in OUT keep their keys, so separate runs share one palette. --palette P.px
-      starts a new OUT that imports P and reuses its keys.
-      Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names
-      as PNGs; '' skips one). --labels FILE.csv names them from a CSV, the way packs ship
-      one ('filename,proposed_name,...'): each PNG takes the --label-col (default
-      proposed_name) of the row whose --file-col (default filename) names it, a path
-      relative to the CSV's directory, or else its file name alone. --labels repeats, one
-      CSV per pack (with --prefix-dir: dungeon/wall-stone-top, creatures/skeleton). A PNG no
-      row names is E_SELECT. --prefix-dir and --id PREFIX go in front of either.
-      --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque
-      pixel is skipped. Each row of cells is a group (--by cols: each column), its cells left
-      to right (top to bottom) frames 0, 1, ...: --names names the groups in turn (an empty
-      name skips its row), else they are STEM/row0, STEM/row1 (col0, ...); --id PREFIX goes
-      in front. A pack whose columns are directions and rows are steps:
-      'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
-      -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
-      is E_BAD_ARG, unless the strip left over is empty (then a note says so).
-      Too many colors (a photo)? --colors N reduces them to OUT's colors and at most N
-      new ones; says how far.
+           [--colors N] [--hard-edges]
+      PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid. Several PNGs,
+      --id, or an existing OUT: frames named PREFIX/<png stem>, added to OUT (replacing same-id
+      frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
+      tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM by its
+      directory's name (dungeon/tile_0002, creatures/tile_0002). Colors already in OUT keep their
+      keys, so separate runs share one palette. --palette P.px starts a new OUT that imports P and
+      reuses its keys.
+      Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names as
+      PNGs; '' skips one). --labels FILE.csv names them from a CSV, the way packs ship one
+      ('filename,proposed_name,...'): each PNG takes the --label-col (default proposed_name) of
+      the row whose --file-col (default filename) names it, a path relative to the CSV's
+      directory, or else its file name alone. --labels repeats, one CSV per pack (with
+      --prefix-dir: dungeon/wall-stone-top, creatures/skeleton). A PNG no row names is E_SELECT.
+      --prefix-dir and --id PREFIX go in front of either.
+      --grid 16x16 slices one sheet into 16x16 cells, a frame each; a cell with no opaque pixel is
+      skipped. Each row of cells is a group (--by cols: each column), its cells left to right (top
+      to bottom) frames 0, 1, ...: --names names the groups in turn (an empty name skips its row),
+      else they are STEM/row0, STEM/row1 (col0, ...); --id PREFIX goes in front. A pack whose
+      columns are directions and rows are steps: 'from-png Walk.png --grid 16x16 --by cols --names
+      walk/down,walk/up,walk/left,walk/right -o boy.px' writes walk/down/0-3 and so on. A sheet
+      that isn't a whole number of cells is E_BAD_ARG, unless the strip left over is empty (then a
+      note says so).
+      Too many colors (a photo)? --colors N reduces them to OUT's colors and at most N new ones;
+      says how far. --hard-edges first: alpha 128+ opaque, the rest clear.
 
 HELP
   help [all | recipes | TOPIC | CMD]
@@ -3665,9 +3662,12 @@ def cmd_check(a):
                     notes.append("unused keys " + "".join(unused) + f" (no frame draws with {them}: 'pxart palette "
                                  f"{path} --remove {','.join(unused)}' drops {them}; compose and crop give a new OUT "
                                  "their sources' whole palettes unless --used-keys-only)")
-            lines, sizes, ncs, nbad = [], [], [], 0
+            lines, sizes, ncs, nbad, soft = [], [], [], 0, []
             for it in its:
                 probs = []
+                alphas = [p[3] for p in pixels(it.img) if p[3]]
+                if any(x < 255 for x in alphas):
+                    soft.append((it, alphas))
                 if want and it.img.size != want:
                     probs.append(f"size {it.img.width}x{it.img.height} != {want[0]}x{want[1]}")
                 cs = colors(it.img)
@@ -3694,6 +3694,8 @@ def cmd_check(a):
                 for bad, l in lines:
                     if bad:
                         print(f"     {l}")
+            if soft:
+                notes.append(said_soft(soft, len(its)))
             for note in notes:
                 print(f"     {path}: {note}")
                 tally["warnings"] += 1
@@ -3708,6 +3710,21 @@ def cmd_check(a):
         print(f"{t['files']} files, {t['frames']} frame{'s' * (t['frames'] != 1)}, {t['warnings']} "
               f"warning{'s' * (t['warnings'] != 1)}" + (f", {t['failed']} failed" if t["failed"] else ""))
     sys.exit(1 if failed else 0)
+
+
+def said_soft(soft, frames):
+    """check's note on see-through px, from [(item, its drawn px' alphas)] for the frames that have any: '233 of 2289
+    drawn px are see-through (alpha under 255), 118 of them faint (under 128): keys a b c', plus 'in 2 of 40 frames:
+    walk/0, walk/1' for a file of several. A note, not a failure: a glow or a shadow is see-through on purpose."""
+    drawn = [x for _, al in soft for x in al]
+    n, faint = sum(x < 255 for x in drawn), sum(x < 128 for x in drawn)
+    drawn_keys = {k for it, _ in soft if it.frame for k in "".join(it.frame.grid)}
+    pal = soft[0][0].doc.resolved() if soft[0][0].frame else {}
+    keys = [k for k, c in pal.items() if k in drawn_keys and 0 < c[3] < 255]
+    return (f"{n} of {len(drawn)} drawn px are see-through (alpha under 255), "
+            + (f"{faint} of them faint (under 128)" if faint else "none faint (under 128)")
+            + (f": key{'s' * (len(keys) > 1)} {' '.join(keys)}" if keys else "")
+            + (f"; in {len(soft)} of {frames} frames: {listed((it.label for it, _ in soft), 5)}" if frames > 1 else ""))
 
 
 def cmd_stats(a):
@@ -9864,6 +9881,8 @@ def cmd_from_png(a):
     for p in a.pngs:
         with reading(f"PNG ({p})"):
             imgs.append((pathlib.Path(p), Image.open(p).convert("RGBA")))
+    if a.hard_edges:
+        imgs = hard_edges(imgs)
     names = None if a.grid else loose_names([p for p, _ in imgs], a)
     cells, notes = sheet_cells(imgs[0][0], imgs[0][1], a) if a.grid else (None, [])
     out = pathlib.Path(a.o) if a.o else None
@@ -9914,12 +9933,45 @@ def cmd_from_png(a):
             old.grid = grid
         else:
             doc.frames.append(Frame(fid, grid))
+    if not a.hard_edges:
+        soft = see_through([img for *_, img in entries])
+        if soft:
+            print(f"note: {soft}; --hard-edges makes them opaque, or clear if faint")
     if out:
         print(write_doc(doc, out) + (f" ({len(entries)} frame(s)" + (f": {said_cells(entries)}" if a.grid else "")
                                      + (f"; replaced {listed(replaced, 5)}, which {out} had" if replaced else "")
                                      + ")" if named else ""))
     else:
         print(doc.text(), end="")
+
+
+def hard_edges(imgs):
+    """from-png --hard-edges: each PNG with every see-through pixel made opaque (alpha 128 and up, its color kept) or
+    clear (under 128: faint), so edges are on/off before keying or --colors. Prints a note of how many px went each
+    way."""
+    out, cut, solid = [], 0, 0
+    for path, img in imgs:
+        src = pixels(img)
+        cut += sum(0 < p[3] < 128 for p in src)
+        solid += sum(128 <= p[3] < 255 for p in src)
+        r = Image.new("RGBA", img.size)
+        r.putdata([p[:3] + (255,) if p[3] >= 128 else (0, 0, 0, 0) if p[3] < 255 else p for p in src])
+        out.append((path, r))
+    print(f"note: --hard-edges: {cut} faint px (alpha under 128) cut to clear, {solid} see-through px made opaque"
+          if cut or solid else "note: --hard-edges: every drawn px is opaque already; nothing cut")
+    return out
+
+
+def see_through(imgs):
+    """'2585 of 10810 drawn px are see-through (alpha under 255), 1365 of them faint (under 128)' for images with
+    such pixels, else ''."""
+    drawn = [p[3] for img in imgs for p in pixels(img) if p[3]]
+    soft = sum(x < 255 for x in drawn)
+    if not soft:
+        return ""
+    faint = sum(x < 128 for x in drawn)
+    return (f"{soft} of {len(drawn)} drawn px are see-through (alpha under 255), "
+            + (f"{faint} of them faint (under 128)" if faint else "none faint (under 128)"))
 
 
 def reduce_colors(entries, n, free, fixed=()):
@@ -10796,6 +10848,9 @@ def parser(describe=True):
                    help="reduce the PNGs (all together) to OUT's palette colors and at most N new ones first (0: "
                         "OUT's only), for a photo or painting with more colors than palette keys; says how far that "
                         "moved them and how many colors are OUT's")
+    p.add_argument("--hard-edges", action="store_true",
+                   help="make every see-through px opaque (alpha 128 and up) or clear (under 128) first, before "
+                        "--colors: on/off edges, no see-through keys")
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
     p.add_argument("--names", metavar="A,B,...",
                    help="one frame id per PNG, in order; with --grid: each row's (--by cols: column's) group name")
