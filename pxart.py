@@ -25,7 +25,7 @@ FORMAT (.px)
   anim's; no pivot is the default. anim and onion line frames up by pivot instead of bottom-
   centre (a frame without one then uses its bottom-centre pixel, w // 2, h - 1); export
   writes pivots (Aseprite slices, --frames pivots.json). A pivot may lie outside the frame (a
-  hand, the ground under a jump); check notes that in case it's a typo. flip, rotate and
+  hand, the ground under a jump); check notes it in case of a typo. flip, rotate and
   transpose move a frame's pivot with its pixels: a whole group's @anim pivot moves on its
   @anim line, and a frame flipped alone gets its own.
   direction: forward | reverse | pingpong | pingpong_reverse (Aseprite's words).
@@ -41,6 +41,7 @@ FORMAT (.px)
   imported one's color (with the palette --remove that drops its line when nothing changes).
   A variant a file gets only from its @palette leaves the file's own keys at base colors;
   commands that render it print a WARNING naming them and the fix, and check notes it.
+  Slots, a key's alternatives for runtime recolors ('f #e0ac69 | #f5cfa0'): help slots.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
   path (FILE:walk/down = every walk/down/* frame), or a list of them, FILE:idle,walk/0.
@@ -54,27 +55,27 @@ FORMAT (.px)
   +----------------------------------------------------------------------------------------+
   An output under a file (-o hero.px/walk/0) is E_FILE; an image output with no image
   extension (-o /dev/null, -o x.px) is E_BAD_ARG.
-  Paths: a path typed on the command line is read from the current directory, as the
-  shell's are: FILE, -o OUT, layers and items, and every path option (--palette, --import,
-  --match, --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview,
-  --frames, --aseprite, --tiled). A path written inside a file is read from that file's
+  Paths: a path typed on the command line is read from the current directory, as the shell's
+  are: FILE, -o OUT, layers and items, and every path option (--palette, --import, --match,
+  --copy-to, --into, --map, --labels, --in, --extract-to, --export, --preview, --frames,
+  --aseprite, --tiled, --indexed). A path written inside a file is read from that file's
   directory: a .px's '@palette pal.px', a .map's legend entries, a --labels CSV's file
   names. A file pxart writes elsewhere gets its @palette lines re-pointed (see EDITING). An
   output's missing directory is made, and said: 'created out/'. An E_FILE for a relative
-  path says so, and a path option's names the option: 'palette: --match
-  (../wick/pal.px%dark): ../wick/pal.px (from the current directory): E_FILE: No such file or
-  directory'.
+  path says so, and a path option's names it: 'palette: --match (../wick/pal.px%dark):
+  ../wick/pal.px (from the current directory): E_FILE: No such file or directory'.
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
-         [--dry-run]
+         [--slots N|K=I] [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
       or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
       (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
       pads and labels).
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
+        [--fit] [--align bottom|pivot] [--rows cols|group] [--slots N|K=I] [--exclude GLOB]
+        [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path ('sheet crossover/ -o
       s.png'; PNGs in it are left out, a sheet rendered there too). --exclude GLOB
@@ -107,7 +108,7 @@ LOOKING
       groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps is given. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
+      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
@@ -127,7 +128,7 @@ LOOKING
   onion A B -o x.png [--scale 8] [--rows Y0-Y1 | --feet N] [--tint-a [COLOR] | --fade-a]
         [--variant V] [--dry-run]
       B at 80% opacity drawn over A as a flat silhouette in a translucent red (#ff4060a0),
-      with render's grid and rulers, so where A shows past B is plain to see.
+      with render's grid and rulers: where A shows past B is plain.
       Prints where each frame's opaque pixels sit on the shared canvas and how B's edges moved
       from A's, then the whole-sprite shift that best explains B, as anim finds it:
       "B vs A: left +0, right +0, top -1, bottom +0; best shift +0,-1 then 4px changed (no
@@ -150,7 +151,7 @@ LOOKING
       opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
         [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
-      Default --scale 4 (not render's 8).
+      Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item.
@@ -215,8 +216,8 @@ LOOKING
       pixel; each pixel keeps its alpha, so transparent pixels stay transparent. Without -o,
       IN is rewritten.
   world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]
-  Centering: frames of different sizes are bottom-aligned and centered, with the odd
-  pixel going left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
+  Centering: frames of different sizes are bottom-aligned and centered, the odd pixel
+  left (x = (canvas - frame) // 2). render and sheet put a grey checkerboard
   behind frames; --bg (render, sheet, scene) takes a flat #rrggbb, #rrggbbaa or 'transparent'
   (as does every color typed on the command line: --tint, tint, palette --add
   k=transparent; the '#' may be left off, and in a script a '#' color needs quotes, or the
@@ -363,16 +364,16 @@ EDITING (writes .px; -o defaults to editing the input in place)
       with no overlap or gap. --keep and --keep-circle repeat, and mix: the kept area is
       their union, and --dither and --invert work over the union.
       FILE may be a PNG (a scene rendered at --scale 1: coordinates are its pixels): outside
-      pixels become transparent. -o, if given, must be a .png too.
+      pixels become transparent. -o must be a .png too.
       --keep-keys W,T,t (or WTt) erases every pixel whose key isn't one of those; --drop-keys
       erases those keys' pixels. Alone, they mask by key over the whole frame; with shapes, a
       pixel stays only when both keep it (the shapes, --invert and --dither as above). .px only.
   crop FILE:frame x,y,w,h -o OUT[:frame] [--rekey [KEYS]] [--used-keys-only]
        [--variant-map NAME=V1,V2]
       Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
-      hero.px:idle/0 4,0,8,8 -o parts.px:head'. Quietly: the pixels outside the rectangle are
-      what crop is for, so there's no note about them; a rectangle that runs past the frame's
-      edge (or starts at a negative x,y) gets '.' there. FILE:frame must be one .px frame.
+      hero.px:idle/0 4,0,8,8 -o parts.px:head'. The pixels left outside get no note (they're
+      what crop is for); a rectangle that runs past the frame's edge (or starts at a
+      negative x,y) gets '.' there. FILE:frame must be one .px frame.
       OUT is written as compose writes it, FILE's frame its one layer (see compose): a new
       OUT gets FILE's whole palette (--used-keys-only: the cut's keys), OUT:frame adds or
       replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
@@ -389,7 +390,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       lines go. OUT renders exactly like the source frames, in every variant.
   recolor FILE a=b ['a<>b'] ['a>b'] [c=#rrggbb] [-o OUT] [--region x,y,w,h] [--variant V]
       a=b repaints key a's pixels as key b (optionally only inside --region); 'a<>b' swaps
-      keys a and b (in the region) in one step; quote it, since unquoted < and > are shell
+      keys a and b (in the region) in one step; quote it: unquoted < and > are shell
       redirections. 'a>b' gives a's pixels a new key b, in a's color (and a's variant
       colors): when no pixel keeps a and a is FILE's own key, a's palette lines become b's
       (a rename), else b is added and a stays: it frees a key without a visible change;
@@ -430,7 +431,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
         - OUT:frame adds that frame to OUT, or replaces it; a plain OUT is one unnamed grid.
       Examples: 'compose -o room.px tiles.px:cobble@0,0 hero.px:idle/0@4,2', 'compose -o
       party.px:keeper/walk keeper.px:walk/0@0,0 --rekey' (keeper.px's k is another color in
-      party.px, so it gets a free key there). --dry-run prints what compose says (notes,
+      party.px: it gets a free key there). --dry-run prints what compose says (notes,
       conflicts, --rekey's moves) and OUT's diff (a new OUT: every line); nothing is written.
 
       A new OUT (rule 1; a shared import re-pointed from OUT's directory): local keys follow
@@ -445,9 +446,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       --used-keys-only gives a new OUT only the keys its frame uses (and their variant colors;
       a @palette they all import is still imported, since it adds no key lines), so check has
-      no 'unused keys' to note. It isn't the default because the unused keys are often a
-      material's ramp: a cloak drawn in its base key c still needs X x C w for 'shade --ramp
-      XxcCw' to re-shade it. An existing OUT only ever gets the used keys. So they are no
+      no 'unused keys' to note. Not the default: the unused keys are often a material's
+      ramp: a cloak drawn in its base key c still needs X x C w for 'shade --ramp XxcCw' to
+      re-shade it. An existing OUT only ever gets the used keys. So they're no
       surprise, a new OUT's note names the keys its frame doesn't draw with, by file ('...
       from its layers' whole palettes (for shade ramps and recolors): wick.px's E'), and
       check's 'unused keys' note offers the palette --remove that drops them.
@@ -458,9 +459,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       of them OUT's, gets a note saying so and naming the --variant-map that would read one
       as OUT's). A plain OUT that exists (no :frame) keeps its palette too, keys from an
       earlier run included, and a note says so: 'note: glade.px exists: keeping its palette
-      (61 keys, @variant dusk); --replace starts it fresh' (an E_KEY_CONFLICT says it as
-      well). --replace starts it as if new: the layers' palettes, nothing of the old file
-      (not with OUT:frame, whose other frames it would drop, or with --under).
+      (61 keys, @variant dusk); --replace starts it fresh' (as does an E_KEY_CONFLICT).
+      --replace starts it as if new: the layers' palettes, nothing of the old file (not with
+      OUT:frame, whose other frames it would drop, or with --under).
 
       Key conflicts: a key a layer uses in another color than OUT's (or an earlier layer's) is
       E_KEY_CONFLICT, one line per source file (all its layers: 'layers 1-4, 7 (field.px)')
@@ -543,11 +544,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Frames and canvas: layers can be frames of one parts file: parts.px:hat@3,0
       parts.px:body@0,8. OUT:frame keeps OUT's other frames (OUT may be a palette-only file),
       and the 'wrote' line says when it replaced one. A new frame goes after the last frame of
-      its animation (like dup), or at the end when the animation is new. Canvas size: --size,
+      its animation (like dup), or at the end for a new animation. Canvas size: --size,
       else --map's, else the frame being replaced, else the other frames of its animation,
-      else the first layer. Pixels that land outside the canvas are cropped, with a note saying
-      how many. --under keeps OUT's frame and draws the layers behind it: they fill only its
-      empty pixels (a floor or a shadow under a finished sprite). The frame must exist.
+      else the first layer. Pixels outside the canvas are cropped; a note counts them.
+      --under keeps OUT's frame and draws the layers behind it: they fill only its empty
+      pixels (a floor or a shadow under a finished sprite). The frame must exist.
 
       From a map: --map MAP reads scene's tilemap (legend, rows, '---' layers, +b, a '#'
       legend line; see scene) and makes each cell a layer, drawn where scene draws it, then
@@ -614,7 +615,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       DIR counts the .px files under DIR that import it ('imported by 3 of the .px files under
       crossover/') and, per key, how many of them draw with it ('used by 2 files').
 
-      Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds base keys.
+      Base keys: --add k=#hex (or a palette line as the file has it, 'k #hex') adds them.
 
       Authoring a variant: with --variant NAME, --add sets the keys in that variant instead,
       over what it had, and makes the variant when FILE has none by that name (the example
@@ -622,7 +623,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       base colors: their lines in the variant go, and a key an imported variant recolors gets
       its base color on a line of FILE's own, since the import can't change from here. --add
       and --keep can share one call; the keys must be in the base palette. A key --add gives
-      the color it already has is left as it is, and said so: 'k is already #0f0f22 in night;
+      the color it already has is left, and said so: 'k is already #0f0f22 in night;
       unchanged'.
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
@@ -776,7 +777,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
 
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
-         [--prefix-file] [--exclude GLOB]
+         [--prefix-file] [--exclude GLOB] [--indexed X.json]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
         pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
@@ -1026,6 +1027,55 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart ellipse bat.px:glow G --box 2,0,12,9 --ring 2
        $ pxart paste bat.px:glow --into bat.px:fly --at 0,1 --under --align shift
        $ pxart sheet bat.px:fly,glow --variant night -o glow.png
+"""
+
+SLOTS = """SLOTS (pxart help slots)
+  A game that recolors a sprite at runtime (each villager's skin, hair, shirt) picks each
+  key's color from a list. A palette line lists them after the key's color, split by '|':
+    f #e0ac69 | #f5cfa0 | #c68642 | #8d5524 | #ffdbac
+  f is a slot: #e0ac69, the first, is its base color, the one every command draws, checks
+  and exports (render, anim, compose, export's PNGs, Aseprite and Tiled sheets), as if the
+  line ended there; the others are its alternatives. A file with no '|' reads and writes as
+  it always did.
+  - Alternatives are colors like any key's (#rrggbb, #rrggbbaa, transparent); a bad one is
+    E_BAD_COLOR. check --palette P fails an alternative P hasn't got, and notes a color a
+    slot lists twice. palette lists them after the key's line; palette --add
+    'f=#e0ac69|#f5cfa0' adds a slot, or sets the alternatives of f if it has that color.
+  - A palette file's slots are imported with its keys. A local line for the key replaces
+    the imported one whole: without '|' it is a plain key there (check notes the override).
+  - A @variant sets one color per key, never alternatives (E_BAD_COLOR): a key it sets
+    draws in the variant's color whatever the slot; the keys it leaves keep their slots.
+  - Commands that copy or rename keys (compose, paste, put, frames --copy-to, extract,
+    recolor 'a>b', palette --hoist, --extract-to, --import) carry the alternatives with the
+    key; recolor f=#hex changes the base color and keeps them. Keys match by base color: a
+    key another file has in that color is the same key, and the one already there stays.
+
+  render|sheet FILE... --slots N|K=I,...
+      Draws the frames once per combination of their file's slots: --slots 6 is the base
+      colors, then 5 others, drawn from a fixed seed (the same every run; --slots 8 starts
+      with --slots 6's), or every combination when there are no more than N. K=I pins slot
+      K to its I-th color (0 is the base): --slots f=2,h=0 draws that one, the other slots
+      at base; --slots 6,f=2 samples the others. Each label ends with its combination
+      (walk/0 h3f2c4p1), and a line per combination prints its colors and the --slots that
+      draws it alone. With --rows group each combination of an animation is its own row.
+
+  export FILE|DIR[:SEL]... --indexed X.json
+      The frames as key grids, with the palette that colors them, for a game to recolor:
+      {"version": 1,
+       "palette": {"k": "#1a1a1a", "f": "#e0ac69", ...},   every key's base color
+       "slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...},   each slot's colors, base first
+       "variants": {"night": {"k": "#000000", ...}},       the keys each variant sets
+       "frames": [{"id": "walk/0", "w": 8, "h": 12, "ms": 125, "pivot": {"x": 4, "y": 11},
+                   "rows": ["..hhhh..", ...]}, ...],
+       "animations": [{"name": "walk", "from": 0, "to": 3, "direction": "forward",
+                       "repeat": 0}, ...]}
+      rows: a string per row, a key per pixel, '.' transparent. Colors are #rrggbb, or
+      #rrggbbaa when not opaque. "slots", "variants" and "animations" are there when empty
+      too; "pivot" is left out for a frame without one. Frames are in export's id order
+      (help CONVERTING), which "from" and "to" index; a @still group is no animation. repeat
+      0 is forever. --prefix-file ids frames and names animations FILE/ID. Every file shares
+      one palette: a key two files color differently is E_KEY_CONFLICT. --indexed goes alone
+      or with --frames, --aseprite and --tiled; --variant V colors only their PNGs.
 """
 
 
@@ -10732,6 +10782,8 @@ def cmd_help(a):
         print(RECIPES.rstrip())
     elif want.lower() == "worlds":
         print(WORLDS.rstrip())
+    elif want.lower() == "slots":
+        print(SLOTS.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -10742,7 +10794,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 

@@ -382,3 +382,21 @@ def test_export_indexed_prefix_file(tmp_path):
     assert run("export", d, "--indexed", tmp_path / "k.json", "--prefix-file") == 0
     data = json.loads((tmp_path / "k.json").read_text())
     assert [f["id"] for f in data["frames"]] == ["a/walk/0", "a/walk/1"] and data["animations"][0]["name"] == "a/walk"
+
+
+# ---------------------------------------------------------------- help
+
+def test_help_slots_is_its_own_topic(capsys):
+    assert run("help", "slots") == 0
+    out = capsys.readouterr().out
+    assert out == pxart.SLOTS.rstrip() + "\n"
+    assert "SLOTS (pxart help slots)" not in pxart.__doc__
+    assert all(len(l) <= 92 for l in pxart.SLOTS.splitlines())
+    doc = " ".join(pxart.__doc__.split())
+    assert "Slots, a key's alternatives for runtime recolors ('f #e0ac69 | #f5cfa0'): help slots." in doc
+    assert "[--slots N|K=I]" in doc and "[--indexed X.json]" in doc
+    text = " ".join(pxart.SLOTS.split())
+    for s in ('"slots": {"f": ["#e0ac69", "#f5cfa0", ...], ...}', "--slots 6,f=2", "E_KEY_CONFLICT",
+              "palette --add 'f=#e0ac69|#f5cfa0'", "A @variant sets one color per key"):
+        assert s in text, s
+    assert "slots" in run_err("help", "nope")

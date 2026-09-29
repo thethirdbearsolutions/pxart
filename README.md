@@ -95,6 +95,11 @@ pxart 1
   sprite a dusk of its own, fitted to the palette's, with its lights kept lit: the WARNING
   prints that command, the lights inferred from the file's other variants (a key one leaves at
   base or brightens: `M left at base in night`).
+- **Slots, `f #e0ac69 | #f5cfa0 | #c68642`:** a key's alternatives, for a game that
+  recolors sprites at runtime. The first is the key's base color, the one every command
+  draws and exports; `render`/`sheet --slots 6` show combinations, and `export --indexed
+  keys.json` writes the frames as key grids with the palette and its slots. `pxart help
+  slots` has the rules and the JSON shape.
 - **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`

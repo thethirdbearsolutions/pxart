@@ -4701,7 +4701,7 @@ def test_recolor_swap_with_output(tmp_path, capsys):
 
 def test_help_documents_recolor_swap_and_order():
     doc = pxart.__doc__
-    assert "'a<>b' swaps" in doc and "quote it, since unquoted < and > are shell" in doc
+    assert "'a<>b' swaps" in doc and "quote it: unquoted < and > are shell" in doc
     assert "the key moves of one call apply together" in doc and "A key moved twice is E_BAD_ARG" in doc
 
 
@@ -7749,7 +7749,7 @@ def test_move_a_frame_still_works(tmp_path):
 
 def test_help_states_default_scales():
     doc = pxart.__doc__
-    assert "Default --scale 4 (not render's 8)" in doc and "(default --scale 8;" in doc
+    assert "Default --scale 4 (render's: 8)" in doc and "(default --scale 8;" in doc
 
 
 # ---------------------------------------------------------------- loop I: %base keeps an item in the base palette
@@ -10811,7 +10811,7 @@ def test_compose_after_crop_in_same_process_still_notes(tmp_path, capsys):
 
 def test_help_documents_quiet_crop():
     doc = " ".join(pxart.__doc__.split())
-    assert "Quietly: the pixels outside the rectangle are what crop is for, so there's no note about them" in doc
+    assert "The pixels left outside get no note (they're what crop is for)" in doc
 
 
 # ---------------------------------------------------------------- loop J: sheet tells same-id frames of several files apart
@@ -12580,7 +12580,7 @@ def test_crop_used_keys_only(tmp_path):
 def test_help_documents_used_keys_only():
     doc = " ".join(pxart.__doc__.split())
     assert "--used-keys-only gives a new OUT only the keys its frame uses" in doc
-    assert "It isn't the default because the unused keys are often a material's ramp" in doc
+    assert "Not the default: the unused keys are often a material's ramp" in doc
 
 
 def test_compose_used_keys_only_drops_keys_cropped_off_the_canvas(tmp_path):
