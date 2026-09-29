@@ -324,6 +324,15 @@ def test_from_png_without_o_prints_only_the_px_to_stdout(tmp_path, capsys, flags
     assert doc.frames
 
 
+def test_from_png_without_o_failing_prints_the_error_alone(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    img.putpixel((0, 0), (1, 2, 3, 60))
+    img.save(tmp_path / "g.png")
+    assert "out of palette keys" in run_err("from-png", tmp_path / "g.png", "--hard-edges")
+    got = capsys.readouterr()
+    assert got.out == "" and got.err == ""  # the --hard-edges note was about a run that wrote nothing
+
+
 def test_from_png_opaque_pngs_get_no_see_through_note(tmp_path, capsys):
     gradient_png(tmp_path / "g.png", 4, 2)
     assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px") == 0

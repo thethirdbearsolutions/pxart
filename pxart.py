@@ -76,20 +76,19 @@ LOOKING
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
         [--fit] [--align bottom|pivot] [--rows cols|group] [--exclude GLOB] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
-      stands for every .px under it, recursively, sorted by path (PNGs in
-      it are left out, a sheet rendered there too). --exclude GLOB
-      (repeatable) leaves files out: one whose name or path under the directory matches
-      ('_*.px', 'wip/*.px'), or every file under a directory that does ('wip'). A glob that
-      leaves out every file is E_FILE. A palette file (no frames) among the inputs, a
-      directory's or a glob's, is skipped with a note ('note: sheet skips palette.px: a
-      palette file, no frames'); given alone it is E_NO_FRAMES. Every cell is the largest
-      frame's size (a frame over 8x the median frame's area gets a note); --fit makes each
-      cell its own frame's width (or its label's, if wider) and each row as tall as its
-      tallest frame, --cols cells to a row, frames bottom-aligned in their row. A PNG whose
-      four corners are exactly the --bg color (a scene rendered with the same --bg) doesn't
-      count that color: it's the backdrop. Frames with the same id from different files are
-      labeled with their file's stem in front (hero:idle/0, beast:idle/0); render and anim
-      label them the same way.
+      stands for every .px under it, recursively, sorted by path (PNGs in it are left out, a
+      sheet rendered there too). --exclude GLOB (repeatable) leaves files out: one whose
+      name or path under the directory matches ('_*.px', 'wip/*.px'), or every file under a
+      directory that does ('wip'). A glob that leaves out every file is E_FILE. A palette
+      file (no frames) among the inputs, a directory's or a glob's, is skipped with a note
+      ('note: sheet skips palette.px: a palette file, no frames'); given alone it is
+      E_NO_FRAMES. Every cell is the largest frame's size (a frame over 8x the median
+      frame's area gets a note); --fit makes each cell its own frame's width (or its
+      label's, if wider) and each row as tall as its tallest frame, --cols cells to a row,
+      frames bottom-aligned in their row. A PNG whose four corners are exactly the --bg
+      color (a scene rendered with the same --bg) doesn't count that color: it's the
+      backdrop. Frames with the same id from different files are labeled with their file's
+      stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
       --align pivot lines up each animation group's frames by pivot, as anim and onion do:
       the group's frames are drawn on one canvas, every pivot on the same pixel. The
       default, --align bottom, bottom-aligns each frame in its cell.
@@ -10002,8 +10001,10 @@ def cmd_from_png(a):
     to stderr."""
     if a.o:
         return import_pngs(a)
-    with contextlib.redirect_stdout(sys.stderr):
+    said = io.StringIO()  # held, as main holds stdout: a failing run prints its error alone
+    with contextlib.redirect_stdout(said):
         doc = import_pngs(a)
+    sys.stderr.write(said.getvalue())
     print(doc.text(), end="")
 
 
