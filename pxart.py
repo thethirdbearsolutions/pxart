@@ -1237,6 +1237,9 @@ class Slot(tuple):
     def __hash__(self):
         return hash((tuple(self), self.alts))
 
+    def __reduce__(self):  # copy, deepcopy and pickle rebuild it with its alternatives
+        return Slot, (tuple(self), self.alts)
+
 
 def choices(c):
     """A key's colors, base first: (base,) for a plain key."""
@@ -3885,10 +3888,14 @@ def cmd_check(a):
                 hid = [k for k in over if hides(doc.palette[k], doc.shared[k])]
                 if len(hid) < len(over):
                     notes.append("local keys override @palette colors: " + "".join(k for k in over if k not in hid))
+                idle = [k for k in hid if redundant(doc, k)]  # a key with variant lines of its own isn't dropped
                 if hid:
                     notes.append("local keys hide their @palette slots' alternatives (the same base color, none of "
-                                 f"their own): {''.join(hid)}; dropping {'those lines' if len(hid) > 1 else 'that line'} "
-                                 "renders the same: " + shlex.join(["pxart", "palette", path, "--remove", keys_arg(hid)]))
+                                 f"their own): {''.join(hid)}" + (
+                                     f"; dropping {'those lines' if len(idle) > 1 else 'that line'} renders the same: "
+                                     + shlex.join(["pxart", "palette", path, "--remove", keys_arg(idle)]) if idle else "")
+                                 + (f" ({''.join(k for k in hid if k not in idle)}: with a variant line of {path}'s "
+                                    "own)" if len(idle) < len(hid) else ""))
                 same = [k for k in doc.palette if k in doc.shared and k not in over]
                 if same:
                     idle = [k for k in same if redundant(doc, k)]
@@ -4135,23 +4142,26 @@ def cmd_diff(a):
 
 
 def slot_diff(x, y):
-    """diff of two .px frames that render alike: the px whose keys' slot alternatives differ (the colors a game may
-    swap in), as '3 px differ only in slot alternatives (f #e0ac69 | #f5cfa0 and #e0ac69)'. None when there are none."""
+    """diff of two .px frames that render alike: the px whose keys' slot colors differ (the alternatives a game may swap
+    in), in the base palette or in a variant either file has (a file without it draws its base there), as '3 px differ
+    only in slot alternatives (f #e0ac69 | #f5cfa0 and #e0ac69)'. None when there are none."""
     if not (x.frame and y.frame) or x.frame.size != y.frame.size:
         return None
-    px, pal = [x.doc.resolved(), y.doc.resolved()], {}
-    n = 0
-    for ra, rb in zip(x.frame.grid, y.frame.grid):
-        for ka, kb in zip(ra, rb):
-            ca, cb = px[0][ka], px[1][kb]
-            if ca[3] and choices(ca) != choices(cb):
-                n += 1
-                pal.setdefault((ka, kb), (ca, cb))
-    if not n:
-        return None
-    return f"{n} px differ only in slot alternatives (" + "; ".join(
-        f"{ka} {fmt_color(ca)} and {kb} {fmt_color(cb)}" if ka != kb else f"{ka} {fmt_color(ca)} and {fmt_color(cb)}"
-        for (ka, kb), (ca, cb) in list(pal.items())[:3]) + ")"
+    names = [None] + sorted(set(variant_names(x.doc)) | set(variant_names(y.doc)))
+    for n in names:
+        pals = [d.resolved(n if n in variant_names(d) else None) for d in (x.doc, y.doc)]
+        got, pal = 0, {}
+        for ra, rb in zip(x.frame.grid, y.frame.grid):
+            for ka, kb in zip(ra, rb):
+                ca, cb = pals[0][ka], pals[1][kb]
+                if tuple(ca) == tuple(cb) and choices(ca) != choices(cb) and any(c[3] for c in choices(ca) + choices(cb)):
+                    got += 1
+                    pal.setdefault((ka, kb), (ca, cb))
+        if got:
+            return f"{got} px differ only in slot alternatives" + (f" in {n}" if n else "") + " (" + "; ".join(
+                f"{ka} {fmt_color(ca)} and {kb} {fmt_color(cb)}" if ka != kb else f"{ka} {fmt_color(ca)} and "
+                f"{fmt_color(cb)}" for (ka, kb), (ca, cb) in list(pal.items())[:3]) + ")"
+    return None
 
 
 SHEET_BACKDROP = (30, 30, 36, 255)  # render's and sheet's backdrop, around the cells
@@ -7569,6 +7579,7 @@ def palette_edit(a):
         print(l)
     if by is not None:
         print(f"imported by {len(by)} of the .px files under {a.within}" + (f": {listed(sorted(by), 5)}" if by else ""))
+    wide = max([11] + [len(fmt_color(v)) for v in pal.values()])  # a slot's colors widen the column
     for k, v in pal.items():
         src = "shared" if k in doc.shared and k not in doc.palette else ("local" if k != "." else "built-in")
         use = f" used {used.get(k, 0)}" if doc.frames else ""
@@ -7576,7 +7587,7 @@ def palette_edit(a):
             n = sum(1 for ks in by.values() if k in ks)
             use = f" used by {n} file{'s' * (n != 1)}"
         said = comment_text(cmts.get(("key", k)))
-        print((f"{k} {fmt_color(v):11} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
+        print((f"{k} {fmt_color(v):{wide}} {src:8}" + use).rstrip() + (f"  {said}" if said else ""))
     names = sorted(set(doc.variants) | set(doc.shared_variants))
     if names:
         print("variants:", ", ".join(names))
@@ -7745,7 +7756,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False):
     over = doc.variants.setdefault(name, {})
     recolored, held = [], []
     for k, c in base.items():
-        if k == "." or not c[3] or (own and k not in doc.palette):
+        if k == "." or not any(x[3] for x in choices(c)) or (own and k not in doc.palette):
             continue
         if k in lit:
             got = from_[k]
@@ -8211,7 +8222,8 @@ def hoist(doc, keys):
         if k not in doc.palette:
             fail("E_SELECT", f"--hoist {k!r}: not one of {doc.path}'s own keys ("
                  + (f"it comes from {ref} already" if k in doc.shared else "no such key") + ")", path=doc.path)
-        if k in pal.resolved() and not same_key(pal.resolved()[k], doc.palette[k]):
+        if k in pal.resolved() and not same_key(pal.resolved()[k], doc.palette[k]) \
+                and not hides(doc.palette[k], pal.resolved()[k]):  # a line that only hides the import's slot: dropped
             fail("E_KEY_CONFLICT", f"--hoist {k!r}: {ref} has {k!r} as {fmt_key(pal.resolved()[k])}, not "
                  f"{fmt_key(doc.palette[k])}, and changing it would recolor every sprite that imports {ref}; give "
                  f"{doc.path}'s {k!r} a free key first (pxart recolor {doc.path} '{k}>K')", path=doc.path)
@@ -11488,10 +11500,10 @@ def main(argv=None):
         with contextlib.redirect_stdout(told):
             globals()["cmd_" + a.cmd.replace("-", "_")](a)
     except PxError as e:  # every error line starts with the command, then the input: 'compose: layer 2 (x.px): ...'
-        said_first(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue(), a.cmd))
         sys.exit("\n".join(said(a.cmd, i) for i in e.issues))
     except OSError as e:
-        said_first(unsaid(told.getvalue()))
+        said_first(unsaid(told.getvalue(), a.cmd))
         sys.exit(file_error(a.cmd, e))
     except BaseException:
         said_first(told.getvalue())
@@ -11508,12 +11520,13 @@ def said_first(text):
     sys.stdout.flush()
 
 
-def unsaid(text):
+def unsaid(text, cmd=None):
     """A command that fails prints none of its notes and WARNINGs: they describe the write it was about to make (a grid
-    renamed, keys rekeyed, colors left out), nor render's --slots lines (the combinations it didn't draw): that write
+    renamed, keys rekeyed, colors left out), nor, for render and sheet, the --slots lines (the combinations it didn't draw): that write
     didn't happen. Its other lines (a 'wrote' for a file an
     earlier step did write) stay."""
-    return "".join(l for l in text.splitlines(True) if not l.startswith(("note:", "WARNING:", "slots ")))
+    return "".join(l for l in text.splitlines(True)
+                   if not l.startswith(("note:", "WARNING:") + (("slots ",) if cmd in ("render", "sheet") else ())))
 
 
 if __name__ == "__main__":

@@ -580,3 +580,56 @@ def test_an_imported_variant_list_must_fit_the_local_slot(tmp_path, capsys):
         assert "E_BAD_COLOR" in run_err("export", p, "--indexed", tmp_path / "s.json")
     p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #e0ac69 | #f5cfa0\n@variant night\nf #101010\n\n@frame a\nkffk\n")
     assert run("check", p) == 0  # its own night line for f fits
+
+
+# ---------------------------------------------------------------- review 2: nits
+
+def test_hides_note_suggests_remove_only_where_it_works(tmp_path, capsys):
+    write(tmp_path, "pal.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #000000\n")
+    v = write(tmp_path, "v.px", "pxart 1\n@palette pal.px\nf #e0ac69\n@variant night\nf #333333\n\n@frame a\nkffk\n")
+    run("check", v)
+    out = capsys.readouterr().out
+    assert "none of their own): f (f: with a variant line of" in out and "--remove" not in out
+
+
+def test_hoist_drops_a_line_that_only_hides_the_import(tmp_path):
+    pal = write(tmp_path, "pal.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #000000\n")
+    p = write(tmp_path, "h.px", "pxart 1\n@palette pal.px\nf #e0ac69\n\n@frame a\nkffk\n")
+    assert run("palette", p, "--hoist", "f") == 0
+    assert "\nf #" not in p.read_text() and "f #e0ac69 | #f5cfa0" in pal.read_text()
+
+
+def test_derive_darkens_a_slot_with_a_transparent_base(tmp_path):
+    p = write(tmp_path, "d.px", "pxart 1\nh transparent | #ff0000\nk #000000\n\n@frame a\nhk\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5") == 0
+    assert pxart.choices(pxart.parse(p).variants["night"]["h"])[1] == rgb("#800000")
+
+
+def test_diff_sees_variant_lists_and_transparent_bases(tmp_path, capsys):
+    a = write(tmp_path, "a.px", "pxart 1\nf #e0ac69 | #f5cfa0\n@variant night\nf #111111 | #222222\n\n@frame a\nf\n")
+    b = write(tmp_path, "b.px", "pxart 1\nf #e0ac69 | #f5cfa0\n@variant night\nf #111111 | #999999\n\n@frame a\nf\n")
+    assert run("diff", a, b) == 1
+    assert "1 px differ only in slot alternatives in night" in capsys.readouterr().out
+    c = write(tmp_path, "c.px", "pxart 1\nh transparent | #ff0000\n\n@frame a\nh\n")
+    d = write(tmp_path, "d.px", "pxart 1\nh transparent\n\n@frame a\nh\n")
+    assert run("diff", c, d) == 1
+
+
+def test_palette_listing_lines_up_with_a_slot(tmp_path, capsys):
+    p = write(tmp_path, "v.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #000000\n\nfk\n")
+    assert run("palette", p) == 0
+    lines = [l for l in capsys.readouterr().out.splitlines() if l[:1] in "fk"]
+    assert len({l.index("local") for l in lines}) == 1
+
+
+def test_a_slot_copies_and_pickles():
+    import copy
+    import pickle
+    s = pxart.key_value("#112233 | #445566")
+    for t in (copy.copy(s), copy.deepcopy(s), pickle.loads(pickle.dumps(s))):
+        assert t == s and t.alts == s.alts and isinstance(t, pxart.Slot)
+
+
+def test_only_render_and_sheet_hide_slots_lines_on_failure():
+    assert pxart.unsaid("slots a\nwrote x\n", "render") == "wrote x\n"
+    assert pxart.unsaid("slots a\nwrote x\n", "check") == "slots a\nwrote x\n"
