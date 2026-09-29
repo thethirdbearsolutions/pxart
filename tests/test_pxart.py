@@ -509,6 +509,39 @@ def test_from_png_palette_with_a_sprite_file_points_at_extract_and_o(tmp_path):
     assert f"to add to it instead: -o {sprite}" in err
 
 
+ERASE = "pxart 1\na #ff0000\nm #00ff00\np #0000ff\n\naamp\nmpa.\n"
+
+
+def test_palette_remove_to_dot_names_recolor_to_erase(tmp_path):
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("palette", p, "--remove", "a", "--to", ".")
+    assert f"to erase a's pixels, then remove it: pxart recolor {p} 'a=.' && pxart palette {p} --remove a" in err
+    assert run("recolor", p, "a=.") == 0 and run("palette", p, "--remove", "a") == 0
+    assert p.read_text() == "pxart 1\nm #00ff00\np #0000ff\n\n..mp\nmp..\n"
+
+
+def test_palette_remove_drawn_key_says_how_to_erase_it(tmp_path):
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("palette", p, "--remove", "am")
+    assert f"repaint them first (to erase them: pxart recolor {p} 'a=.' 'm=.'), or give --to KEY" in err
+
+
+def test_recolor_to_dot_points_at_equals_dot(tmp_path):
+    p = write(tmp_path, "e.px", ERASE)
+    err = run_err("recolor", p, "a>.")
+    assert "'a>.': '>' gives a's pixels a new key, and '.' isn't one" in err
+    assert f"to erase them: pxart recolor {p} 'a=.'" in err
+    err = run_err("recolor", p, "m>.", "p>.")
+    assert f"to erase them: pxart recolor {p} 'm=.' 'p=.'" in err and p.read_text() == ERASE
+    assert run("recolor", p, "m=.", "p=.") == 0
+    assert p.read_text().endswith("\naa..\n..a.\n")
+
+
+def test_mask_drop_keys_erases_a_key(tmp_path):
+    p = write(tmp_path, "e.px", ERASE)
+    assert run("mask", p, "--drop-keys", "a") == 0
+    assert p.read_text().endswith("\n..mp\nmp..\n")
+
 def test_export_frames_aseprite_tiled(tmp_path):
     p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
     assert run("export", p, "--frames", tmp_path / "f", "--aseprite", tmp_path / "s.json",
@@ -5739,7 +5772,7 @@ def test_recolor_rename_with_output_leaves_source(tmp_path):
     ("w>w", "E_BAD_ARG", "gives w's pixels the key they have"),
     ("q>Z", "E_SELECT", "key 'q' not in palette"),
     (".>Z", "E_SELECT", "'.' is transparent"),
-    ("w>.", "E_BAD_ARG", "'.' is already one"),
+    ("w>.", "E_BAD_ARG", "'.' isn't one (it's transparent); to erase them: pxart recolor "),
     ("w>#", "E_BAD_KEY", "can't be a palette key"),
     ("w>@", "E_BAD_KEY", "can't be a palette key"),
 ])
@@ -16940,7 +16973,7 @@ def test_remove_to_bad(tmp_path):
     s = rm_file(tmp_path)
     assert "not a key of" in run_err("palette", s, "--remove", "j", "--to", "Q")
     assert "it is being removed" in run_err("palette", s, "--remove", "j,k", "--to", "k")
-    assert "'.' erases" in run_err("palette", s, "--remove", "j", "--to", ".")
+    assert "'.' isn't one (it's transparent); to erase j's pixels" in run_err("palette", s, "--remove", "j", "--to", ".")
 
 
 def test_remove_to_imported_key(tmp_path, capsys):

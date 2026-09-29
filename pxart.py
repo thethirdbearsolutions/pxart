@@ -4700,6 +4700,10 @@ def cmd_recolor(a):
             if k not in pal or k == ".":
                 fail("E_SELECT", f"recolor: {m!r}: key {k!r} not in palette" if k != "." else
                      f"recolor: {m!r}: '.' is transparent, not a color to give a new key")
+            if v == ".":
+                erase = " ".join(f"'{x[0]}=.'" for x in a.maps if len(x) == 3 and x[1] == ">" and x[2] == ".")
+                fail("E_BAD_ARG", f"recolor: {m!r}: '>' gives {k}'s pixels a new key, and '.' isn't one (it's "
+                     f"transparent); to erase them: pxart recolor {a.file} {erase}")
             if v in renames.values():
                 first = next(said[j] for j, w in renames.items() if w == v)
                 fail("E_BAD_ARG", f"recolor: {m!r} and {first!r} both give pixels the new key {v!r}; each new key "
@@ -7419,9 +7423,13 @@ def remove_keys(doc, keys, to=None, within=None):
             fail("E_BAD_ARG", "--remove '.': '.' is built in (always transparent), not a key line", path=doc.path)
         if k not in doc.palette and k not in doc.shared:
             fail("E_SELECT", f"--remove {k!r}: {doc.path} has no key {k!r}", path=doc.path)
-    if to is not None and (to not in pal or to in keys or to == "."):
+    erase = f"pxart recolor {doc.path} {' '.join(repr(f'{k}=.') for k in keys)}"
+    if to == ".":
+        fail("E_SELECT", f"--to '.': --to repaints with a key, and '.' isn't one (it's transparent); to erase "
+             f"{''.join(keys)}'s pixels, then remove {'them' if len(keys) > 1 else 'it'}: {erase} && pxart palette "
+             f"{doc.path} --remove {''.join(keys)}", path=doc.path)
+    if to is not None and (to not in pal or to in keys):
         fail("E_SELECT", f"--to {to!r}: " + (f"it is being removed" if to in keys else
-                                              "'.' erases; repaint with fill or recolor first" if to == "." else
                                               f"not a key of {doc.path}"), path=doc.path)
     imported = [k for k in keys if k not in doc.palette]
     owners = {k: key_owner(doc, k) for k in imported}
@@ -7436,7 +7444,7 @@ def remove_keys(doc, keys, to=None, within=None):
     if uses and to is None:
         each = "; ".join(f"{k}: {sum(n for _, n in fs)} px in {listed(l for l, _ in fs)}" for k, fs in uses.items())
         fail("E_SELECT", f"--remove {''.join(keys)}: frames still draw with {' '.join(uses)} ({each}); repaint them "
-             f"first, or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} "
+             f"first (to erase them: {erase}), or give --to KEY to repaint them as KEY: pxart palette {doc.path} --remove {''.join(keys)} "
              "--to K",
              path=doc.path)
     said = []
