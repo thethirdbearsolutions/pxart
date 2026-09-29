@@ -400,6 +400,106 @@ def test_from_png_colors_range(tmp_path, n):
     gradient_png(tmp_path / "g.png")
     assert "give 1 to 89" in run_err("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", n)
 
+
+def row_png(path, pixels_, w=None):
+    img = Image.new("RGBA", (w or len(pixels_), 1))
+    img.putdata(pixels_)
+    img.save(path)
+    return img
+
+
+def test_from_png_colors_uses_out_colors_first(tmp_path, capsys):
+    # GAMES-360: a second --colors run into one OUT added 23 new keys, ignoring the near colors OUT had
+    row_png(tmp_path / "a.png", [(250, 0, 0, 255), (0, 0, 250, 255)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    reds = [(240 + i, i, 0, 255) for i in range(10)]
+    blues = [(i, 0, 240 + i, 255) for i in range(10)]
+    greens = [(0, 100 + 10 * i, 0, 255) for i in range(10)]
+    row_png(tmp_path / "b.png", reds + blues + greens + [(0, 0, 0, 0)])
+    capsys.readouterr()
+    assert run("from-png", tmp_path / "b.png", "-o", tmp_path / "o.px", "--id", "b", "--colors", "2") == 0
+    out = capsys.readouterr().out
+    assert re.search(r"reduced 30 colors to 4 \(--colors 2: 2 of OUT's, 2 new\): off by", out)
+    doc = pxart.parse(tmp_path / "o.px")
+    assert len(doc.palette) == 4
+    row = doc.get("b/b").grid[0]
+    red, blue = (next(k for k, c in doc.palette.items() if c == want) for want in ((250, 0, 0, 255), (0, 0, 250, 255)))
+    assert row[:10] == red * 10 and row[10:20] == blue * 10 and row[-1] == "."
+    assert not {red, blue} & set(row[20:30])
+
+
+def test_from_png_colors_second_run_adds_at_most_n_keys(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--id", "a", "--colors", "12") == 0
+    keys = set(pxart.parse(tmp_path / "g.px").palette)
+    capsys.readouterr()
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--id", "b", "--colors", "3") == 0
+    m = re.search(r"\(--colors 3: (\d+) of OUT's, (\d+) new\)", capsys.readouterr().out)
+    doc = pxart.parse(tmp_path / "g.px")
+    assert m and int(m[1]) >= 10 and int(m[2]) <= 3 and len(doc.palette) - len(keys) == int(m[2])
+    got = pxart.pixels(doc.image(doc.get("b/g")))
+    assert [p[3] for p in got] == [p[3] for p in pxart.pixels(img)]
+
+
+def test_from_png_colors_0_draws_with_out_colors_only(tmp_path, capsys):
+    row_png(tmp_path / "a.png", [(250, 0, 0, 255), (0, 0, 250, 255)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    gradient_png(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "0") == 0
+    assert re.search(r"\(--colors 0: [12] of OUT's, 0 new\)", capsys.readouterr().out)
+    assert len(pxart.parse(tmp_path / "o.px").palette) == 2
+
+
+def test_from_png_colors_opaque_never_takes_a_see_through_out_color(tmp_path):
+    p = write(tmp_path, "o.px", "pxart 1\na #fa000080\n\n@frame x\na\n")
+    row_png(tmp_path / "r.png", [(250, i, 0, 255) for i in range(10)])
+    assert "OUT's palette has no opaque color for them; give 1 or more" in run_err(
+        "from-png", tmp_path / "r.png", "-o", p, "--id", "r", "--colors", "0")
+    assert run("from-png", tmp_path / "r.png", "-o", p, "--id", "r", "--colors", "1") == 0
+    doc = pxart.parse(p)
+    assert all(q[3] == 255 for q in pxart.pixels(doc.image(doc.get("r/r"))))
+
+
+def test_quantize_with_fixed_colors_is_deterministic_and_keeps_them_exact():
+    fixed = [(250, 0, 0, 255), (10, 10, 10, 100)]
+    counts = {(245, 3, 0, 255): 5, (0, 200, 0, 255): 4, (0, 190, 10, 255): 4, (12, 9, 10, 90): 3,
+              (200, 200, 250, 30): 2}
+    a = pxart.quantize(counts, 2, fixed)
+    assert a == pxart.quantize(dict(reversed(list(counts.items()))), 2, list(reversed(fixed)))
+    assert a[(245, 3, 0, 255)] == (250, 0, 0, 255) and a[(12, 9, 10, 90)] == (10, 10, 10, 100)
+    assert all(v[3] == 255 for k, v in a.items() if k[3] == 255)
+    assert len(set(a.values()) - set(fixed)) <= 2
+
+
+def test_from_png_colors_no_free_keys_points_at_colors_0(tmp_path):
+    img = Image.new("RGBA", (89, 1))
+    img.putdata([(i, 2, 2, 255) for i in range(89)])
+    img.save(tmp_path / "k.png")
+    assert run("from-png", tmp_path / "k.png", "-o", tmp_path / "o.px", "--id", "k") == 0
+    gradient_png(tmp_path / "g.png")
+    assert "OUT has no free palette keys left; --colors 0 draws with the colors it has" in run_err(
+        "from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "1")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "0") == 0
+    assert len(pxart.parse(tmp_path / "o.px").palette) == 89
+
+
+def test_from_png_colors_over_free_keys_says_n_counts_new_colors(tmp_path):
+    row_png(tmp_path / "a.png", [(i, 0, 0, 255) for i in range(85)])
+    assert run("from-png", tmp_path / "a.png", "-o", tmp_path / "o.px", "--id", "a") == 0
+    gradient_png(tmp_path / "g.png")
+    assert "give --colors 4 or fewer (N counts new colors; OUT's own are used first)" in run_err(
+        "from-png", tmp_path / "g.png", "-o", tmp_path / "o.px", "--id", "g", "--colors", "5")
+
+
+def test_from_png_colors_uses_a_palette_files_colors(tmp_path):
+    pal = write(tmp_path, "p.px", "pxart 1\nr #fa0000\nb #0000fa\n")
+    row_png(tmp_path / "x.png", [(248, 1, 0, 255), (1, 0, 251, 255), (0, 200, 0, 255), (0, 180, 0, 255),
+                                   (0, 160, 0, 255)])
+    assert run("from-png", tmp_path / "x.png", "-o", tmp_path / "x.px", "--palette", pal, "--colors", "1") == 0
+    doc = pxart.parse(tmp_path / "x.px")
+    assert doc.frames[0].grid[0][:2] == "rb" and len(doc.palette) == 1
+
+
 def test_export_frames_aseprite_tiled(tmp_path):
     p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
     assert run("export", p, "--frames", tmp_path / "f", "--aseprite", tmp_path / "s.json",
