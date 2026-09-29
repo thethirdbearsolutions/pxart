@@ -303,6 +303,74 @@ def test_quantize_opaque_never_maps_to_see_through():
     table = pxart.quantize(counts, 2)
     assert table[(120, 120, 140, 255)][3] == 255 and table[(10, 10, 10, 255)][3] == 255
 
+def test_quantize_opaque_stays_opaque_when_see_through_outweighs_it():
+    # review: every cluster mostly translucent left the opaque pixel at alpha 102
+    t = pxart.quantize({(200, 0, 0, 255): 1, (200, 0, 0, 100): 100, (10, 10, 10, 60): 50}, 2)
+    assert t[(200, 0, 0, 255)] == (200, 0, 0, 255) and t[(200, 0, 0, 100)][3] < 255
+
+
+def test_quantize_gives_a_small_group_its_few_colors():
+    # review: 6 opaque px (red, blue) beside a 100-shade soft shadow merged red and blue into purple
+    c = {(255, 0, 0, 255): 3, (0, 0, 255, 255): 3, **{(i, i, i, 80): 5 for i in range(100)}}
+    t = pxart.quantize(c, 8)
+    assert t[(255, 0, 0, 255)] == (255, 0, 0, 255) and t[(0, 0, 255, 255)] == (0, 0, 255, 255)
+
+
+def test_quantize_one_color_for_opaque_and_see_through_is_an_error():
+    with pytest.raises(pxart.PxError, match="give 2 or more"):
+        pxart.quantize({(1, 2, 3, 255): 1, (1, 2, 3, 9): 1}, 1)
+
+
+def test_quantize_pools_many_colors_deterministically():
+    import random
+    rnd = random.Random(7)
+    c = {(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256), rnd.choice((255, 90))): rnd.randrange(1, 9)
+         for _ in range(9000)}
+    a, b = pxart.quantize(c, 40), pxart.quantize(dict(reversed(list(c.items()))), 40)
+    assert a == b and len(set(a.values())) <= 40
+    assert all(v[3] == 255 for k, v in a.items() if k[3] == 255)
+
+
+def test_from_png_colors_counts_keys_already_in_out(tmp_path):
+    img = Image.new("RGBA", (80, 1))
+    img.putdata([(i, 0, 0, 255) for i in range(80)])
+    img.save(tmp_path / "e.png")
+    assert run("from-png", tmp_path / "e.png", "-o", tmp_path / "e.px", "--id", "e") == 0
+    gradient_png(tmp_path / "g.png")
+    assert "OUT has 9 free palette key(s) left; give --colors 9 or fewer" in run_err(
+        "from-png", tmp_path / "g.png", "--id", "x", "-o", tmp_path / "e.px", "--colors", "12")
+    assert run("from-png", tmp_path / "g.png", "--id", "x", "-o", tmp_path / "e.px", "--colors", "9") == 0
+
+
+def test_from_png_colors_over_free_keys_fails_up_front_even_with_nothing_to_reduce(tmp_path):
+    # second review: a 10-color PNG with --colors 20 into an OUT with 4 free keys failed late, with no hint
+    img = Image.new("RGBA", (85, 1))
+    img.putdata([(i, 1, 1, 255) for i in range(85)])
+    img.save(tmp_path / "k.png")
+    assert run("from-png", tmp_path / "k.png", "-o", tmp_path / "o.px", "--id", "k") == 0
+    few = Image.new("RGBA", (10, 1))
+    few.putdata([(200, i, 1, 255) for i in range(10)])
+    few.save(tmp_path / "c.png")
+    assert "OUT has 4 free palette key(s) left" in run_err("from-png", tmp_path / "c.png", "-o", tmp_path / "o.px",
+                                                           "--id", "x", "--colors", "20")
+
+def test_from_png_colors_failing_run_prints_no_reduced_line(tmp_path, capsys):
+    img = Image.new("RGBA", (80, 1))
+    img.putdata([(i, 0, 0, 255) for i in range(80)])
+    img.save(tmp_path / "e.png")
+    assert run("from-png", tmp_path / "e.png", "-o", tmp_path / "e.px", "--id", "e") == 0
+    capsys.readouterr()
+    gradient_png(tmp_path / "g.png")
+    run_err("from-png", tmp_path / "g.png", "--id", "x", "-o", tmp_path / "e.px", "--colors", "12")
+    assert "reduced" not in capsys.readouterr().out
+
+
+def test_from_png_colors_with_grid(tmp_path):
+    gradient_png(tmp_path / "s.png", w=16, h=8)
+    assert run("from-png", tmp_path / "s.png", "--grid", "8x8", "-o", tmp_path / "s.px", "--colors", "10") == 0
+    doc = pxart.parse(tmp_path / "s.px")
+    assert len(doc.frames) == 2 and len(doc.palette) <= 10
+
 def test_quantize_is_deterministic_and_keeps_a_small_distinct_color():
     counts = {(200, 150, 100, 255): 900, (190, 140, 95, 255): 500, (40, 60, 200, 255): 3, (0, 0, 0, 255): 200}
     a, b = pxart.quantize(counts, 3), pxart.quantize(dict(reversed(list(counts.items()))), 3)

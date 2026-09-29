@@ -809,6 +809,7 @@ CONVERTING
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px] [--colors N]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
+           [--colors N]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
       to OUT (replacing same-id frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
@@ -831,8 +832,7 @@ CONVERTING
       'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
       -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
       is E_BAD_ARG, unless the strip left over is empty (then a note says so).
-      More colors than keys (a photo): --colors N reduces the PNGs to N first, inexactly,
-      and says by how much.
+      Too many colors (a photo)? --colors N reduces them to N first, inexactly; says how far.
 
 HELP
   help [all | recipes | TOPIC | CMD]
@@ -9855,7 +9855,7 @@ def cmd_from_png(a):
         same_ids(entries, names is not None)
     replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
     if a.colors is not None:
-        entries = reduce_colors(entries, a.colors)
+        entries = reduce_colors(entries, a.colors, len(free))
     for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
@@ -9883,47 +9883,85 @@ def cmd_from_png(a):
         print(doc.text(), end="")
 
 
-def reduce_colors(entries, n):
-    """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (alpha too, no
-    dither: quantize), so a photo or a painting fits the palette keys. A fully transparent pixel stays transparent. Prints how far
-    the result is from the PNGs: per channel, alpha-weighted, 0-255."""
+def reduce_colors(entries, n, free):
+    """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (no dither:
+    quantize), so a photo or a painting fits the palette keys. Transparent stays transparent and opaque stays
+    opaque; a see-through pixel stays see-through or joins a near opaque color. Prints a note of how far the result is from the PNGs: each drawn px's worst
+    channel, premultiplied, 0-255. `free` is how many keys OUT has left; N can't be more."""
     if not 1 <= n <= len(KEYS):
         fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
+    if n > free:
+        fail("E_BAD_ARG", f"--colors {n}: OUT has {free} free palette key(s) left; give --colors {free} or fewer"
+             if free else "--colors: OUT has no free palette keys left; import into a new file")
     before = set().union(*(colors(img) for *_, img in entries))
     if len(before) <= n:
         print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
         return entries
     drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
     table = quantize(collections.Counter(drawn), n)
-    q = iter(table[p] for p in drawn)
     out, errs = [], []
     for fid, path, img in entries:
         src = list(pixels(img))
-        dst = [next(q) if p[3] else (0, 0, 0, 0) for p in src]
+        dst = [table[p] if p[3] else (0, 0, 0, 0) for p in src]
         r = Image.new("RGBA", img.size)
         r.putdata(dst)
-        errs += [max(abs(p[3] - d[3]), *(abs(u * p[3] - v * d[3]) // 255 for u, v in zip(p[:3], d[:3])))
+        errs += [max(abs(p[3] - d[3]), *(abs(u * p[3] - v * d[3]) / 255 for u, v in zip(p[:3], d[:3])))
                  for p, d in zip(src, dst) if p[3]]
         out.append((fid, path, r))
     after = set().union(*(colors(img) for *_, img in out))
-    far = sum(e > 16 for e in errs)
-    print(f"reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f} "
-          f"on average, {max(errs, default=0)} at most (a px's worst channel, premultiplied, 0-255); "
-          f"{far} of {len(errs)} drawn px off by more than 16")
+    print(f"note: reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f}"
+          f" on average, {round(max(errs, default=0))} at most (a px's worst channel, premultiplied, 0-255); "
+          f"{sum(e > 16 for e in errs)} of {len(errs)} drawn px off by more than 16")
     return out
 
 
-def quantize(counts, n, rounds=8):
-    """{RGBA color: pixel count} -> {color: its stand-in}, at most n stand-ins. Weighted k-means in premultiplied
-    RGBA, so a faint pixel sits near other faint pixels and can't come out opaque (Pillow's octree ignores most of
-    alpha). Seeds are the most common color, then each time the color farthest from every seed so far, weighted by
-    its count's square root; so a small, distinct detail (an eye) gets a seed before a big area's shading does.
-    Deterministic. Over 4096 colors, near colors (4 bits dropped per channel) are pooled first to bound the work."""
+def quantize(counts, n):
+    """{RGBA color: pixel count} -> {color: its stand-in}, at most n stand-ins. Opaque and see-through colors are
+    reduced apart, n shared between them by the square root of their pixel counts, each getting at least a quarter
+    of n or all its colors (and at least 1, so n must be 2 or more when there are both). An opaque color's stand-in is always opaque, so a solid outline can't turn faint.
+    A see-through color then takes the nearest stand-in of either kind (premultiplied), so a near-opaque edge can
+    join its solid neighbor; a faint one stays near other faint ones and can't come out solid."""
+    solid = {c: k for c, k in counts.items() if c[3] == 255}
+    soft = {c: k for c, k in counts.items() if c[3] < 255}
+    if solid and soft and n < 2:
+        fail("E_BAD_ARG", "--colors 1: the PNGs have opaque and see-through pixels, which never share a color; give 2 "
+             "or more")
+    if not solid or not soft:
+        return kmeans(solid or soft, n)
+    ws, wt = sum(solid.values()) ** 0.5, sum(soft.values()) ** 0.5
+    lo_s, lo_t = min(len(solid), max(1, n // 4)), min(len(soft), max(1, n // 4))
+    ns = min(len(solid), max(lo_s, min(n - lo_t, round(n * ws / (ws + wt)))))
+    nt = min(len(soft), n - ns)
+    table = {**kmeans(solid, min(len(solid), n - nt)), **kmeans(soft, nt)}
+    stand = sorted(set(table.values()))
+    pre = [(s[0] * s[3] / 255, s[1] * s[3] / 255, s[2] * s[3] / 255, s[3]) for s in stand]
+    shift = 0  # near see-through colors (low bits dropped, as kmeans pools) share one nearest stand-in
+    while len({tuple(v >> shift for v in c) for c in soft}) > 4096:
+        shift += 1
+    nearest = {}
+    for c in soft:
+        pool = tuple(v >> shift for v in c)
+        if pool not in nearest:
+            r = tuple((v << shift) + (1 << shift >> 1) for v in pool) if shift else c  # the pool's middle
+            q = (r[0] * r[3] / 255, r[1] * r[3] / 255, r[2] * r[3] / 255, r[3])
+            nearest[pool] = stand[min(range(len(stand)), key=lambda j: sum((u - v) ** 2 for u, v in zip(q, pre[j])))]
+        table[c] = nearest[pool]
+    return table
+
+
+def kmeans(counts, n, rounds=8):
+    """quantize's work on colors all opaque or all see-through: weighted k-means in premultiplied RGBA. Seeds are the
+    most common color, then each time the color farthest from every seed so far, weighted by its count's square root,
+    so a small, distinct detail (an eye) gets a seed before a big area's shading does. Deterministic. Over 4096
+    colors, near colors are pooled first (low bits dropped until 4096 pools or fewer) to bound the work."""
     def pre(c):
         return (c[0] * c[3] / 255, c[1] * c[3] / 255, c[2] * c[3] / 255, c[3])
+    shift = 0
+    while len({tuple(v >> shift for v in c) for c in counts}) > 4096:
+        shift += 1
     pool = collections.defaultdict(list)
-    for c, k in counts.items():
-        pool[tuple(v >> 4 for v in c) if len(counts) > 4096 else c].append((c, k))
+    for c, k in sorted(counts.items()):
+        pool[tuple(v >> shift for v in c)].append((c, k))
     pts = []  # (premultiplied mean, weight, members)
     for members in pool.values():
         w = sum(k for _, k in members)
@@ -9951,21 +9989,10 @@ def quantize(counts, n, rounds=8):
             break
         seeds = moved
     owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
-    solid = [0] * len(seeds)  # each stand-in's weight of fully opaque source pixels, against its whole weight
-    for (_, w, members), j in zip(pts, owner):
-        solid[j] += sum(k for c, k in members if c[3] == 255) * 2 - w
-    def color(j):
-        # Mostly opaque pixels, or nearly opaque ones, stay opaque: soft edges averaged in don't make a solid outline
-        # see-through.
-        a = 255 if solid[j] > 0 or seeds[j][3] >= 240 else max(1, round(seeds[j][3]))
-        return tuple(max(0, min(255, round(v * 255 / max(1, seeds[j][3])))) for v in seeds[j][:3]) + (a,)
-    table = {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
-    # An opaque source color only ever maps to an opaque stand-in (the nearest one), never to a see-through one.
-    opaque = [color(j) for j in range(len(seeds)) if color(j)[3] == 255]
-    for c in table:
-        if c[3] == 255 and table[c][3] < 255 and opaque:
-            table[c] = min(opaque, key=lambda o: sum((u - v) ** 2 for u, v in zip(c, o)))
-    return table
+    def color(s):
+        a = 255 if s[3] > 254.5 else max(1, min(254, round(s[3])))  # an opaque group's mean is 255.0 exactly
+        return tuple(max(0, min(255, round(v * 255 / s[3]))) for v in s[:3]) + (a,)
+    return {c: color(seeds[j]) for (_, _, members), j in zip(pts, owner) for c, _ in members}
 
 
 def png_id(path, a, name=None):
