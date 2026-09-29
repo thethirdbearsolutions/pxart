@@ -27474,48 +27474,97 @@ def test_outline_min_alpha_range(tmp_path, n):
     assert "outline --min-alpha " + n + ": give 1 to 255" in run_err("outline", p, "--key", "o", "--min-alpha", n)
 
 
-def test_outline_notes_a_shape_on_the_frame_edge_with_the_crop_that_pads_it(tmp_path, capsys, monkeypatch):
+def test_outline_edge_note_gives_the_call_with_pad(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     p = shape_file(tmp_path, ["bb.", "bb.", "..."])
-    assert run("outline", "s.px:a", "--key", "o", "-o", "out.px") == 0
+    assert run("outline", "s.px:a", "--key", "o", "-o", "o u t.px") == 0
     out = capsys.readouterr().out
-    assert "note: a: its shape touches the frame's left and top edges, so the outline is open there; to pad it 1px " \
-           "at the left and top and outline that: pxart crop s.px:a -1,-1,4,4 -o out.px:a && pxart outline out.px:a " \
-           "--key o\n" in out
-    run_suggested(next(line for line in out.splitlines() if "outline that" in line), "and outline that: ")
-    assert grid_of(tmp_path / "out.px") == [".oo.", "obbo", "obbo", ".oo."]
+    assert "note: the shape touches the frame's left and top edges (in a), so the outline is open there; --pad grows " \
+           "the frame 1px there first: pxart outline s.px:a --key o -o 'o u t.px' --pad\n" in out
+    run_suggested(next(line for line in out.splitlines() if "--pad grows" in line), "1px there first: ")
+    assert grid_of(tmp_path / "o u t.px") == [".oo.", "obbo", "obbo", ".oo."]
     assert grid_of(p) == ["bb.", "bb.", "..."]
 
 
-def test_outline_edge_note_in_place_says_to_pad_the_art_before_it(tmp_path, capsys, monkeypatch):
+def test_outline_edge_note_after_an_in_place_write_gives_no_command(tmp_path, capsys, monkeypatch):
+    # the file now holds the outline: padding it and outlining again would ring the ring
     monkeypatch.chdir(tmp_path)
     shape_file(tmp_path, ["...", ".bb", ".bb"])
-    assert run("outline", "s.px:a", "--key", "o", "--light", "se", "--lit", "l") == 0
-    assert "note: a: its shape touches the frame's right and bottom edges, so the outline is open there; to close " \
-           "it, outline a padded frame: pad the art from before this run 1px at the right and bottom (pxart crop " \
-           "s.px:a 0,0,4,4 -o s.px:a), then outline again\n" in capsys.readouterr().out
-
-
-def test_outline_edge_note_keeps_the_calls_flags(tmp_path, capsys, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    write(tmp_path, "my s.px", "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n")
-    assert run("outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", "--corners", "--dry-run") == 0
+    assert run("outline", "s.px:a", "--key", "o") == 0
     out = capsys.readouterr().out
-    assert "to pad it 1px at the right and outline that: pxart crop 'my s.px' 0,0,4,3 -o 'my s.px' && pxart " \
-           "outline 'my s.px' --key o --lit l --light se --corners --dry-run\n" in out
-    run_suggested(out.splitlines()[0], "and outline that: ")
+    assert "note: the shape touches the frame's right and bottom edges (in a), so the outline is open there; outlining " \
+           "the art from before this run with --pad closes it (restore s.px first, from git)\n" in out
+    assert "pxart" not in out
 
 
-def test_outline_edge_note_pads_every_frame_alike(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("mode", ["--dry-run", "--preview"])
+def test_outline_edge_note_with_dry_run_or_preview_writes_nothing_itself(tmp_path, capsys, monkeypatch, mode):
     monkeypatch.chdir(tmp_path)
-    write(tmp_path, "w.px", "b #406080\no #101018\n@frame walk/0\n...\n.b.\n.b.\n@frame walk/1\n...\n.b.\n...\n"
-          "@frame walk/2\n...\nb..\n...\n")
-    assert run("outline", "w.px:walk", "--key", "o", "--preview", "p.png") == 0
+    p = write(tmp_path, "my s.px", "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n")
+    extra = ["p.png"] if mode == "--preview" else []
+    assert run("outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", mode, *extra) == 0
     out = capsys.readouterr().out
-    assert "note: walk/0: its shape touches the frame's bottom edge, so the outline is open there; to pad it 1px at " \
-           "the bottom and left (as the other frames, to keep them aligned) and outline that: pxart crop w.px:walk/0 " \
-           "-1,0,4,4 -o w.px:walk/0 && pxart outline w.px:walk/0 --key o --preview p.png\n" in out
-    assert "walk/1:" not in out and "note: walk/2: its shape touches the frame's left edge" in out
+    assert shlex.join(["pxart", "outline", "my s.px", "--key", "o", "--lit", "l", "--light", "se", mode, *extra,
+                       "--pad"]) in out
+    run_suggested(next(line for line in out.splitlines() if "--pad grows" in line), "1px there first: ")
+    assert p.read_text() == "b #406080\no #101018\nl #203040\n\n...\n.bb\n...\n"
+
+
+def test_outline_pad_grows_only_the_touched_sides(tmp_path, capsys):
+    p = shape_file(tmp_path, ["...", ".bb", ".bb"])
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert grid_of(p) == [".oo.", "obbo", "obbo", ".oo."]
+    assert "note: --pad grew a 1px at the right and bottom\n" in capsys.readouterr().out
+
+
+def test_outline_pad_nothing_on_the_edge_changes_no_size(tmp_path, capsys):
+    p = shape_file(tmp_path, SQUARE)
+    assert run("outline", f"{p}:a", "--key", "o", "--pad") == 0
+    assert capsys.readouterr().out == f"changed 12 px: 12->o; wrote {p}\n"
+
+
+def test_outline_pad_uses_the_min_alpha_shape(tmp_path):
+    p = write(tmp_path, "s.px", FRINGE + "f..\n.b.\n...\n")  # only the faint px is on the edge
+    assert run("outline", f"{p}:a", "--key", "o", "--pad", "--min-alpha", "128") == 0
+    assert grid_of(p) == ["fo.", "obo", ".o."]
+
+
+def test_outline_pad_moves_pivots_and_keeps_an_animation_aligned(tmp_path, capsys):
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@anim walk ms=100 pivot=1,2\n@anim idle ms=100\n"
+              "@frame walk/0\n...\n.b.\n.b.\n@frame walk/1 pivot=0,2\n...\n.b.\n...\n"
+              "@frame idle/0\n...\nbb.\n...\n@frame idle/1\n...\n.b.\n...\n")
+    assert run("outline", p, "--key", "o", "--pad") == 0
+    doc = pxart.parse(p)
+    assert {f.size for f in doc.frames} == {(4, 4)}  # left and bottom, for every frame
+    assert doc.anims["walk"]["pivot"] == (2, 2) and doc.get("walk/1").pivot == (1, 2)
+    # idle had no pivot: bottom-centre (1,2) anchored it; padding the bottom would move that, so it keeps its pixel
+    assert doc.get("idle/0").pivot == (2, 2) == doc.get("idle/1").pivot
+    assert "and idle/0, idle/1 got a pivot on the bottom-centre pixel that anchored them" in capsys.readouterr().out
+
+
+def test_outline_pad_inherited_pivot_of_a_group_partly_selected(tmp_path):
+    p = write(tmp_path, "w.px", "b #406080\no #101018\n@anim walk ms=100 pivot=1,1\n"
+              "@frame walk/0\nb..\n...\n@frame walk/1\n.b.\n...\n")
+    assert run("outline", f"{p}:walk/0", "--key", "o", "--pad") == 0
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["pivot"] == (1, 1) and doc.get("walk/0").pivot == (2, 2) and doc.get("walk/1").pivot is None
+
+
+def test_outline_pad_and_inside_conflict(tmp_path):
+    p = shape_file(tmp_path, SQUARE)
+    assert "--inside stays inside it" in run_err("outline", f"{p}:a", "--key", "o", "--pad", "--inside")
+
+
+def test_outline_min_alpha_faint_px_in_a_hole_get_no_frame_wide_erase(tmp_path, capsys):
+    # a window pane of faint px: the hole's px along its edge get the outline key; erasing f frame-wide would punch
+    # through what the outline kept
+    p = write(tmp_path, "s.px", FRINGE + ".........\n.bbbbbbb.\n" + ".bfffffb.\n" * 5 + ".bbbbbbb.\nf........\n")
+    assert run("outline", f"{p}:a", "--key", "o", "--min-alpha", "128") == 0
+    out = capsys.readouterr().out
+    assert "note: --min-alpha 128: 1 px of f (keys under 128) stay drawn outside the outline\n" in out
+    assert "note: --min-alpha 128: 25 faint px lie in holes of the shape (the outline painted 16, 9 stay)\n" in out
+    assert "recolor" not in out
+    assert grid_of(p)[4] == "obofffobo"
 
 
 def test_outline_inside_has_no_edge_note(tmp_path, capsys):
