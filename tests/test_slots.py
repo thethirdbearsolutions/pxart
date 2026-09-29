@@ -264,6 +264,17 @@ def test_extract_inline_palette_keeps_imported_slots(tmp_path):
     assert "f #e0ac69 | #f5cfa0" in (tmp_path / "out" / "x.px").read_text()
 
 
+def test_outline_pad_and_from_png_into_out_keep_slot_lines(tmp_path):
+    p = write(tmp_path, "pad.px", "pxart 1\nf #e0ac69 | #f5cfa0\nk #1a1a1a\n\n@frame a\nff\nff\n")
+    assert run("outline", f"{p}:a", "--key", "k", "--pad") == 0
+    assert "f #e0ac69 | #f5cfa0" in p.read_text() and pxart.parse(p).frames[0].size == (4, 4)
+    assert run("render", f"{p}:a", "--plain", "-o", tmp_path / "a.png") == 0
+    assert run("from-png", tmp_path / "a.png", "-o", p, "--id", "b") == 0
+    text = p.read_text()
+    assert text.count("f #e0ac69 | #f5cfa0") == 1 and "@frame b/a" in text
+    assert pxart.parse(p).get("b/a").grid == pxart.parse(p).get("a").grid  # the base color maps back to f
+
+
 def test_every_palette_line_is_written_by_one_function():
     # Doc.lines() is the one place a key line is spelled; any other would drop the alternatives
     src = (ROOT / "pxart.py").read_text()
