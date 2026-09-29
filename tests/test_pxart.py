@@ -253,6 +253,85 @@ def test_from_png_round_trip(tmp_path):
     assert pxart.pixels(doc.image(doc.frames[0])) == pxart.pixels(img)
 
 
+
+def gradient_png(path, w=16, h=8, alpha=255):
+    """A PNG with w*h distinct colors (more than a palette has keys at 16x8), its left column transparent."""
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    for y in range(h):
+        for x in range(1, w):
+            img.putpixel((x, y), (x * 16, y * 32, (x * y) % 256, alpha))
+    img.save(path)
+    return img
+
+
+def test_from_png_out_of_keys_points_at_colors(tmp_path):
+    gradient_png(tmp_path / "g.png")
+    err = run_err("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px")
+    assert "out of palette keys" in err and "--colors N" in err and "(120 now)" in err
+
+
+def test_from_png_colors_reduces_and_says_how_far(tmp_path, capsys):
+    img = gradient_png(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", "12") == 0
+    out = capsys.readouterr().out
+    assert re.search(r"reduced 120 colors to (\d+) \(--colors 12\): off by [\d.]+ on average, \d+ at most", out)
+    doc = pxart.parse(tmp_path / "g.px")
+    got = pxart.pixels(doc.image(doc.frames[0]))
+    assert len(pxart.colors(doc.image(doc.frames[0]))) <= 12
+    # transparent stays transparent, drawn stays drawn
+    assert [p[3] == 0 for p in got] == [p[3] == 0 for p in pxart.pixels(img)]
+
+
+def test_from_png_colors_keeps_faint_pixels_faint(tmp_path):
+    # Pillow's octree ignored most of alpha: an alpha-1 edge pixel came out opaque, a halo round a drawing (GAMES-357)
+    img = gradient_png(tmp_path / "g.png")
+    for y in range(img.height):
+        img.putpixel((1, y), (255, 0, 0, 1 + y))
+    img.save(tmp_path / "g.png")
+    assert run("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", "6") == 0
+    doc = pxart.parse(tmp_path / "g.px")
+    got = pxart.pixels(doc.image(doc.frames[0]))
+    for p, q in zip(pxart.pixels(img), got):
+        if p[3]:
+            assert abs(p[3] - q[3]) < 64
+    assert all(q[3] == 255 for p, q in zip(pxart.pixels(img), got) if p[3] == 255)
+
+
+def test_quantize_opaque_never_maps_to_see_through():
+    # a few opaque pixels among many near-opaque edge pixels of about their color (GAMES-357 loop 3: alpha 229)
+    counts = {(120, 120, 140, 255): 3, (118, 121, 139, 200): 40, (116, 119, 141, 210): 40, (10, 10, 10, 255): 50}
+    table = pxart.quantize(counts, 2)
+    assert table[(120, 120, 140, 255)][3] == 255 and table[(10, 10, 10, 255)][3] == 255
+
+def test_quantize_is_deterministic_and_keeps_a_small_distinct_color():
+    counts = {(200, 150, 100, 255): 900, (190, 140, 95, 255): 500, (40, 60, 200, 255): 3, (0, 0, 0, 255): 200}
+    a, b = pxart.quantize(counts, 3), pxart.quantize(dict(reversed(list(counts.items()))), 3)
+    assert a == b and a[(40, 60, 200, 255)] == (40, 60, 200, 255)
+
+def test_from_png_colors_shares_one_palette_across_pngs(tmp_path):
+    gradient_png(tmp_path / "a.png")
+    gradient_png(tmp_path / "b.png", alpha=128)
+    assert run("from-png", tmp_path / "a.png", tmp_path / "b.png", "-o", tmp_path / "ab.px", "--colors", "20") == 0
+    doc = pxart.parse(tmp_path / "ab.px")
+    assert len(doc.frames) == 2 and len(doc.palette) <= 20
+
+
+def test_from_png_colors_already_few_is_exact(tmp_path, capsys):
+    img = Image.new("RGBA", (3, 2), (0, 0, 0, 0))
+    img.putpixel((0, 0), (10, 20, 30, 255))
+    img.putpixel((2, 1), (200, 100, 50, 128))
+    img.save(tmp_path / "r.png")
+    assert run("from-png", tmp_path / "r.png", "-o", tmp_path / "r.px", "--colors", "8") == 0
+    assert "2 color(s) already; nothing reduced" in capsys.readouterr().out
+    doc = pxart.parse(tmp_path / "r.px")
+    assert pxart.pixels(doc.image(doc.frames[0])) == pxart.pixels(img)
+
+
+@pytest.mark.parametrize("n", ["0", "90"])
+def test_from_png_colors_range(tmp_path, n):
+    gradient_png(tmp_path / "g.png")
+    assert "give 1 to 89" in run_err("from-png", tmp_path / "g.png", "-o", tmp_path / "g.px", "--colors", n)
+
 def test_export_frames_aseprite_tiled(tmp_path):
     p = write(tmp_path, "m.px", MULTI.replace("kggk\nkggk\n", ".kk.\nkggk\n"))
     assert run("export", p, "--frames", tmp_path / "f", "--aseprite", tmp_path / "s.json",

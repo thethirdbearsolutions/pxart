@@ -806,16 +806,14 @@ CONVERTING
       its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
       walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
       painted with the old tileset keeps the old ids.
-  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px]
+  from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px] [--colors N]
            [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid.
       Several PNGs, --id, or an existing OUT: frames named PREFIX/<png stem>, added
-      to OUT (replacing same-id frames, which the 'wrote' line names with the count of
-      frames written). Two PNGs of one run that would get one id (two packs'
+      to OUT (replacing same-id frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
       tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM
-      by its directory's name ('from-png dungeon/tile_0002.png creatures/tile_0002.png
-      --prefix-dir -o all.px' writes dungeon/tile_0002 and creatures/tile_0002). Colors
+      by its directory's name (dungeon/tile_0002, creatures/tile_0002). Colors
       already in OUT keep their keys, so frames imported in separate runs share one
       palette. --palette P.px starts a new OUT that imports P and reuses its keys.
       Naming loose PNGs: --names A,B,... gives one frame id per PNG, in order (as many names
@@ -833,6 +831,8 @@ CONVERTING
       'from-png Walk.png --grid 16x16 --by cols --names walk/down,walk/up,walk/left,walk/right
       -o boy.px' writes walk/down/0-3 and so on. A sheet that isn't a whole number of cells
       is E_BAD_ARG, unless the strip left over is empty (then a note says so).
+      More colors than keys (a photo): --colors N reduces the PNGs to N first, inexactly,
+      and says by how much.
 
 HELP
   help [all | recipes | TOPIC | CMD]
@@ -856,7 +856,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -9854,11 +9854,15 @@ def cmd_from_png(a):
     if named:
         same_ids(entries, names is not None)
     replaced = [fid for fid, *_ in entries if named and doc.get(fid)]
+    if a.colors is not None:
+        entries = reduce_colors(entries, a.colors)
     for fid, path, img in entries:
         for c in colors(img):
             if c not in keyof:
                 if not free:
-                    fail("E_BAD_ARG", f"{path}: out of palette keys ({len(KEYS)} max)")
+                    fail("E_BAD_ARG", f"{path}: out of palette keys ({len(KEYS)} max)"
+                         + ("" if a.colors is not None else
+                            f"; --colors N reduces the PNGs to N colors first ({len(set().union(*(colors(i) for *_, i in entries)))} now)"))
                 keyof[c] = free.pop(0)
                 doc.palette[keyof[c]] = c
         grid = ["".join(keyof[p] if p[3] else "." for p in (img.getpixel((x, y)) for x in range(img.width)))
@@ -9877,6 +9881,91 @@ def cmd_from_png(a):
                                      + ")" if named else ""))
     else:
         print(doc.text(), end="")
+
+
+def reduce_colors(entries, n):
+    """from-png --colors N: every entry's drawn pixels, all together, reduced to at most N colors (alpha too, no
+    dither: quantize), so a photo or a painting fits the palette keys. A fully transparent pixel stays transparent. Prints how far
+    the result is from the PNGs: per channel, alpha-weighted, 0-255."""
+    if not 1 <= n <= len(KEYS):
+        fail("E_BAD_ARG", f"--colors {n}: give 1 to {len(KEYS)} (a palette has {len(KEYS)} keys)")
+    before = set().union(*(colors(img) for *_, img in entries))
+    if len(before) <= n:
+        print(f"note: --colors {n}: the PNGs have {len(before)} color(s) already; nothing reduced")
+        return entries
+    drawn = [p for *_, img in entries for p in pixels(img) if p[3]]
+    table = quantize(collections.Counter(drawn), n)
+    q = iter(table[p] for p in drawn)
+    out, errs = [], []
+    for fid, path, img in entries:
+        src = list(pixels(img))
+        dst = [next(q) if p[3] else (0, 0, 0, 0) for p in src]
+        r = Image.new("RGBA", img.size)
+        r.putdata(dst)
+        errs += [max(abs(p[3] - d[3]), *(abs(u * p[3] - v * d[3]) // 255 for u, v in zip(p[:3], d[:3])))
+                 for p, d in zip(src, dst) if p[3]]
+        out.append((fid, path, r))
+    after = set().union(*(colors(img) for *_, img in out))
+    far = sum(e > 16 for e in errs)
+    print(f"reduced {len(before)} colors to {len(after)} (--colors {n}): off by {sum(errs) / max(len(errs), 1):.1f} "
+          f"on average, {max(errs, default=0)} at most (a px's worst channel, premultiplied, 0-255); "
+          f"{far} of {len(errs)} drawn px off by more than 16")
+    return out
+
+
+def quantize(counts, n, rounds=8):
+    """{RGBA color: pixel count} -> {color: its stand-in}, at most n stand-ins. Weighted k-means in premultiplied
+    RGBA, so a faint pixel sits near other faint pixels and can't come out opaque (Pillow's octree ignores most of
+    alpha). Seeds are the most common color, then each time the color farthest from every seed so far, weighted by
+    its count's square root; so a small, distinct detail (an eye) gets a seed before a big area's shading does.
+    Deterministic. Over 4096 colors, near colors (4 bits dropped per channel) are pooled first to bound the work."""
+    def pre(c):
+        return (c[0] * c[3] / 255, c[1] * c[3] / 255, c[2] * c[3] / 255, c[3])
+    pool = collections.defaultdict(list)
+    for c, k in counts.items():
+        pool[tuple(v >> 4 for v in c) if len(counts) > 4096 else c].append((c, k))
+    pts = []  # (premultiplied mean, weight, members)
+    for members in pool.values():
+        w = sum(k for _, k in members)
+        pts.append((tuple(sum(pre(c)[i] * k for c, k in members) / w for i in range(4)), w, members))
+    pts.sort(key=lambda t: (-t[1], t[0]))
+    def d2(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 + (a[3] - b[3]) ** 2
+    seeds = [pts[0][0]]
+    near = [d2(p, seeds[0]) for p, _, _ in pts]
+    while len(seeds) < min(n, len(pts)):
+        i = max(range(len(pts)), key=lambda i: near[i] * pts[i][1] ** 0.5)
+        if near[i] == 0:
+            break
+        seeds.append(pts[i][0])
+        near = [min(a, d2(p, seeds[-1])) for a, (p, _, _) in zip(near, pts)]
+    for _ in range(rounds):
+        owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
+        sums = [[0.0] * 5 for _ in seeds]
+        for (p, w, _), j in zip(pts, owner):
+            for i in range(4):
+                sums[j][i] += p[i] * w
+            sums[j][4] += w
+        moved = [tuple(t[i] / t[4] for i in range(4)) if t[4] else s for t, s in zip(sums, seeds)]
+        if moved == seeds:
+            break
+        seeds = moved
+    owner = [min(range(len(seeds)), key=lambda j: d2(p, seeds[j])) for p, _, _ in pts]
+    solid = [0] * len(seeds)  # each stand-in's weight of fully opaque source pixels, against its whole weight
+    for (_, w, members), j in zip(pts, owner):
+        solid[j] += sum(k for c, k in members if c[3] == 255) * 2 - w
+    def color(j):
+        # Mostly opaque pixels, or nearly opaque ones, stay opaque: soft edges averaged in don't make a solid outline
+        # see-through.
+        a = 255 if solid[j] > 0 or seeds[j][3] >= 240 else max(1, round(seeds[j][3]))
+        return tuple(max(0, min(255, round(v * 255 / max(1, seeds[j][3])))) for v in seeds[j][:3]) + (a,)
+    table = {c: color(j) for (_, _, members), j in zip(pts, owner) for c, _ in members}
+    # An opaque source color only ever maps to an opaque stand-in (the nearest one), never to a see-through one.
+    opaque = [color(j) for j in range(len(seeds)) if color(j)[3] == 255]
+    for c in table:
+        if c[3] == 255 and table[c][3] < 255 and opaque:
+            table[c] = min(opaque, key=lambda o: sum((u - v) ** 2 for u, v in zip(c, o)))
+    return table
 
 
 def png_id(path, a, name=None):
@@ -10607,6 +10696,9 @@ def parser(describe=True):
     p.add_argument("topic", nargs="?", help="all, a TOPIC (FORMAT, EDITING, ...) or a command")
     p = sub.add_parser("from-png"); p.add_argument("pngs", nargs="+"); p.add_argument("-o"); p.add_argument("--id")
     p.add_argument("--palette", help="new OUT imports this palette file and reuses its keys")
+    p.add_argument("--colors", type=int, metavar="N",
+                   help="reduce the PNGs (all together) to at most N colors first, for a photo or painting with "
+                        "more colors than palette keys; says how far that moved them")
     p.add_argument("--grid", metavar="WxH", help="slice one sheet into WxH cells, one frame each (empty ones skipped)")
     p.add_argument("--names", metavar="A,B,...",
                    help="one frame id per PNG, in order; with --grid: each row's (--by cols: column's) group name")
