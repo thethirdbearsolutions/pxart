@@ -44,10 +44,3 @@ project and a `CNAME` record for `pxart` pointing at `cname.vercel-dns.com`.
 
 Cloudflare Pages works the same way: root directory `site`, build command `npm run build`,
 output directory `dist`.
-
-## Later
-
-The roadmap on the home page: v2 adds a library of CC0 and CC BY sprites with "add your
-own", v3 a browser editor for `.px` files, and v4 joins the two for remixing and sharing.
-`src/lib/px.ts` is already shared between the build and the browser, and is where an
-editor would start.

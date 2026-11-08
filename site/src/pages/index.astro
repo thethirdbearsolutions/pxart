@@ -32,12 +32,6 @@ y #fee761
 ....kkkk....`,
   null,
 );
-const roadmap = [
-  { v: "v1", title: "Docs", text: "Guides, tutorials, the command reference and the changelog. This site.", state: "now" },
-  { v: "v2", title: "Library", text: "A library of CC0 and CC BY sprites in .px, and a way to add your own.", state: "next" },
-  { v: "v3", title: "Editor", text: "Write and edit .px files in the browser, with pxart's checks as you type.", state: "later" },
-  { v: "v4", title: "Remix", text: "Open a library sprite in the editor, change it, and share it back.", state: "later" },
-];
 ---
 <Base section="home">
   <section class="hero">
@@ -135,21 +129,6 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     <p class="more"><a href="/tutorials/">All nine tutorials →</a> · <a href="/reference/">The command reference →</a></p>
   </section>
 
-  <section class="roadmap" aria-labelledby="road-h">
-    <div class="wrap">
-      <h2 id="road-h" class="section-h"><span>04</span> Where this is going</h2>
-      <ol class="road">
-        {roadmap.map((r) => (
-          <li class={r.state}>
-            <div class="road-bar" aria-hidden="true"></div>
-            <div class="road-v">{r.v}{r.state === "now" && <em>you are here</em>}</div>
-            <h3>{r.title}</h3>
-            <p>{r.text}</p>
-          </li>
-        ))}
-      </ol>
-    </div>
-  </section>
 </Base>
 
 <style>
@@ -421,59 +400,6 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     font-weight: 500;
   }
 
-  .roadmap {
-    margin-top: 6rem;
-    padding: 5rem 0 1rem;
-    border-top: 2px solid var(--ink);
-  }
-  .road {
-    list-style: none;
-    margin: 2.5rem 0 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0;
-  }
-  .road li {
-    padding-right: 1.5rem;
-  }
-  .road-bar {
-    height: 16px;
-    background: repeating-linear-gradient(90deg, var(--rule) 0 14px, transparent 14px 16px);
-    margin-bottom: 1rem;
-  }
-  .road li.now .road-bar {
-    background: repeating-linear-gradient(90deg, var(--moss) 0 14px, transparent 14px 16px);
-  }
-  .road li.next .road-bar {
-    background:
-      repeating-linear-gradient(90deg, var(--sun) 0 14px, transparent 14px 16px) 0 0 / 30% 100% no-repeat,
-      repeating-linear-gradient(90deg, var(--rule) 0 14px, transparent 14px 16px);
-  }
-  .road-v {
-    font: 600 0.85rem var(--font-mono);
-    color: var(--ink-2);
-    display: flex;
-    gap: 0.6rem;
-    align-items: center;
-  }
-  .road-v em {
-    font-style: normal;
-    font-size: 0.72rem;
-    background: var(--moss);
-    color: #efe6d2;
-    padding: 0 0.4rem;
-  }
-  .road h3 {
-    margin: 0.3rem 0 0.5rem;
-    font-size: 1.5rem;
-  }
-  .road p {
-    margin: 0;
-    color: var(--ink-2);
-    font-size: 0.95rem;
-  }
-
   @media (max-width: 1080px) {
     .hero-grid {
       grid-template-columns: minmax(0, 1fr);
@@ -487,16 +413,11 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     .feature-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .road {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      row-gap: 2rem;
-    }
   }
   @media (max-width: 680px) {
     .steps,
     .why-grid,
-    .feature-grid,
-    .road {
+    .feature-grid {
       grid-template-columns: minmax(0, 1fr);
     }
     .step-n::after {
