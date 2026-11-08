@@ -1,0 +1,6 @@
+# Cloudflare Pages: pxart.thirdbearsolutions.com
+# In the dashboard: root directory "site", build command "npm run build", and build watch
+# paths site/**, README.md, CHANGELOG.md, examples/**, pxart.py (the site reads them all).
+name = "pxart"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "dist"

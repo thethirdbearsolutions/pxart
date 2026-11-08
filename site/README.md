@@ -37,10 +37,16 @@ The build itself needs only Node 20 or newer, not Python.
 
 ## Deploying
 
-The site is set up for Vercel (`vercel.json`). Create a project from this repository with
-**Root Directory** set to `site`. Vercel detects Astro, and Astro reads `../README.md` and
-`../examples/` during the build. Then add the domain `pxart.thirdbearsolutions.com` to the
-project and a `CNAME` record for `pxart` pointing at `cname.vercel-dns.com`.
+The site is hosted on Cloudflare Pages (`wrangler.toml`, `public/_headers`). The project's
+settings in the Cloudflare dashboard:
 
-Cloudflare Pages works the same way: root directory `site`, build command `npm run build`,
-output directory `dist`.
+- **Root directory:** `site`. Astro reads `../README.md`, `../examples/` and the rest during
+  the build, and Pages clones the whole repository, so that works.
+- **Build command:** `npm run build`. **Output directory:** `dist`. Node comes from `.nvmrc`.
+- **Build watch paths:** `site/**`, `README.md`, `CHANGELOG.md`, `examples/**`, `pxart.py`, so
+  pushes that change none of the site's sources don't trigger a deploy.
+- **Custom domain:** `pxart.thirdbearsolutions.com`. If thirdbearsolutions.com's DNS is on
+  Cloudflare, Pages adds the record itself; otherwise add a `CNAME` for `pxart` pointing at
+  `pxart.pages.dev`.
+
+Pull requests get preview deployments at `<branch>.pxart.pages.dev`.
