@@ -3,13 +3,28 @@ import type { NavGroup } from "../layouts/Docs.astro";
 
 export async function docsNav(): Promise<NavGroup[]> {
   const pages = await docs();
+  const href = (slug: string) => (slug ? `/docs/${slug}/` : "/docs/");
+  const of = (group: string) => pages.filter((p) => p.group === group).map((p) => ({ href: href(p.slug), label: p.nav }));
   return [
-    { title: "Docs", items: pages.map((p) => ({ href: p.slug ? `/docs/${p.slug}/` : "/docs/", label: p.nav })) },
-    { title: "Go further", items: [
-      { href: "/tutorials/", label: "Tutorials" },
-      { href: "/reference/", label: "Command reference" },
-      { href: "/changelog/", label: "Changelog" },
-    ] },
+    { title: "The format", items: of("The format") },
+    {
+      title: "The tool",
+      items: [
+        ...of("The tool"),
+        // pxart's own taxonomy, as pxart -h and the reference group the commands
+        ...TOPIC_ORDER.filter((t) => t !== "HELP").map((t) => ({ href: `/reference/topics/${t.toLowerCase()}/`, label: t.charAt(0) + t.slice(1).toLowerCase() })),
+        { href: "/reference/", label: "Command reference" },
+      ],
+    },
+    {
+      title: "Integrations",
+      items: [
+        ...of("Integrations"),
+        { href: "/tutorials/08-export/", label: "Aseprite, Tiled and PNGs" },
+        { href: "/tutorials/07-import/", label: "Importing PNG packs" },
+      ],
+    },
+    { title: "Go further", items: [{ href: "/tutorials/", label: "Tutorials" }, { href: "/changelog/", label: "Changelog" }] },
   ];
 }
 

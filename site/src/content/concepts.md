@@ -12,7 +12,7 @@ picture redraws as you type. The editor is a sketchpad: `pxart check` checks far
 |---|---|---|
 | `hero.px` | a **sprite**: a palette, then one or more grids of its keys | PNGs, GIFs, sheets, Aseprite and Tiled exports |
 | `palette.px` | a **palette file**: colors only, imported by sprites with `@palette` | the colors of every sprite that imports it |
-| `room.map` | a **map**: a legend of tiles, then rows of legend characters | a scene PNG, a `.px` frame, a Tiled world |
+| `room.map` | a **map**: a legend of tiles, then rows of legend characters ([format](/docs/map-format/)) | a scene PNG, a `.px` frame, a Tiled world |
 | `harbor/` | a **pack**: a folder of sprites that share a palette file | one sheet, one check, one export |
 
 ## Sprites
@@ -28,6 +28,12 @@ gem
 
 Things to try: change `p #d8718c` to another color; add a `w` in the second row for more shine;
 or make one row a character shorter, and see what the editor says.
+
+A `.px` file is data, not a program: it says which color each pixel is, and nothing else
+happens when it's read. pxart's drawing commands (`rect`, `ellipse`, `shade`, `outline`...) work
+on a file the way you would, writing ordinary rows of keys into it. Nothing remembers which
+command made which pixels, so a sprite drawn by commands and one typed by hand are the same
+kind of file.
 
 `pxart render gem.px -o gem.png` draws it with a pixel grid and rulers, and `pxart check gem.px` reports any
 mistakes, with a code and a line number. See [the .px format](/docs/format/) and
@@ -155,7 +161,8 @@ for the whole quay at dusk. The barrel has no dusk of its own, so its legend lin
 `pxart scene --map quay.map -o quay.png` draws a map as a PNG. `compose --map` builds the
 same room as a `.px` frame, and `export --tiled` compiles a world of `.map` rooms for
 [Tiled](https://www.mapeditor.org/) ([`pxart help worlds`](/reference/topics/worlds/)).
-[Tutorial 06](/tutorials/06-scene/) builds a level in layers.
+[The .map format](/docs/map-format/) has the whole syntax, and [tutorial 06](/tutorials/06-scene/)
+builds a level in layers.
 
 ## Glossary
 

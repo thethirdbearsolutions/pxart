@@ -3,6 +3,7 @@ import Base from "../layouts/Base.astro";
 import Playground from "../components/Playground.astro";
 import { tutorials, ref } from "../lib/content";
 import { paintPx, readRepo } from "../lib/markdown";
+import { layersHtml } from "../lib/layers";
 import { GITHUB } from "../lib/paths";
 
 const ts = await tutorials();
@@ -52,8 +53,14 @@ const sample = paintPx(readRepo("examples/01-format/barrel.px"), null, { render:
     </div>
   </section>
 
+  <section class="layers-sec wrap" aria-labelledby="layers-h">
+    <h2 id="layers-h" class="section-h"><span>01</span> A format, and a tool for it</h2>
+    <p class="section-lead">The <code>.px</code> and <code>.map</code> files are the product: plain text, in git, readable by people and models. <code>pxart</code> is one Python file whose commands read them, write them back, or turn them into pictures and other tools' files.</p>
+    <Fragment set:html={layersHtml()} />
+  </section>
+
   <section class="loop wrap" aria-labelledby="loop-h">
-    <h2 id="loop-h" class="section-h"><span>01</span> Write, render, look, fix</h2>
+    <h2 id="loop-h" class="section-h"><span>02</span> Write, render, look, fix</h2>
     <p class="section-lead">The tool is built for one loop. Every step is plain text in and a picture or a number out, so a person or a model can run it.</p>
     <ol class="steps">
       <li>
@@ -85,7 +92,7 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
 
   <section class="why" aria-labelledby="why-h">
     <div class="wrap">
-      <h2 id="why-h" class="section-h"><span>02</span> Why text?</h2>
+      <h2 id="why-h" class="section-h"><span>03</span> Why text?</h2>
       <div class="why-grid">
         <div class="why-card">
           <h3>A model can write it</h3>
@@ -105,7 +112,7 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
   </section>
 
   <section class="features wrap" aria-labelledby="feat-h">
-    <h2 id="feat-h" class="section-h"><span>03</span> What it does</h2>
+    <h2 id="feat-h" class="section-h"><span>04</span> What it does</h2>
     <div class="feature-grid">
       {features.map((f) => (
         <a class="feature" href={`/tutorials/${f.slug}/`}>
@@ -214,6 +221,12 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     margin: 0 0 2.5rem;
   }
 
+  .layers-sec {
+    padding-top: 5rem;
+  }
+  .layers-sec .section-lead code {
+    font-size: 0.9em;
+  }
   .loop {
     padding-top: 5rem;
   }

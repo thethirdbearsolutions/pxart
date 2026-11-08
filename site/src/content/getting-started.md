@@ -7,6 +7,16 @@ you can read it.
 This page installs pxart, has you write a sprite, look at it, break it, and animate it.
 That takes five minutes. The [tutorials](/tutorials/) then go further, one feature at a time.
 
+## How it fits together
+
+There are two layers. At the bottom is **the format**: `.px` sprites, palette files and `.map`
+maps, all plain text that lives in git. Above it is **the tool**, `pxart`, whose commands read
+those files, write them back, or turn them into pictures and other tools' files. pxart groups its
+commands the way the diagram does, and so do `pxart -h` and the [reference](/reference/).
+
+```layers
+```
+
 ## Install
 
 pxart needs Python 3.9 or newer. Its only dependency is [Pillow](https://pypi.org/project/pillow/).

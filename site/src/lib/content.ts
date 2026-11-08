@@ -7,6 +7,7 @@ import reference from "../data/reference.json";
 export interface Page extends Rendered {
   slug: string;
   nav: string;
+  group?: string;
   source: string; // repository path, for "edit on GitHub"
 }
 
@@ -22,21 +23,20 @@ function readmeSection(start: string, end: string | null): string {
   return body.replace(/^(#{2,6}) /gm, (_, h: string) => h.slice(1) + " ");
 }
 
-const DOCS: { slug: string; nav: string; load: () => { md: string; source: string } }[] = [
-  {
-    slug: "",
-    nav: "Getting started",
-    load: () => ({ md: fs.readFileSync(path.join(REPO_ROOT, "site/src/content/getting-started.md"), "utf8"), source: "site/src/content/getting-started.md" }),
-  },
-  {
-    slug: "concepts",
-    nav: "Concepts",
-    load: () => ({ md: fs.readFileSync(path.join(REPO_ROOT, "site/src/content/concepts.md"), "utf8"), source: "site/src/content/concepts.md" }),
-  },
-  { slug: "format", nav: "The .px format", load: () => ({ md: readmeSection("## Format", "### Errors"), source: "README.md" }) },
-  { slug: "errors", nav: "Errors", load: () => ({ md: readmeSection("### Errors", "## Commands"), source: "README.md" }) },
-  { slug: "commands", nav: "Commands at a glance", load: () => ({ md: readmeSection("## Commands", "## Prior art"), source: "README.md" }) },
-  { slug: "prior-art", nav: "Prior art & license", load: () => ({ md: readmeSection("## Prior art", null), source: "README.md" }) },
+const site = (file: string) => () => ({ md: fs.readFileSync(path.join(REPO_ROOT, "site/src/content", file), "utf8"), source: `site/src/content/${file}` });
+
+/** The docs in reading order (the pager follows it); `group` is the nav section each sits in:
+ *  the format (what a file is), the tool (pxart's commands), and integrations. */
+export const DOC_GROUPS = ["The format", "The tool", "Integrations"] as const;
+const DOCS: { slug: string; nav: string; group: (typeof DOC_GROUPS)[number]; load: () => { md: string; source: string } }[] = [
+  { slug: "", nav: "Getting started", group: "The tool", load: site("getting-started.md") },
+  { slug: "concepts", nav: "Concepts", group: "The format", load: site("concepts.md") },
+  { slug: "format", nav: "The .px format", group: "The format", load: () => ({ md: readmeSection("## Format", "### Errors"), source: "README.md" }) },
+  { slug: "map-format", nav: "The .map format", group: "The format", load: site("map-format.md") },
+  { slug: "errors", nav: "Errors", group: "The format", load: () => ({ md: readmeSection("### Errors", "## Commands"), source: "README.md" }) },
+  { slug: "commands", nav: "Commands at a glance", group: "The tool", load: () => ({ md: readmeSection("## Commands", "## Prior art"), source: "README.md" }) },
+  { slug: "ci", nav: "CI and pre-commit", group: "Integrations", load: site("ci.md") },
+  { slug: "prior-art", nav: "Prior art & license", group: "The format", load: () => ({ md: readmeSection("## Prior art", null), source: "README.md" }) },
 ];
 
 let docsCache: Promise<Page[]> | null = null;
@@ -45,7 +45,7 @@ export function docs(): Promise<Page[]> {
     DOCS.map(async (d) => {
       const { md, source } = d.load();
       const r = await renderMarkdown(md, { repoPath: source === "README.md" ? "README.md" : undefined, stripTitle: true });
-      return { ...r, slug: d.slug, nav: d.nav, source };
+      return { ...r, slug: d.slug, nav: d.nav, group: d.group, source };
     }),
   );
   return docsCache;

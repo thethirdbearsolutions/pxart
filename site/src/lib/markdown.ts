@@ -16,11 +16,12 @@ import { createHighlighter, createCssVariablesTheme, type Highlighter } from "sh
 import { REPO_ROOT, GITHUB_BLOB, GITHUB_TREE } from "./paths";
 import { parsePx, frameSvg, escapeHtml, type Rgba, paletteFor } from "./px";
 import { playgroundHtml } from "./playground";
+import { layersHtml } from "./layers";
 
 const cssTheme = createCssVariablesTheme({ name: "pxart", variablePrefix: "--shiki-", fontStyle: true });
 let highlighter: Promise<Highlighter> | null = null;
 function getHighlighter() {
-  highlighter ??= createHighlighter({ themes: [cssTheme], langs: ["sh", "json", "python", "toml"] });
+  highlighter ??= createHighlighter({ themes: [cssTheme], langs: ["sh", "json", "python", "toml", "yaml"] });
   return highlighter;
 }
 
@@ -214,10 +215,11 @@ export async function renderMarkdown(source: string, opts: RenderOptions = {}): 
           const text = toString(code);
           let html: string;
           const looksPx = !lang && /^(pxart \d+|@(frame|palette|anim|variant|still) .*|\S\s+#[0-9a-fA-F]{6}.*)$/m.test(text) && /^[^\s#@]+$/m.test(text);
-          if (lang === "tryme") html = playgroundHtml(text.trim().split(/\s+/), { compact: true, hint: "try me: edit it" });
+          if (lang === "layers") html = layersHtml();
+          else if (lang === "tryme") html = playgroundHtml(text.trim().split(/\s+/), { compact: true, hint: "try me: edit it" });
           else if (lang === "px" || looksPx) html = paintPx(text, absDir);
-          else if (["sh", "bash", "json", "python", "toml"].includes(lang)) {
-            html = hl.codeToHtml(text.replace(/\n$/, ""), { lang: lang === "bash" ? "sh" : lang, theme: "pxart" });
+          else if (["sh", "bash", "json", "python", "toml", "yaml", "yml"].includes(lang)) {
+            html = hl.codeToHtml(text.replace(/\n$/, ""), { lang: lang === "bash" ? "sh" : lang === "yml" ? "yaml" : lang, theme: "pxart" });
             html = `<div class="code-block" data-lang="${lang}">${html}</div>`;
           } else {
             const kind = lang === "text" ? "output" : lang || "plain";

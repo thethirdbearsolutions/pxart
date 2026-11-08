@@ -465,7 +465,8 @@ pre {
 .code-block[data-lang="output"]::before,
 .code-block[data-lang="sh"]::before,
 .code-block[data-lang="map"]::before,
-.code-block[data-lang="json"]::before {
+.code-block[data-lang="json"]::before,
+.code-block[data-lang="yaml"]::before {
   content: attr(data-lang);
   position: absolute;
   top: -0.7rem;
@@ -1232,3 +1233,165 @@ pre {
 }
 .prose .pg .pg-status { margin: 0; }
 .pg [hidden] { display: none !important; }
+
+/* ---- the layer diagram (lib/layers.ts) ------------------------------------------------ */
+.layers {
+  margin: 1.5rem 0 2rem;
+  display: grid;
+  gap: 0;
+  font-size: 0.9rem;
+}
+.ly-band {
+  border: 2px solid var(--ink);
+  padding: 0.9rem 1rem 1rem;
+}
+.ly-label {
+  font: 600 0.8rem var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  margin-bottom: 0.75rem;
+}
+.ly-label code {
+  text-transform: none;
+  font-size: 0.95em;
+}
+.ly-tool {
+  background: var(--paper);
+  border-bottom: 0;
+}
+.ly-topics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.ly-topic {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ly-out {
+  font: 500 0.74rem/1.35 var(--font-mono);
+  color: var(--ink-2);
+  border: 1px dashed var(--rule);
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+  min-height: 4.2rem;
+  display: flex;
+  align-items: center;
+}
+.ly-out::before {
+  content: "↑ ";
+  margin-right: 0.3em;
+  color: var(--muted);
+}
+.ly-box {
+  flex: 1;
+  border: 2px solid var(--ink);
+  padding: 0.6rem 0.65rem;
+  background: var(--paper-2);
+}
+.ly-name {
+  font: 600 1.05rem var(--font-display);
+  color: var(--ink);
+  text-decoration: none;
+}
+.ly-name:hover {
+  text-decoration: underline;
+}
+.ly-box p {
+  margin: 0.2rem 0 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.ly-cmds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.45rem;
+  line-height: 1.3;
+}
+.ly-cmds a {
+  text-decoration: none;
+}
+.ly-cmds code {
+  font-size: 0.74rem;
+  color: var(--link);
+}
+.ly-cmds a:hover code {
+  text-decoration: underline;
+}
+.ly-arrow {
+  font: 600 0.72rem var(--font-mono);
+  text-align: center;
+  padding: 0.35rem 0 0;
+  color: var(--ink-2);
+}
+.ly-both {
+  color: var(--accent-text);
+}
+.ly-format {
+  /* the format band is the plum ink of the palette in both themes: the ground everything stands on */
+  --paper: #efe6d2;
+  --sun: #f3cf6b;
+  background: #2b1e2f;
+  color: #efe6d2;
+  border-color: var(--ink);
+}
+.ly-format .ly-label {
+  color: color-mix(in srgb, var(--paper) 75%, transparent);
+}
+.ly-files {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.ly-file {
+  display: block;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
+  color: var(--paper);
+  text-decoration: none;
+}
+.ly-file:hover {
+  border-color: var(--paper);
+}
+.ly-file code {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--sun);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-bottom: 0.2rem;
+}
+.ly-file span {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--paper) 80%, transparent);
+}
+.ly-note {
+  margin: 0.8rem 0 0 !important;
+  font-size: 0.82rem;
+  color: color-mix(in srgb, var(--paper) 80%, transparent);
+}
+@media (max-width: 860px) {
+  .ly-topics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ly-files {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .ly-topics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.layers code,
+.prose .layers :not(pre) > code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
