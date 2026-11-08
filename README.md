@@ -4,6 +4,8 @@ Pixel art as text. A sprite is a small plain-text file (a palette, then a grid o
 characters) that renders to PNG. Language models can write it, git can diff it, and
 you can read it.
 
+Docs, tutorials and the command reference: **[pxart.thirdbearsolutions.com](https://pxart.thirdbearsolutions.com)**.
+
 ```
 # a small face
 k #3f2631

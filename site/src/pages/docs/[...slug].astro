@@ -1,0 +1,23 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import { docs } from "../../lib/content";
+import { docsNav } from "../../lib/nav";
+
+export async function getStaticPaths() {
+  const pages = await docs();
+  return pages.map((p, i) => ({
+    params: { slug: p.slug || undefined },
+    props: {
+      page: p,
+      prev: i > 0 ? { href: pages[i - 1].slug ? `/docs/${pages[i - 1].slug}/` : "/docs/", label: pages[i - 1].nav } : null,
+      next: i < pages.length - 1 ? { href: `/docs/${pages[i + 1].slug}/`, label: pages[i + 1].nav } : { href: "/tutorials/", label: "Tutorials" },
+    },
+  }));
+}
+const { page, prev, next } = Astro.props;
+const nav = await docsNav();
+const title = page.slug === "" ? page.nav : page.title.replace(/^Format$/, "The .px format");
+---
+<Docs title={title} eyebrow="Docs" section="docs" nav={nav} headings={page.headings} source={page.source} prev={prev} next={next} description={page.lead}>
+  <div class="prose" set:html={page.html} />
+</Docs>

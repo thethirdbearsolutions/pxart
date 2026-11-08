@@ -1,0 +1,509 @@
+---
+import Base from "../layouts/Base.astro";
+import Playground from "../components/Playground.astro";
+import { tutorials, ref } from "../lib/content";
+import { paintPx } from "../lib/markdown";
+import { GITHUB } from "../lib/paths";
+
+const ts = await tutorials();
+const bySlug = Object.fromEntries(ts.map((t) => [t.slug, t]));
+const features = [
+  { slug: "02-animation", img: "/examples/02-animation/walk.gif", title: "Animation you can measure", text: "Frames, timing and pivots in the file. anim prints what moved between frames once the whole-body bob is removed, so a walk cycle that's secretly a bob shows up as a number." },
+  { slug: "03-variants", img: "/examples/03-variants/panels.x4.png", title: "Day, dusk and night", text: "A @variant recolors a palette. Derive a night from the base colors, fit a dusk to another pack's, and keep the lamps lit." },
+  { slug: "04-drawing", img: "/examples/04-drawing/steps.png", title: "Drawing commands", text: "Lines, polygons, pixel-clean ellipses, fills, light-aware shading and outlines, for sprites too big to type pixel by pixel." },
+  { slug: "06-scene", img: "/examples/06-scene/glade-dusk.x2.png", title: "Scenes from tilemaps", text: "A text .map of tiles, in layers, becomes a level: as a PNG, as a .px frame, or as a Tiled world." },
+  { slug: "05-compose", img: "/examples/05-compose/dock-dusk.x4.png", title: "Compose across packs", text: "Stack sprites from packs whose colors clash. Conflicts are reported key by key, and --rekey resolves them without touching the sources." },
+  { slug: "08-export", img: "/examples/08-export/alchemist.x4.png", title: "In and out", text: "Slice a sprite sheet into frames and prove the import lossless. Export to PNGs, to Aseprite sheets with tags, or to Tiled tilesets." },
+];
+const diffExample = `--- face.px
++++ face.px
+@@ -9 +9 @@
+-...kggggk...
++...kgyygk...`;
+const sample = paintPx(
+  `k #3f2631
+g #43e1b3
+y #fee761
+
+....kkkk....
+...kggggk...
+..kgyggygk..
+...kggggk...
+....kkkk....`,
+  null,
+);
+const roadmap = [
+  { v: "v1", title: "Docs", text: "Guides, tutorials, the command reference and the changelog. This site.", state: "now" },
+  { v: "v2", title: "Library", text: "A library of CC0 and CC BY sprites in .px, and a way to add your own.", state: "next" },
+  { v: "v3", title: "Editor", text: "Write and edit .px files in the browser, with pxart's checks as you type.", state: "later" },
+  { v: "v4", title: "Remix", text: "Open a library sprite in the editor, change it, and share it back.", state: "later" },
+];
+---
+<Base section="home">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="kicker"><span class="tag">pxart {ref.version}</span> free software, MIT licensed</p>
+        <h1>Pixel art<br />as <span class="hl">text</span>.</h1>
+        <p class="pitch">
+          A sprite is a small plain-text file: a palette, then a grid of characters. It renders to PNG.
+          Language models can write it, git can diff it, and you can read it.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="/docs/">Get started</a>
+          <a class="btn" href="/tutorials/">Tutorials</a>
+          <a class="btn" href={GITHUB}>GitHub</a>
+        </div>
+        <div class="install code-block" data-lang="sh">
+          <pre><code><span class="prompt">$</span> pip install git+https://github.com/thethirdbearsolutions/pxart</code></pre>
+        </div>
+        <p class="install-note">One Python file. Pillow is its only dependency.</p>
+      </div>
+      <div class="hero-demo">
+        <Playground />
+      </div>
+    </div>
+  </section>
+
+  <section class="loop wrap" aria-labelledby="loop-h">
+    <h2 id="loop-h" class="section-h"><span>01</span> Write, render, look, fix</h2>
+    <p class="section-lead">The tool is built for one loop. Every step is plain text in and a picture or a number out, so a person or a model can run it.</p>
+    <ol class="steps">
+      <li>
+        <div class="step-n">write</div>
+        <div class="step-art" set:html={sample} />
+        <p>Type rows of palette keys in any editor. The sprite's size is the grid's size: there's nothing to declare or count.</p>
+      </li>
+      <li>
+        <div class="step-n">render</div>
+        <div class="step-art checker center"><img src="/examples/01-format/barrel.preview.png" width="164" height="190" alt="a barrel preview with a pixel grid and coordinate rulers" /></div>
+        <p><code>pxart render</code> draws each pixel as a block, with a grid and coordinate rulers so you can count pixels.</p>
+      </li>
+      <li>
+        <div class="step-n">look</div>
+        <div class="step-art"><div class="code-block" data-lang="output"><pre class="plain"><code>$ pxart anim hero.px:walk/down
+walk/down/1  110ms  vs walk/down/0: shift +0,+1 then 26px (7%) (no shift: 205px)
+walk/down/2  110ms  vs walk/down/1: shift -1,-1 then 82px (23%) (no shift: 278px)</code></pre></div></div>
+        <p><code>anim</code>, <code>onion</code>, <code>stats</code> and <code>diff</code> print what changed as numbers, so a 1px jump that's too faint to see still shows up.</p>
+      </li>
+      <li>
+        <div class="step-n">fix</div>
+        <div class="step-art"><div class="code-block" data-lang="output"><pre class="plain"><code>$ pxart check face.px
+FAIL face.px: 1 error(s)
+face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></pre></div></div>
+        <p><code>check</code> reports every problem at once, each with a stable code, a line and a pixel. Edits rewrite only the lines that changed.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="why" aria-labelledby="why-h">
+    <div class="wrap">
+      <h2 id="why-h" class="section-h"><span>02</span> Why text?</h2>
+      <div class="why-grid">
+        <div class="why-card">
+          <h3>A model can write it</h3>
+          <p>A sprite is characters on a grid, with no binary format and no coordinates to get wrong. A language model writes the rows, renders them, reads the numbers and fixes what's off, in the same loop you'd use.</p>
+        </div>
+        <div class="why-card">
+          <h3>Git can diff it</h3>
+          <div class="code-block" data-lang="output"><pre class="plain diff"><code set:html={diffExample.replace(/^(-.*)$/gm, '<span class="del">$1</span>').replace(/^(\+.*)$/gm, '<span class="add">$1</span>')} /></pre></div>
+          <p>Two pixels changed, so the diff is two characters. Review art in a pull request the way you review code.</p>
+        </div>
+        <div class="why-card">
+          <h3>You can read it</h3>
+          <p>Open any <code>.px</code> in an editor and the picture is right there. Comments say what each key is for, and shared palette files keep a whole pack on the same colors.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features wrap" aria-labelledby="feat-h">
+    <h2 id="feat-h" class="section-h"><span>03</span> What it does</h2>
+    <p class="section-lead">About forty commands, each with a tutorial that ends in a picture you made. The tutorials' outputs are rebuilt by the test suite, so what they show is what the tool does.</p>
+    <div class="feature-grid">
+      {features.map((f) => (
+        <a class="feature" href={`/tutorials/${f.slug}/`}>
+          <div class="feature-art checker"><img src={f.img} alt="" loading="lazy" /></div>
+          <div class="feature-body">
+            <span class="feature-n">{bySlug[f.slug]?.number} · {bySlug[f.slug]?.short}</span>
+            <h3>{f.title}</h3>
+            <p>{f.text}</p>
+          </div>
+        </a>
+      ))}
+    </div>
+    <p class="more"><a href="/tutorials/">All nine tutorials →</a> · <a href="/reference/">The command reference →</a></p>
+  </section>
+
+  <section class="roadmap" aria-labelledby="road-h">
+    <div class="wrap">
+      <h2 id="road-h" class="section-h"><span>04</span> Where this is going</h2>
+      <ol class="road">
+        {roadmap.map((r) => (
+          <li class={r.state}>
+            <div class="road-bar" aria-hidden="true"></div>
+            <div class="road-v">{r.v}{r.state === "now" && <em>you are here</em>}</div>
+            <h3>{r.title}</h3>
+            <p>{r.text}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    border-bottom: 2px solid var(--ink);
+    background:
+      linear-gradient(var(--paper), color-mix(in srgb, var(--paper) 85%, transparent)),
+      repeating-conic-gradient(var(--check-a) 0 25%, transparent 0 50%) 0 0 / 24px 24px;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 3.5rem;
+    align-items: center;
+    padding-top: 4rem;
+    padding-bottom: 4.5rem;
+  }
+  .kicker {
+    font: 500 0.85rem var(--font-mono);
+    color: var(--ink-2);
+    margin: 0 0 1rem;
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .tag {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 0.1rem 0.45rem;
+  }
+  h1 {
+    font-size: clamp(3rem, 7.5vw, 5.6rem);
+    line-height: 0.95;
+    margin: 0 0 1.5rem;
+    font-weight: 600;
+  }
+  .hl {
+    background: var(--sun);
+    color: #2b1e2f;
+    padding: 0 0.12em;
+    box-shadow: 6px 6px 0 var(--accent);
+  }
+  .pitch {
+    font-size: 1.2rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 32rem;
+    margin: 0 0 2rem;
+  }
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    margin-bottom: 2rem;
+  }
+  .install {
+    margin: 0;
+    max-width: 34rem;
+  }
+  .install pre {
+    font-size: 0.82rem;
+    white-space: pre;
+  }
+  .install .prompt {
+    color: var(--code-muted);
+    user-select: none;
+  }
+  .install-note {
+    margin: 0.6rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .section-h {
+    font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+    margin: 0 0 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+  }
+  .section-h span {
+    font: 600 0.9rem var(--font-mono);
+    color: var(--paper);
+    background: var(--accent);
+    padding: 0.1rem 0.4rem;
+    transform: translateY(-0.4rem);
+  }
+  :root:not([data-theme="dark"]) .section-h span {
+    background: #c4473a;
+    color: #efe6d2;
+  }
+  .section-lead {
+    color: var(--ink-2);
+    font-size: 1.1rem;
+    max-width: 44rem;
+    margin: 0 0 2.5rem;
+  }
+
+  .loop {
+    padding-top: 5rem;
+  }
+  .steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.5rem;
+    counter-reset: step;
+  }
+  .steps li {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .step-n {
+    font: 600 1.25rem var(--font-display);
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .step-n::after {
+    content: "";
+    flex: 1;
+    height: 2px;
+    background: repeating-linear-gradient(90deg, var(--ink) 0 4px, transparent 4px 8px);
+  }
+  .steps li:last-child .step-n::after {
+    background: none;
+  }
+  .step-art {
+    height: 13.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+  .step-art.center {
+    align-items: center;
+    border: 2px solid var(--ink);
+  }
+  .step-art img {
+    max-height: 12rem;
+    width: auto;
+  }
+  .step-art :global(.px-block) {
+    margin: 0;
+    height: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    box-shadow: none;
+  }
+  .step-art :global(.px-code) {
+    font-size: 0.78rem;
+    display: grid;
+    align-items: center;
+  }
+  .step-art :global(.code-block) {
+    margin: 0;
+    box-shadow: none;
+  }
+  .step-art :global(.code-block pre) {
+    font-size: 0.72rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .steps p {
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    margin: 1rem 0 0;
+  }
+
+  .why {
+    margin-top: 6rem;
+    padding: 5rem 0;
+    background: var(--paper-2);
+    border-top: 2px solid var(--ink);
+    border-bottom: 2px solid var(--ink);
+  }
+  .why-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+  .why-card {
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    padding: 1.4rem 1.4rem 0.6rem;
+    box-shadow: var(--px) var(--px) 0 var(--shadow);
+    min-width: 0;
+  }
+  .why-card h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1.35rem;
+  }
+  .why-card p {
+    color: var(--ink-2);
+    font-size: 0.97rem;
+  }
+  .why-card .code-block {
+    margin: 0 0 0.5rem;
+  }
+  .diff :global(.del) {
+    color: #a33a2f;
+  }
+  .diff :global(.add) {
+    color: #3c7a5b;
+  }
+
+  .features {
+    padding-top: 5rem;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+  .feature {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid var(--ink);
+    color: var(--ink);
+    text-decoration: none;
+    background: var(--paper);
+    transition: transform 0.08s, box-shadow 0.08s;
+  }
+  .feature:hover {
+    transform: translate(-3px, -3px);
+    box-shadow: 6px 6px 0 var(--shadow);
+  }
+  .feature-art {
+    height: 13rem;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    border-bottom: 2px solid var(--ink);
+    overflow: hidden;
+  }
+  .feature-art img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  .feature-body {
+    padding: 1rem 1.1rem 1.2rem;
+  }
+  .feature-n {
+    font: 600 0.75rem var(--font-mono);
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .feature h3 {
+    margin: 0.35rem 0 0.5rem;
+    font-size: 1.3rem;
+  }
+  .feature p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 0.93rem;
+    line-height: 1.55;
+  }
+  .more {
+    margin-top: 2rem;
+    font-weight: 500;
+  }
+
+  .roadmap {
+    margin-top: 6rem;
+    padding: 5rem 0 1rem;
+    border-top: 2px solid var(--ink);
+  }
+  .road {
+    list-style: none;
+    margin: 2.5rem 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+  }
+  .road li {
+    padding-right: 1.5rem;
+  }
+  .road-bar {
+    height: 16px;
+    background: repeating-linear-gradient(90deg, var(--rule) 0 14px, transparent 14px 16px);
+    margin-bottom: 1rem;
+  }
+  .road li.now .road-bar {
+    background: repeating-linear-gradient(90deg, var(--moss) 0 14px, transparent 14px 16px);
+  }
+  .road li.next .road-bar {
+    background:
+      repeating-linear-gradient(90deg, var(--sun) 0 14px, transparent 14px 16px) 0 0 / 30% 100% no-repeat,
+      repeating-linear-gradient(90deg, var(--rule) 0 14px, transparent 14px 16px);
+  }
+  .road-v {
+    font: 600 0.85rem var(--font-mono);
+    color: var(--ink-2);
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .road-v em {
+    font-style: normal;
+    font-size: 0.72rem;
+    background: var(--moss);
+    color: #efe6d2;
+    padding: 0 0.4rem;
+  }
+  .road h3 {
+    margin: 0.3rem 0 0.5rem;
+    font-size: 1.5rem;
+  }
+  .road p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 0.95rem;
+  }
+
+  @media (max-width: 1080px) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2.5rem;
+      padding-top: 2.5rem;
+    }
+    .steps {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 2.5rem;
+    }
+    .feature-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .road {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 2rem;
+    }
+  }
+  @media (max-width: 680px) {
+    .steps,
+    .why-grid,
+    .feature-grid,
+    .road {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .step-n::after {
+      display: none;
+    }
+    .install pre {
+      font-size: 0.7rem;
+    }
+  }
+</style>

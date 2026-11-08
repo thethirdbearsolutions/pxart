@@ -1,0 +1,26 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import { ref } from "../../lib/content";
+import { referenceNav } from "../../lib/nav";
+import { helpHtml } from "../../lib/helptext";
+
+export function getStaticPaths() {
+  return ref.commands.map((c, i) => ({
+    params: { cmd: c.name },
+    props: {
+      c,
+      prev: i > 0 ? { href: `/reference/${ref.commands[i - 1].name}/`, label: ref.commands[i - 1].name } : null,
+      next: i < ref.commands.length - 1 ? { href: `/reference/${ref.commands[i + 1].name}/`, label: ref.commands[i + 1].name } : null,
+    },
+  }));
+}
+const { c, prev, next } = Astro.props;
+const topic = c.topic.charAt(0) + c.topic.slice(1).toLowerCase();
+---
+<Docs title={`pxart ${c.name}`} eyebrow={`Reference · ${topic}`} section="reference" nav={referenceNav()} lead={c.summary} prev={prev} next={next} source="site/src/data/reference.json" description={`pxart ${c.name}: ${c.summary}`}>
+  <pre class="synopsis">{c.synopsis}</pre>
+  <pre class="help"><code set:html={helpHtml(c.text, c.name)} /></pre>
+  <p style="max-width:var(--measure);color:var(--ink-2);font-size:.92rem;margin-top:1.5rem">
+    This is the output of <code>pxart help {c.name}</code>. The other {topic.toLowerCase()} commands and their shared notes are in <a href={`/reference/topics/${c.topic.toLowerCase()}/`}>pxart help {c.topic}</a>.
+  </p>
+</Docs>

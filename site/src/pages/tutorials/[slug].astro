@@ -1,0 +1,22 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import { tutorials } from "../../lib/content";
+import { tutorialsNav } from "../../lib/nav";
+
+export async function getStaticPaths() {
+  const ts = await tutorials();
+  return ts.map((t, i) => ({
+    params: { slug: t.slug },
+    props: {
+      t,
+      prev: i > 0 ? { href: `/tutorials/${ts[i - 1].slug}/`, label: `${ts[i - 1].number} · ${ts[i - 1].short}` } : { href: "/tutorials/", label: "Tutorials" },
+      next: i < ts.length - 1 ? { href: `/tutorials/${ts[i + 1].slug}/`, label: `${ts[i + 1].number} · ${ts[i + 1].short}` } : { href: "/reference/", label: "Command reference" },
+    },
+  }));
+}
+const { t, prev, next } = Astro.props;
+const nav = await tutorialsNav();
+---
+<Docs title={t.short} eyebrow={`Tutorial ${t.number}`} section="tutorials" nav={nav} headings={t.headings} source={t.source} prev={prev} next={next} description={t.lead}>
+  <div class="prose" set:html={t.html} />
+</Docs>
