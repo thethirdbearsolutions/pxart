@@ -1,9 +1,0 @@
----
-import Docs from "../../layouts/Docs.astro";
-import { ref } from "../../lib/content";
-import { referenceNav } from "../../lib/nav";
-import { helpHtml } from "../../lib/helptext";
----
-<Docs title="The whole reference" eyebrow="pxart help all" section="reference" nav={referenceNav()} lead="Everything pxart help all prints, on one page. Search it with your browser's find." source="site/src/data/reference.json">
-  <pre class="help"><code set:html={helpHtml(ref.all)} /></pre>
-</Docs>
