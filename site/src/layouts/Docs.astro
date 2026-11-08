@@ -88,3 +88,7 @@ const toc = headings.filter((h: Heading) => h.depth === 2 || h.depth === 3);
     )}
   </div>
 </Base>
+<script>
+  // the try-me editors that ```tryme blocks put on a page
+  if (document.querySelector(".pg[data-samples]")) import("../scripts/playground");
+</script>

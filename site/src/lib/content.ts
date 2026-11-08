@@ -28,6 +28,11 @@ const DOCS: { slug: string; nav: string; load: () => { md: string; source: strin
     nav: "Getting started",
     load: () => ({ md: fs.readFileSync(path.join(REPO_ROOT, "site/src/content/getting-started.md"), "utf8"), source: "site/src/content/getting-started.md" }),
   },
+  {
+    slug: "concepts",
+    nav: "Concepts",
+    load: () => ({ md: fs.readFileSync(path.join(REPO_ROOT, "site/src/content/concepts.md"), "utf8"), source: "site/src/content/concepts.md" }),
+  },
   { slug: "format", nav: "The .px format", load: () => ({ md: readmeSection("## Format", "### Errors"), source: "README.md" }) },
   { slug: "errors", nav: "Errors", load: () => ({ md: readmeSection("### Errors", "## Commands"), source: "README.md" }) },
   { slug: "commands", nav: "Commands at a glance", load: () => ({ md: readmeSection("## Commands", "## Prior art"), source: "README.md" }) },

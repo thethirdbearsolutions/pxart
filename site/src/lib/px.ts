@@ -225,3 +225,239 @@ export function drawFrame(canvas: HTMLCanvasElement, frame: PxFrame, pal: Map<st
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+// ---- selectors: FILE.px:walk/down/0%dusk ----------------------------------------------------
+
+export interface Selection {
+  frames: PxFrame[];
+  variant?: string;
+  error?: string;
+}
+
+/** The frames and variant a selector names: `walk/down` (a group), `walk/down/0` (a frame), `*` or
+ *  nothing (every frame), each optionally after `FILE.px:` and before `%variant`. */
+export function select(doc: PxDoc, selector: string): Selection {
+  let sel = selector.trim();
+  const colon = sel.indexOf(":");
+  if (colon >= 0 && /\.px$/i.test(sel.slice(0, colon))) sel = sel.slice(colon + 1);
+  let variant: string | undefined;
+  const pct = sel.lastIndexOf("%");
+  if (pct >= 0) {
+    variant = sel.slice(pct + 1) || undefined;
+    sel = sel.slice(0, pct);
+  }
+  if (variant === "base") variant = undefined;
+  if (variant && !doc.variants.has(variant))
+    return { frames: [], error: `unknown variant '${variant}'${doc.variants.size ? `; variants: ${[...doc.variants.keys()].join(", ")}` : ""}` };
+  if (!sel || sel === "*") return { frames: doc.frames, variant };
+  const exact = doc.frames.filter((f) => f.id === sel);
+  const group = doc.frames.filter((f) => f.id.startsWith(sel.replace(/\/$/, "") + "/"));
+  const frames = exact.length ? exact : group;
+  if (!frames.length) {
+    const groups = [...new Set(doc.frames.map((f) => f.id.split("/").slice(0, -1).join("/")).filter(Boolean))];
+    return { frames, error: `no frame or group '${sel}'${groups.length ? `; groups: ${groups.join(", ")}` : ""}` };
+  }
+  return { frames, variant };
+}
+
+// ---- maps: a legend, rows of legend characters, layers ------------------------------------
+
+export interface MapItem {
+  path: string;
+  frame?: string;
+  variant?: string;
+  h: boolean;
+  v: boolean;
+  bottom: boolean;
+}
+export interface PxMap {
+  legend: Map<string, MapItem>;
+  layers: string[][];
+}
+
+/** Read a .map as pxart's scene --map does: legend lines `<char> <FILE[:frame][%variant][+h|+v|+b]>`
+ *  (the rest of the line is the path; quotes optional), `#` comments before the first row, then
+ *  rows of legend characters (`.` empty), with `---` starting another layer. */
+export function parseMap(text: string): PxMap {
+  const legend = new Map<string, MapItem>();
+  const layers: string[][] = [[]];
+  let inRows = false;
+  let sawBlank = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!inRows) {
+      if (!line) {
+        if (legend.size) sawBlank = true;
+        continue;
+      }
+      if (line.startsWith("#")) continue;
+      const m = /^(\S)\s+(.+)$/.exec(line);
+      if (m && !sawBlank) {
+        legend.set(m[1], parseItem(m[2]));
+        continue;
+      }
+      inRows = true;
+    }
+    if (!line) continue;
+    if (line === "---") {
+      layers.push([]);
+      continue;
+    }
+    layers[layers.length - 1].push(line);
+  }
+  return { legend, layers: layers.filter((l) => l.length) };
+}
+
+function parseItem(spec: string): MapItem {
+  let s = spec.trim();
+  let flags = "";
+  const f = /\+([hvb]+)$/.exec(s);
+  if (f) {
+    flags = f[1];
+    s = s.slice(0, f.index);
+  }
+  let variant: string | undefined;
+  const pct = s.lastIndexOf("%");
+  if (pct > s.lastIndexOf("/")) {
+    variant = s.slice(pct + 1);
+    s = s.slice(0, pct);
+  }
+  let frame: string | undefined;
+  const m = /^(.*\.(?:px|png))(?::(.+))?$/i.exec(s.replace(/^"(.*)"$/, "$1"));
+  let path = s.replace(/^"(.*)"$/, "$1");
+  if (m) {
+    path = m[1];
+    frame = m[2];
+  }
+  return { path: path.replace(/^"(.*)"$/, "$1"), frame, variant, h: flags.includes("h"), v: flags.includes("v"), bottom: flags.includes("b") };
+}
+
+export interface Rgba32 {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+/** Lay `src` over `dst` at x,y (straight alpha, "over"), clipped to dst. */
+function over(dst: Rgba32, src: Rgba32, x0: number, y0: number, flipH = false, flipV = false) {
+  for (let y = 0; y < src.height; y++) {
+    const dy = y0 + y;
+    if (dy < 0 || dy >= dst.height) continue;
+    for (let x = 0; x < src.width; x++) {
+      const dx = x0 + x;
+      if (dx < 0 || dx >= dst.width) continue;
+      const sx = flipH ? src.width - 1 - x : x;
+      const sy = flipV ? src.height - 1 - y : y;
+      const si = (sy * src.width + sx) * 4;
+      const sa = src.data[si + 3];
+      if (!sa) continue;
+      const di = (dy * dst.width + dx) * 4;
+      if (sa === 255) {
+        dst.data.set(src.data.subarray(si, si + 4), di);
+        continue;
+      }
+      const da = dst.data[di + 3] / 255;
+      const a = sa / 255;
+      const outA = a + da * (1 - a);
+      for (let c = 0; c < 3; c++) dst.data[di + c] = Math.round((src.data[si + c] * a + dst.data[di + c] * da * (1 - a)) / outA);
+      dst.data[di + 3] = Math.round(outA * 255);
+    }
+  }
+}
+
+/** Draw a map, its paths read relative to the map through `read`, on tiles of `tile` px. */
+export function renderMap(mapPath: string, read: (path: string) => string | null, opts: { tile?: [number, number]; variant?: string } = {}): Rgba32 & { notes: string[] } {
+  const [tw, th] = opts.tile ?? [16, 16];
+  const text = read(mapPath);
+  if (text === null) throw new Error(`${mapPath}: no such file`);
+  const map = parseMap(text);
+  const dir = mapPath.includes("/") ? mapPath.slice(0, mapPath.lastIndexOf("/") + 1) : "";
+  const cols = Math.max(0, ...map.layers.flatMap((l) => l.map((r) => r.length)));
+  const rows = Math.max(0, ...map.layers.map((l) => l.length));
+  const out: Rgba32 & { notes: string[] } = { width: cols * tw, height: rows * th, data: new Uint8ClampedArray(cols * tw * rows * th * 4), notes: [] };
+  const docs = new Map<string, PxDoc>();
+  const items = new Map<string, Rgba32 | null>();
+  const itemFor = (ch: string): Rgba32 | null => {
+    if (items.has(ch)) return items.get(ch)!;
+    const it = map.legend.get(ch);
+    let img: Rgba32 | null = null;
+    if (!it) out.notes.push(`'${ch}' isn't in the legend`);
+    else if (/\.png$/i.test(it.path)) out.notes.push(`${it.path}: PNG items aren't drawn here (pxart draws them)`);
+    else {
+      try {
+        const p = normalize(dir + it.path);
+        if (!docs.has(p)) docs.set(p, resolvePx(p, read));
+        const doc = docs.get(p)!;
+        const sel = select(doc, it.frame ?? "");
+        const wanted = it.variant ?? opts.variant;
+        const variant = wanted === "base" ? undefined : wanted;
+        if (variant && !doc.variants.has(variant))
+          // pxart's scene stops here (E_SELECT); this draws the item in its base colors and says so
+          out.notes.push(`legend '${ch}': ${it.path} has no variant '${variant}' (give it ${it.path}%base to keep its base colors)`);
+        if (sel.error || !sel.frames.length) out.notes.push(`${it.path}: ${sel.error ?? "no frames"}`);
+        else img = frameRgba(sel.frames[0], paletteFor(doc, variant && doc.variants.has(variant) ? variant : undefined));
+      } catch (e) {
+        out.notes.push(String((e as Error).message ?? e));
+      }
+    }
+    items.set(ch, img);
+    return img;
+  };
+  for (const layer of map.layers)
+    layer.forEach((row, r) => {
+      [...row].forEach((ch, c) => {
+        if (ch === ".") return;
+        const img = itemFor(ch);
+        if (!img) return;
+        const it = map.legend.get(ch)!;
+        const x = it.bottom ? c * tw + Math.floor((tw - img.width) / 2) : c * tw;
+        const y = it.bottom ? r * th + th - img.height : r * th;
+        over(out, img, x, y, it.h, it.v);
+      });
+    });
+  return out;
+}
+
+/** Draw RGBA onto a canvas at an integer scale. */
+export function drawRgba(canvas: HTMLCanvasElement, img: Rgba32, scale: number) {
+  canvas.width = Math.max(1, img.width) * scale;
+  canvas.height = Math.max(1, img.height) * scale;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!img.width || !img.height) return;
+  const tmp = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+  const off = document.createElement("canvas");
+  off.width = img.width;
+  off.height = img.height;
+  off.getContext("2d")!.putImageData(tmp, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+}
+
+/** Several frames side by side, bottom-aligned, with `gap` px between: a sheet, as one image. */
+export function sheetRgba(frames: Rgba32[], gap = 4, maxWidth = 200): Rgba32 {
+  const rowsOf: Rgba32[][] = [[]];
+  let w = 0;
+  for (const f of frames) {
+    if (rowsOf[rowsOf.length - 1].length && w + gap + f.width > maxWidth) {
+      rowsOf.push([]);
+      w = 0;
+    }
+    w += (rowsOf[rowsOf.length - 1].length ? gap : 0) + f.width;
+    rowsOf[rowsOf.length - 1].push(f);
+  }
+  const rowW = rowsOf.map((r) => r.reduce((s, f) => s + f.width, 0) + gap * Math.max(0, r.length - 1));
+  const rowH = rowsOf.map((r) => Math.max(0, ...r.map((f) => f.height)));
+  const out: Rgba32 = { width: Math.max(0, ...rowW), height: rowH.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowsOf.length - 1), data: new Uint8ClampedArray(0) };
+  out.data = new Uint8ClampedArray(out.width * out.height * 4);
+  let y = 0;
+  rowsOf.forEach((r, i) => {
+    let x = 0;
+    for (const f of r) {
+      over(out, f, x, y + rowH[i] - f.height);
+      x += f.width + gap;
+    }
+    y += rowH[i] + gap;
+  });
+  return out;
+}

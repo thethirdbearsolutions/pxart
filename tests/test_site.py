@@ -109,3 +109,41 @@ def test_site_reader_renders_every_example_as_pxart_does():
                     checked += 1
     assert checked > 100, f"only {checked} frames checked"
     assert not problems, f"{len(problems)} of {checked} frames differ:\n" + "\n".join(problems[:40])
+
+
+def pxart_scene(map_path, variant, out_png):
+    """pxart's own render of a map at 1x on a transparent background: (w, h, sha256 of RGBA)."""
+    from PIL import Image
+
+    cmd = [sys.executable, str(ROOT / "pxart.py"), "scene", "--map", str(map_path), "-o", str(out_png), "--scale", "1", "--bg", "transparent"]
+    if variant:
+        cmd += ["--variant", variant]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    im = Image.open(out_png).convert("RGBA")
+    data = bytearray(im.tobytes())
+    for i in range(0, len(data), 4):
+        if data[i + 3] == 0:
+            data[i : i + 4] = b"\0\0\0\0"
+    return [im.width, im.height, hashlib.sha256(data).hexdigest()]
+
+
+@pytest.mark.skipif(not NODE, reason="node isn't installed")
+@pytest.mark.parametrize("variant", ["", "dusk"])
+def test_site_reader_draws_maps_as_pxart_scene_does(variant, tmp_path):
+    """The concepts page's map editor (renderMap in px.ts) must draw a map as scene --map does: the
+    page's own sample, laid out as its files, and the glade from tutorial 06 (four layers, a sky wider
+    than a tile, props stood on their cells and mirrored)."""
+    sample = gen().samples()["samples"]["map"]
+    folder = tmp_path / "sample"
+    folder.mkdir()
+    for name, text in sample["files"].items():
+        (folder / name).write_text(text, encoding="utf-8")
+    for map_path in [folder / sample["main"], ROOT / "examples" / "06-scene" / "rooms" / "glade.map"]:
+        args = [NODE, "scripts/px-renders.ts", "--map", str(map_path)] + ([variant] if variant else [])
+        proc = subprocess.run(args, cwd=SITE, capture_output=True, text=True)
+        if proc.returncode != 0 and "Unknown file extension" in proc.stderr:
+            pytest.skip("this node can't run TypeScript directly (needs 22.18 or newer)")
+        assert proc.returncode == 0, proc.stderr
+        w, h, digest, notes = json.loads(proc.stdout)
+        assert not notes, notes
+        assert [w, h, digest] == pxart_scene(map_path, variant, tmp_path / "pxart.png"), f"{map_path.name}%{variant or 'base'} differs from pxart scene --map"

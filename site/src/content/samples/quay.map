@@ -1,0 +1,17 @@
+# A quay: cobbles, planks and water, then a lamp and a barrel on top.
+# Each legend line is a character, then a file (and a frame) from this folder.
+# The barrel has no dusk of its own, so %base keeps it in its base colors in a dusk scene.
+c tiles.px:cobble/a
+C tiles.px:cobble/b
+p tiles.px:planks
+w tiles.px:water/0
+L lamp.px+b
+b barrel.px%base
+
+cCcCcC
+CcCcCc
+pppppp
+wwwwww
+---
+......
+.L..b.

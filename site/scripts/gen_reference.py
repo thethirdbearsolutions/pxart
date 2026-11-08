@@ -20,13 +20,32 @@ DATA = ROOT / "site" / "src" / "data"
 OUT = DATA / "reference.json"
 PLAYGROUND = DATA / "playground.json"
 
-# (name, label, source selector in examples/, or a file in site/src/content)
-SAMPLES = [
-    ("face", "blinking face", "site/src/content/blink.px"),
-    ("lamp", "harbor lamp", "examples/01-format/lamp.px"),
-    ("gem", "gem", "examples/01-format/gem.px"),
-    ("walk", "hero walk", "examples/02-animation/hero.px:walk/down"),
-]
+# The editors on the site ("try me"). Each is a little folder: files by the name the editor shows,
+# from examples/ as they are (`extract:` runs pxart extract --inline-palette, so the sample stands
+# alone), or from site/src/content. mode: "frames" plays the main file's frames, "sheet" draws every
+# .px in the folder side by side (a pack), "map" draws the main .map. `selector` adds a selector box.
+EX = "examples/"
+SAMPLES = {
+    "walk": {"label": "hero walk", "mode": "frames", "files": {"walk.px": "extract:examples/02-animation/hero.px:walk/down"}},
+    "face": {"label": "blinking face", "mode": "frames", "files": {"face.px": "site/src/content/blink.px"}},
+    "lamp": {"label": "harbor lamp", "mode": "frames", "files": {"lamp.px": "extract:examples/01-format/lamp.px"}},
+    "gem": {"label": "gem", "mode": "frames", "files": {"gem.px": EX + "01-format/gem.px"}},
+    "palette": {"label": "a sprite and its palette file", "mode": "frames",
+                "files": {"lamp.px": EX + "01-format/lamp.px", "palette.px": EX + "01-format/palette.px"}},
+    "variants": {"label": "the coast, by day and night", "mode": "sheet",
+                 "files": {"coast.px": EX + "03-variants/coast.px", "palette.px": EX + "03-variants/palette.px"}},
+    "selectors": {"label": "the hero, by selector", "mode": "frames", "selector": "walk/down%dusk",
+                  "files": {"hero.px": EX + "02-animation/hero.px", "hero-palette.px": EX + "02-animation/hero-palette.px"}},
+    "pack": {"label": "a pack: one palette, several sprites", "mode": "sheet",
+             "files": {"palette.px": EX + "01-format/palette.px", "barrel.px": EX + "01-format/barrel.px",
+                       "lamp.px": EX + "01-format/lamp.px", "gem-shared.px": EX + "01-format/gem-shared.px"}},
+    "map": {"label": "a map of tiles and props", "mode": "map",
+            "files": {"quay.map": "site/src/content/samples/quay.map", "tiles.px": EX + "08-export/harbor.px",
+                      "harbor-palette.px": EX + "08-export/harbor-palette.px", "lamp.px": EX + "01-format/lamp.px",
+                      "palette.px": EX + "01-format/palette.px", "barrel.px": EX + "01-format/barrel.px"}},
+}
+# the home page's editor offers these, the first shown first
+HOME = ["walk", "face", "lamp", "gem"]
 
 # Topics in the order `pxart -h` lists them, then the ones with pages of their own.
 TOPICS = ["FORMAT", "LOOKING", "CHECKING", "EDITING", "DRAWING", "CONVERTING", "HELP", "ERRORS"]
@@ -82,18 +101,21 @@ def build():
 def samples():
     import tempfile
 
-    out = []
+    out = {}
     with tempfile.TemporaryDirectory() as tmp:
-        for name, label, sel in SAMPLES:
-            path, _, frames = sel.partition(":")
-            if path.startswith("site/"):
-                text = (ROOT / path).read_text(encoding="utf-8")
-            else:
-                dest = pathlib.Path(tmp) / f"{name}.px"
-                pxart("extract", f"{ROOT / path}:{frames or '*'}", "-o", str(dest), "--inline-palette")
-                text = dest.read_text(encoding="utf-8")
-            out.append({"name": name, "label": label, "source": path, "text": text})
-    return out
+        for name, spec in SAMPLES.items():
+            files = {}
+            for fname, src in spec["files"].items():
+                if src.startswith("extract:"):
+                    path, _, frames = src[len("extract:"):].partition(":")
+                    dest = pathlib.Path(tmp) / f"{name}-{fname}"
+                    pxart("extract", f"{ROOT / path}:{frames or '*'}", "-o", str(dest), "--inline-palette")
+                    files[fname] = dest.read_text(encoding="utf-8")
+                else:
+                    files[fname] = (ROOT / src).read_text(encoding="utf-8")
+            out[name] = {"label": spec["label"], "mode": spec["mode"], "main": next(iter(spec["files"])),
+                         "selector": spec.get("selector"), "files": files}
+    return {"home": HOME, "samples": out}
 
 
 def render(data):

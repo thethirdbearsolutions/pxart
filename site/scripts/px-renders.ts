@@ -4,7 +4,17 @@
 //   node scripts/px-renders.ts FILE.px...
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { resolvePx, paletteFor, frameRgba } from "../src/lib/px.ts";
+import { resolvePx, paletteFor, frameRgba, renderMap } from "../src/lib/px.ts";
+
+const read = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : null);
+const sha = (d: Uint8ClampedArray) => createHash("sha256").update(d).digest("hex");
+
+// --map FILE.map [VARIANT]: the map drawn on 16x16 tiles, as [w, h, sha256, notes]
+if (process.argv[2] === "--map") {
+  const img = renderMap(process.argv[3], read, { variant: process.argv[4] });
+  console.log(JSON.stringify([img.width, img.height, sha(img.data), img.notes]));
+  process.exit(0);
+}
 
 const out: Record<string, Record<string, Record<string, [number, number, string] | string>>> = {};
 for (const file of process.argv.slice(2)) {

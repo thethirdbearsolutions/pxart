@@ -15,6 +15,7 @@ import { toString } from "hast-util-to-string";
 import { createHighlighter, createCssVariablesTheme, type Highlighter } from "shiki";
 import { REPO_ROOT, GITHUB_BLOB, GITHUB_TREE } from "./paths";
 import { parsePx, frameSvg, escapeHtml, type Rgba, paletteFor } from "./px";
+import { playgroundHtml } from "./playground";
 
 const cssTheme = createCssVariablesTheme({ name: "pxart", variablePrefix: "--shiki-", fontStyle: true });
 let highlighter: Promise<Highlighter> | null = null;
@@ -213,7 +214,8 @@ export async function renderMarkdown(source: string, opts: RenderOptions = {}): 
           const text = toString(code);
           let html: string;
           const looksPx = !lang && /^(pxart \d+|@(frame|palette|anim|variant|still) .*|\S\s+#[0-9a-fA-F]{6}.*)$/m.test(text) && /^[^\s#@]+$/m.test(text);
-          if (lang === "px" || looksPx) html = paintPx(text, absDir);
+          if (lang === "tryme") html = playgroundHtml(text.trim().split(/\s+/), { compact: true, hint: "try me: edit it" });
+          else if (lang === "px" || looksPx) html = paintPx(text, absDir);
           else if (["sh", "bash", "json", "python", "toml"].includes(lang)) {
             html = hl.codeToHtml(text.replace(/\n$/, ""), { lang: lang === "bash" ? "sh" : lang, theme: "pxart" });
             html = `<div class="code-block" data-lang="${lang}">${html}</div>`;
