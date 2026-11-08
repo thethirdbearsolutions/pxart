@@ -41,7 +41,6 @@ const sample = paintPx(readRepo("examples/01-format/barrel.px"), null, { render:
         <div class="install code-block" data-lang="sh">
           <pre><code><span class="prompt">$</span> pip install git+https://github.com/thethirdbearsolutions/pxart</code></pre>
         </div>
-        <p class="install-note">One Python file. Pillow is its only dependency.</p>
       </div>
       <div class="hero-demo">
         <Playground />
@@ -184,11 +183,6 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
   .install .prompt {
     color: var(--code-muted);
     user-select: none;
-  }
-  .install-note {
-    margin: 0.6rem 0 0;
-    font-size: 0.85rem;
-    color: var(--muted);
   }
 
   .section-h {
