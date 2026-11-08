@@ -14,6 +14,6 @@ const LEADS: Record<string, string> = {
   slots: "A key's alternative colors, for a game that recolors sprites at runtime.",
 };
 ---
-<Docs title={t.title} eyebrow={`pxart help ${LEADS[t.id] ? t.id : t.id.toUpperCase()}`} section="reference" nav={referenceNav()} lead={LEADS[t.id]} source="site/src/data/reference.json">
+<Docs title={t.title} eyebrow={`pxart help ${LEADS[t.id] ? t.id : t.id.toUpperCase()}`} section="reference" nav={referenceNav()} lead={LEADS[t.id]} description={LEADS[t.id] ?? `pxart help ${t.id.toUpperCase()}: the ${t.title.toLowerCase()} part of pxart's reference, as the tool prints it.`} source="site/src/data/reference.json">
   <pre class="help"><code set:html={helpHtml(t.text)} /></pre>
 </Docs>

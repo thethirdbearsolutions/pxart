@@ -16,7 +16,7 @@ export async function getStaticPaths() {
 }
 const { page, prev, next } = Astro.props;
 const nav = await docsNav();
-const title = page.slug === "" ? page.nav : page.title.replace(/^Format$/, "The .px format");
+const title = page.slug === "" ? page.nav : (page.title || page.nav).replace(/^Format$/, "The .px format");
 ---
 <Docs title={title} eyebrow="Docs" section="docs" nav={nav} headings={page.headings} source={page.source} prev={prev} next={next} description={page.lead}>
   <div class="prose" set:html={page.html} />
