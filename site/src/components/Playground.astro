@@ -3,14 +3,15 @@
 // that draws (and plays) what's typed. It is a sketchpad, not pxart: the tool checks
 // far more than this does.
 import samples from "../data/playground.json";
-const first = samples[0];
+const DEFAULT = "walk"; // the sample shown first
+const first = samples.find((s) => s.name === DEFAULT) ?? samples[0];
 ---
 <div class="pg" data-samples={JSON.stringify(samples)}>
   <div class="pg-bar">
     <span class="pg-dots" aria-hidden="true"><i></i><i></i><i></i></span>
     <label class="visually-hidden" for="pg-sample">Sample sprite</label>
     <select id="pg-sample" class="pg-sample">
-      {samples.map((s) => <option value={s.name}>{s.name}.px</option>)}
+      {samples.map((s) => <option value={s.name} selected={s.name === first.name}>{s.name}.px</option>)}
     </select>
     <span class="pg-hint">edit me</span>
   </div>
