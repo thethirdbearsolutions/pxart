@@ -1,0 +1,29 @@
+---
+import Base from "../../layouts/Base.astro";
+import { posts, HUBS, readingMinutes } from "../../lib/blog";
+const all = await posts();
+---
+<Base title="Blog" section="blog" noindex={all.length === 0} description="How pxart works, how to use it, and what we've learned drawing pixel art as text.">
+  <div class="wrap blog-wrap">
+    <header class="page-head">
+      <div class="eyebrow">Blog</div>
+      <h1>The pxart blog</h1>
+      <p class="lead">How pxart works, how to use it, and what we've learned drawing pixel art as text. <a href="/blog/rss.xml">RSS</a>.</p>
+    </header>
+    <nav class="hub-chips" aria-label="Hubs">
+      {Object.entries(HUBS).filter(([id]) => all.some((p) => p.hub === id)).map(([id, h]) => <a href={`/blog/hub/${id}/`}>{h.title}</a>)}
+    </nav>
+    {all.length === 0 && <p>No posts yet.</p>}
+    <ol class="post-list">
+      {all.map((p) => (
+        <li>
+          <a class="post-card" href={`/blog/${p.slug}/`}>
+            <span class="post-meta"><time datetime={p.date}>{p.date}</time> · {HUBS[p.hub].title} · {readingMinutes(p.words)} min{p.draft && " · DRAFT"}</span>
+            <strong>{p.title}</strong>
+            <span>{p.description}</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </div>
+</Base>

@@ -12,19 +12,30 @@ import "../styles/global.css";
 import Logo from "../components/Logo.astro";
 import { GITHUB } from "../lib/paths";
 import { ref } from "../lib/content";
+import { posts } from "../lib/blog";
 
 interface Props {
   title?: string;
   description?: string;
-  section?: "home" | "docs" | "tutorials" | "reference" | "changelog";
+  section?: "home" | "docs" | "tutorials" | "reference" | "changelog" | "blog";
+  /** a page-specific preview image (a path on this site), else the site's */
+  ogImage?: string;
+  ogType?: "website" | "article";
+  /** structured data for search engines, emitted as JSON-LD */
+  jsonLd?: Record<string, unknown>[];
+  /** keep this page out of search results */
+  noindex?: boolean;
 }
-const { title, description = "Pixel art as text. A sprite is a small plain-text file that renders to PNG: language models can write it, git can diff it, and you can read it.", section } = Astro.props;
+const { title, description = "Pixel art as text. A sprite is a small plain-text file that renders to PNG: language models can write it, git can diff it, and you can read it.", section, ogImage = "/og.png", ogType = "website", jsonLd = [], noindex = false } = Astro.props;
+// the Blog link appears once there is a post to read (drafts only exist in a PXART_DRAFTS=1 build)
+const hasBlog = (await posts()).length > 0;
 const fullTitle = title ? `${title} · pxart` : "pxart: pixel art as text";
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const nav = [
   { href: "/docs/", label: "Docs", id: "docs" },
   { href: "/tutorials/", label: "Tutorials", id: "tutorials" },
   { href: "/reference/", label: "Reference", id: "reference" },
+  ...(hasBlog ? [{ href: "/blog/", label: "Blog", id: "blog" }] : []),
   { href: "/changelog/", label: "Changelog", id: "changelog" },
 ];
 const footStrip = ["#2b1e2f", "#5e3a2a", "#9b6440", "#de8a3c", "#f3cf6b", "#efe6d2", "#a6dce4", "#3f7fa8", "#26496e", "#37487a", "#4f8c6c", "#c4473a", "#d8718c"];
@@ -37,14 +48,18 @@ const footStrip = ["#2b1e2f", "#5e3a2a", "#9b6440", "#de8a3c", "#f3cf6b", "#efe6
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta name="theme-color" content="#efe6d2" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1b1326" media="(prefers-color-scheme: dark)" />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
-    <meta property="og:image" content={new URL("/og.png", Astro.site)} />
+    <meta property="og:image" content={new URL(ogImage, Astro.site)} />
+    <meta name="twitter:image" content={new URL(ogImage, Astro.site)} />
+    {hasBlog && <link rel="alternate" type="application/rss+xml" title="pxart blog" href="/blog/rss.xml" />}
+    {jsonLd.map((d) => <script type="application/ld+json" set:html={JSON.stringify(d)} />)}
     <meta name="twitter:card" content="summary_large_image" />
     <script is:inline>
       try {

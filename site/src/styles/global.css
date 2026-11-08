@@ -1400,3 +1400,72 @@ pre {
   font-size: 0.95rem;
   color: var(--ink-2);
 }
+
+/* ---- the blog ------------------------------------------------------------------------ */
+.blog-wrap {
+  max-width: 50rem;
+  padding-top: 2.5rem;
+}
+.post-meta {
+  font: 500 0.8rem var(--font-mono);
+  color: var(--muted);
+}
+.page-head .post-meta {
+  margin: 0.75rem 0 0;
+}
+.hub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 2rem;
+}
+.hub-chips a {
+  font: 500 0.85rem var(--font-mono);
+  padding: 0.2rem 0.6rem;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  text-decoration: none;
+}
+.hub-chips a:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.post-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.post-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem 1.2rem;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--paper);
+}
+.post-card:hover {
+  box-shadow: var(--px) var(--px) 0 var(--shadow);
+}
+.post-card strong {
+  font: 600 1.3rem var(--font-display);
+}
+.post-card span:last-child {
+  color: var(--ink-2);
+  font-size: 0.95rem;
+}
+.post-foot {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--ink);
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+.keep-going {
+  margin-top: 2.5rem;
+}
+.keep-going h2 {
+  font-size: 1.4rem;
+}

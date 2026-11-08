@@ -1,0 +1,25 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { posts, HUBS, readingMinutes } from "../../../lib/blog";
+export async function getStaticPaths() {
+  const all = await posts();
+  return Object.keys(HUBS).filter((id) => all.some((p) => p.hub === id)).map((hub) => ({ params: { hub } }));
+}
+const { hub } = Astro.params;
+const h = HUBS[hub!];
+const list = (await posts()).filter((p) => p.hub === hub);
+---
+<Base title={h.title} section="blog" description={h.blurb}>
+  <div class="wrap blog-wrap">
+    <header class="page-head">
+      <div class="eyebrow"><a href="/blog/">Blog</a> · hub</div>
+      <h1>{h.title}</h1>
+      <p class="lead">{h.blurb}</p>
+    </header>
+    <ol class="post-list">
+      {list.map((p) => (
+        <li><a class="post-card" href={`/blog/${p.slug}/`}><span class="post-meta"><time datetime={p.date}>{p.date}</time> · {readingMinutes(p.words)} min</span><strong>{p.title}</strong><span>{p.description}</span></a></li>
+      ))}
+    </ol>
+  </div>
+</Base>
