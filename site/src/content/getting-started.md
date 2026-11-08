@@ -139,8 +139,9 @@ the GIF and a strip of the frames.
 
 - **[Concepts](/docs/concepts/)**: sprites, palettes, variants, frames, selectors, packs and
   maps, each with an editor to try it in, and a glossary.
-- **[The tutorials](/tutorials/)**: nine short walkthroughs, from the format to palette
-  variants, drawing tools, tilemaps, and exporting to Aseprite and Tiled. Each one ends
+- **[The tutorials](/tutorials/)**: ten short walkthroughs, from the format to palette
+  variants, drawing tools, tilemaps with tiles that vary by cell, and exporting to Aseprite
+  and Tiled. Each one ends
   with a picture you made.
 - **[The .px format](/docs/format/)**: the whole format, including frames, pivots,
   shared palettes, `@variant` recolors and palette slots.

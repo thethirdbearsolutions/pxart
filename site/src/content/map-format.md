@@ -52,6 +52,56 @@ Each legend line is a character, whitespace, then an item:
 A legend entry that can't load is an error at its line, so `pxart check room.map` finds a broken path
 before anything is drawn.
 
+## Variant tiles
+
+A legend line can list two or more tiles instead of one. That's a **variant list**, and each
+cell with its character draws one of them:
+
+```map
+g ../tiles/field.px:grass_a ../tiles/field.px:grass_b ../tiles/field.px:grass_c
+```
+
+The pick isn't random. It's a hash of the room's name (the map's file name without `.map`) and
+the cell's column and row, so a map draws the same way every time, and `scene`, `compose --map`
+and `export --tiled` all pick the same tile for each cell. Two maps with the same rows but
+different names pick differently, so renaming a room changes its picks.
+
+- **Every item is equally likely.** List a tile twice to make it twice as common, or list the
+  others more often to make one rare.
+- **Every item names a tile:** a `.px` file (with a `:frame` when it has several) or a `.png`,
+  each with its own `%variant` and flips if it wants them (`flowers.px+h`). A single path with
+  spaces in it stays one path.
+
+```tryme
+map-variants
+```
+
+The flowers are listed twice among eight, so they grow in about one cell of four. List
+`flowers` a third time, give one of them `+h`, or turn some `g` cells into `w`. To see the picks
+themselves, swap the variants for tiles that look nothing alike; this is tutorial 10's
+`picks/meadow.map`:
+
+```tryme
+map-picks
+```
+
+[Tutorial 10](/tutorials/10-map-variants/) walks through variant lists step by step.
+
+## Animated tiles
+
+A map cell draws one frame, so a legend entry that names a whole animation is an error that
+asks you to pick one:
+
+```text
+E_SELECT: legend 'w': 'tiles.px:water': legend 'w' 'tiles.px:water' is 2 frames; pick one with FILE:frame-id
+```
+
+Name the first frame (`w tiles.px:water/0`). `scene` and `compose --map` draw that frame, a
+still picture. In Tiled the tile moves: `export tiles.px --tiled tiles.tsj` gives each
+animation's first tile Tiled's own frame animation, with each frame's `ms`. A room compiled with
+`export ROOM.map --tiled` then draws its water cells with that tile. Every copy of a tile
+animates in step, because the animation belongs to the tile, not the cell.
+
 ## Rows and layers
 
 After the legend, a blank line, then the rows: one character per cell, with `.` for an empty cell.

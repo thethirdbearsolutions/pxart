@@ -43,6 +43,18 @@ SAMPLES = {
             "files": {"quay.map": "site/src/content/samples/quay.map", "tiles.px": EX + "08-export/harbor.px",
                       "harbor-palette.px": EX + "08-export/harbor-palette.px", "lamp.px": EX + "01-format/lamp.px",
                       "palette.px": EX + "01-format/palette.px", "barrel.px": EX + "01-format/barrel.px"}},
+    # tutorial 10's rooms, laid out as in examples/10-map-variants (a variant list's picks hash the
+    # room's name, the map's file name, so these draw as the tutorial's pictures do)
+    "map-variants": {"label": "variant tiles: grass, flowers and a pond", "mode": "map",
+                     "files": {"rooms/pond.map": EX + "10-map-variants/rooms/pond.map",
+                               "tiles/field.px": EX + "10-map-variants/tiles/field.px",
+                               "pal/field.px": EX + "10-map-variants/pal/field.px",
+                               "tiles/harbor.px": EX + "10-map-variants/tiles/harbor.px",
+                               "tiles/harbor-palette.px": EX + "10-map-variants/tiles/harbor-palette.px"}},
+    "map-picks": {"label": "a variant list's picks, made visible", "mode": "map",
+                  "files": {"picks/meadow.map": EX + "10-map-variants/picks/meadow.map",
+                            "tiles/field.px": EX + "10-map-variants/tiles/field.px",
+                            "pal/field.px": EX + "10-map-variants/pal/field.px"}},
 }
 # the home page's editor offers these, the first shown first
 HOME = ["walk", "face", "lamp", "gem"]

@@ -1,0 +1,10 @@
+# rooms/meadow-east.map's picks made visible: the same room name, so the same pick in every cell,
+# with grass_a, grass_b and grass_c swapped for grass, flowers and a stone.
+g ../tiles/field.px:grass_a ../tiles/field.px:flowers ../tiles/field.px:stone
+
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg

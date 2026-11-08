@@ -1395,3 +1395,8 @@ pre {
   border: 0;
   padding: 0;
 }
+.prose .try-aside {
+  margin: 2rem 0 0;
+  font-size: 0.95rem;
+  color: var(--ink-2);
+}

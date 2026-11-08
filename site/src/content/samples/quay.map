@@ -1,15 +1,15 @@
-# A quay: cobbles, planks and water, then a lamp and a barrel on top.
+# A quay: cobbles, planks and water, then a lamp and a barrel on top. The c line lists
+# three cobbles, a variant list: each c cell draws one, picked from where it is.
 # Each legend line is a character, then a file (and a frame) from this folder.
 # The barrel has no dusk of its own, so %base keeps it in its base colors in a dusk scene.
-c tiles.px:cobble/a
-C tiles.px:cobble/b
+c tiles.px:cobble/a tiles.px:cobble/b tiles.px:cobble/c
 p tiles.px:planks
 w tiles.px:water/0
 L lamp.px+b
 b barrel.px%base
 
-cCcCcC
-CcCcCc
+cccccc
+cccccc
 pppppp
 wwwwww
 ---

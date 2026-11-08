@@ -1,0 +1,52 @@
+{
+ "type": "map",
+ "version": "1.10",
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "width": 12,
+ "height": 6,
+ "tilewidth": 16,
+ "tileheight": 16,
+ "infinite": false,
+ "compressionlevel": -1,
+ "nextlayerid": 2,
+ "nextobjectid": 1,
+ "properties": [
+  {
+   "name": "source",
+   "type": "file",
+   "value": "pond.map"
+  }
+ ],
+ "layers": [
+  {
+   "id": 1,
+   "name": "layer 1",
+   "type": "tilelayer",
+   "width": 12,
+   "height": 6,
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "data": [
+    3, 4, 2, 2, 4, 4, 1, 2, 1, 1, 3, 2,
+    4, 3, 4, 4, 1001, 1001, 1001, 1001, 4, 2, 1, 3,
+    1, 4, 1, 1001, 1001, 1001, 1001, 1001, 1001, 3, 1, 2,
+    3, 2, 4, 1001, 1001, 1001, 1001, 1001, 1001, 2, 1, 1,
+    1, 3, 3, 2, 1001, 1001, 1001, 1001, 2, 4, 2, 4,
+    2, 1, 3, 4, 2, 1, 2, 4, 2, 1, 2, 2
+   ]
+  }
+ ],
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "../tiled/field.tsj"
+  },
+  {
+   "firstgid": 1001,
+   "source": "../tiled/water.tsj"
+  }
+ ]
+}

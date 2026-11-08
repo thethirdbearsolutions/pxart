@@ -269,6 +269,8 @@ export interface MapItem {
   h: boolean;
   v: boolean;
   bottom: boolean;
+  /** a variant list ('g grass.px:a grass.px:b grass.px:c'): each cell draws one, by cellHash */
+  picks?: MapItem[];
 }
 export interface PxMap {
   legend: Map<string, MapItem>;
@@ -293,7 +295,8 @@ export function parseMap(text: string): PxMap {
       if (line.startsWith("#")) continue;
       const m = /^(\S)\s+(.+)$/.exec(line);
       if (m && !sawBlank) {
-        legend.set(m[1], parseItem(m[2]));
+        const picks = variantList(m[2]);
+        legend.set(m[1], picks ? { ...picks[0], picks } : parseItem(m[2]));
         continue;
       }
       inRows = true;
@@ -306,6 +309,27 @@ export function parseMap(text: string): PxMap {
     layers[layers.length - 1].push(line);
   }
   return { legend, layers: layers.filter((l) => l.length) };
+}
+
+// a legend token that names a tile, as pxart's MAP_TOKEN_RE: FILE.px[:frame] or FILE.png, then %variant and +flags
+const MAP_TOKEN = /^.+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?(\+[hvb]{1,3})?(%[A-Za-z0-9_\-]+)?$/;
+
+/** A legend line's rest as a variant list, when it is two or more tokens and every one names a tile
+ *  (pxart's variant_list); else null: the rest is one path, spaces and all. */
+function variantList(rest: string): MapItem[] | null {
+  const toks = (rest.match(/"[^"]*"|\S+/g) ?? []).map((t) => t.replace(/^"(.*)"$/, "$1"));
+  return toks.length > 1 && toks.every((t) => MAP_TOKEN.test(t)) ? toks.map(parseItem) : null;
+}
+
+/** pxart's cell_hash: which of a variant list's tiles cell x,y of a room draws. FNV-1a over the
+ *  room's name (its file name without .map), mixed with the cell, then two xorshift-multiplies;
+ *  unsigned 32-bit. scene --map, compose --map and export --tiled all pick with it. */
+export function cellHash(room: string, x: number, y: number): number {
+  let h = 2166136261;
+  for (const b of new TextEncoder().encode(room)) h = Math.imul(h ^ b, 16777619) >>> 0;
+  h = (h ^ (Math.imul(x, 73856093) >>> 0) ^ (Math.imul(y, 19349663) >>> 0)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0;
+  return (h ^ (h >>> 15)) >>> 0;
 }
 
 function parseItem(spec: string): MapItem {
@@ -376,13 +400,13 @@ export function renderMap(mapPath: string, read: (path: string) => string | null
   const rows = Math.max(0, ...map.layers.map((l) => l.length));
   const out: Rgba32 & { notes: string[] } = { width: cols * tw, height: rows * th, data: new Uint8ClampedArray(cols * tw * rows * th * 4), notes: [] };
   const docs = new Map<string, PxDoc>();
+  const room = mapPath.replace(/^.*\//, "").replace(/\.map$/i, "");
   const items = new Map<string, Rgba32 | null>();
-  const itemFor = (ch: string): Rgba32 | null => {
-    if (items.has(ch)) return items.get(ch)!;
-    const it = map.legend.get(ch);
+  const imageOf = (ch: string, it: MapItem): Rgba32 | null => {
+    const key = JSON.stringify([it.path, it.frame, it.variant]);
+    if (items.has(key)) return items.get(key)!;
     let img: Rgba32 | null = null;
-    if (!it) out.notes.push(`'${ch}' isn't in the legend`);
-    else if (/\.png$/i.test(it.path)) out.notes.push(`${it.path}: PNG items aren't drawn here (pxart draws them)`);
+    if (/\.png$/i.test(it.path)) out.notes.push(`${it.path}: PNG items aren't drawn here (pxart draws them)`);
     else {
       try {
         const p = normalize(dir + it.path);
@@ -394,22 +418,32 @@ export function renderMap(mapPath: string, read: (path: string) => string | null
         if (variant && !doc.variants.has(variant))
           // pxart's scene stops here (E_SELECT); this draws the item in its base colors and says so
           out.notes.push(`legend '${ch}': ${it.path} has no variant '${variant}' (give it ${it.path}%base to keep its base colors)`);
-        if (sel.error || !sel.frames.length) out.notes.push(`${it.path}: ${sel.error ?? "no frames"}`);
+        if (sel.error || !sel.frames.length) out.notes.push(`legend '${ch}': ${it.path}: ${sel.error ?? "no frames"}`);
+        else if (sel.frames.length > 1)
+          // as pxart: a legend entry is one frame (an animated tile names its first frame, water/0)
+          out.notes.push(`legend '${ch}': '${it.path}${it.frame ? ":" + it.frame : ""}' is ${sel.frames.length} frames; pick one with FILE:frame-id`);
         else img = frameRgba(sel.frames[0], paletteFor(doc, variant && doc.variants.has(variant) ? variant : undefined));
       } catch (e) {
         out.notes.push(String((e as Error).message ?? e));
       }
     }
-    items.set(ch, img);
+    items.set(key, img);
     return img;
   };
+  const missing = new Set<string>();
   for (const layer of map.layers)
     layer.forEach((row, r) => {
       [...row].forEach((ch, c) => {
         if (ch === ".") return;
-        const img = itemFor(ch);
+        const entry = map.legend.get(ch);
+        if (!entry) {
+          if (!missing.has(ch)) out.notes.push(`'${ch}' isn't in the legend`);
+          missing.add(ch);
+          return;
+        }
+        const it = entry.picks ? entry.picks[cellHash(room, c, r) % entry.picks.length] : entry;
+        const img = imageOf(ch, it);
         if (!img) return;
-        const it = map.legend.get(ch)!;
         const x = it.bottom ? c * tw + Math.floor((tw - img.width) / 2) : c * tw;
         const y = it.bottom ? r * th + th - img.height : r * th;
         over(out, img, x, y, it.h, it.v);

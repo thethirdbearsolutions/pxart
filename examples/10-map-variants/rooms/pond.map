@@ -1,0 +1,11 @@
+# Grass with flowers in about one cell of four (a tile listed twice is picked twice as
+# often), and a pond of water that animates once the room is in Tiled.
+g ../tiles/field.px:grass_a ../tiles/field.px:grass_b ../tiles/field.px:grass_c ../tiles/field.px:grass_a ../tiles/field.px:grass_b ../tiles/field.px:grass_c ../tiles/field.px:flowers ../tiles/field.px:flowers
+w ../tiles/harbor.px:water/0
+
+gggggggggggg
+ggggwwwwgggg
+gggwwwwwwggg
+gggwwwwwwggg
+ggggwwwwgggg
+gggggggggggg

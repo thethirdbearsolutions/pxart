@@ -1,0 +1,3 @@
+$ pxart export tiles/field.px:grass_a tiles/field.px:grass_b tiles/field.px:grass_c tiles/field.px:flowers --tiled tiled/field.tsj
+created tiled/
+wrote tiled/field.png tiled/field.tsj

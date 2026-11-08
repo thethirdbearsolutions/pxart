@@ -2,6 +2,15 @@
 import Docs from "../../layouts/Docs.astro";
 import { tutorials } from "../../lib/content";
 import { tutorialsNav } from "../../lib/nav";
+import { playgroundHtml } from "../../lib/playground";
+
+// a try-me the site adds to a tutorial, after its intro (the README itself stays plain markdown)
+const TRY: Record<string, { sample: string; text: string }> = {
+  "10-map-variants": {
+    sample: "map-variants",
+    text: "The tutorial's last room, to edit in the browser before you start: the <code>g</code> line is a variant list, and the other tabs are its tiles.",
+  },
+};
 
 export async function getStaticPaths() {
   const ts = await tutorials();
@@ -16,7 +25,12 @@ export async function getStaticPaths() {
 }
 const { t, prev, next } = Astro.props;
 const nav = await tutorialsNav();
+const extra = TRY[t.slug];
+const firstH2 = t.html.indexOf("<h2");
+const html = extra && firstH2 > 0
+  ? t.html.slice(0, firstH2) + `<p class="try-aside">${extra.text}</p>` + playgroundHtml([extra.sample], { compact: true, hint: "try me: edit it" }) + t.html.slice(firstH2)
+  : t.html;
 ---
 <Docs title={t.short} eyebrow={`Tutorial ${t.number}`} section="tutorials" nav={nav} headings={t.headings} source={t.source} prev={prev} next={next} description={t.lead}>
-  <div class="prose" set:html={t.html} />
+  <div class="prose" set:html={html} />
 </Docs>

@@ -1,0 +1,6 @@
+$ pxart check rooms/
+ok   rooms/meadow-east.map: map 12x6 tiles, 1 legend char(s)
+ok   rooms/meadow.map: map 12x6 tiles, 1 legend char(s)
+ok   rooms/plain.map: map 12x6 tiles, 1 legend char(s)
+ok   rooms/pond.map: map 12x6 tiles, 2 legend char(s)
+4 files, 0 frames, 0 warnings

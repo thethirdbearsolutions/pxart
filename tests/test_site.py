@@ -131,14 +131,19 @@ def pxart_scene(map_path, variant, out_png):
 @pytest.mark.parametrize("variant", ["", "dusk"])
 def test_site_reader_draws_maps_as_pxart_scene_does(variant, tmp_path):
     """The concepts page's map editor (renderMap in px.ts) must draw a map as scene --map does: the
-    page's own sample, laid out as its files, and the glade from tutorial 06 (four layers, a sky wider
-    than a tile, props stood on their cells and mirrored)."""
+    page's own sample, laid out as its files, the glade from tutorial 06 (four layers, a sky wider
+    than a tile, props stood on their cells and mirrored), and tutorial 10's rooms (variant lists,
+    picked by pxart's cell hash of the room's name and the cell)."""
     sample = gen().samples()["samples"]["map"]
     folder = tmp_path / "sample"
     folder.mkdir()
     for name, text in sample["files"].items():
         (folder / name).write_text(text, encoding="utf-8")
-    for map_path in [folder / sample["main"], ROOT / "examples" / "06-scene" / "rooms" / "glade.map"]:
+    tut10 = ROOT / "examples" / "10-map-variants"
+    maps = [folder / sample["main"], ROOT / "examples" / "06-scene" / "rooms" / "glade.map"]
+    # variant lists: each cell's pick hashes the room's name, so these check the hash too
+    maps += [tut10 / "rooms" / "pond.map", tut10 / "rooms" / "meadow.map", tut10 / "picks" / "meadow-east.map"]
+    for map_path in maps:
         args = [NODE, "scripts/px-renders.ts", "--map", str(map_path)] + ([variant] if variant else [])
         proc = subprocess.run(args, cwd=SITE, capture_output=True, text=True)
         if proc.returncode != 0 and "Unknown file extension" in proc.stderr:

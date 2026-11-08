@@ -1,0 +1,15 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "name": "field",
+ "image": "field.png",
+ "imagewidth": 32,
+ "imageheight": 32,
+ "tilewidth": 16,
+ "tileheight": 16,
+ "columns": 2,
+ "tilecount": 4,
+ "margin": 0,
+ "spacing": 0,
+ "tiles": []
+}

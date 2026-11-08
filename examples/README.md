@@ -1,6 +1,6 @@
 # Examples
 
-Nine short tutorials, each in its own folder, each ending with a picture you made. They
+Ten short tutorials, each in its own folder, each ending with a picture you made. They
 start from what a `.px` sprite file is and build up to animations, day-and-night
 palettes, whole scenes, and getting art in and out of other tools. Every step is one
 small command, with its output and its picture.
@@ -19,6 +19,7 @@ Go in order the first time; each one leans a little on the ones before it.
 7. [07 · Import from PNG](07-import): cut a sprite sheet into frames, and prove it lossless.
 8. [08 · Export](08-export): hand your art to Aseprite, Tiled or anything that reads PNGs.
 9. [09 · Checking](09-check): read `check`'s messages and fix a broken file.
+10. [10 · Map variants](10-map-variants): fill a map with tiles that vary by cell, and water that animates in Tiled.
 
 
 ## Setting up
@@ -54,6 +55,7 @@ here would overwrite the files it comes with.
 | <img src="07-import/imported.png" width="200"> | [07 · Import from PNG](07-import) | `from-png --grid`; `diff`, and `diff -o` for a picture |
 | <img src="08-export/alchemist.x4.png" width="160"> | [08 · Export](08-export) | `export --aseprite`, `--tiled`, `--frames` |
 | <img src="09-check/fixed.png" width="200"> | [09 · Checking](09-check) | `check` and its error codes; `stats --colors` |
+| <img src="10-map-variants/pond.x2.png" width="200"> | [10 · Map variants](10-map-variants) | variant lists in a `.map` legend; how a cell picks; weighting; animated tiles with `export --tiled` |
 
 
 ## How these stay correct

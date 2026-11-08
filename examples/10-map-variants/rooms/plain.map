@@ -1,0 +1,9 @@
+# A meadow of one grass tile: every cell the same, and the repeat shows.
+g ../tiles/field.px:grass_a
+
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg

@@ -153,6 +153,10 @@ corner; `+b` stands it on its cell instead, bottom-aligned and centered.
 map
 ```
 
+The `c` line lists three cobbles: a **variant list**. Each `c` cell draws one of them, picked
+by a hash of the room's name and the cell, so the quay is never the same tile over and over,
+and it draws the same way every time (see [variant tiles](/docs/map-format/#variant-tiles)).
+
 Try: change a row of `p` to `w` to flood the planks; put another `L` in the second layer; or
 point `c` at `tiles.px:cobble/c`. The tile and prop files are in the other tabs. Press `%dusk`
 for the whole quay at dusk. The barrel has no dusk of its own, so its legend line says
@@ -186,6 +190,8 @@ builds a level in layers.
 - **layer**: one grid of rows in a map. A `---` line starts the next one, and later layers draw on
   top.
 - **legend**: a map's lines saying what each character stands for.
+- **variant list**: a legend line listing several tiles; each cell picks one by a hash of the
+  room's name and the cell.
 - **map**: a `.map` text tilemap: a legend, then rows.
 - **ms**: a frame's duration in milliseconds, from its `@frame` line or its group's `@anim`.
 - **pack**: a folder of sprites that belong together, usually sharing a palette file.

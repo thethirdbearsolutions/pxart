@@ -1,0 +1,114 @@
+# Harbor-market ground tiles: three cobbles, planks, and two frames of water.
+pxart 1
+@palette harbor-palette.px
+
+@anim water ms=450
+@still cobble
+
+@frame cobble/a
+GGllgGGGllllgGGG
+GlgggggGlgggggGl
+gggggggGggggggGg
+GgggggGGGggggGGG
+GGGGGGGllgGGGGGG
+lllgGGlggggglgGG
+ggggGlggggggggGl
+gggGGGgggggggGGg
+GGGGGGGGgggGGGGG
+GGlllgGGGGGGllgG
+Glggggggllgggggg
+Gggggggggggggggg
+GGggggGGggggGggG
+GGGGGGGlGGGGGGGG
+GllgGGlggggGGllG
+lggggGGGGGGGlggg
+
+@frame cobble/b
+GGGgllllGGGgllGG
+lGggggglGggggglG
+gGggggggGggggggg
+GGGggggGGGgggggG
+GGGGGGgllGGGGGGG
+GGglggggglGGglll
+lGgggggggglGgggg
+gGGgggggggGGGggg
+GGGGGgggGGGGGGGG
+GgllGGGGGGglllGG
+ggggggllgggggglG
+gggggggggggggggG
+GggGggggGGggggGG
+GGGGGGGGlGGGGGGG
+GllGGgggglGGgllG
+ggglGGGGGGGggggl
+
+@frame cobble/c
+lggggGGGGGGGlggg
+GllgGGlggggGGllG
+GGGGGGGlGGGGGGGG
+GGggggGGGgggGggG
+Gggggggggggggggg
+Glggggggllgggggg
+GGlllllGGGGGllgG
+GGGGGGGGgggGGGGG
+gggGGGgggggggGGg
+ggggGlggggggggGl
+lllgGGlggggllgGG
+GGGGGGGllgGGGGGG
+GgggggGGGggggGGG
+gggggggGggggggGg
+GlgggggGlgggggGl
+GGllgGGGllllgGGG
+
+@frame planks
+BbbbhBbbbbBbbhbB
+BbbbbBbhbbBbbbbB
+BbhbbBbbbbBbbbbB
+BbbbbBbbbhBbhbbB
+BBbbbBbbbbBbbbbB
+BbbbbBbbbbBbbbbB
+BbbhbBbbbbBBbbbB
+BbbbbBbbhbBbbbbB
+BbbbbBBbbbBbbbhB
+BhbbbBbbbbBbbbbB
+BbbbbBbbbbBbbbbB
+BbbbBBbbhbBbhbbB
+BbbbbBbbbbBbbbbB
+BbhbbBbbbbBbbbbB
+BbbbbBbbbBBbbbbB
+BbbbbBbhbbBbbhbB
+
+@frame water/0
+uuuuuuuuuuuuuuuu
+uuuccuuuuuuuuuuu
+uucuucuuuuuUUuuu
+uuuuuuuuuUUuuuuu
+uuuuuuuuuuuuuuuu
+UUuuuuuuuuuuuuuU
+uuUUuuuuuuucuuuu
+uuuuuuuuuucuccuu
+uuuuuuuuuuuuuuuu
+uuuuuUUUuuuuuuuu
+uuuuUuuuUuuuuuuu
+ucuuuuuuuuuuuuuu
+cuccuuuuuuuuuUUu
+uuuuuuuuuuuUUuuU
+uuuuuuuucuuuuuuu
+uuuuuuuuuuuuuuuu
+
+@frame water/1
+uuuuuuuuuuuuuuuu
+uuuuuuuuuuuuuuuu
+uuuuuuccuuuuuuuu
+uuuuucuucuuuuuUU
+uuuuuuuuuuuuUUuu
+uuuuuuuuuuuuuuuu
+uuUUUuuuuuuuuuuu
+uuuuuUUuuuuuuucu
+cuuuuuuuuuuuucuc
+uuuuuuuuuuuuuuuu
+uuuuuuuuUUUuuuuu
+uuuuuuuUuuuUuuuu
+uuuucuuuuuuuuuuu
+UUucuccuuuuuuuuu
+uuUuuuuuuuuuuuUU
+uuuuuuuuuuucuuuu

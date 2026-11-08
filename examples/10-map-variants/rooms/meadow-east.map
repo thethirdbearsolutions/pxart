@@ -1,0 +1,9 @@
+# meadow.map's rows and legend in another room: the name differs, so the picks do.
+g ../tiles/field.px:grass_a ../tiles/field.px:grass_b ../tiles/field.px:grass_c
+
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg

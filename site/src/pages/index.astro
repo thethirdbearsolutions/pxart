@@ -19,6 +19,7 @@ const features = [
   { slug: "07-import", img: "/examples/07-import/sheet.x8.png", text: "Slice a PNG sprite sheet into named frames with from-png, then prove the import lossless with diff." },
   { slug: "08-export", img: "/examples/08-export/frames.x4.png", text: "Hand your art to other tools: one PNG per frame, an Aseprite sheet with its tags and pivots, or a Tiled tileset with animated tiles." },
   { slug: "09-check", img: "/examples/09-check/fixed.png", fit: "contain", bg: "#1e1e24", text: "check reports every problem in a file at once, each with a stable code, a line and a pixel, so a broken file is quick to fix." },
+  { slug: "10-map-variants", img: "/examples/10-map-variants/pond.x2.png", text: "One legend line lists a few tiles and each cell of a map picks one, the same way every time. Water that animates once the room is in Tiled." },
 ];
 const diffExample = `--- face.px
 +++ face.px
@@ -350,8 +351,8 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
   }
   .feature-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1.1rem;
   }
   .feature {
     display: flex;
@@ -367,7 +368,7 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     box-shadow: 6px 6px 0 var(--shadow);
   }
   .feature-art {
-    height: 13rem;
+    height: 9.5rem;
     border-bottom: 2px solid var(--ink);
     overflow: hidden;
     background: #2b1e2f;
@@ -380,7 +381,7 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     object-position: center;
   }
   .feature-body {
-    padding: 1rem 1.1rem 1.2rem;
+    padding: 0.8rem 0.9rem 1rem;
   }
   .feature-n {
     font: 600 0.75rem var(--font-mono);
@@ -391,8 +392,8 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
   .feature p {
     margin: 0.5rem 0 0;
     color: var(--ink-2);
-    font-size: 0.93rem;
-    line-height: 1.55;
+    font-size: 0.86rem;
+    line-height: 1.5;
   }
   .more {
     margin-top: 2rem;
@@ -411,6 +412,9 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     }
     .feature-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .feature-art {
+      height: 12rem;
     }
   }
   @media (max-width: 680px) {
