@@ -2,7 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Playground from "../components/Playground.astro";
 import { tutorials, ref } from "../lib/content";
-import { paintPx } from "../lib/markdown";
+import { paintPx, readRepo } from "../lib/markdown";
 import { GITHUB } from "../lib/paths";
 
 const ts = await tutorials();
@@ -20,18 +20,8 @@ const diffExample = `--- face.px
 @@ -9 +9 @@
 -...kggggk...
 +...kgyygk...`;
-const sample = paintPx(
-  `k #3f2631
-g #43e1b3
-y #fee761
-
-....kkkk....
-...kggggk...
-..kgyggygk..
-...kggggk...
-....kkkk....`,
-  null,
-);
+// step 1 is the barrel's source as it is in the tutorials; step 2 is pxart's render of it
+const sample = paintPx(readRepo("examples/01-format/barrel.px"), null, { render: false });
 ---
 <Base section="home">
   <section class="hero">
@@ -66,7 +56,7 @@ y #fee761
       <li>
         <div class="step-n">write</div>
         <div class="step-art" set:html={sample} />
-        <p>Type rows of palette keys in any editor. The sprite's size is the grid's size: there's nothing to declare or count.</p>
+        <p><code>barrel.px</code>: a palette, then rows of its keys, typed in any editor. The sprite's size is the grid's size: there's nothing to declare or count.</p>
       </li>
       <li>
         <div class="step-n">render</div>
@@ -261,7 +251,7 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     background: none;
   }
   .step-art {
-    height: 13.5rem;
+    height: 25rem;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -282,7 +272,10 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     box-shadow: none;
   }
   .step-art :global(.px-code) {
-    font-size: 0.78rem;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    white-space: pre-wrap;
+    overflow: hidden;
     display: grid;
     align-items: center;
   }

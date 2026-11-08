@@ -99,7 +99,7 @@ function ink([r, g, b]: Rgba): string {
   return lum > 140 ? "#2b1e2f" : "#efe6d2";
 }
 
-export function paintPx(code: string, absDir: string | null): string {
+export function paintPx(code: string, absDir: string | null, opts: { render?: boolean } = {}): string {
   let doc = parsePx(code);
   const imports = absDir ? doc.imports.map((p) => paletteOf(path.join(absDir, p))) : [];
   doc = parsePx(code, imports);
@@ -141,7 +141,7 @@ export function paintPx(code: string, absDir: string | null): string {
     .join("\n");
 
   const drawable = doc.frames.filter((f) => f.rows.length >= 3 && [...f.rows.join("")].every((ch) => ch === "." || pal.has(ch)));
-  const renders = drawable
+  const renders = opts.render === false ? "" : drawable
     .slice(0, 6)
     .map((f) => `<div class="px-render-cell">${frameSvg(f, pal, { title: f.id || "render", fit: 128 })}${f.id ? `<span>${escapeHtml(f.id)}</span>` : ""}</div>`)
     .join("");
