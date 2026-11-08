@@ -8,12 +8,12 @@ import { GITHUB } from "../lib/paths";
 const ts = await tutorials();
 const bySlug = Object.fromEntries(ts.map((t) => [t.slug, t]));
 const features = [
-  { slug: "02-animation", img: "/examples/02-animation/walk.gif", title: "Animation you can measure", text: "Frames, timing and pivots in the file. anim prints what moved between frames once the whole-body bob is removed, so a walk cycle that's secretly a bob shows up as a number." },
-  { slug: "03-variants", img: "/examples/03-variants/panels.x4.png", title: "Day, dusk and night", text: "A @variant recolors a palette. Derive a night from the base colors, fit a dusk to another pack's, and keep the lamps lit." },
-  { slug: "04-drawing", img: "/examples/04-drawing/steps.png", title: "Drawing commands", text: "Lines, polygons, pixel-clean ellipses, fills, light-aware shading and outlines, for sprites too big to type pixel by pixel." },
-  { slug: "06-scene", img: "/examples/06-scene/glade-dusk.x2.png", title: "Scenes from tilemaps", text: "A text .map of tiles, in layers, becomes a level: as a PNG, as a .px frame, or as a Tiled world." },
-  { slug: "05-compose", img: "/examples/05-compose/dock-dusk.x4.png", title: "Compose across packs", text: "Stack sprites from packs whose colors clash. Conflicts are reported key by key, and --rekey resolves them without touching the sources." },
-  { slug: "08-export", img: "/examples/08-export/alchemist.x4.png", title: "In and out", text: "Slice a sprite sheet into frames and prove the import lossless. Export to PNGs, to Aseprite sheets with tags, or to Tiled tilesets." },
+  { slug: "02-animation", img: "/examples/02-animation/walk.gif", text: "Frames, timing and pivots in the file. anim prints what moved between frames once the whole-body bob is removed, so a walk cycle that's secretly a bob shows up as a number." },
+  { slug: "03-variants", img: "/examples/03-variants/panels.x4.png", text: "A @variant recolors a palette. Derive a night from the base colors, fit a dusk to another pack's, and keep the lamps lit." },
+  { slug: "04-drawing", img: "/examples/04-drawing/steps.png", text: "Lines, polygons, pixel-clean ellipses, fills, light-aware shading and outlines, for sprites too big to type pixel by pixel." },
+  { slug: "06-scene", img: "/examples/06-scene/glade-dusk.x2.png", text: "A text .map of tiles, in layers, becomes a level: as a PNG, as a .px frame, or as a Tiled world." },
+  { slug: "05-compose", img: "/examples/05-compose/dock-dusk.x4.png", text: "Stack sprites from packs whose colors clash. Conflicts are reported key by key, and --rekey resolves them without touching the sources." },
+  { slug: "08-export", img: "/examples/08-export/alchemist.x4.png", text: "Slice a sprite sheet into frames and prove the import lossless. Export to PNGs, to Aseprite sheets with tags, or to Tiled tilesets." },
 ];
 const diffExample = `--- face.px
 +++ face.px
@@ -109,7 +109,6 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
           <div class="feature-art checker"><img src={f.img} alt="" loading="lazy" /></div>
           <div class="feature-body">
             <span class="feature-n">{bySlug[f.slug]?.number} · {bySlug[f.slug]?.short}</span>
-            <h3>{f.title}</h3>
             <p>{f.text}</p>
           </div>
         </a>
@@ -380,12 +379,8 @@ face.px:8: E_UNKNOWN_KEY (row 2, x=[8]): keys 'q' aren't in the palette</code></
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
-  .feature h3 {
-    margin: 0.35rem 0 0.5rem;
-    font-size: 1.3rem;
-  }
   .feature p {
-    margin: 0;
+    margin: 0.5rem 0 0;
     color: var(--ink-2);
     font-size: 0.93rem;
     line-height: 1.55;
