@@ -2,7 +2,7 @@
 // sketchpad over the site's reader (lib/px.ts, which tests/test_site.py checks against pxart's own
 // renders); pxart itself checks far more.
 import {
-  parsePx, parseColor, parseMap, resolvePx, paletteFor, frameRgba, renderMap, select, sheetRgba, drawRgba, escapeHtml,
+  parsePx, parseColor, parseMap, resolvePx, DEFAULT_MS, paletteFor, frameRgba, renderMap, select, sheetRgba, drawRgba, escapeHtml,
   type Rgba, type PxDoc, type PxFrame, type Rgba32,
 } from "../lib/px";
 
@@ -105,6 +105,7 @@ function setup(root: HTMLElement) {
 
   function load(s: Sample) {
     sample = s;
+    mapStart = performance.now();
     files = { ...s.files };
     current = s.main;
     variant = "";
@@ -149,7 +150,27 @@ function setup(root: HTMLElement) {
   }
 
   function msOf(f: PxFrame): number {
-    return f.ms ?? anims.get(f.id.split("/").slice(0, -1).join("/"))?.ms ?? 200;
+    return f.ms ?? anims.get(f.id.split("/").slice(0, -1).join("/"))?.ms ?? DEFAULT_MS;
+  }
+
+  // a map's animated tiles play as they would in Tiled, all in step, timed from when the map
+  // first showed; editing the text redraws without starting them over
+  let mapStart = performance.now();
+  let mapTimer = 0;
+  function mapTick(delay: number) {
+    clearTimeout(mapTimer);
+    if (reduceMotion || !Number.isFinite(delay)) return;
+    mapTimer = window.setTimeout(() => {
+      if (sample.mode !== "map") return;
+      try {
+        const img = renderMap(sample.main, read, { variant: variant || undefined, time: performance.now() - mapStart });
+        still = img;
+        draw();
+        mapTick(Math.max(16, img.nextChange));
+      } catch {
+        /* the next edit says what's wrong */
+      }
+    }, Math.max(16, delay));
   }
 
   function play() {
@@ -229,13 +250,18 @@ function setup(root: HTMLElement) {
       } else {
         const docs = Object.keys(files).filter((f) => f.endsWith(".px")).map((f) => { try { return resolvePx(f, read); } catch { return null; } });
         showVariants([...new Set(docs.flatMap((d) => (d ? [...d.variants.keys()] : [])))]);
-        const img = renderMap(sample.main, read, { variant: variant || undefined });
+        const img = renderMap(sample.main, read, { variant: variant || undefined, time: performance.now() - mapStart });
+        mapTick(img.animated ? img.nextChange : Infinity);
         problems.push(...img.notes);
         still = img;
         const m = parseMap(files[sample.main] ?? "");
         const cols = Math.max(0, ...m.layers.flatMap((l) => l.map((r) => r.length)));
         const rows = Math.max(0, ...m.layers.map((l) => l.length));
         notes = `${cols}x${rows} cells of 16x16, ${m.layers.length} layer${m.layers.length === 1 ? "" : "s"}, ${m.legend.size} legend characters`;
+        if (img.animated)
+          notes += reduceMotion
+            ? "; animated tiles held still (reduced motion)"
+            : "; animated tiles play as in Tiled (pxart scene draws their first frame)";
         frameLabel.textContent = `${sample.main} · ${img.width}x${img.height}${variant ? ` %${variant}` : ""}`;
       }
     } catch (e) {

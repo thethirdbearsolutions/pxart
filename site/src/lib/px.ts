@@ -17,6 +17,8 @@ export interface PxDoc {
   imports: string[];
   frames: PxFrame[];
   anims: Map<string, { ms?: number }>;
+  /** groups marked `@still` (`*`: every frame): not animations */
+  stills: Set<string>;
   unknown: Set<string>;
 }
 
@@ -46,6 +48,7 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
     imports: [],
     frames: [],
     anims: new Map(),
+    stills: new Set(),
     unknown: new Set(),
   };
   for (const pal of imports) for (const [k, v] of pal) doc.palette.set(k, v);
@@ -82,6 +85,7 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
         state = "variant";
       } else if (word === "@anim" || word === "@still") {
         if (word === "@anim") doc.anims.set(arg, { ms: ms ? Number(ms[1]) : undefined });
+        else doc.stills.add(arg || "*");
         if (!doc.frames.length) state = "header";
       } else state = "ext";
       continue;
@@ -162,6 +166,28 @@ export function frameRgba(frame: PxFrame, pal: Map<string, Rgba>): { width: numb
     }
   });
   return { width, height, data };
+}
+
+/** pxart's default frame duration, for a frame with no ms of its own or its group's. */
+export const DEFAULT_MS = 100;
+
+/** A frame's group: its id's parent path (walk/down/0 is in walk/down; a top-level id is in none). */
+export const groupOf = (f: PxFrame) => f.id.split("/").slice(0, -1).join("/");
+
+/** A frame's duration as pxart has it: its own ms, else its group's @anim ms, else 100. */
+export function msOf(doc: PxDoc, f: PxFrame): number {
+  return f.ms ?? doc.anims.get(groupOf(f))?.ms ?? DEFAULT_MS;
+}
+
+/** The animation a map tile plays in Tiled, as pxart's export --tiled writes it: a frame that is
+ *  the first of an animated group (not @still, two or more frames) plays the group's frames in
+ *  file order, each for its ms; any other frame is still (null). */
+export function tileAnimation(doc: PxDoc, f: PxFrame): { frame: PxFrame; ms: number }[] | null {
+  const g = groupOf(f);
+  if (!g || doc.stills.has(g) || doc.stills.has("*")) return null;
+  const fs = doc.frames.filter((x) => groupOf(x) === g);
+  if (fs.length < 2 || fs[0] !== f) return null;
+  return fs.map((x) => ({ frame: x, ms: msOf(doc, x) }));
 }
 
 /** The palette a variant renders: the base, with the variant's keys over it. */
@@ -390,7 +416,11 @@ function over(dst: Rgba32, src: Rgba32, x0: number, y0: number, flipH = false, f
 }
 
 /** Draw a map, its paths read relative to the map through `read`, on tiles of `tile` px. */
-export function renderMap(mapPath: string, read: (path: string) => string | null, opts: { tile?: [number, number]; variant?: string } = {}): Rgba32 & { notes: string[] } {
+export function renderMap(
+  mapPath: string,
+  read: (path: string) => string | null,
+  opts: { tile?: [number, number]; variant?: string; time?: number } = {},
+): Rgba32 & { notes: string[]; animated: boolean; nextChange: number } {
   const [tw, th] = opts.tile ?? [16, 16];
   const text = read(mapPath);
   if (text === null) throw new Error(`${mapPath}: no such file`);
@@ -398,7 +428,12 @@ export function renderMap(mapPath: string, read: (path: string) => string | null
   const dir = mapPath.includes("/") ? mapPath.slice(0, mapPath.lastIndexOf("/") + 1) : "";
   const cols = Math.max(0, ...map.layers.flatMap((l) => l.map((r) => r.length)));
   const rows = Math.max(0, ...map.layers.map((l) => l.length));
-  const out: Rgba32 & { notes: string[] } = { width: cols * tw, height: rows * th, data: new Uint8ClampedArray(cols * tw * rows * th * 4), notes: [] };
+  const out: Rgba32 & { notes: string[]; animated: boolean; nextChange: number } = {
+    width: cols * tw, height: rows * th, data: new Uint8ClampedArray(cols * tw * rows * th * 4), notes: [],
+    animated: false, nextChange: Infinity,
+  };
+  // time (ms since the room appeared): an animated tile shows the frame it would in Tiled, all in step
+  const time = opts.time ?? 0;
   const docs = new Map<string, PxDoc>();
   const room = mapPath.replace(/^.*\//, "").replace(/\.map$/i, "");
   const items = new Map<string, Rgba32 | null>();
@@ -422,7 +457,21 @@ export function renderMap(mapPath: string, read: (path: string) => string | null
         else if (sel.frames.length > 1)
           // as pxart: a legend entry is one frame (an animated tile names its first frame, water/0)
           out.notes.push(`legend '${ch}': '${it.path}${it.frame ? ":" + it.frame : ""}' is ${sel.frames.length} frames; pick one with FILE:frame-id`);
-        else img = frameRgba(sel.frames[0], paletteFor(doc, variant && doc.variants.has(variant) ? variant : undefined));
+        else {
+          const pal = paletteFor(doc, variant && doc.variants.has(variant) ? variant : undefined);
+          const anim = tileAnimation(doc, sel.frames[0]);
+          let frame = sel.frames[0];
+          if (anim) {
+            const cycle = anim.reduce((t, a) => t + a.ms, 0);
+            let t = time % cycle;
+            let i = 0;
+            while (t >= anim[i].ms) t -= anim[i++].ms;
+            frame = anim[i].frame;
+            out.animated = true;
+            out.nextChange = Math.min(out.nextChange, anim[i].ms - t);
+          }
+          img = frameRgba(frame, pal);
+        }
       } catch (e) {
         out.notes.push(String((e as Error).message ?? e));
       }

@@ -9,9 +9,10 @@ import { resolvePx, paletteFor, frameRgba, renderMap } from "../src/lib/px.ts";
 const read = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : null);
 const sha = (d: Uint8ClampedArray) => createHash("sha256").update(d).digest("hex");
 
-// --map FILE.map [VARIANT]: the map drawn on 16x16 tiles, as [w, h, sha256, notes]
+// --map FILE.map [VARIANT] [TIME]: the map drawn on 16x16 tiles, its animated tiles at TIME ms,
+// as [w, h, sha256, notes]
 if (process.argv[2] === "--map") {
-  const img = renderMap(process.argv[3], read, { variant: process.argv[4] });
+  const img = renderMap(process.argv[3], read, { variant: process.argv[4] || undefined, time: Number(process.argv[5] ?? 0) });
   console.log(JSON.stringify([img.width, img.height, sha(img.data), img.notes]));
   process.exit(0);
 }

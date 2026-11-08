@@ -152,3 +152,29 @@ def test_site_reader_draws_maps_as_pxart_scene_does(variant, tmp_path):
         w, h, digest, notes = json.loads(proc.stdout)
         assert not notes, notes
         assert [w, h, digest] == pxart_scene(map_path, variant, tmp_path / "pxart.png"), f"{map_path.name}%{variant or 'base'} differs from pxart scene --map"
+
+
+@pytest.mark.skipif(not NODE, reason="node isn't installed")
+def test_site_map_animates_tiles_as_tiled_would(tmp_path):
+    """The map editor plays a legend entry naming an animation's first frame (water/0) as pxart's
+    export --tiled has Tiled play it: the group's frames in order, each for its ms, every cell in
+    step. So at 450 ms (harbor water: two frames of 450) the pond must draw exactly as pxart's scene
+    draws the same room with its legend pointing at water/1, and at 900 ms as at 0."""
+    tut10 = ROOT / "examples" / "10-map-variants"
+    room = tut10 / "rooms" / "pond.map"
+    frame1 = tmp_path / "rooms" / "pond.map"  # same room name, so the same grass picks
+    frame1.parent.mkdir()
+    frame1.write_text(room.read_text(encoding="utf-8").replace("harbor.px:water/0", "harbor.px:water/1"), encoding="utf-8")
+    shutil.copytree(tut10 / "tiles", tmp_path / "tiles")
+    shutil.copytree(tut10 / "pal", tmp_path / "pal")
+
+    def ours(time):
+        proc = subprocess.run([NODE, "scripts/px-renders.ts", "--map", str(room), "", str(time)], cwd=SITE, capture_output=True, text=True)
+        if proc.returncode != 0 and "Unknown file extension" in proc.stderr:
+            pytest.skip("this node can't run TypeScript directly (needs 22.18 or newer)")
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)[:3]
+
+    assert ours(0) == pxart_scene(room, "", tmp_path / "f0.png")
+    assert ours(450) == pxart_scene(frame1, "", tmp_path / "f1.png"), "at 450 ms the water should be on its second frame"
+    assert ours(899) == ours(450) and ours(900) == ours(0), "the water's cycle is 900 ms"

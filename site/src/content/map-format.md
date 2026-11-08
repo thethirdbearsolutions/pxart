@@ -102,6 +102,11 @@ animation's first tile Tiled's own frame animation, with each frame's `ms`. A ro
 `export ROOM.map --tiled` then draws its water cells with that tile. Every copy of a tile
 animates in step, because the animation belongs to the tile, not the cell.
 
+The editors on this site play animated tiles the way Tiled will: the group's frames in file order,
+each for its `ms`, every cell in step. That's a preview ahead of pxart itself, whose `scene` draws
+the first frame. The site's tests pin each frame to pxart's render of that frame. Tiled plays a
+group forward whatever its `@anim direction`, and so do the editors.
+
 ## Rows and layers
 
 After the legend, a blank line, then the rows: one character per cell, with `.` for an empty cell.
