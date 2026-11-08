@@ -1,12 +1,14 @@
+import path from "node:path";
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 
 // whether the blog has a post this build will publish (drafts only with PXART_DRAFTS=1)
+// (posts live outside this repository, in the folder PXART_BLOG_DIR names; see src/lib/blog.ts)
 function hasPosts() {
-  const dir = new URL("./src/content/blog/", import.meta.url);
-  if (!fs.existsSync(dir)) return false;
-  return fs.readdirSync(dir).some((f) => f.endsWith(".md") && !f.startsWith("_") && (process.env.PXART_DRAFTS === "1" || !/^draft:\s*true\s*$/m.test(fs.readFileSync(new URL(f, dir), "utf8"))));
+  const dir = process.env.PXART_BLOG_DIR ? path.resolve(process.env.PXART_BLOG_DIR) : "";
+  if (!dir || !fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir).some((f) => f.endsWith(".md") && !f.startsWith("_") && (process.env.PXART_DRAFTS === "1" || !/^draft:\s*true\s*$/m.test(fs.readFileSync(path.join(dir, f), "utf8"))));
 }
 
 export default defineConfig({

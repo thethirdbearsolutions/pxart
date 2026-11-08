@@ -53,16 +53,25 @@ Pull requests get preview deployments at `<branch>.pxart.pages.dev`.
 
 ## The blog
 
-Posts are `src/content/blog/<slug>.md`, with YAML frontmatter; `_template.md` shows every field.
-The build checks them and fails on a bad one: title at most 60 characters, description at most 155,
-`date` as YYYY-MM-DD, `hub` one of `git`, `format`, `field-notes`, `builds`, `craft`, at most three
-`related` slugs that exist. `heroSprite` (`FILE.px[:frame][%variant]`, a repository path) becomes the
-post's 1200x630 preview card at `/blog/<slug>/og.png`.
+The site has a blog section, but the posts aren't in this repository: pxart is free software, and
+posts about it (drafts most of all) aren't. They live in their own folder, and a build reads them
+from the folder `PXART_BLOG_DIR` names:
 
-`draft: true` posts are built only with `PXART_DRAFTS=1 npm run build`, so a draft never reaches
-production. With no published posts, the Blog link, the RSS link and the sitemap entry stay out and
-`/blog/` is noindexed. Posts get RSS (`/blog/rss.xml`), hub pages, and BlogPosting JSON-LD.
+```sh
+PXART_BLOG_DIR=../../pxart-blog npm run build
+```
+
+Without `PXART_BLOG_DIR` the site builds with no blog: no Blog link, no RSS link, no sitemap entry,
+and `/blog/` noindexed.
+
+A post is `<slug>.md` with YAML frontmatter; `blog-template.md` shows every field. The build checks
+them and fails on a bad one: title at most 60 characters, description at most 155, `date` as
+YYYY-MM-DD, `hub` one of `git`, `format`, `field-notes`, `builds`, `craft`, at most three `related`
+slugs that exist (one that's still a draft is left out). `heroSprite` (`FILE.px[:frame][%variant]`,
+a path in this repository) becomes the post's 1200x630 preview card at `/blog/<slug>/og.png`.
+`draft: true` posts are built only with `PXART_DRAFTS=1`. Posts get RSS (`/blog/rss.xml`), hub
+pages, and BlogPosting JSON-LD.
 
 The body is the same markdown as the docs: ```` ```px ````, ```` ```tryme ```` and ```` ```layers ````
-blocks work, the page drops a leading h1, and relative links resolve from `src/content/blog/`.
-The plan the posts follow is the BLOG doc in Chaotic ("pxart blog: four tracks").
+blocks work, the page drops a leading h1, and relative links resolve as if the post sat in
+`src/content/blog/`.

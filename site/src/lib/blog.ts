@@ -1,4 +1,6 @@
-// The blog: markdown posts in site/src/content/blog/<slug>.md, each with YAML frontmatter.
+// The blog: markdown posts, <slug>.md with YAML frontmatter, in the folder PXART_BLOG_DIR names.
+// The posts aren't part of this repository: pxart is free software, and its promotion (drafts
+// most of all) isn't. Without PXART_BLOG_DIR the site builds with no blog.
 // Drafts (draft: true) are built only with PXART_DRAFTS=1, so they never reach production.
 // The plan these follow is the BLOG doc "pxart blog: four tracks ..." (v3) in Chaotic.
 import fs from "node:fs";
@@ -8,6 +10,7 @@ import { REPO_ROOT } from "./paths";
 import { renderMarkdown, type Heading } from "./markdown";
 import { resolvePx, select, paletteFor, frameRgba, type Rgba32 } from "./px";
 
+/** Where a post's relative links resolve from, as if it sat in the repository here. */
 export const BLOG_DIR = "site/src/content/blog";
 
 /** The hubs: structure for readers, not a calendar. A post names one. */
@@ -63,8 +66,8 @@ let cache: Promise<Post[]> | null = null;
 /** Every post (drafts only with PXART_DRAFTS=1), newest first, frontmatter checked. */
 export function posts(): Promise<Post[]> {
   cache ??= (async () => {
-    const dir = path.join(REPO_ROOT, BLOG_DIR);
-    if (!fs.existsSync(dir)) return [];
+    const dir = process.env.PXART_BLOG_DIR ? path.resolve(process.env.PXART_BLOG_DIR) : "";
+    if (!dir || !fs.existsSync(dir)) return [];
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_")).sort();
     const out: Post[] = [];
     for (const f of files) {
@@ -108,8 +111,13 @@ export function posts(): Promise<Post[]> {
         words: body.split(/\s+/).filter(Boolean).length,
       });
     }
-    const slugs = new Set(out.map((p) => p.slug));
-    for (const p of out) for (const s of p.related) if (!slugs.has(s)) fail(p.source, `related post '${s}' doesn't exist`);
+    // A related post must exist; one that's still a draft is left out until it's published.
+    const files_ = new Set(files.map((f) => f.replace(/\.md$/, "")));
+    const built = new Set(out.map((p) => p.slug));
+    for (const p of out) {
+      for (const s of p.related) if (!files_.has(s)) fail(p.source, `related post '${s}' doesn't exist`);
+      p.related = p.related.filter((s) => built.has(s));
+    }
     return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug)));
   })();
   return cache;

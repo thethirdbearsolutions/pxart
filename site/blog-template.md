@@ -1,6 +1,6 @@
 ---
 # A template for posts: copy it to <slug>.md (lowercase words joined by hyphens).
-# Files starting with _ are never built. See site/README.md, "The blog".
+# It lives outside the posts folder; see site/README.md, "The blog".
 title: At most 60 characters, the page's <title> and h1
 description: At most 155 characters, the lead under the title and the search snippet.
 date: 2026-11-08            # YYYY-MM-DD, the publish date
@@ -32,4 +32,4 @@ gem
 ```
 
 Links to the site are absolute ([the format](/docs/format/)); links to repository files are
-relative to this folder and go to GitHub.
+written as if the post sat in site/src/content/blog/, and go to GitHub.

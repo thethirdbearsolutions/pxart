@@ -1,7 +1,6 @@
 ---
 import Base from "../../layouts/Base.astro";
 import { posts, HUBS, readingMinutes } from "../../lib/blog";
-import { GITHUB_BLOB } from "../../lib/paths";
 
 export async function getStaticPaths() {
   const all = await posts();
@@ -48,7 +47,6 @@ const jsonLd = [
     <footer class="post-foot">
       {p.credits && <p><strong>Who drew what:</strong> {p.credits}</p>}
       <p>{p.footer}</p>
-      <p><a href={GITHUB_BLOB + p.source}>This post's source on GitHub</a></p>
     </footer>
     {related.length > 0 && (
       <nav class="keep-going" aria-label="Keep going">
