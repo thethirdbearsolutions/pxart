@@ -74,8 +74,8 @@ LOOKING
       (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
       pads and labels).
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--slots N|K=I] [--exclude GLOB]
-        [--dry-run]
+        [--fit] [--align bottom|pivot] [--rows cols|group|file] [--slots N|K=I] [--exclude GLOB]
+        [--plain ...] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path (PNGs in it are left out, a
       sheet rendered there too). --exclude GLOB (repeatable) leaves files out: one whose
@@ -90,14 +90,14 @@ LOOKING
       color (a scene rendered with the same --bg) doesn't count that color: it's the
       backdrop. Frames with the same id from different files are labeled with their file's
       stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
-      --align pivot lines up each animation group's frames by pivot, as anim and onion do:
-      the group's frames are drawn on one canvas, every pivot on the same pixel. The
-      default, --align bottom, bottom-aligns each frame in its cell.
+      --align pivot lines up each animation group's frames by pivot, as anim and onion do
+      (default: bottom-aligned in the cell).
       --rows group starts a row for each animation group (one file's walk/down, then its
       walk/up, ...; a file's top-level frames share one; a PNG has its own) and wraps within
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
       --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
-      row with --cols frames.
+      row with --cols frames; --rows file, a row per input file. --plain: no text, a fixed
+      layout ('pxart help plain').
   anim FILE... [-o walk.gif|DIR] [--scale 8] [--fps N] [--variant V] [--dry-run]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
@@ -1029,6 +1029,32 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart sheet bat.px:fly,glow --variant night -o glow.png
 """
 
+PLAIN = """PLAIN SHEETS (pxart help plain)
+
+  sheet FILE... --plain [--with-1x] [--cells CELLS.json] [--ticks N] [--scale N] [--cols N]
+        [--rows cols|group|file] [--bg COLOR] [--align bottom|pivot] -o sheet.png
+  --plain draws no text at all (no ids, sizes or color counts) on a fixed integer layout,
+  for a visual test or a blind review: every cell is the same size, its slot the largest
+  .px frame times --scale (or the largest PNG, if bigger), 8 px between cells and around
+  the sheet; each image bottom-aligned and centered (rounding left) in its slot. .px
+  frames are scaled by nearest neighbour, so a scaled copy downsamples to the exact 1x;
+  PNG inputs are placed as they are, unscaled. --with-1x puts each frame's true 1x (never
+  upscaled) in a slot of its own before its scaled copy, 8 px apart. --cells CELLS.json
+  writes each image's rect (x1 and xN: x, y, w, h; a PNG's x1 is null) with its file,
+  frame id, label and scale: the ids live there, never in the image. --ticks N draws a
+  4 px tick every N source px along each scaled copy's top and left edges, in the gutter,
+  never over the art. --with-1x, --cells and --ticks need --plain; --plain takes no --fit
+  or --grid.
+
+  The sidecar: {"pxart": "sheet --plain cells", "version": 1, "image", "size": {w, h}, "scale",
+  "with_1x", "cell": {w, h}, "pad", "cells": [{"file", "frame", "label", "variant", "kind": "px"|"png",
+  "x1": {x, y, w, h}|null, "xN": {x, y, w, h}, "scale"}]}, cells in input order.
+
+  sheet hero.px:idle/0 hero.px:walk/down/0 overlay.png --plain --with-1x --scale 4 --ticks 8 \\
+      --cells pack.json -o pack.png
+"""
+
+
 SLOTS = """SLOTS (pxart help slots)
   A game that recolors a sprite at runtime (each villager's skin, hair, shirt) picks each
   key's color from a list. A palette line lists them after the key's color, split by '|':
@@ -1891,7 +1917,9 @@ def items(arg, variant=None, strict=False):
     variant = split_variant(arg)[1] or variant
     path, sel = split_sel(arg)
     if path.endswith(".png") or path.endswith(".gif"):
-        return [Item(pathlib.Path(path).stem, Image.open(path).convert("RGBA"), DEFAULT_MS)]
+        it = Item(pathlib.Path(path).stem, Image.open(path).convert("RGBA"), DEFAULT_MS)
+        it.src = path  # where it came from (a PNG has no doc): sheet --cells names it
+        return [it]
     doc = parse(path, strict)
     return [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in doc.select(sel)]
 
@@ -2301,14 +2329,17 @@ def file_error(cmd, e):
 
 def sheet_rows(its, cols, rows="cols"):
     """The sheet's rows, as lists of item indexes: --cols items each, or with rows 'group' one animation group per row
-    (a file's frames of one group; a file's top-level frames together; a PNG alone), groups in order of first
-    appearance, wrapping within a group longer than --cols."""
-    if rows != "group":
+    (a file's frames of one group; a file's top-level frames together; a PNG alone), or with rows 'file' one input
+    file per row (a PNG alone); groups in order of first appearance, wrapping within a group longer than --cols."""
+    if rows not in ("group", "file"):
         return [list(range(n, min(n + cols, len(its)))) for n in range(0, len(its), cols)]
     groups = {}
     for n, it in enumerate(its):
-        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
-            if it.doc else ("png", n)
+        if rows == "file":
+            key = (str(it.doc.path.resolve()),) if it.doc else ("png", n)
+        else:
+            key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
+                if it.doc else ("png", n)
         groups.setdefault(key, []).append(n)
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
@@ -2397,6 +2428,118 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
     save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
                smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
+    return out
+
+
+PLAIN_PAD = 8   # sheet --plain: the margin around the sheet and the gutter between slots and cells, in px
+PLAIN_TICK = 4  # sheet --plain --ticks: a tick's length, in the gutter above and left of the Nx slot (under PLAIN_PAD)
+PLAIN_CANVAS = (30, 30, 36, 255)  # sheet --plain: the sheet's color outside the slots (as sheet's own)
+PLAIN_TICK_COLOR = (200, 200, 210, 255)
+
+
+def plain_geometry(its, scale, with_1x, cols, rows):
+    """sheet --plain's fixed, integer layout, a pure function of the frames' sizes, --scale, --with-1x, --cols and
+    --rows. Every cell is the same size: its Nx slot is the largest .px frame's size times --scale (or the largest PNG,
+    if bigger, since PNGs are placed unscaled), and with --with-1x a 1x slot the largest .px frame's size comes first,
+    PLAIN_PAD to its left. Cells sit PLAIN_PAD apart, PLAIN_PAD from the edges. Each image is bottom-aligned and
+    centered (rounding left) in its slot. Returns (size, [(x1 rect or None, xN rect)] per item, in input order), each
+    rect (x, y, w, h); a PNG has no 1x rect."""
+    pxs = [it for it in its if it.doc is not None]
+    w1 = max((it.img.width for it in pxs), default=0)
+    h1 = max((it.img.height for it in pxs), default=0)
+    pngs = [it for it in its if it.doc is None]
+    wn = max([w1 * scale] + [it.img.width for it in pngs])
+    hn = max([h1 * scale] + [it.img.height for it in pngs])
+    one = w1 + PLAIN_PAD if with_1x and pxs else 0
+    cw, ch = one + wn, max(hn, h1 if with_1x else 0)
+    lines = sheet_rows(its, max(1, min(cols, len(its))), rows)
+    spots = [None] * len(its)
+    for r, line in enumerate(lines):
+        for c, n in enumerate(line):
+            x0, y0 = PLAIN_PAD + c * (cw + PLAIN_PAD), PLAIN_PAD + r * (ch + PLAIN_PAD)
+            it = its[n]
+            if it.doc is None:
+                w, h = it.img.size
+                big = (x0 + one + (wn - w) // 2, y0 + ch - h, w, h)
+                spots[n] = (None, big)
+            else:
+                w, h = it.img.width * scale, it.img.height * scale
+                big = (x0 + one + (wn - w) // 2, y0 + ch - h, w, h)
+                small = ((x0 + (w1 - it.img.width) // 2, y0 + ch - it.img.height, it.img.width, it.img.height)
+                         if with_1x else None)
+                spots[n] = (small, big)
+    widest = max(len(line) for line in lines)
+    size = (PLAIN_PAD + widest * (cw + PLAIN_PAD), PLAIN_PAD + len(lines) * (ch + PLAIN_PAD))
+    return size, spots, (cw, ch, wn, hn, w1)
+
+
+def plain_sheet(its, out, scale, cols, bg=None, with_1x=False, cells=None, ticks=None, rows="cols", align="bottom"):
+    """sheet --plain: the frames with no text at all (no ids, names, sizes or color counts, as render --plain), on a
+    fixed integer layout (plain_geometry), each .px frame at --scale (nearest neighbour, so an Nx copy downsamples to
+    the exact 1x pixels), with --with-1x its true 1x beside it, and PNG inputs placed as they are. --cells writes a
+    JSON sidecar of every image's rect, with its file, frame id and scale: the ids live there, never in the image.
+    --ticks N marks every N source px along each Nx copy's top and left edges, in the gutter, never over the art."""
+    shown = {id(it): it.img for it in its}
+    if align == "pivot":
+        groups = {}
+        for it in its:
+            if it.doc and it.frame and it.frame.group:
+                groups.setdefault((it.doc.path.resolve(), it.frame.group, getattr(it, "combo", 0)), []).append(it)
+        for g in groups.values():
+            lay = pivot_layout(g)
+            for it, at in zip(g, lay[2] if lay else ()):
+                shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
+    class View:  # an item as plain_geometry sees it: its shown image's size
+        def __init__(self, it):
+            self.doc, self.frame, self.img = it.doc, it.frame, shown[id(it)]
+    views = [View(it) for it in its]
+    size, spots, (cw, ch, wn, hn, w1) = plain_geometry(views, scale, with_1x, cols, rows)
+    s = Image.new("RGBA", size, PLAIN_CANVAS)
+    d = ImageDraw.Draw(s)
+    def slot(rect, img):
+        x, y, w, h = rect
+        if bg is not None:
+            d.rectangle([x, y, x + w - 1, y + h - 1], fill=rgba(bg))
+        elif img.getchannel("A").getextrema()[0] < 255:
+            sq = max(1, w // img.width) if img.width else 1
+            s.alpha_composite(checker(w, h, sq * max(1, -(-4 // sq))), (x, y))
+        s.alpha_composite(img, (x, y))
+    for it, (small, big) in zip(its, spots):
+        img = shown[id(it)]
+        slot(big, img if it.doc is None else img.resize((img.width * scale, img.height * scale), Image.NEAREST))
+        if small:
+            slot(small, img)
+        if ticks and it.doc is not None:
+            x, y, w, h = big
+            for k in range(0, img.width + 1, ticks):
+                tx = min(x + k * scale, x + w - 1)
+                d.line([(tx, y - PLAIN_TICK), (tx, y - 1)], fill=PLAIN_TICK_COLOR)
+            for k in range(0, img.height + 1, ticks):
+                ty = min(y + k * scale, y + h - 1)
+                d.line([(x - PLAIN_TICK, ty), (x - 1, ty)], fill=PLAIN_TICK_COLOR)
+    n = len(its)
+    about = (f"{n} frame{'s' * (n != 1)}, no text, every cell {cw}x{ch}: an Nx slot {wn}x{hn}" +
+             (f" after a 1x slot {w1} wide" if with_1x else "") + f", {PLAIN_PAD} px apart, at --scale {scale}")
+    save_image(s, out, "-o" if out is not None else "the sheet (no -o)", about=about,
+               smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
+    if cells:
+        def rect(r):
+            return None if r is None else {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
+        data = {"pxart": "sheet --plain cells", "version": 1, "image": str(out) if out else None,
+                "size": {"w": size[0], "h": size[1]}, "scale": scale, "with_1x": bool(with_1x),
+                "cell": {"w": cw, "h": ch}, "pad": PLAIN_PAD,
+                "cells": [{"file": str(it.doc.path) if it.doc else getattr(it, "src", it.label),
+                           "frame": (it.frame.id or None) if it.frame is not None and it.doc is not None else None,
+                           "label": it.label,
+                           "variant": it.variant, "kind": "px" if it.doc is not None else "png",
+                           "x1": rect(small), "xN": rect(big), "scale": scale if it.doc is not None else 1}
+                          for it, (small, big) in zip(its, spots)]}
+        if DRY["run"]:
+            print(f"(would write {cells}: {len(its)} cells)")
+        else:
+            cp = outpath(cells)
+            cp.write_text(json.dumps(data, indent=1) + "\n")
+            print(f"wrote {cells}")
     return out
 
 
@@ -3124,6 +3267,18 @@ def cmd_sheet(a):
     note = outsized(its, a.fit)
     if note:
         print(note)
+    plain_only = [f for f, on in (("--with-1x", a.with_1x), ("--cells", a.cells), ("--ticks", a.ticks)) if on]
+    if plain_only and not a.plain:
+        fail("E_BAD_ARG", f"{', '.join(plain_only)} go{'es' * (len(plain_only) == 1)} with --plain (a sheet with no "
+             "text and fixed geometry): add --plain")
+    if a.plain:
+        if a.fit or a.grid:
+            fail("E_BAD_ARG", f"--plain has fixed geometry and no overlays: leave out {'--fit' if a.fit else '--grid'}")
+        if a.ticks is not None and a.ticks < 1:
+            fail("E_BAD_ARG", f"--ticks {a.ticks}: give a spacing of 1 px or more (--ticks 8)")
+        print(wrote(plain_sheet(its, a.o, a.scale, a.cols, a.bg, with_1x=a.with_1x, cells=a.cells, ticks=a.ticks,
+                                rows=a.rows, align=a.align)))
+        return
     print(wrote(sheet(its, a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit, align=a.align, rows=a.rows)))
 
 
@@ -11034,6 +11189,8 @@ def cmd_help(a):
         print(WORLDS.rstrip())
     elif want.lower() == "slots":
         print(SLOTS.rstrip())
+    elif want.lower() == "plain":
+        print(PLAIN.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -11044,7 +11201,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, slots, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, plain, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 
@@ -11183,8 +11340,18 @@ def parser(describe=True):
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
-    p.add_argument("--rows", choices=["cols", "group"], default="cols",
-                   help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
+    p.add_argument("--rows", choices=["cols", "group", "file"], default="cols",
+                   help="group: one animation group per row; file: one input file per row; either wraps past --cols "
+                        "(default: --cols a row)")
+    p.add_argument("--plain", action="store_true",
+                   help="no text at all (no ids, sizes or color counts) and a fixed integer layout; PNG inputs placed "
+                        "as they are, unscaled")
+    p.add_argument("--with-1x", action="store_true", help="with --plain: each frame's true 1x beside its --scale copy")
+    p.add_argument("--cells", metavar="CELLS.json",
+                   help="with --plain: write a JSON sidecar of every image's rect (x, y, w, h), file, frame id and scale")
+    p.add_argument("--ticks", type=int, metavar="N",
+                   help="with --plain: tick marks every N source px along each scaled copy's top and left edges, in the "
+                        "gutter")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "

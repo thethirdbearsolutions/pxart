@@ -17746,7 +17746,7 @@ def test_sheet_rows_group_labels_every_frame_once(tmp_path, capsys):
 
 def test_help_documents_sheet_rows_group():
     text = " ".join(pxart.__doc__.split())
-    assert "[--fit] [--align bottom|pivot] [--rows cols|group]" in text
+    assert "[--fit] [--align bottom|pivot] [--rows cols|group|file]" in text
     assert "--rows group starts a row for each animation group" in text
 
 

@@ -167,7 +167,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   with `--fit` each frame's own, rows as tall as their tallest, and a frame over 8x the median
   frame's area gets a note saying what it costs; `--align pivot` lines up
   each animation's frames by pivot, as `anim` does; `--rows group` puts each animation group
-  on a row of its own), `anim` (one GIF, each
+  on a row of its own, `--rows file` each input file; `--plain` draws no text at all on a fixed integer
+  layout, PNG inputs placed unscaled, with `--with-1x` each frame's true 1x beside its scaled copy,
+  `--cells cells.json` a sidecar of every image's rect, file and frame id, and `--ticks N` ticks
+  in the gutter: a contact sheet for a visual test or a blind review), `anim` (one GIF, each
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
   motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
   72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
