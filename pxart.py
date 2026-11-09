@@ -1083,7 +1083,7 @@ FONTS = """FONTS (pxart help fonts)
       a comment line; its lines come after the section's, and a later line wins a pair):
       every character in LEFTS followed by every one in RIGHTS moves PX pixels (negative:
       closer). 'T aceo.,: -2' tucks them under T's bar. A pair that would make its glyphs
-      touch, even at a corner, is E_KERN: a kerned pair keeps a blank column between them.
+      touch, even at a corner, is E_KERN.
       In the .px, a run can't start with '#' or '@' (a comment, a section).
       Put @font and @kern after the palette, between frames or at the end (edits write them
       last); check --strict takes them. Errors are said all at once, at file:line, and
@@ -8933,7 +8933,7 @@ def ink_edges(ink):
 
 def kern_touch(ink_a, width_a, ink_b, px):
     """The first row of A where B, kerned by px, comes within a column of it (that row, or a row above or below: a
-    corner), or None: a kerned pair keeps a blank column between its glyphs."""
+    corner), or None: a kerned pair may share columns, but no two ink pixels may touch."""
     off, ea, eb = width_a + px, ink_edges(ink_a), ink_edges(ink_b)
     for ya, sa in enumerate(ea):
         for yb in (ya - 1, ya, ya + 1):
@@ -9016,8 +9016,8 @@ def build_font(doc, frames, kern_file=None, kern_path=None):
     for (a, b), (px, n, where) in pairs.items():
         row = kern_touch(ink[a], glyphs[a][0].size[0], ink[b], px)
         if row is not None:
-            issues.append(Issue("E_KERN", f"{a} {b} {px:+d}: the glyphs touch at row {row} (a kerned pair keeps a "
-                                "blank column between them, corners included)", where, n))
+            issues.append(Issue("E_KERN", f"{a} {b} {px:+d}: the glyphs touch at row {row} (no two ink pixels may "
+                                "touch, corners included)", where, n))
     if issues:
         raise PxError(issues)
 
