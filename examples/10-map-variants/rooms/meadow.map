@@ -1,0 +1,10 @@
+# The same meadow from three grass tiles: a variant list. Each cell draws one of them,
+# picked by a hash of the room's name (meadow) and the cell's column and row.
+g ../tiles/field.px:grass_a ../tiles/field.px:grass_b ../tiles/field.px:grass_c
+
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg
+gggggggggggg

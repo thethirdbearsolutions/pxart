@@ -1,0 +1,2 @@
+$ pxart export tiles/harbor.px:water --tiled tiled/water.tsj
+wrote tiled/water.png tiled/water.tsj

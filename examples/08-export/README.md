@@ -1,7 +1,8 @@
 # 08 · Export
 
 You'll turn two `.px` files into what other tools read: a sprite sheet for Aseprite, a
-tileset for Tiled, and a folder of plain PNGs, one per frame.
+tileset for Tiled, and a folder of plain PNGs, one per frame. Then you'll make a pixel
+font.
 
 ![the alchemist's exported sprite sheet: her walk, then her attack](alchemist.x4.png)
 
@@ -151,6 +152,65 @@ pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/att
 ```
 
 
+## Step 4: A pixel font
+
+`export --font` turns a file of glyph frames into a font a web page or a game can load.
+Each frame is one character, named for it, and its width is how far the next one
+starts. Every pixel that isn't transparent is ink. Save this as `tiny.px`:
+
+```px
+pxart 1
+X #000000
+
+@frame H
+XX..XX.
+XX..XX.
+XXXXXX.
+XX..XX.
+XX..XX.
+
+@frame i
+XX.
+...
+XX.
+XX.
+XX.
+
+@frame exclam
+XX.
+XX.
+XX.
+...
+XX.
+
+@frame space
+...
+...
+...
+...
+...
+
+@font
+family Tiny
+```
+
+Frame ids are glyph names: `H` and `i` are those letters, `exclam` is `!` and `space` a
+space (`zero` is `0`, `period` is `.`; `pxart help fonts` has the rule and a way to name
+any character). The `@font` section names the family. With no `baseline` line the
+glyphs stand on the bottom row; a font with descenders says how many rows sit above the
+baseline. Export it (this needs fontTools and brotli, `pip install fonttools brotli`):
+
+```sh
+pxart export tiny.px --font tiny.woff2
+```
+
+pxart says how many glyphs it wrote and the font's size in bytes. Each glyph's pixels
+become one outline with no seams between them, so in CSS the font draws sharp pixels
+at sizes where one pixel lands on whole screen pixels: 5 rows to the em here, so
+`font-size: 10px`, `15px`, `20px`. Kerning goes in an `@kern` section, a line such as
+`T a.,: -1` per rule, and a pair kerned so close that two glyphs touch is refused.
+
+
 ## Try it yourself
 
 - **Only the walk.** `pxart export alchemist.px:walk/right --aseprite walk.json` exports
@@ -166,6 +226,7 @@ pxart scene --size 56x32 -o frames.x4.png frames/walk/right/0.png@0,0 frames/att
 - `pxart export FILE --aseprite OUT.json`: a sheet PNG and Aseprite JSON.
 - `pxart export FILE --tiled OUT.tsj`: a Tiled tileset (PNG and JSON).
 - `pxart export FILE --frames DIR`: one PNG per frame, and `pivots.json`.
+- `pxart export FILE --font OUT.woff2`: a pixel font, one glyph per frame.
 
 `pxart help export` has the details. The [Commands section](../../README.md#commands) of
 the main README covers all of them.

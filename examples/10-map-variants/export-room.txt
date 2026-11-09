@@ -1,0 +1,2 @@
+$ pxart export rooms/pond.map --tiled
+wrote rooms/pond.tmj: 12x6, 0 objects (0 kept ids, 0 new)

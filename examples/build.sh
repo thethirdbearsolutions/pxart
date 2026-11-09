@@ -216,6 +216,26 @@ cp broken.px fixing/
 rm -r fixing
 
 # ---------------------------------------------------------------------------------------
+# 10-map-variants: a meadow of one grass tile, then of a variant list (each cell picks one by
+# a hash of the room's name and the cell), the same rows in another room, and a pond of water;
+# then Tiled tilesets, the water's animation in them, and the pond compiled for Tiled.
+stage 10-map-variants pal/field.px tiles/field.px tiles/harbor.px tiles/harbor-palette.px \
+  rooms/plain.map rooms/meadow.map rooms/meadow-east.map rooms/pond.map \
+  picks/meadow.map picks/meadow-east.map
+txt check.txt check rooms/
+for m in plain meadow meadow-east pond; do
+  pxart scene --map rooms/$m.map --scale 2 -o $m.x2.png
+done
+# the picks made visible: picks/ has the same room names with three tiles that look different
+for m in meadow meadow-east; do
+  pxart scene --map picks/$m.map --scale 2 -o picks-$m.x2.png
+done
+txt export-field.txt export tiles/field.px:grass_a tiles/field.px:grass_b tiles/field.px:grass_c \
+  tiles/field.px:flowers --tiled tiled/field.tsj
+txt export-water.txt export tiles/harbor.px:water --tiled tiled/water.tsj
+txt export-room.txt export rooms/pond.map --tiled
+
+# ---------------------------------------------------------------------------------------
 mkdir -p "$DEST"
 cp -R "$WORK"/. "$DEST"/
 echo "built examples into $DEST"

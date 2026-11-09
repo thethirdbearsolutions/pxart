@@ -14,6 +14,12 @@ takes the `.px` file, the letter (*key*) to paint with, and some positions, and 
 the file in place. For example, `pxart rect chest.px b 2,9,20,10 --fill` paints a filled
 rectangle of `b` (light wood) into `chest.px`.
 
+What a command writes is ordinary rows of keys, the same as you'd type. The file doesn't
+remember that a rectangle or an outline made them: nothing procedural is stored in a
+`.px` file. After any step you can open `chest.px` and edit the letters by hand, and the
+next command works on whatever is there. [`steps/`](steps) holds the file as each step
+left it, starting from [`steps/02-rect.px`](steps/02-rect.px) for the body.
+
 The colors come from [`palette.px`](palette.px), and the whole script is
 [`draw.sh`](draw.sh): one command per line, the same ones as the steps below.
 

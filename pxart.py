@@ -74,8 +74,8 @@ LOOKING
       (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
       pads and labels).
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
-        [--fit] [--align bottom|pivot] [--rows cols|group] [--slots N|K=I] [--exclude GLOB]
-        [--dry-run]
+        [--fit] [--align bottom|pivot] [--rows cols|group|file] [--slots N|K=I] [--exclude GLOB]
+        [--plain ...] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path (PNGs in it are left out, a
       sheet rendered there too). --exclude GLOB (repeatable) leaves files out: one whose
@@ -90,14 +90,14 @@ LOOKING
       color (a scene rendered with the same --bg) doesn't count that color: it's the
       backdrop. Frames with the same id from different files are labeled with their file's
       stem in front (hero:idle/0, beast:idle/0); render and anim label them the same way.
-      --align pivot lines up each animation group's frames by pivot, as anim and onion do:
-      the group's frames are drawn on one canvas, every pivot on the same pixel. The
-      default, --align bottom, bottom-aligns each frame in its cell.
+      --align pivot lines up each animation group's frames by pivot, as anim and onion do
+      (default: bottom-aligned in the cell).
       --rows group starts a row for each animation group (one file's walk/down, then its
       walk/up, ...; a file's top-level frames share one; a PNG has its own) and wraps within
       a group only when it has more than --cols frames: 'sheet party.px --fit --rows group
       --align pivot -o party.png' is one walk per row. The default, --rows cols, fills each
-      row with --cols frames.
+      row with --cols frames; --rows file, a row per input file. --plain: no text, a fixed
+      layout ('pxart help plain').
   anim FILE... [-o walk.gif|DIR] [--scale 8] [--fps N] [--variant V] [--dry-run]
       walk.gif (one file: each frame at --scale, its 1x and 2x copies beside it in the same
       picture), plus walk.strip.png: row 1 = frames, row 2 = what changed from the previous
@@ -777,7 +777,7 @@ DRAWING (edits like EDITING: FILE[:SEL] draws on every selected frame, -o OUT, o
 
 CONVERTING
   export FILE|DIR[:SEL]... [--frames DIR] [--aseprite sheet.json] [--tiled tiles.tsj] [--variant V]
-         [--prefix-file] [--exclude GLOB] [--indexed X.json]
+         [--prefix-file] [--exclude GLOB] [--indexed X.json] [--font F.woff2 [--kern K]]
       --frames: one PNG per frame at DIR/<frame id>.png, and DIR/pivots.json when frames have
         pivots: {"walk/0": {"x": 8, "y": 23}, ...} (frames without one are left out)
       --aseprite: sheet PNG + Aseprite-style JSON (frames, durations, frameTags; pivots as
@@ -786,6 +786,7 @@ CONVERTING
         bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
       --tiled: sheet PNG + Tiled tileset JSON with per-tile animations (worlds: help worlds)
       (--aseprite x.json and --tiled x.tsj write the same x.png)
+      --font F.woff2|F.ttf: a pixel font of one file's frames, a glyph each (help fonts)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
       order: 'export harbor.px:cobble harbor.px:water --tiled t.tsj' (no 32x32 props).
       Several files and directories export together, file by file in the order named; a
@@ -794,17 +795,16 @@ CONVERTING
       share (each file's idle/0; two animations of one name too), or, with --frames, two ids
       that differ only in case (Door, door: one file on macOS), is E_DUP_FRAME, and nothing
       is written. --prefix-file ids them FILE/ID, FILE being the file's path under its
-      directory without .px, or a named file's stem (roofs/roof-red, props/well/well; an
-      unnamed grid is FILE alone), in the PNG paths, the Aseprite filenames and tags and the
-      Tiled animations.
+      directory without .px, or a named file's stem (roofs/roof-red; an unnamed grid is
+      FILE alone), in every output.
       Id order (the Aseprite frame index, the Tiled tile id, the sheet position): 0, 1, 2...
       over the exported frames, file by file, with each animation group contiguous, groups
       in order of first appearance, and all top-level frames (no '/' in the id) together as
       one group where the first of them appears. A file that keeps each group together, and
       its top-level frames together, gets ids in file order; otherwise a frame moves up to
       its group: a/0 b/0 a/1 -> a/0=0 a/1=1 b/0=2, and icon walk/0 badge -> icon=0 badge=1
-      walk/0=2. Adding, removing or moving frames can renumber others, and a Tiled map
-      painted with the old tileset keeps the old ids.
+      walk/0=2. Adding, removing or moving frames can renumber others (a Tiled map keeps
+      the old ids).
   from-png A.png [B.png ...] [-o OUT.px] [--id PREFIX] [--prefix-dir] [--palette P.px] [--colors N]
            [--hard-edges] [--names A,B,... | --labels FILE.csv [--label-col proposed_name] [--file-col filename]]
   from-png SHEET.png --grid WxH [--names A,B,...] [--by rows|cols] [-o OUT.px] [--id PREFIX] [--palette P.px]
@@ -1028,6 +1028,69 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart paste bat.px:glow --into bat.px:fly --at 0,1 --under --align shift
        $ pxart sheet bat.px:fly,glow --variant night -o glow.png
 """
+
+PLAIN = """PLAIN SHEETS (pxart help plain)
+
+  sheet FILE... --plain [--with-1x] [--cells CELLS.json] [--ticks N] [--scale N] [--cols N]
+        [--rows cols|group|file] [--bg COLOR] [--align bottom|pivot] -o sheet.png
+  --plain draws no text at all (no ids, sizes or color counts) on a fixed integer layout,
+  for a visual test or a blind review: every cell is the same size, its slot the largest
+  .px frame times --scale (or the largest PNG, if bigger), 8 px between cells and around
+  the sheet; each image bottom-aligned and centered (rounding left) in its slot. .px
+  frames are scaled by nearest neighbour, so a scaled copy downsamples to the exact 1x;
+  PNG inputs are placed as they are, unscaled. --with-1x puts each frame's true 1x (never
+  upscaled) in a slot of its own before its scaled copy, 8 px apart. --cells CELLS.json
+  writes each image's rect (x1 and xN: x, y, w, h; a PNG's x1 is null) with its file,
+  frame id, label and scale: the ids live there, never in the image. --ticks N draws a
+  4 px tick every N source px along each scaled copy's top and left edges, in the gutter,
+  never over the art. --with-1x, --cells and --ticks need --plain; --plain takes no --fit
+  or --grid.
+
+  The sidecar: {"pxart": "sheet --plain cells", "version": 1, "image", "size": {w, h}, "scale",
+  "with_1x", "cell": {w, h}, "pad", "cells": [{"file", "frame", "label", "variant", "kind": "px"|"png",
+  "x1": {x, y, w, h}|null, "xN": {x, y, w, h}, "scale"}]}, cells in input order.
+
+  sheet hero.px:idle/0 hero.px:walk/down/0 overlay.png --plain --with-1x --scale 4 --ticks 8 \\
+      --cells pack.json -o pack.png
+"""
+
+
+FONTS = """FONTS (pxart help fonts)
+  export FONT.px[:SEL] --font F.woff2|F.woff|F.ttf [--kern K.kern]
+      A pixel font from one file: each frame is a glyph, the frame's width its advance (the
+      blank columns on its right space it from the next), and every pixel that isn't
+      transparent is ink. Each glyph's ink is traced into its union outline (closed loops
+      around the pixels, no seams), crisp at any size that makes 1 px whole screen pixels
+      (an em of 10 rows: 10px, 20px...). Every glyph is the same height; a .notdef (a
+      hollow box) comes first. The same source writes the same bytes.
+      A frame's id is its glyph's name, and the name says the character: a name from
+      Adobe's glyph list (A, a, zero, period, comma, quoteright, eacute, space), uniXXXX or
+      uXXXXX (uni00A0, u1F600), or any name an @font 'map' line gives code points. A frame
+      with no character, of another height, or claiming a character another frame has is
+      E_GLYPH; FILE:SEL exports only the glyph frames.
+      An @font section sets the font's metrics, a line each, all optional:
+          @font
+          family Tiny Sans          the family name (default: the file's stem)
+          weight 600                the weight (400); style: its name (from weight: SemiBold)
+          baseline 8                rows above the baseline (the frames' height: none below)
+          unit 100                  font units per pixel (100); upm: the em (unit x height)
+          ascent 9                  the line box above the baseline, in px (baseline)
+          descent 3                 and below it (the rows under the baseline)
+          cap 7                     cap height in px (H's ink); xheight: x's
+          map bullet U+2022         a name's code points (one or more)
+      and version (1.000), vendor (4 letters), license, psname (family-style, no spaces).
+      Kerning: lines 'LEFTS RIGHTS PX' in an @kern section, or in --kern K.kern ('#' starts
+      a comment line; its lines come after the section's, and a later line wins a pair):
+      every character in LEFTS followed by every one in RIGHTS moves PX pixels (negative:
+      closer). 'T aceo.,: -2' tucks them under T's bar. A pair that would make its glyphs
+      touch, even at a corner, is E_KERN.
+      In the .px, a run can't start with '#' or '@' (a comment, a section).
+      Put @font and @kern after the palette, between frames or at the end (edits write them
+      last); check --strict takes them. Errors are said all at once, at file:line, and
+      nothing is written: E_FONT (an @font line), E_GLYPH, E_KERN.
+      Needs fontTools, and brotli for .woff2: pip install fonttools brotli.
+"""
+
 
 SLOTS = """SLOTS (pxart help slots)
   A game that recolors a sprite at runtime (each villager's skin, hair, shirt) picks each
@@ -1708,7 +1771,7 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 keep(("still", pos[0]))
                 state = "header" if not doc.frames else state
             else:
-                if strict:
+                if strict and word not in FONT_SECTIONS:
                     err("E_UNKNOWN_SECTION", f"unknown section {word}", n)
                 keep(("ext", len(doc.extensions)))
                 doc.extensions.append(s)
@@ -1891,7 +1954,9 @@ def items(arg, variant=None, strict=False):
     variant = split_variant(arg)[1] or variant
     path, sel = split_sel(arg)
     if path.endswith(".png") or path.endswith(".gif"):
-        return [Item(pathlib.Path(path).stem, Image.open(path).convert("RGBA"), DEFAULT_MS)]
+        it = Item(pathlib.Path(path).stem, Image.open(path).convert("RGBA"), DEFAULT_MS)
+        it.src = path  # where it came from (a PNG has no doc): sheet --cells names it
+        return [it]
     doc = parse(path, strict)
     return [Item(doc.label(f), doc.image(f, variant), doc.ms(f), doc, f) for f in doc.select(sel)]
 
@@ -2301,14 +2366,17 @@ def file_error(cmd, e):
 
 def sheet_rows(its, cols, rows="cols"):
     """The sheet's rows, as lists of item indexes: --cols items each, or with rows 'group' one animation group per row
-    (a file's frames of one group; a file's top-level frames together; a PNG alone), groups in order of first
-    appearance, wrapping within a group longer than --cols."""
-    if rows != "group":
+    (a file's frames of one group; a file's top-level frames together; a PNG alone), or with rows 'file' one input
+    file per row (a PNG alone); groups in order of first appearance, wrapping within a group longer than --cols."""
+    if rows not in ("group", "file"):
         return [list(range(n, min(n + cols, len(its)))) for n in range(0, len(its), cols)]
     groups = {}
     for n, it in enumerate(its):
-        key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
-            if it.doc else ("png", n)
+        if rows == "file":
+            key = (str(it.doc.path.resolve()),) if it.doc else ("png", n)
+        else:
+            key = (str(it.doc.path.resolve()), it.frame.group if it.frame else "", getattr(it, "combo", 0)) \
+                if it.doc else ("png", n)
         groups.setdefault(key, []).append(n)
     return [ns[i:i + cols] for ns in groups.values() for i in range(0, len(ns), cols)]
 
@@ -2397,6 +2465,118 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
         d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
     save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
                smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
+    return out
+
+
+PLAIN_PAD = 8   # sheet --plain: the margin around the sheet and the gutter between slots and cells, in px
+PLAIN_TICK = 4  # sheet --plain --ticks: a tick's length, in the gutter above and left of the Nx slot (under PLAIN_PAD)
+PLAIN_CANVAS = (30, 30, 36, 255)  # sheet --plain: the sheet's color outside the slots (as sheet's own)
+PLAIN_TICK_COLOR = (200, 200, 210, 255)
+
+
+def plain_geometry(its, scale, with_1x, cols, rows):
+    """sheet --plain's fixed, integer layout, a pure function of the frames' sizes, --scale, --with-1x, --cols and
+    --rows. Every cell is the same size: its Nx slot is the largest .px frame's size times --scale (or the largest PNG,
+    if bigger, since PNGs are placed unscaled), and with --with-1x a 1x slot the largest .px frame's size comes first,
+    PLAIN_PAD to its left. Cells sit PLAIN_PAD apart, PLAIN_PAD from the edges. Each image is bottom-aligned and
+    centered (rounding left) in its slot. Returns (size, [(x1 rect or None, xN rect)] per item, in input order), each
+    rect (x, y, w, h); a PNG has no 1x rect."""
+    pxs = [it for it in its if it.doc is not None]
+    w1 = max((it.img.width for it in pxs), default=0)
+    h1 = max((it.img.height for it in pxs), default=0)
+    pngs = [it for it in its if it.doc is None]
+    wn = max([w1 * scale] + [it.img.width for it in pngs])
+    hn = max([h1 * scale] + [it.img.height for it in pngs])
+    one = w1 + PLAIN_PAD if with_1x and pxs else 0
+    cw, ch = one + wn, max(hn, h1 if with_1x else 0)
+    lines = sheet_rows(its, max(1, min(cols, len(its))), rows)
+    spots = [None] * len(its)
+    for r, line in enumerate(lines):
+        for c, n in enumerate(line):
+            x0, y0 = PLAIN_PAD + c * (cw + PLAIN_PAD), PLAIN_PAD + r * (ch + PLAIN_PAD)
+            it = its[n]
+            if it.doc is None:
+                w, h = it.img.size
+                big = (x0 + one + (wn - w) // 2, y0 + ch - h, w, h)
+                spots[n] = (None, big)
+            else:
+                w, h = it.img.width * scale, it.img.height * scale
+                big = (x0 + one + (wn - w) // 2, y0 + ch - h, w, h)
+                small = ((x0 + (w1 - it.img.width) // 2, y0 + ch - it.img.height, it.img.width, it.img.height)
+                         if with_1x else None)
+                spots[n] = (small, big)
+    widest = max(len(line) for line in lines)
+    size = (PLAIN_PAD + widest * (cw + PLAIN_PAD), PLAIN_PAD + len(lines) * (ch + PLAIN_PAD))
+    return size, spots, (cw, ch, wn, hn, w1)
+
+
+def plain_sheet(its, out, scale, cols, bg=None, with_1x=False, cells=None, ticks=None, rows="cols", align="bottom"):
+    """sheet --plain: the frames with no text at all (no ids, names, sizes or color counts, as render --plain), on a
+    fixed integer layout (plain_geometry), each .px frame at --scale (nearest neighbour, so an Nx copy downsamples to
+    the exact 1x pixels), with --with-1x its true 1x beside it, and PNG inputs placed as they are. --cells writes a
+    JSON sidecar of every image's rect, with its file, frame id and scale: the ids live there, never in the image.
+    --ticks N marks every N source px along each Nx copy's top and left edges, in the gutter, never over the art."""
+    shown = {id(it): it.img for it in its}
+    if align == "pivot":
+        groups = {}
+        for it in its:
+            if it.doc and it.frame and it.frame.group:
+                groups.setdefault((it.doc.path.resolve(), it.frame.group, getattr(it, "combo", 0)), []).append(it)
+        for g in groups.values():
+            lay = pivot_layout(g)
+            for it, at in zip(g, lay[2] if lay else ()):
+                shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
+    class View:  # an item as plain_geometry sees it: its shown image's size
+        def __init__(self, it):
+            self.doc, self.frame, self.img = it.doc, it.frame, shown[id(it)]
+    views = [View(it) for it in its]
+    size, spots, (cw, ch, wn, hn, w1) = plain_geometry(views, scale, with_1x, cols, rows)
+    s = Image.new("RGBA", size, PLAIN_CANVAS)
+    d = ImageDraw.Draw(s)
+    def slot(rect, img):
+        x, y, w, h = rect
+        if bg is not None:
+            d.rectangle([x, y, x + w - 1, y + h - 1], fill=rgba(bg))
+        elif img.getchannel("A").getextrema()[0] < 255:
+            sq = max(1, w // img.width) if img.width else 1
+            s.alpha_composite(checker(w, h, sq * max(1, -(-4 // sq))), (x, y))
+        s.alpha_composite(img, (x, y))
+    for it, (small, big) in zip(its, spots):
+        img = shown[id(it)]
+        slot(big, img if it.doc is None else img.resize((img.width * scale, img.height * scale), Image.NEAREST))
+        if small:
+            slot(small, img)
+        if ticks and it.doc is not None:
+            x, y, w, h = big
+            for k in range(0, img.width + 1, ticks):
+                tx = min(x + k * scale, x + w - 1)
+                d.line([(tx, y - PLAIN_TICK), (tx, y - 1)], fill=PLAIN_TICK_COLOR)
+            for k in range(0, img.height + 1, ticks):
+                ty = min(y + k * scale, y + h - 1)
+                d.line([(x - PLAIN_TICK, ty), (x - 1, ty)], fill=PLAIN_TICK_COLOR)
+    n = len(its)
+    about = (f"{n} frame{'s' * (n != 1)}, no text, every cell {cw}x{ch}: an Nx slot {wn}x{hn}" +
+             (f" after a 1x slot {w1} wide" if with_1x else "") + f", {PLAIN_PAD} px apart, at --scale {scale}")
+    save_image(s, out, "-o" if out is not None else "the sheet (no -o)", about=about,
+               smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
+    if cells:
+        def rect(r):
+            return None if r is None else {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
+        data = {"pxart": "sheet --plain cells", "version": 1, "image": str(out) if out else None,
+                "size": {"w": size[0], "h": size[1]}, "scale": scale, "with_1x": bool(with_1x),
+                "cell": {"w": cw, "h": ch}, "pad": PLAIN_PAD,
+                "cells": [{"file": str(it.doc.path) if it.doc else getattr(it, "src", it.label),
+                           "frame": (it.frame.id or None) if it.frame is not None and it.doc is not None else None,
+                           "label": it.label,
+                           "variant": it.variant, "kind": "px" if it.doc is not None else "png",
+                           "x1": rect(small), "xN": rect(big), "scale": scale if it.doc is not None else 1}
+                          for it, (small, big) in zip(its, spots)]}
+        if DRY["run"]:
+            print(f"(would write {cells}: {len(its)} cells)")
+        else:
+            cp = outpath(cells)
+            cp.write_text(json.dumps(data, indent=1) + "\n")
+            print(f"wrote {cells}")
     return out
 
 
@@ -3124,6 +3304,18 @@ def cmd_sheet(a):
     note = outsized(its, a.fit)
     if note:
         print(note)
+    plain_only = [f for f, on in (("--with-1x", a.with_1x), ("--cells", a.cells), ("--ticks", a.ticks)) if on]
+    if plain_only and not a.plain:
+        fail("E_BAD_ARG", f"{', '.join(plain_only)} go{'es' * (len(plain_only) == 1)} with --plain (a sheet with no "
+             "text and fixed geometry): add --plain")
+    if a.plain:
+        if a.fit or a.grid:
+            fail("E_BAD_ARG", f"--plain has fixed geometry and no overlays: leave out {'--fit' if a.fit else '--grid'}")
+        if a.ticks is not None and a.ticks < 1:
+            fail("E_BAD_ARG", f"--ticks {a.ticks}: give a spacing of 1 px or more (--ticks 8)")
+        print(wrote(plain_sheet(its, a.o, a.scale, a.cols, a.bg, with_1x=a.with_1x, cells=a.cells, ticks=a.ticks,
+                                rows=a.rows, align=a.align)))
+        return
     print(wrote(sheet(its, a.o, a.scale, a.cols, a.bg, grid=a.grid, fit=a.fit, align=a.align, rows=a.rows)))
 
 
@@ -8411,6 +8603,8 @@ def pivot_slices(its):
 
 
 def cmd_export(a):
+    if a.font or a.kern:
+        return export_font(a)
     if isinstance(a.tiled, str) and (is_room_src(a.tiled) or os.path.isdir(a.tiled)):
         a.files, a.tiled = [a.tiled] + a.files, True  # 'export --tiled world.src.json ...': a source, not X.tsj
     if a.tiled is True:
@@ -8576,6 +8770,356 @@ def export_indexed(entries, its, groups, out):
     p = outpath(out)
     p.write_text(json.dumps(data, indent=1) + "\n")
     return str(p)
+
+
+# ---------------------------------------------------------------------------- fonts: export --font
+
+FONT_SECTIONS = ("@font", "@kern")  # sections export --font reads: known, so check --strict takes them
+FONT_KEYS = ("family", "style", "weight", "baseline", "unit", "upm", "ascent", "descent", "cap", "xheight",
+             "version", "vendor", "license", "psname", "map")
+WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold",
+                700: "Bold", 800: "ExtraBold", 900: "Black"}
+FONT_TIME = 3_870_000_000  # head.created and .modified, fixed (2026-08-20), so a source always writes the same bytes
+GLYPH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,62}$")
+CODEPOINT_RE = re.compile(r"^U\+([0-9A-Fa-f]{4,6})$")
+FONT_HINT = 'pip install "pxart[font]" (or: pip install fonttools brotli)'
+
+
+def font_modules(woff2):
+    """fontTools (and brotli, for .woff2): optional, imported only for export --font."""
+    try:
+        import fontTools  # noqa: F401
+    except ImportError:
+        fail("E_FONT", f"export --font needs fontTools: {FONT_HINT}")
+    if woff2:
+        try:
+            import brotli  # noqa: F401
+        except ImportError:
+            fail("E_FONT", f"export --font F.woff2 needs brotli to compress it (.ttf doesn't): {FONT_HINT}")
+
+
+def font_sections(doc):
+    """{'@font': [(line number, text)], '@kern': [...]}: the lines under each of the file's @font and @kern sections
+    (unknown sections to the parser, kept in doc.extensions)."""
+    out, at = {s: [] for s in FONT_SECTIONS}, None
+    for i, e in enumerate(doc.extensions):
+        if e.startswith("@"):
+            at = e.split()[0] if e.split()[0] in FONT_SECTIONS else None
+        elif at:
+            out[at].append((doc.at.get(("ext", i)), e))
+    return out
+
+
+def font_settings(doc, lines, issues):
+    """The @font section as {key: value}, and its map lines as {glyph name: [code points]}; E_FONT for a bad line."""
+    got, maps, seen = {}, {}, {}
+    ints = {"weight": (1, 1000), "baseline": (0, None), "unit": (1, 1000), "upm": (16, 16384), "ascent": (0, None),
+            "descent": (0, None), "cap": (0, None), "xheight": (0, None)}
+    for n, text in lines:
+        key, val = (text.split(None, 1) + [""])[:2]
+        val = val.strip()
+
+        def bad(msg):
+            issues.append(Issue("E_FONT", msg, str(doc.path), n))
+        if key not in FONT_KEYS:
+            bad(f"@font has no {key!r}; its keys are {', '.join(FONT_KEYS)}{guess(key, FONT_KEYS)}")
+            continue
+        if not val:
+            bad(f"{key} needs a value: '{key} VALUE'")
+            continue
+        if key != "map" and key in seen:
+            bad(f"{key} is set twice (first at line {seen[key]})")
+            continue
+        seen[key] = n
+        if key in ints:
+            lo, hi = ints[key]
+            if not re.fullmatch(r"\d+", val) or int(val) < lo or (hi is not None and int(val) > hi):
+                bad(f"{key} {val!r}: want a whole number " + (f"from {lo} to {hi}" if hi else f">= {lo}"))
+                continue
+            got[key] = int(val)
+        elif key == "map":
+            name, *cps = val.split()
+            wrong = [c for c in cps if not CODEPOINT_RE.match(c) or int(c[2:], 16) > 0x10FFFF]
+            if not GLYPH_RE.match(name) or not cps or wrong:
+                bad(f"map {val!r}: want 'map NAME U+XXXX' (a glyph name, then one or more code points"
+                    + (f"; {wrong[0]!r} isn't one" if wrong else "") + ")")
+                continue
+            if name in maps:
+                bad(f"map {name} is given twice: list its code points on one line")
+                continue
+            maps[name] = [int(c[2:], 16) for c in cps]
+        elif key == "version" and not re.fullmatch(r"\d+\.\d{3}", val):
+            bad(f"version {val!r}: want N.NNN, such as 1.000")
+        elif key == "vendor" and not re.fullmatch(r"[\x20-\x7e]{1,4}", val):
+            bad(f"vendor {val!r}: want up to 4 ASCII characters")
+        elif key == "psname" and not re.fullmatch(r"[!-~]{1,63}", val) or set(val) & set("[](){}<>/%") and key == "psname":
+            bad(f"psname {val!r}: want up to 63 printable ASCII characters, none of []{{}}()<>/% or space")
+        else:
+            got[key] = val
+    return got, maps
+
+
+def font_glyphs(doc, frames, maps, issues):
+    """{glyph name: (its frame, [code points])} in frame order: each frame's id is its glyph's name, and the name
+    says the character (a map line in @font, else Adobe's glyph list: A, zero, quoteright, uni00A0, u1F600)."""
+    from fontTools import agl
+    out, owner = {}, {}
+    for f in frames:
+        def bad(msg):
+            issues.append(Issue("E_GLYPH", msg, str(doc.path), f.line, frame=doc.label(f)))
+        name = f.id or doc.stem
+        if not GLYPH_RE.match(name):
+            bad(f"{name!r} isn't a glyph name (a letter or '_', then letters, digits, '_' and '.'; 63 at most): name "
+                "each glyph's frame for its character (A, zero, period) and export only those (FILE:SEL)")
+            continue
+        if name in maps:
+            cps = maps[name]
+        else:
+            ch = agl.toUnicode(name) if "." not in name else ""
+            if len(ch) != 1:
+                bad(f"no character for {name!r}: name the frame for one (A, a, zero, period, quoteright, eacute; "
+                    f"uni00A0 or u1F600 for any) or give it one in @font: 'map {name} U+XXXX'")
+                continue
+            cps = [ord(ch)]
+        for cp in cps:
+            if cp in owner:
+                bad(f"U+{cp:04X} is {owner[cp]}'s already; one frame per character")
+            owner.setdefault(cp, name)
+        out[name] = (f, cps)
+    for name in maps:
+        if not doc.get(name):
+            issues.append(Issue("E_FONT", f"map {name}: no frame {name!r} to map" + guess(name, [f.id for f in frames
+                                                                                                 if f.id]),
+                                str(doc.path), next((n for n, t in font_sections(doc)["@font"]
+                                                     if t.split()[:2] == ["map", name]), None)))
+    return out
+
+
+def font_kern(path, lines, char_glyph, issues):
+    """Kerning lines 'LEFTS RIGHTS PX' as {(left glyph, right glyph): (px, line number)}; a later line wins."""
+    pairs = {}
+    for n, text in lines:
+        parts = text.split()
+        if len(parts) != 3 or not re.fullmatch(r"[+-]?\d+", parts[2]):
+            issues.append(Issue("E_KERN", f"want 'LEFTS RIGHTS PX' (runs of characters, then whole pixels): {text!r}",
+                                str(path), n))
+            continue
+        lefts, rights, px = parts
+        missing = [c for c in dict.fromkeys(lefts + rights) if c not in char_glyph]
+        if missing:
+            issues.append(Issue("E_KERN", "no glyph for " + ", ".join(f"{c!r} (U+{ord(c):04X})" for c in missing),
+                                str(path), n))
+            continue
+        for a in lefts:
+            for b in rights:
+                pairs[(char_glyph[a], char_glyph[b])] = (int(px), n, str(path))
+    return pairs
+
+
+def ink_rows(doc, f):
+    """The frame's ink as rows of booleans: any pixel that isn't fully transparent in the base palette."""
+    pal = doc.resolved()
+    return [[pal[k][3] > 0 for k in row] for row in f.grid]
+
+
+def ink_edges(ink):
+    """Per row: (leftmost ink x, rightmost ink x), or None for a row with none."""
+    out = []
+    for r in ink:
+        xs = [x for x, on in enumerate(r) if on]
+        out.append((xs[0], xs[-1]) if xs else None)
+    return out
+
+
+def kern_touch(ink_a, width_a, ink_b, px):
+    """The first row of A where B, kerned by px, comes within a column of it (that row, or a row above or below: a
+    corner), or None: a kerned pair may share columns, but no two ink pixels may touch."""
+    off, ea, eb = width_a + px, ink_edges(ink_a), ink_edges(ink_b)
+    for ya, sa in enumerate(ea):
+        for yb in (ya - 1, ya, ya + 1):
+            if sa and 0 <= yb < len(eb) and eb[yb] and eb[yb][0] + off - sa[1] < 2:
+                return ya
+    return None
+
+
+def glyph_contours(ink, baseline):
+    """A glyph's union outline: closed, clockwise (TrueType) loops of pixel corners, y up from the baseline (row
+    baseline - 1 sits on it), each straight run one segment, so no seam shows between pixels."""
+    filled = {(x, baseline - 1 - y) for y, r in enumerate(ink) for x, on in enumerate(r) if on}
+    out = {}  # directed boundary edges, clockwise around the ink: a pixel's top edge runs left to right
+    for x, y in sorted(filled):
+        if (x, y + 1) not in filled:
+            out.setdefault((x, y + 1), []).append((x + 1, y + 1))
+        if (x + 1, y) not in filled:
+            out.setdefault((x + 1, y + 1), []).append((x + 1, y))
+        if (x, y - 1) not in filled:
+            out.setdefault((x + 1, y), []).append((x, y))
+        if (x - 1, y) not in filled:
+            out.setdefault((x, y), []).append((x, y + 1))
+    loops = []
+    while out:
+        start = min(out)
+        loop, p, prev = [start], start, None
+        while True:
+            nexts = out[p]
+            if len(nexts) > 1 and prev is not None:  # two pixels meeting at a corner: turn right, a loop each
+                right = (prev[1], -prev[0])
+                nexts.sort(key=lambda q: (q[0] - p[0], q[1] - p[1]) != right)
+            q = nexts.pop(0)
+            if not nexts:
+                del out[p]
+            prev, p = (q[0] - p[0], q[1] - p[1]), q
+            if p == start:
+                break
+            loop.append(p)
+        n = len(loop)  # keep the corners only
+        loops.append([p for i, p in enumerate(loop) if (p[0] - loop[i - 1][0]) * (loop[(i + 1) % n][1] - p[1])
+                      != (p[1] - loop[i - 1][1]) * (loop[(i + 1) % n][0] - p[0])])
+    return loops
+
+
+def ink_top(ink, baseline):
+    """How many px the ink rises above the baseline (0 for none)."""
+    rows = [y for y, r in enumerate(ink) if any(r)]
+    return max(0, baseline - rows[0]) if rows else 0
+
+
+def build_font(doc, frames, kern_file=None, kern_path=None):
+    """(the fontTools TTFont, glyph count, kerning pair count, {metric: px}) for export --font. Every problem in the
+    file and the kerning (E_FONT, E_GLYPH, E_KERN) is raised at once, before anything is built."""
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    issues, secs = [], font_sections(doc)
+    st, maps = font_settings(doc, secs["@font"], issues)
+    glyphs = font_glyphs(doc, frames, maps, issues)
+    heights = collections.Counter(f.size[1] for f, _ in glyphs.values())
+    height = heights.most_common(1)[0][0] if heights else 0
+    first = next((f for f, _ in glyphs.values() if f.size[1] == height), None)
+    for name, (f, _) in glyphs.items():
+        if f.size[1] != height:
+            issues.append(Issue("E_GLYPH", f"{f.size[1]} rows; every glyph is the font's height, {height} (as "
+                                f"{doc.label(first)} is)", str(doc.path), f.line, frame=doc.label(f)))
+    if not glyphs and not issues:
+        issues.append(Issue("E_GLYPH", "no frames to make glyphs of", str(doc.path)))
+    char_glyph = {chr(cp): name for name, (_, cps) in glyphs.items() for cp in cps}
+    pairs = font_kern(doc.path, secs["@kern"], char_glyph, issues)
+    if kern_file is not None:
+        lines = [(n, l.strip()) for n, l in enumerate(kern_file.splitlines(), 1)
+                 if l.strip() and not l.strip().startswith("#")]
+        pairs.update(font_kern(kern_path, lines, char_glyph, issues))
+    base = st.get("baseline", height)
+    if base > height:
+        issues.append(Issue("E_FONT", f"baseline {base}: the glyphs are {height} rows", str(doc.path),
+                            next((n for n, t in secs["@font"] if t.split()[0] == "baseline"), None)))
+    ink = {name: ink_rows(doc, f) for name, (f, _) in glyphs.items()}
+    for (a, b), (px, n, where) in pairs.items():
+        row = kern_touch(ink[a], glyphs[a][0].size[0], ink[b], px)
+        if row is not None:
+            issues.append(Issue("E_KERN", f"{a} {b} {px:+d}: the glyphs touch at row {row} (no two ink pixels may "
+                                "touch, corners included)", where, n))
+    if issues:
+        raise PxError(issues)
+
+    unit = st.get("unit", 100)
+    cmap = {cp: name for name, (_, cps) in glyphs.items() for cp in cps}
+    top = lambda c, *more: next((ink_top(ink[cmap[ord(x)]], base) for x in (c, *more) if ord(x) in cmap), None)
+    cap = st.get("cap", top("H", "I") or max([ink_top(i, base) for i in ink.values()], default=0))
+    xh = st.get("xheight", top("x", "o") or cap)
+    asc, desc = st.get("ascent", base), st.get("descent", height - base)
+    weight = st.get("weight", 400)
+    style = st.get("style", WEIGHT_NAMES.get(max(100, weight // 100 * 100), "Black"))
+    family = st.get("family", doc.stem)
+    version = st.get("version", "1.000")
+    ps = st.get("psname", re.sub(r"[^A-Za-z0-9]", "", family) + "-" + re.sub(r"[^A-Za-z0-9]", "", style))
+
+    fb = FontBuilder(st.get("upm", unit * height), isTTF=True)
+    fb.setupGlyphOrder([".notdef"] + list(glyphs))
+    fb.setupCharacterMap(cmap)
+    outlines, metrics = {}, {}
+    pen = TTGlyphPen(None)  # .notdef: a hollow box as tall as the caps, 5 px wide
+    w, h = 5 * unit, max(cap, 1) * unit
+    boxes = [((0, 0), (0, h), (w, h), (w, 0))]
+    if cap > 2:
+        boxes.append(((unit, unit), (w - unit, unit), (w - unit, h - unit), (unit, h - unit)))
+    for box in boxes:
+        pen.moveTo(box[0])
+        for p in box[1:]:
+            pen.lineTo(p)
+        pen.closePath()
+    outlines[".notdef"], metrics[".notdef"] = pen.glyph(), (w + unit, 0)
+    for name, (f, _) in glyphs.items():
+        pen = TTGlyphPen(None)
+        for loop in glyph_contours(ink[name], base):
+            pen.moveTo((loop[0][0] * unit, loop[0][1] * unit))
+            for x, y in loop[1:]:
+                pen.lineTo((x * unit, y * unit))
+            pen.closePath()
+        outlines[name] = pen.glyph()
+        e = [s for s in ink_edges(ink[name]) if s]
+        metrics[name] = (f.size[0] * unit, min(s[0] for s in e) * unit if e else 0)
+    fb.setupGlyf(outlines)
+    fb.setupHorizontalMetrics(metrics)
+    fb.setupHorizontalHeader(ascent=asc * unit, descent=-desc * unit, lineGap=0)
+    names = {"familyName": family, "styleName": style, "uniqueFontIdentifier": f"{ps} {version}",
+             "fullName": f"{family} {style}", "psName": ps, "version": f"Version {version}"}
+    if "license" in st:
+        names["licenseDescription"] = st["license"]
+    names.update(typographicFamily=family, typographicSubfamily=style)
+    fb.setupNameTable(names)
+    os2 = dict(usWeightClass=weight, sTypoAscender=asc * unit, sTypoDescender=-desc * unit, sTypoLineGap=0,
+               usWinAscent=asc * unit, usWinDescent=desc * unit, sxHeight=xh * unit, sCapHeight=cap * unit,
+               fsSelection=0x80 | {"Regular": 0x40, "Bold": 0x20}.get(style, 0), version=4)  # 0x80: USE_TYPO_METRICS
+    if "vendor" in st:
+        os2["achVendID"] = st["vendor"]
+    fb.setupOS2(**os2)
+    fb.setupPost(underlinePosition=-(unit * 3 // 2), underlineThickness=unit)
+    if pairs:
+        fea = "languagesystem DFLT dflt;\nlanguagesystem latn dflt;\nfeature kern {\n"
+        fea += "".join(f"  pos \\{a} \\{b} {px * unit};\n" for (a, b), (px, _, _) in pairs.items())
+        addOpenTypeFeaturesFromString(fb.font, fea + "} kern;\n")
+    head = fb.font["head"]
+    head.flags |= 1 << 3  # integer ppem scaling
+    if style == "Bold":
+        head.macStyle |= 1
+    head.created = head.modified = FONT_TIME
+    fb.font.recalcTimestamp = False
+    return fb.font, len(glyphs), len(pairs), {"cap": cap, "x-height": xh, "baseline": base, "unit": unit}
+
+
+def export_font(a):
+    """export FILE.px[:SEL] --font F.woff2|F.woff|F.ttf [--kern K.kern]: a pixel font of the file's glyph frames."""
+    if not a.font:
+        fail("E_BAD_ARG", "--kern goes with --font F.woff2|F.ttf: it kerns the font export writes")
+    others = [o for o, v in (("--frames", a.frames), ("--aseprite", a.aseprite), ("--tiled", a.tiled),
+                             ("--indexed", a.indexed), ("--variant", a.variant), ("--prefix-file", a.prefix_file),
+                             ("--exclude", a.exclude), ("--tileset", a.tileset)) if v]
+    if others:
+        fail("E_BAD_ARG", f"--font writes a font alone, from one file: drop {', '.join(others)}")
+    if any(split_variant(f)[1] for f in a.files):
+        fail("E_BAD_ARG", "a font has no colors: drop the %VARIANT (every pixel that isn't transparent is ink)")
+    files = list(dict.fromkeys(split_sel(f)[0] for f in a.files))
+    if len(files) != 1 or os.path.isdir(files[0]) or not files[0].endswith(".px"):
+        fail("E_BAD_ARG", "export --font takes one .px file (FILE:SEL for some of its frames): 'export font.px "
+             f"--font font.woff2'; got {' '.join(a.files) or 'none'}")
+    ext = pathlib.Path(a.font).suffix.lower()
+    if ext not in (".woff2", ".woff", ".ttf"):
+        fail("E_BAD_ARG", f"--font {a.font}: name a .woff2 (for the web), .woff or .ttf file")
+    font_modules(ext == ".woff2")
+    (doc, frames, _), = export_frames(a.files, ())
+    kern = None
+    if a.kern:
+        with reading(f"--kern ({a.kern})"):
+            kern = pathlib.Path(a.kern).read_text(encoding="utf-8")
+    font, n, k, m = build_font(doc, frames, kern, a.kern)
+    if ext != ".ttf":
+        font.flavor = ext[1:]
+    buf = io.BytesIO()
+    font.save(buf)
+    p = outpath(a.font)
+    p.write_bytes(buf.getvalue())
+    print(f"wrote {p}: {n} glyphs, {k} kerning pair{'' if k == 1 else 's'}, {len(buf.getvalue())} bytes (1 px = {m['unit']} units, "
+          f"cap {m['cap']} px, x-height {m['x-height']} px, {m['baseline']} rows above the baseline)")
 
 
 # ---------------------------------------------------------------------------- worlds: .map + world.src.json -> Tiled
@@ -10966,7 +11510,7 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
                "night or dusk, hoist, import, remove, order, comment, export.",
     "export": "Write frames as PNGs (--frames), an Aseprite sheet and JSON (--aseprite) or a Tiled tileset\n"
               "(--tiled), from files or whole folders; or compile a world (world.src.json and its .map rooms)\n"
-              "to Tiled maps and a .world (--tiled).",
+              "to Tiled maps and a .world (--tiled); or a pixel font of glyph frames (--font, help fonts).",
     "help": "The reference: all of it, a topic, one command, or the seven worked recipes.",
     "from-png": "Convert PNGs (loose, a pack with a labels CSV, or one sheet sliced by --grid) to .px with\n"
                 "exact pixels.",
@@ -11015,7 +11559,8 @@ def overview():
                       "Topics: FORMAT (the .px format: frames, animation, pivots, variants, selecting frames), "
                       "LOOKING,", "CHECKING, EDITING, DRAWING, CONVERTING, HELP, ERRORS. 'pxart help all' prints the "
                       "whole reference.", "Own topics: 'pxart help worlds' (Tiled worlds), 'pxart help slots' (palette "
-                      "slots: a key's", "alternatives for a game to recolor; render --slots, export --indexed).", "",
+                      "slots: a key's", "alternatives for a game to recolor; render --slots, export --indexed), "
+                      "'pxart help fonts'", "(a pixel font from glyph frames: export --font).", "",
                       "Start here: 'pxart help recipes' walks through seven workflows end to end: port a pack and "
                       "prove", "it lossless, merge packs with variants, build a dusk or night, slice a sheet, make a "
                       "scene from a", "map, check an animation's feet, stamp an overlay behind an animation."])
@@ -11034,6 +11579,10 @@ def cmd_help(a):
         print(WORLDS.rstrip())
     elif want.lower() == "slots":
         print(SLOTS.rstrip())
+    elif want.lower() == "plain":
+        print(PLAIN.rstrip())
+    elif want.lower() == "fonts":
+        print(FONTS.rstrip())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -11044,7 +11593,7 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, slots, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, fonts, plain, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
 
@@ -11183,8 +11732,18 @@ def parser(describe=True):
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
-    p.add_argument("--rows", choices=["cols", "group"], default="cols",
-                   help="group: one animation group per row, wrapping within it past --cols (default: --cols a row)")
+    p.add_argument("--rows", choices=["cols", "group", "file"], default="cols",
+                   help="group: one animation group per row; file: one input file per row; either wraps past --cols "
+                        "(default: --cols a row)")
+    p.add_argument("--plain", action="store_true",
+                   help="no text at all (no ids, sizes or color counts) and a fixed integer layout; PNG inputs placed "
+                        "as they are, unscaled")
+    p.add_argument("--with-1x", action="store_true", help="with --plain: each frame's true 1x beside its --scale copy")
+    p.add_argument("--cells", metavar="CELLS.json",
+                   help="with --plain: write a JSON sidecar of every image's rect (x, y, w, h), file, frame id and scale")
+    p.add_argument("--ticks", type=int, metavar="N",
+                   help="with --plain: tick marks every N source px along each scaled copy's top and left edges, in the "
+                        "gutter")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
@@ -11427,6 +11986,9 @@ def parser(describe=True):
                    "and variants, for a game that recolors at runtime (help slots)")
     p.add_argument("--tileset", action="append", metavar="T.tsj",
                    help="sources: rooms may draw with this tileset too, beside their packs' tiled/*.tsj (repeatable)")
+    p.add_argument("--font", metavar="F.woff2", help="a pixel font, F.woff2, .woff or .ttf: each frame a glyph "
+                   "(help fonts)")
+    p.add_argument("--kern", metavar="K.kern", help="--font: kerning lines 'LEFTS RIGHTS PX' (help fonts)")
     p.add_argument("--prefix-file", action="store_true",
                    help="id each file's frames FILE/ID (FILE: its path under DIR, or its stem), so ids can't collide")
     p.add_argument("--exclude", action="append", metavar="GLOB",

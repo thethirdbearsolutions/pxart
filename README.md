@@ -4,6 +4,8 @@ Pixel art as text. A sprite is a small plain-text file (a palette, then a grid o
 characters) that renders to PNG. Language models can write it, git can diff it, and
 you can read it.
 
+Docs, tutorials and the command reference: **[pxart.thirdbearsolutions.com](https://pxart.thirdbearsolutions.com)**.
+
 ```
 # a small face
 k #3f2631
@@ -31,7 +33,8 @@ pxart -h
 ```
 
 It's also a single file: `python3 pxart.py -h`, with [Pillow](https://pypi.org/project/pillow/)
-as the only dependency.
+as the only dependency. Exporting fonts also needs fontTools and brotli:
+`pip install fonttools brotli`.
 
 ## Examples
 
@@ -165,7 +168,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   with `--fit` each frame's own, rows as tall as their tallest, and a frame over 8x the median
   frame's area gets a note saying what it costs; `--align pivot` lines up
   each animation's frames by pivot, as `anim` does; `--rows group` puts each animation group
-  on a row of its own), `anim` (one GIF, each
+  on a row of its own, `--rows file` each input file; `--plain` draws no text at all on a fixed integer
+  layout, PNG inputs placed unscaled, with `--with-1x` each frame's true 1x beside its scaled copy,
+  `--cells cells.json` a sidecar of every image's rect, file and frame id, and `--ticks N` ticks
+  in the gutter: a contact sheet for a visual test or a blind review), `anim` (one GIF, each
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
   motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
   72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
@@ -345,6 +351,12 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags (and pivots as
     `meta.slices`, the shape Aseprite's own export uses).
   - `export --tiled x.tsj` writes a tileset with tile animations.
+  - `export font.px --font font.woff2` (or `.ttf`) writes a pixel font: each frame is a glyph
+    named for its character (`A`, `zero`, `period`, `uni00A0`), its width the advance, and
+    its pixels one seamless outline. An `@font` section sets the metrics (baseline, units
+    per pixel, family, weight) and an `@kern` section or `--kern FILE` the kerning, lines
+    of `LEFTS RIGHTS PX`; a pair kerned until its glyphs touch is refused. It needs
+    fontTools and brotli: `pip install fonttools brotli`. `pxart help fonts` has the details.
   - `export harbor.px:cobble harbor.px:water --tiled t.tsj` exports only those frames
     (selectors of one file add up), so a tileset can leave out the big props.
   - Frame and tile ids count over the exported frames with each animation group
