@@ -33,7 +33,8 @@ pxart -h
 ```
 
 It's also a single file: `python3 pxart.py -h`, with [Pillow](https://pypi.org/project/pillow/)
-as the only dependency.
+as the only dependency. Exporting fonts also needs fontTools and brotli:
+`pip install "pxart[font]"`.
 
 ## Examples
 
@@ -350,6 +351,12 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags (and pivots as
     `meta.slices`, the shape Aseprite's own export uses).
   - `export --tiled x.tsj` writes a tileset with tile animations.
+  - `export font.px --font font.woff2` (or `.ttf`) writes a pixel font: each frame is a glyph
+    named for its character (`A`, `zero`, `period`, `uni00A0`), its width the advance, and
+    its pixels one seamless outline. An `@font` section sets the metrics (baseline, units
+    per pixel, family, weight) and an `@kern` section or `--kern FILE` the kerning, lines
+    of `LEFTS RIGHTS PX`; a pair kerned until its glyphs touch is refused. It needs
+    fontTools and brotli: `pip install "pxart[font]"`. `pxart help fonts` has the details.
   - `export harbor.px:cobble harbor.px:water --tiled t.tsj` exports only those frames
     (selectors of one file add up), so a tileset can leave out the big props.
   - Frame and tile ids count over the exported frames with each animation group
