@@ -198,7 +198,7 @@ Frame ids are glyph names: `H` and `i` are those letters, `exclam` is `!` and `s
 space (`zero` is `0`, `period` is `.`; `pxart help fonts` has the rule and a way to name
 any character). The `@font` section names the family. With no `baseline` line the
 glyphs stand on the bottom row; a font with descenders says how many rows sit above the
-baseline. Export it (this needs fontTools and brotli, `pip install "pxart[font]"`):
+baseline. Export it (this needs fontTools and brotli, `pip install fonttools brotli`):
 
 ```sh
 pxart export tiny.px --font tiny.woff2

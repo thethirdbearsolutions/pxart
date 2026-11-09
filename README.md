@@ -34,7 +34,7 @@ pxart -h
 
 It's also a single file: `python3 pxart.py -h`, with [Pillow](https://pypi.org/project/pillow/)
 as the only dependency. Exporting fonts also needs fontTools and brotli:
-`pip install "pxart[font]"`.
+`pip install fonttools brotli`.
 
 ## Examples
 
@@ -356,7 +356,7 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
     its pixels one seamless outline. An `@font` section sets the metrics (baseline, units
     per pixel, family, weight) and an `@kern` section or `--kern FILE` the kerning, lines
     of `LEFTS RIGHTS PX`; a pair kerned until its glyphs touch is refused. It needs
-    fontTools and brotli: `pip install "pxart[font]"`. `pxart help fonts` has the details.
+    fontTools and brotli: `pip install fonttools brotli`. `pxart help fonts` has the details.
   - `export harbor.px:cobble harbor.px:water --tiled t.tsj` exports only those frames
     (selectors of one file add up), so a tileset can leave out the big props.
   - Frame and tile ids count over the exported frames with each animation group

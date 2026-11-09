@@ -1088,7 +1088,7 @@ FONTS = """FONTS (pxart help fonts)
       Put @font and @kern after the palette, between frames or at the end (edits write them
       last); check --strict takes them. Errors are said all at once, at file:line, and
       nothing is written: E_FONT (an @font line), E_GLYPH, E_KERN.
-      Needs fontTools, and brotli for .woff2: pip install "pxart[font]".
+      Needs fontTools, and brotli for .woff2: pip install fonttools brotli.
 """
 
 
