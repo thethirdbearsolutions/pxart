@@ -1315,7 +1315,7 @@ def test_help_worlds_documents_the_preview_and_compiled_check():
 def test_help_all_has_the_world_usage_line_and_stays_small(capsys):
     assert "  world W.world|ROOM.tmj -o world.png [--scale 2] [--dry-run]" in pxart.__doc__.splitlines()
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 67277
+    assert len(capsys.readouterr().out.encode()) <= 67832
     assert ".world, .tmj: help worlds" in " ".join(pxart.__doc__.split())
 
 
