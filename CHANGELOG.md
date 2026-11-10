@@ -4,6 +4,23 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-10
+
+### Added
+
+- **Edits for drawing in layered passes.** `put FILE[:frame] --at X,Y` puts a few typed rows
+  (a patch) onto a frame with its top-left at X,Y: `.` keeps the pixel under it, and a patch
+  that runs past the frame is an error, so a miscounted column shows. `put --rows Y0-Y1`
+  replaces a range of rows with full-width typed rows. Both print how many pixels changed.
+- **An erase key.** `compose --erase KEY` makes a layer's KEY pixels clear what the layers
+  below drew to `.`, so a cleanup layer can remove pixels, not only add them; KEY is never
+  copied into OUT. `put --at … --erase KEY` does the same for a patch.
+
+### Fixed
+
+- `render -h` said `--plain` ignores `--bg`; `render --plain --bg COLOR` fills the
+  transparent pixels, and the help now says so.
+
 ## 2026-09-29
 
 ### Added

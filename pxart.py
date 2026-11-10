@@ -71,8 +71,8 @@ LOOKING
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
       or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
-      (--scale 1 by default), no grid, rulers, labels or --bg: for diff (--no-grid still
-      pads and labels).
+      (--scale 1 by default), no grid, rulers or labels: for diff (--no-grid still pads and
+      labels). Its transparent pixels stay transparent, unless --bg COLOR fills them.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
         [--fit] [--align bottom|pivot] [--rows cols|group|file] [--slots N|K=I] [--exclude GLOB]
         [--plain ...] [--dry-run]
@@ -354,6 +354,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       A frame that doesn't exist yet is added, placed like new; a new FILE is started.
       Stdin has no variants: a key in FILE's color is FILE's key, variant colors and all, and
       a new key stays at its base color in FILE's variants.
+  put FILE[:frame] --at X,Y [--erase KEY] | --rows Y0-Y1 [-o OUT] < rows.txt
+      Edit part of a frame. --at puts stdin's rows, a patch, at X,Y (from 0,0): '.' keeps a
+      pixel, --erase KEY's pixels clear it to '.', and a patch past the frame is E_BAD_ARG.
+      --rows replaces rows Y0-Y1 (or Y) with full-width rows. Both say how many px changed.
   mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r ... [--dither N] [--invert]
        [--keep-keys K,K | --drop-keys K,K] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
@@ -432,6 +436,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       party.px:keeper/walk keeper.px:walk/0@0,0 --rekey' (keeper.px's k is another color in
       party.px: it gets a free key there). --dry-run prints what compose says (notes,
       conflicts, --rekey's moves) and OUT's diff (a new OUT: every line); nothing is written.
+      --erase KEY: a layer's KEY pixels clear what's below to '.' (a cleanup layer that
+      removes pixels); KEY is never copied into OUT.
 
       A new OUT (rule 1; a shared import re-pointed from OUT's directory): local keys follow
       the import, the keys the layers use first: a key layers have in different colors gets
@@ -1027,6 +1033,7 @@ RECIPES = """RECIPES (pxart help recipes)
        $ pxart ellipse bat.px:glow G --box 2,0,12,9 --ring 2
        $ pxart paste bat.px:glow --into bat.px:fly --at 0,1 --under --align shift
        $ pxart sheet bat.px:fly,glow --variant night -o glow.png
+
 """
 
 PLAIN = """PLAIN SHEETS (pxart help plain)
@@ -3232,15 +3239,18 @@ def spans(ns):
     return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
-def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None, vmap=None):
+def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None, vmap=None,
+          erase=None):
     """Copy src frame (or a region of it) onto dst frame at `at`; keys that draw nothing (Doc.blanks) don't overwrite, but
     a key transparent only in the base does (a night halo). under: only onto dst's empty pixels (by the same test), so
-    src goes behind what dst has. Returns the keys it added (import_keys)."""
+    src goes behind what dst has. erase: a key whose pixels clear dst to '.' (a layer that removes pixels); it is never
+    imported. Returns the keys it added (import_keys)."""
     src_blank = src_doc.blanks()
-    clash = key_conflicts(dst_doc, src_doc, set("".join(src.grid)), what, out or dst_doc.path, redo)
+    keys = set("".join(src.grid)) - {erase}
+    clash = key_conflicts(dst_doc, src_doc, keys, what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
-    added = import_keys(dst_doc, src_doc, set("".join(src.grid)), vmap)  # sorted: one order every run
+    added = import_keys(dst_doc, src_doc, keys, vmap)  # sorted: one order every run
     x0, y0, w, h = parse_rect(region, src.size)
     W, H = dst.size
     g = [list(r) for r in dst.grid]
@@ -3251,7 +3261,10 @@ def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", 
                 continue
             ch = src.grid[y0 + y][x0 + x]
             tx, ty = at[0] + x, at[1] + y
-            if ch not in src_blank and 0 <= tx < W and 0 <= ty < H and not (under and g[ty][tx] not in dst_blank):
+            if erase is not None and ch == erase:
+                if 0 <= tx < W and 0 <= ty < H and not under:
+                    g[ty][tx] = "."
+            elif ch not in src_blank and 0 <= tx < W and 0 <= ty < H and not (under and g[ty][tx] not in dst_blank):
                 g[ty][tx] = ch
     dst.grid = ["".join(r) for r in g]
     return added
@@ -5695,11 +5708,29 @@ def cmd_put(a):
     note_suffix(out)
     with reading(f"FILE ({a.target})"):
         doc, target = frame_slot(path, sel, flag="put")
+        if (getattr(a, "at", None) or getattr(a, "rows", None)) and not sel and pathlib.Path(path).exists():
+            was_doc = parse(path, allow_empty=True)  # frame_slot empties a single grid; a patch edits it
+            if was_doc.implicit and was_doc.frames:
+                target.grid = list(was_doc.frames[0].grid)
         inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
         if inside:
             fail("E_SELECT", f"put writes one frame, and {sel!r} is a group ({', '.join(inside)}); name one frame: "
                  f"put {path}:{inside[0]}", path=path)
     text = sys.stdin.read()
+    erase, gone = getattr(a, "erase", None), set()  # gone: the (x, y) of the patch's erase pixels
+    if erase is not None:
+        if not getattr(a, "at", None):
+            fail("E_BAD_ARG", "--erase marks pixels of a patch to clear: give --at X,Y too")
+        if len(erase) != 1 or erase == ".":
+            fail("E_BAD_ARG", f"--erase {erase!r}: one key character, not '.'")
+        rows, y = [], 0
+        for line in text.splitlines():
+            t = line.strip()
+            if t and not t.startswith("#") and not PAL_RE.match(t):
+                gone |= {(x, y) for x, c in enumerate(t) if c == erase}
+                line, y = line.replace(erase, "."), y + 1
+            rows.append(line)
+        text = "\n".join(rows) + "\n"
     with reading("stdin"):
         src = parse("stdin", text=text, allow_empty=True, known=doc.resolved())
         if (src.frames and not src.implicit) or src.palette_refs or src.variants or src.anims or src.stills \
@@ -5723,6 +5754,44 @@ def cmd_put(a):
         if clash:
             raise PxError(sorted(clash, key=lambda i: i.line))
     was = target.size if target.grid else None
+    if getattr(a, "at", None) or getattr(a, "rows", None):
+        if not was:
+            fail("E_BAD_ARG", f"--{'at' if a.at else 'rows'} edits a frame that has a grid, and {doc.label(target)} has "
+                 f"none yet: put the whole grid first", path=path)
+        w, h = len(grid[0]), len(grid)
+        old_grid = list(target.grid)
+        if a.at:
+            m = re.fullmatch(r"(\d+),(\d+)", a.at)
+            if not m:
+                fail("E_BAD_ARG", f"--at {a.at!r}: X,Y, two whole numbers from the top-left (0,0)")
+            x0, y0 = int(m[1]), int(m[2])
+            if x0 + w > was[0] or y0 + h > was[1]:
+                fail("E_BAD_ARG", f"--at {x0},{y0}: the {w}x{h} patch reaches x {x0 + w - 1}, y {y0 + h - 1}, past the "
+                     f"{was[0]}x{was[1]} frame (columns and rows count from 0)", path="stdin")
+            g = [list(r) for r in target.grid]
+            for y, row in enumerate(grid):
+                for x, c in enumerate(row):
+                    if (x, y) in gone:
+                        g[y0 + y][x0 + x] = "."
+                    elif c != ".":
+                        g[y0 + y][x0 + x] = c
+            target.grid = ["".join(r) for r in g]
+            where = f"at {x0},{y0} ({w}x{h})"
+        else:
+            m = re.fullmatch(r"(\d+)(?:-(\d+))?", a.rows)
+            if not m:
+                fail("E_BAD_ARG", f"--rows {a.rows!r}: Y0-Y1 (or one row Y), counted from 0")
+            y0, y1 = int(m[1]), int(m[2] or m[1])
+            if y1 < y0 or y1 >= was[1]:
+                fail("E_BAD_ARG", f"--rows {a.rows}: rows {y0}-{y1} aren't inside the frame's 0-{was[1] - 1}")
+            if h != y1 - y0 + 1 or w != was[0]:
+                fail("E_BAD_ARG", f"--rows {y0}-{y1} takes {y1 - y0 + 1} row(s) of {was[0]}, the frame's width; "
+                     f"stdin has {h} of {w}", path="stdin")
+            target.grid = old_grid[:y0] + list(grid) + old_grid[y1 + 1:]
+            where = f"rows {y0}-{y1}"
+        n = sum(p != q for r0, r1 in zip(old_grid, target.grid) for p, q in zip(r0, r1))
+        print(f"changed {n} px {where};", write_doc(doc, out) + (f" frame {sel}" if sel else ""))
+        return
     if was and was != (len(grid[0]), len(grid)):
         print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
     target.grid = list(grid)
@@ -6797,6 +6866,8 @@ def cmd_compose(a):
     """Stack the layers into OUT's frame. --rekey: a dry run first finds the keys that clash (in color, or in how the
     variants color them) and where they can go; those move in the layers' docs (in memory, the files stay as they are)
     and the compose runs for real."""
+    if getattr(a, "erase", None) is not None and (len(a.erase) != 1 or a.erase == "."):
+        fail("E_BAD_ARG", f"--erase {a.erase!r}: one key character, not '.'")
     layers = compose_layers(a)
     vmap = variant_map(getattr(a, "variant_map", None))
     notes = {}  # the comments on the layers' palettes, read before --rekey moves keys in memory
@@ -7080,8 +7151,9 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     # (clashed), keys OUT's variants color otherwise than the layer's file does (vclashed, see vclashes), and the keys
     # each file adds to an existing OUT, in its own variant colors (import_keys)
     clashed, vclashed, added = {}, {}, {}
+    erase = getattr(a, "erase", None)
     for n, (lay, x, y, label) in enumerate(layers, 1):
-        keys = set("".join(lay.frame.grid))
+        keys = set("".join(lay.frame.grid)) - {erase}
         bad = clashes(doc, lay.doc, keys)
         if bad:
             c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
@@ -7169,7 +7241,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             cuts.append(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                         f"(size from {why}) and were cropped")
         with reading(label):
-            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap)
+            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap, erase=erase)
     if map_cut:
         cuts.append(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from "
                     f"{why}) and were cropped")
@@ -11717,7 +11789,7 @@ def parser(describe=True):
                    help="-o is the one frame alone: its exact size at --scale (default 1), no grid, rulers or labels")
     p.add_argument("--scale", type=int, help="default 8 (--plain: 1)")
     p.add_argument("--bg", help="a flat color (default: a grey checkerboard behind each frame; --plain: none, "
-                   "transparent stays transparent)")
+                   "transparent stays transparent, unless --bg fills it)")
     p.add_argument("--no-grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night)")
     p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
@@ -11867,6 +11939,12 @@ def parser(describe=True):
     p.add_argument("--still", action="store_true", help="mark the frame's group '@still GROUP'")
     p.add_argument("--empty", action="store_true", help="a new OUT with no frames (with --palette: only its import)")
     p = sub.add_parser("put"); p.add_argument("target"); p.add_argument("-o")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--at", metavar="X,Y", help="patch: the stdin rows go onto the frame with their top-left at X,Y; "
+                   "'.' leaves a pixel as it is")
+    g.add_argument("--rows", metavar="Y0-Y1", help="replace rows Y0 to Y1 (counted from 0) with the stdin rows, "
+                   "which must be the frame's full width")
+    p.add_argument("--erase", metavar="KEY", help="with --at: KEY pixels in the patch clear the frame to '.'")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
     coord = re.compile(r"^-\d+(\.\d+)?(,-?\d+(\.\d+)?)*$")  # a negative x,y is an argument, not an option
@@ -11923,6 +12001,9 @@ def parser(describe=True):
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2",
                    help="a new OUT's variant NAME takes each layer's first of NAME, V1, V2 (repeatable)")
     p.add_argument("--replace", action="store_true", help="a plain OUT that exists is started fresh, as if new")
+    p.add_argument("--erase", metavar="KEY",
+                   help="a layer's KEY pixels clear what's under them to '.' (a layer that removes pixels); KEY isn't "
+                        "copied into OUT")
     p.add_argument("-v", "--verbose", action="store_true",
                    help=f"every note in full (more than {GROUP_NOTES} of them are otherwise put in short, a line per kind)")
     p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
