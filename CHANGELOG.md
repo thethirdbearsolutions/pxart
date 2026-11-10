@@ -18,6 +18,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- `compose --erase KEY` no longer copies KEY's palette line into a new OUT when a layer
+  defines it.
 - `render -h` said `--plain` ignores `--bg`; `render --plain --bg COLOR` fills the
   transparent pixels, and the help now says so.
 
