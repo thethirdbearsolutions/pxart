@@ -117,3 +117,11 @@ def test_compose_without_erase_draws_the_key(layers):
 def test_compose_erase_must_be_one_key(layers):
     assert run("compose", "-o", "out.px", "base.px@0,0", "--erase", "zz") != 0
     assert run("compose", "-o", "out.px", "base.px@0,0", "--erase", ".") != 0
+
+
+def test_compose_erase_key_defined_in_a_layer_stays_out_of_a_new_out(layers):
+    # the erase key's own palette line in a cleanup layer isn't seeded into a new OUT (it was, as an unused key)
+    (layers / "fix.px").write_text("pxart 1\n@palette pal.px\nX #ff00ff\n\nX...\n....\n....\n")
+    assert run("compose", "-o", "out.px", "base.px@0,0", "fix.px@0,0", "--erase", "X", "--replace") == 0
+    out = pxart.parse(str(layers / "out.px"))
+    assert "X" not in out.palette and out.frames[0].grid[0] == ".aaa"

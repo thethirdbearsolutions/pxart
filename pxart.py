@@ -6798,7 +6798,7 @@ def carry_header(doc, heads):
         doc.lead[first] = [""] + lines + [""] + [l for l in doc.lead.get(first) or [] if l.strip()]
 
 
-def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None):
+def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None, erase=None):
     """A new compose OUT starts with its layers' whole palettes, not only the keys they use, so a later shade ramp
     or recolor finds its keys. When every layer imports the same @palette files, OUT imports them too (re-pointed
     from OUT; not with --variant-map, whose variants OUT builds); otherwise their colors become key lines. Then each
@@ -6828,8 +6828,8 @@ def seed_palette(doc, layers, gone=None, used_only=False, vmap=None, owners=None
     for want_used in (True,) if used_only else (True, False):
         for d in docs:
             for k, c in d.resolved().items():
-                if k == "." or (k in used[id(d)]) != want_used or (keep and k in d.shared and k not in d.palette) \
-                        or k in (gone or {}).get(id(d), ()):
+                if k == "." or k == erase or (k in used[id(d)]) != want_used \
+                        or (keep and k in d.shared and k not in d.palette) or k in (gone or {}).get(id(d), ()):
                     continue
                 have = doc.resolved()
                 if k not in have or (have[k] != c and k not in doc.palette):
@@ -7133,7 +7133,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
     whose, owners, left_out = {}, {}, []  # whose: key -> the layer whose color OUT has; owners: its doc
     rekey_said = getattr(a, "words", {}).get("redo", "compose") + " --rekey"
     if fresh:
-        left_out, seeded = seed_palette(doc, layers, gone, getattr(a, "used_keys_only", False), vmap, owners)
+        left_out, seeded = seed_palette(doc, layers, gone, getattr(a, "used_keys_only", False), vmap, owners,
+                                        erase=getattr(a, "erase", None))
         whose = {k: w[0] for k, w in seeded.items()}
     if a.size:
         size, why = tuple(map(int, a.size.split("x"))), "--size"
