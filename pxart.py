@@ -1905,27 +1905,55 @@ def split_variant(arg):
     return arg, None
 
 
+def same_file(a, b):
+    """Two paths to one file: the same file on disk when both exist, else the same absolute path."""
+    try:
+        if os.path.exists(a) and os.path.exists(b):
+            return os.path.samefile(a, b)
+    except OSError:
+        pass
+    return os.path.abspath(a) == os.path.abspath(b)
+
+
 def width_fix(row, expect, grid, i):
-    """For a row one char off: where to delete or add it, chosen so the row lines up best with its neighbours
-    of the right width (a typed grid's usual slip). '' when it's further off, or nothing lines up."""
+    """For a row one char off, the edit that fixes it when the rows around it make that clear: deleting or adding
+    one char so the row equals a neighbour of the right width, or failing that, the one clear best match when it
+    doubles or drops a char in a run (a typed grid's usual slip). Otherwise just which way it's off. A '.' is never
+    placed: an edge or a gap, the rows can't say which."""
     if abs(len(row) - expect) != 1:
         return ""
+    wide = len(row) > expect
     near = [grid[j] for j in (i - 1, i + 1, i - 2, i + 2) if 0 <= j < len(grid) and len(grid[j]) == expect][:2]
+    plain = "; one too many" if wide else "; one short"
     if not near:
-        return ""
+        return plain
+    cands = {}  # the edited row -> (x, the char deleted or added)
+    for x in range(len(row) + (0 if wide else 1)):
+        if wide:
+            cands.setdefault(row[:x] + row[x + 1:], (x, row[x]))
+        else:
+            for c in {*row[max(0, x - 1):x + 1], *(n[x] for n in near)}:
+                cands.setdefault(row[:x] + c + row[x:], (x, c))
 
-    def score(cand):  # all the neighbours, then the nearest alone (ties are common in symmetric outlines)
-        return (sum(sum(a == b for a, b in zip(cand, n)) for n in near), sum(a == b for a, b in zip(cand, near[0])))
+    def key(cand):
+        return (cand in near, sum(sum(a == b for a, b in zip(cand, n)) for n in near),
+                sum(a == b for a, b in zip(cand, near[0])), -cands[cand][0])
 
-    if len(row) > expect:
-        best = max(range(len(row)), key=lambda x: (score(row[:x] + row[x + 1:]), -x))
-        if row[best] == ".":  # a stray see-through pixel: an edge or a gap, the rows can't say which
-            return "; one '.' too many"
-        return f"; one too many: deleting the {row[best]!r} at x={best} lines it up with the rows around it"
-    best = max(range(len(row) + 1), key=lambda x: (score(row[:x] + near[0][x] + row[x:]), -x))
-    if near[0][best] == ".":
-        return "; one '.' short (at an edge or in a gap)"
-    return f"; one short: adding {near[0][best]!r} at x={best} lines it up with the rows around it"
+    ranked = sorted(cands, key=key, reverse=True)
+    best = ranked[0]
+    x, c = cands[best]
+    if c == ".":
+        return "; one '.' too many" if wide else "; one '.' short (at an edge or in a gap)"
+    # a run slip: the deleted char repeats a neighbour in the row, or the added one does
+    beside = [row[x - 1]] if x > 0 else []
+    beside += [row[x + 1]] if wide and x + 1 < len(row) else [row[x]] if not wide and x < len(row) else []
+    in_run = c in beside
+    clear = len(ranked) == 1 or key(best)[:2] > key(ranked[1])[:2]
+    if not (best in near or (clear and in_run)):
+        return plain
+    if wide:
+        return f"; one too many: deleting the {c!r} at x={x} lines it up with the rows around it"
+    return f"; one short: adding {c!r} at x={x} lines it up with the rows around it"
 
 
 def split_sel(arg):
@@ -7517,10 +7545,10 @@ def cmd_dup(a):
         opath, osel = split_sel(a.o) if a.o else (None, None)
         if osel is None:
             fail("E_BAD_ARG", "dup needs the new frame's id: dup FILE:frame NEWID")
-        a.new, a.o = a.o, None if os.path.normpath(opath) == os.path.normpath(path) else a.o
+        a.new, a.o = a.o, None if same_file(opath, path) else a.o
     npath, nsel = split_sel(a.new)
     if nsel is not None:  # dup FILE:a FILE:b: NEWID with the source's own file in front means that id
-        if os.path.normpath(npath) != os.path.normpath(path):
+        if not same_file(npath, path):
             fail("E_BAD_ARG", f"dup copies within {path}; NEWID is a frame id ({nsel!r}), not another file's "
                  f"({npath}). To copy into another file: compose -o {npath}:{nsel} {a.src}@0,0")
         a.new = nsel
@@ -11959,7 +11987,7 @@ def parser(describe=True):
     p.add_argument("-o", help="OUT, or FILE:NEWGROUP to transpose a copy of FILE:GROUP")
     p.add_argument("--replace", action="store_true", help=REPLACE_HELP)
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
-    p.add_argument("delta", nargs="*", metavar="DX DY", help="the same as --dx DX --dy DY")
+    p.add_argument("delta", nargs="*", metavar="DX DY", help="DX DY or DX,DY, anywhere after FILE: the same as --dx DX --dy DY")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")
     p.add_argument("--fill", help="key for the pixels the shift leaves behind (default '.')")
@@ -12180,11 +12208,43 @@ def rekey_args(args):
     return out
 
 
+SHIFT_VALUE_OPTS = {"-o", "--region", "--fill"}
+SHIFT_NUM_RE = re.compile(r"-?\d+(,-?\d+)?")
+
+
+def shift_args(args):
+    """shift FILE ... DX DY / DX,DY, anywhere after FILE (and negative), as argparse can't take them after a flag or
+    as '-1,0': written --dx DX --dy DY. Left as typed when --dx/--dy are given too, or the numbers aren't one DX DY
+    (then they go right after FILE, where cmd_shift says what's wrong)."""
+    if args[:1] != ["shift"] or {"--dx", "--dy", "-h", "--help"} & set(args):
+        return args
+    rest, nums, file_at, i = [], [], None, 1
+    while i < len(args):
+        x = args[i]
+        if x in SHIFT_VALUE_OPTS and i + 1 < len(args):
+            rest += [x, args[i + 1]]
+            i += 2
+            continue
+        if file_at is not None and SHIFT_NUM_RE.fullmatch(x):
+            nums.append(x)
+        else:
+            if file_at is None and not x.startswith("-"):
+                file_at = len(rest)
+            rest.append(x)
+        i += 1
+    parts = [n for x in nums for n in x.split(",")]
+    if len(parts) == 2:
+        return ["shift", *rest, "--dx", parts[0], "--dy", parts[1]]
+    if nums and file_at is not None:
+        return ["shift", *rest[:file_at + 1], *nums, *rest[file_at + 1:]]
+    return args
+
+
 RENAME_HINT = "no command of its own: frames FILE --rename GROUP NEWGROUP renames frames; recolor FILE 'a>b' a key"
 
 
 def main(argv=None):
-    args = rekey_args(sys.argv[1:] if argv is None else argv)
+    args = shift_args(rekey_args(sys.argv[1:] if argv is None else argv))
     if args[:1] == ["rename"]:
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
     ap, sub = parser(describe="-h" in args or "--help" in args)

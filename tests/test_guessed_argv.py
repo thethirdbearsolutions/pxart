@@ -108,3 +108,51 @@ def test_dup_takes_the_new_id_from_o_of_the_same_file(tmp_path):
 def test_dup_without_a_new_id_says_so(tmp_path):
     p = write(tmp_path, "f.px", GRID)
     assert "needs the new frame's id" in run_err("dup", f"{p}:idle/down/0")
+
+
+@pytest.mark.parametrize("args", [
+    ["--region", "0,0,8,4", "1", "0"], ["--wrap", "1", "0"], ["1", "0", "--region", "0,0,8,4"], ["1,0"],
+])
+def test_shift_dx_dy_anywhere_after_file(tmp_path, args):
+    a = write(tmp_path, "a.px", GRID)
+    b = write(tmp_path, "b.px", GRID)
+    assert run("shift", f"{a}:idle/down/0", *args) == 0
+    assert run("shift", f"{b}:idle/down/0", *[x for x in args if x not in ("1", "0", "1,0")], "--dx", "1") == 0
+    assert frame(a, "idle/down/0") == frame(b, "idle/down/0")
+
+
+def test_shift_negative_comma_pair(tmp_path):
+    a = write(tmp_path, "a.px", GRID)
+    b = write(tmp_path, "b.px", GRID)
+    assert run("shift", f"{a}:idle/down/0", "-1,0") == 0
+    assert run("shift", f"{b}:idle/down/0", "--dx", "-1") == 0
+    assert frame(a, "idle/down/0") == frame(b, "idle/down/0")
+
+
+def test_dup_same_file_by_absolute_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path, "f.px", GRID)
+    assert run("dup", "f.px:idle/down/0", f"{tmp_path / 'f.px'}:idle/down/1") == 0
+    assert frame(tmp_path / "f.px", "idle/down/1") == frame(tmp_path / "f.px", "idle/down/0")
+
+
+def test_dup_new_with_o_still_writes_out(tmp_path):
+    p = write(tmp_path, "f.px", GRID)
+    out = tmp_path / "out.px"
+    assert run("dup", f"{p}:idle/down/0", "idle/down/1", "-o", out) == 0
+    assert pxart.parse(out).get("idle/down/1") is not None and pxart.parse(p).get("idle/down/1") is None
+
+
+@pytest.mark.parametrize("i,row,hint", [
+    (0, "..kkkk.", "; one short"),  # an outline row: nothing makes the spot clear
+    (1, ".kooookk.", "deleting the 'k' at x=6"),  # equals the row below once fixed
+])
+def test_width_hint_only_when_clear(tmp_path, i, row, hint):
+    lines = GRID.splitlines()
+    first = lines.index("@frame idle/down/0") + 1
+    lines[first + i] = row
+    p = write(tmp_path, "f.px", "\n".join(lines) + "\n")
+    with pytest.raises(pxart.PxError) as e:
+        pxart.parse(p)
+    msg = next(x.msg for x in e.value.issues if x.code == "E_ROW_WIDTH")
+    assert msg.endswith(hint) if hint == "; one short" else hint in msg
