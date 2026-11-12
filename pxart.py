@@ -355,9 +355,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Stdin has no variants: a key in FILE's color is FILE's key, variant colors and all, and
       a new key stays at its base color in FILE's variants.
   put FILE[:frame] --at X,Y [--erase KEY] | --rows Y0-Y1 [-o OUT] < rows.txt
-      Edit part of a frame. --at puts stdin's rows, a patch, at X,Y (from 0,0): '.' keeps a
-      pixel, --erase KEY's pixels clear it to '.', and a patch past the frame is E_BAD_ARG.
-      --rows replaces rows Y0-Y1 (or Y) with full-width rows. Both say how many px changed.
+      Edit part of a frame. --at puts stdin's rows (a patch) at X,Y: '.' keeps a pixel,
+      --erase KEY's pixels clear to '.'. --rows replaces rows Y0-Y1 (or Y) with full-width
+      rows, even in a ragged frame. --text ROW, once per row, stands in for stdin.
   mask FILE[:frame] --keep x,y,w,h | --keep-circle cx,cy,r ... [--dither N] [--invert]
        [--keep-keys K,K | --drop-keys K,K] [-o OUT]
       Erase (set to '.') every pixel outside the rectangle or circle (kept: distance from
@@ -1647,7 +1647,7 @@ def _int_arg(kw, name, issues, path, n, lo=None):
     return int(v)
 
 
-def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, known=None, _depth=0):
+def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, known=None, _depth=0, ragged=()):
     """`known`: keys the rows may use without defining them (put's target file's palette)."""
     path = pathlib.Path(path)
     if text is None:
@@ -1876,11 +1876,14 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             continue
         widths = [len(r) for r in f.grid]
         expect = max(set(widths), key=lambda w: (widths.count(w), w == widths[0]))
+        hinted = ragged is True or f.id in ragged  # ragged: a repair (put --rows) loads rows as typed
         for i, (r, w) in enumerate(zip(f.grid, widths)):
-            if w != expect:
+            if w != expect and not hinted:
                 err("E_ROW_WIDTH", f"row is {w} wide, but {widths.count(expect)} of {len(widths)} rows are "
                     f"{expect} wide: {r!r}"
-                    + (width_fix(r, expect, f.grid, i) if widths.count(expect) >= max(3, len(widths) // 2 + 1) else ""),
+                    + (width_fix(r, expect, f.grid, i) if widths.count(expect) >= max(3, len(widths) // 2 + 1) else "")
+                    + (f" (retype it: put FILE{':' + f.id if f.id else ''} --rows {i} --text ROW)"
+                       if i == next(j for j, v in enumerate(widths) if v != expect) else ""),
                     f.row_lines[i], frame=f.id, row=i)
             bad = [] if pal_failed else [x for x, c in enumerate(r) if c not in pal]
             if bad:
@@ -5690,12 +5693,13 @@ def inline_palette(doc):
         doc.lead[nxt] = lead + (doc.lead.get(nxt) or [])
 
 
-def frame_slot(opath, osel, palette=None, flag="-o", fresh=False):
+def frame_slot(opath, osel, palette=None, flag="-o", fresh=False, ragged=False):
     """Open OUT (or start it, importing `palette`; fresh: start it though it exists) and find or make the frame
     OUT[:frame] names: (doc, frame). A new frame goes after the last frame of its animation, or at the end when the
     animation is new."""
     one_id(osel, f"{opath}:{osel}", flag)
-    doc = parse(opath, allow_empty=True) if pathlib.Path(opath).exists() and not fresh else start_doc(opath, palette)
+    doc = parse(opath, allow_empty=True, ragged=ragged or ()) \
+        if pathlib.Path(opath).exists() and not fresh else start_doc(opath, palette)
     if osel:
         if doc.implicit:
             if not ID_RE.match(doc.stem):
@@ -5776,21 +5780,23 @@ def cmd_put(a):
     """One frame's grid from stdin (rows, or palette lines then rows) into FILE[:frame]; the file's other lines stay
     as they were. A new frame is placed like new's; the stdin keys the rows use join the palette like compose's."""
     path, sel = split_sel(a.target)
-    if sys.stdin is None or sys.stdin.isatty():
-        fail("E_BAD_ARG", f"put reads the grid from stdin: pxart put {a.target} < grid.txt")
+    given = getattr(a, "text", None)  # --text ROW (repeated): the rows on the command line instead of stdin
+    if not given and (sys.stdin is None or sys.stdin.isatty()):
+        fail("E_BAD_ARG", f"put reads the grid from stdin (pxart put {a.target} < grid.txt) or --text ROW, once per row")
     out = pathlib.Path(a.o) if a.o else pathlib.Path(path)
     note_suffix(out)
     with reading(f"FILE ({a.target})"):
-        doc, target = frame_slot(path, sel, flag="put")
+        doc, target = frame_slot(path, sel, flag="put", ragged=bool(getattr(a, "rows", None)))
         if (getattr(a, "at", None) or getattr(a, "rows", None)) and not sel and pathlib.Path(path).exists():
-            was_doc = parse(path, allow_empty=True)  # frame_slot empties a single grid; a patch edits it
+            was_doc = parse(path, allow_empty=True, ragged=bool(getattr(a, "rows", None)) or ())
             if was_doc.implicit and was_doc.frames:
                 target.grid = list(was_doc.frames[0].grid)
         inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
         if inside:
             fail("E_SELECT", f"put writes one frame, and {sel!r} is a group ({', '.join(inside)}); name one frame: "
                  f"put {path}:{inside[0]}", path=path)
-    text = sys.stdin.read()
+    src_name = "--text" if given else "stdin"
+    text = "\n".join(given) + "\n" if given else sys.stdin.read()
     erase, gone = getattr(a, "erase", None), set()  # gone: the (x, y) of the patch's erase pixels
     if erase is not None:
         if not getattr(a, "at", None):
@@ -5805,14 +5811,14 @@ def cmd_put(a):
                 line, y = line.replace(erase, "."), y + 1
             rows.append(line)
         text = "\n".join(rows) + "\n"
-    with reading("stdin"):
-        src = parse("stdin", text=text, allow_empty=True, known=doc.resolved())
+    with reading(src_name):
+        src = parse(src_name, text=text, allow_empty=True, known=doc.resolved())
         if (src.frames and not src.implicit) or src.palette_refs or src.variants or src.anims or src.stills \
                 or src.extensions:
             fail("E_BAD_ARG", f"put reads one grid from stdin: palette lines ('k #rrggbb') and rows, no @ lines (the "
-                 f"frame is named on the command line: put {path}:FRAME)", path="stdin")
+                 f"frame is named on the command line: put {path}:FRAME)", path=src_name)
         if not src.frames:
-            fail("E_NO_FRAMES", "no grid rows on stdin", path="stdin")
+            fail("E_NO_FRAMES", f"no grid rows on {src_name}", path=src_name)
         grid, clash = src.frames[0].grid, []
         for k in sorted(set("".join(grid))):
             if k in src.palette:
@@ -5822,12 +5828,15 @@ def cmd_put(a):
                              if l.strip()[:1] == k and PAL_RE.match(l.strip()))
                     clash.append(Issue("E_KEY_CONFLICT", f"stdin makes {k!r} {fmt_color(src.palette[k])}, but in "
                                        f"{path} it is {fmt_color(have)}; use another key, or the file's color",
-                                       "stdin", n))
+                                       src_name, n))
                     continue
                 doc.add_key(k, src.palette[k])
         if clash:
             raise PxError(sorted(clash, key=lambda i: i.line))
     was = target.size if target.grid else None
+    if was and getattr(a, "rows", None):  # a ragged frame (loaded for repair) is as wide as most of its rows
+        ws = [len(r) for r in target.grid]
+        was = (max(set(ws), key=lambda v: (ws.count(v), v == ws[0])), was[1])
     if getattr(a, "at", None) or getattr(a, "rows", None):
         if not was:
             fail("E_BAD_ARG", f"--{'at' if a.at else 'rows'} edits a frame that has a grid, and {doc.label(target)} has "
@@ -5841,7 +5850,7 @@ def cmd_put(a):
             x0, y0 = int(m[1]), int(m[2])
             if x0 + w > was[0] or y0 + h > was[1]:
                 fail("E_BAD_ARG", f"--at {x0},{y0}: the {w}x{h} patch reaches x {x0 + w - 1}, y {y0 + h - 1}, past the "
-                     f"{was[0]}x{was[1]} frame (columns and rows count from 0)", path="stdin")
+                     f"{was[0]}x{was[1]} frame (columns and rows count from 0)", path=src_name)
             g = [list(r) for r in target.grid]
             for y, row in enumerate(grid):
                 for x, c in enumerate(row):
@@ -5860,11 +5869,20 @@ def cmd_put(a):
                 fail("E_BAD_ARG", f"--rows {a.rows}: rows {y0}-{y1} aren't inside the frame's 0-{was[1] - 1}")
             if h != y1 - y0 + 1 or w != was[0]:
                 fail("E_BAD_ARG", f"--rows {y0}-{y1} takes {y1 - y0 + 1} row(s) of {was[0]}, the frame's width; "
-                     f"stdin has {h} of {w}", path="stdin")
+                     f"{src_name} has {h} of {w}", path=src_name)
             target.grid = old_grid[:y0] + list(grid) + old_grid[y1 + 1:]
             where = f"rows {y0}-{y1}"
+            off = [y for y, r in enumerate(target.grid) if len(r) != was[0]]
+            if off:
+                fail("E_ROW_WIDTH", f"{doc.label(target)} would still have row(s) {', '.join(map(str, off))} not "
+                     f"{was[0]} wide; replace them too (--rows takes a range: --rows {off[0]}-{off[-1]} and one --text "
+                     f"per row); nothing written", path=path)
         n = sum(p != q for r0, r1 in zip(old_grid, target.grid) for p, q in zip(r0, r1))
         print(f"changed {n} px {where};", write_doc(doc, out) + (f" frame {sel}" if sel else ""))
+        ragged = [doc.label(f) for f in doc.frames if f is not target and len({len(r) for r in f.grid}) > 1]
+        if ragged:
+            print(f"note: {', '.join(ragged)} still {'has' if len(ragged) == 1 else 'have'} rows of the wrong width "
+                  f"(pxart check {path} says which)")
         return
     if was and was != (len(grid[0]), len(grid)):
         print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
@@ -12030,7 +12048,8 @@ def parser(describe=True):
     g.add_argument("--at", metavar="X,Y", help="patch: the stdin rows go onto the frame with their top-left at X,Y; "
                    "'.' leaves a pixel as it is")
     g.add_argument("--rows", metavar="Y0-Y1", help="replace rows Y0 to Y1 (counted from 0) with the stdin rows, "
-                   "which must be the frame's full width")
+                   "which must be the frame's full width; it also repairs a frame with rows of the wrong width")
+    p.add_argument("--text", action="append", metavar="ROW", help="a grid row, instead of stdin (once per row)")
     p.add_argument("--erase", metavar="KEY", help="with --at: KEY pixels in the patch clear the frame to '.'")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
