@@ -67,3 +67,32 @@ def test_rows_edits_a_frame_while_another_is_ragged(tmp_path):
     assert "note: a still has rows of the wrong width" in out
     text = (tmp_path / "f.px").read_text()
     assert "@frame b\nkkkkkk\n" in text and ".koook." in text  # a's rows kept as typed
+
+
+TIE = "pxart 1\nk #000000\no #ff8800\n\n@frame a\n.kook..\n.kook..\n.kook.\n.kook.\n"
+
+
+def test_rows_covering_the_frame_set_any_width(tmp_path):
+    (tmp_path / "t.px").write_text(TIE)
+    code, out = run(tmp_path, "put", "t.px:a", "--rows", "0-3", *sum((["--text", ".kook."] for _ in range(4)), []))
+    assert code == 0, out
+    assert run(tmp_path, "check", "t.px")[0] == 0
+
+
+def test_whole_frame_put_replaces_a_ragged_frame(tmp_path):
+    (tmp_path / "t.px").write_text(TIE)
+    code, out = run(tmp_path, "put", "t.px:a", "--text", "kk", "--text", "oo")
+    assert code == 0, out
+    assert run(tmp_path, "check", "t.px")[0] == 0
+
+
+def test_count_includes_added_pixels(tmp_path):
+    (tmp_path / "t.px").write_text(TIE)
+    code, out = run(tmp_path, "put", "t.px:a", "--rows", "2-3", "--text", ".kook..", "--text", ".kook..")
+    assert code == 0 and "changed 2 px" in out, out
+
+
+def test_no_repair_hint_on_input_rows(tmp_path):
+    (tmp_path / "f.px").write_text(SRC.replace(".koook.", ".kook."))
+    code, out = run(tmp_path, "put", "f.px:a", "--text", "..", "--text", "kkk")
+    assert code != 0 and "E_ROW_WIDTH" in out and "retype it" not in out

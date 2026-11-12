@@ -1883,7 +1883,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                     f"{expect} wide: {r!r}"
                     + (width_fix(r, expect, f.grid, i) if widths.count(expect) >= max(3, len(widths) // 2 + 1) else "")
                     + (f" (retype it: put FILE{':' + f.id if f.id else ''} --rows {i} --text ROW)"
-                       if i == next(j for j, v in enumerate(widths) if v != expect) else ""),
+                       if str(path) not in ("stdin", "--text") and i == next(j for j, v in enumerate(widths) if v != expect)
+                       else ""),
                     f.row_lines[i], frame=f.id, row=i)
             bad = [] if pal_failed else [x for x, c in enumerate(r) if c not in pal]
             if bad:
@@ -5786,9 +5787,9 @@ def cmd_put(a):
     out = pathlib.Path(a.o) if a.o else pathlib.Path(path)
     note_suffix(out)
     with reading(f"FILE ({a.target})"):
-        doc, target = frame_slot(path, sel, flag="put", ragged=bool(getattr(a, "rows", None)))
+        doc, target = frame_slot(path, sel, flag="put", ragged=True)  # put replaces rows, so it can fix ragged ones
         if (getattr(a, "at", None) or getattr(a, "rows", None)) and not sel and pathlib.Path(path).exists():
-            was_doc = parse(path, allow_empty=True, ragged=bool(getattr(a, "rows", None)) or ())
+            was_doc = parse(path, allow_empty=True, ragged=True)
             if was_doc.implicit and was_doc.frames:
                 target.grid = list(was_doc.frames[0].grid)
         inside = [f.id for f in doc.frames if f is not target and (f.id or "").startswith(f"{sel}/")] if sel else []
@@ -5834,7 +5835,10 @@ def cmd_put(a):
         if clash:
             raise PxError(sorted(clash, key=lambda i: i.line))
     was = target.size if target.grid else None
-    if was and getattr(a, "rows", None):  # a ragged frame (loaded for repair) is as wide as most of its rows
+    if was and len({len(r) for r in target.grid}) > 1:  # a ragged frame: as wide as most of its rows
+        if getattr(a, "at", None):
+            fail("E_ROW_WIDTH", f"{doc.label(target)} has rows of different widths; fix them first (put --rows, or "
+                 f"the whole frame) before patching --at", path=path)
         ws = [len(r) for r in target.grid]
         was = (max(set(ws), key=lambda v: (ws.count(v), v == ws[0])), was[1])
     if getattr(a, "at", None) or getattr(a, "rows", None):
@@ -5867,6 +5871,8 @@ def cmd_put(a):
             y0, y1 = int(m[1]), int(m[2] or m[1])
             if y1 < y0 or y1 >= was[1]:
                 fail("E_BAD_ARG", f"--rows {a.rows}: rows {y0}-{y1} aren't inside the frame's 0-{was[1] - 1}")
+            if h == was[1] and y0 == 0:  # every row replaced: the frame takes the new width
+                was = (w, was[1])
             if h != y1 - y0 + 1 or w != was[0]:
                 fail("E_BAD_ARG", f"--rows {y0}-{y1} takes {y1 - y0 + 1} row(s) of {was[0]}, the frame's width; "
                      f"{src_name} has {h} of {w}", path=src_name)
@@ -5877,7 +5883,8 @@ def cmd_put(a):
                 fail("E_ROW_WIDTH", f"{doc.label(target)} would still have row(s) {', '.join(map(str, off))} not "
                      f"{was[0]} wide; replace them too (--rows takes a range: --rows {off[0]}-{off[-1]} and one --text "
                      f"per row); nothing written", path=path)
-        n = sum(p != q for r0, r1 in zip(old_grid, target.grid) for p, q in zip(r0, r1))
+        n = sum(sum(p != q for p, q in zip(r0, r1)) + abs(len(r0) - len(r1))
+                for r0, r1 in zip(old_grid, target.grid))
         print(f"changed {n} px {where};", write_doc(doc, out) + (f" frame {sel}" if sel else ""))
         ragged = [doc.label(f) for f in doc.frames if f is not target and len({len(r) for r in f.grid}) > 1]
         if ragged:
@@ -5887,6 +5894,10 @@ def cmd_put(a):
     if was and was != (len(grid[0]), len(grid)):
         print(f"note: {doc.label(target)} is now {len(grid[0])}x{len(grid)} (was {was[0]}x{was[1]})")
     target.grid = list(grid)
+    ragged = [doc.label(f) for f in doc.frames if f is not target and len({len(r) for r in f.grid}) > 1]
+    if ragged:
+        print(f"note: {', '.join(ragged)} still {'has' if len(ragged) == 1 else 'have'} rows of the wrong width "
+              f"(pxart check {path} says which)")
     if sel and out.resolve() != pathlib.Path(path).resolve():
         print(f"note: {out} gets all of {path} with {sel} replaced")
     print(write_doc(doc, out) + (f" frame {sel}" if sel else ""))
