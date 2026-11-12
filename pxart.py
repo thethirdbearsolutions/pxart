@@ -5129,6 +5129,8 @@ def cmd_transpose(a):
 
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
+    if len(a.delta) == 1 and POINT_RE.fullmatch(a.delta[0]):  # shift FILE DX,DY
+        a.delta = a.delta[0].split(",")
     if a.delta:  # shift FILE DX DY, the shape a reader guesses first, is --dx DX --dy DY
         if len(a.delta) != 2 or not all(re.fullmatch(r"-?\d+", d) for d in a.delta):
             fail("E_BAD_ARG", f"shift FILE DX DY takes two whole numbers, got {' '.join(a.delta)!r}; or --dx N --dy N")
@@ -5446,6 +5448,12 @@ def rename_keys(doc, renames, left=None):
 def cmd_set(a):
     doc, frames, out = edit_target(a.file, a.o, coords="x,y")
     pal = doc.resolved()
+    nums = [a.key, *a.points]
+    if a.key not in pal and len(nums) >= 3 and len(nums) % 2 == 1 and nums[-1] in pal \
+            and all(re.fullmatch(r"-?\d+", n) for n in nums[:-1]):
+        # set FILE x y [x y ...] KEY: separate numbers for each point, the key last
+        a.key, a.points = nums[-1], [f"{x},{y}" for x, y in zip(nums[:-1:2], nums[1:-1:2])]
+        print(f"note: set takes the key first and points as x,y: read as 'set {a.file} {a.key} {' '.join(a.points)}'")
     if a.key not in pal and POINT_RE.fullmatch(a.key) and a.points[-1] in pal:
         # set FILE x,y ... KEY: the key last, as a reader may guess; unambiguous, since a key is one char
         a.key, a.points = a.points[-1], [a.key, *a.points[:-1]]
@@ -7505,6 +7513,11 @@ def compose_layers(a):
 
 def cmd_dup(a):
     path, sel = split_sel(a.src)
+    if a.new is None:  # dup SRC -o FILE:NEWID, the new frame named where the output goes
+        opath, osel = split_sel(a.o) if a.o else (None, None)
+        if osel is None:
+            fail("E_BAD_ARG", "dup needs the new frame's id: dup FILE:frame NEWID")
+        a.new, a.o = a.o, None if os.path.normpath(opath) == os.path.normpath(path) else a.o
     npath, nsel = split_sel(a.new)
     if nsel is not None:  # dup FILE:a FILE:b: NEWID with the source's own file in front means that id
         if os.path.normpath(npath) != os.path.normpath(path):
@@ -12052,7 +12065,7 @@ def parser(describe=True):
                         "copied into OUT")
     p.add_argument("-v", "--verbose", action="store_true",
                    help=f"every note in full (more than {GROUP_NOTES} of them are otherwise put in short, a line per kind)")
-    p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new"); p.add_argument("-o")
+    p = sub.add_parser("dup"); p.add_argument("src"); p.add_argument("new", nargs="?"); p.add_argument("-o")
     p.add_argument("--after")
     p.add_argument("--replace", action="store_true", help="NEWID (or NEWGROUP's frames) exists: the copy replaces it")
     p = sub.add_parser("anim-set"); p.add_argument("target"); p.add_argument("settings", nargs="*"); p.add_argument("-o")

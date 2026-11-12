@@ -82,3 +82,29 @@ def test_row_further_off_has_no_guess(tmp_path):
         pxart.parse(p)
     msgs = [i.msg for i in e.value.issues if i.code == "E_ROW_WIDTH"]
     assert msgs and not any("one too many" in m or "one short" in m for m in msgs)
+
+
+def test_shift_takes_a_comma_pair(tmp_path):
+    a = write(tmp_path, "a.px", GRID)
+    b = write(tmp_path, "b.px", GRID)
+    assert run("shift", f"{a}:idle/down/0", "0,-1") == 0
+    assert run("shift", f"{b}:idle/down/0", "--dy", "-1") == 0
+    assert frame(a, "idle/down/0") == frame(b, "idle/down/0")
+
+
+def test_set_reads_separate_numbers_for_points(tmp_path, capsys):
+    p = write(tmp_path, "f.px", GRID)
+    assert run("set", f"{p}:idle/down/0", "2", "1", "3", "1", "k") == 0
+    assert frame(p, "idle/down/0")[1] == ".kkkook."
+    assert "points as x,y" in capsys.readouterr().out
+
+
+def test_dup_takes_the_new_id_from_o_of_the_same_file(tmp_path):
+    p = write(tmp_path, "f.px", GRID)
+    assert run("dup", f"{p}:idle/down/0", "-o", f"{p}:idle/down/1") == 0
+    assert frame(p, "idle/down/1") == frame(p, "idle/down/0")
+
+
+def test_dup_without_a_new_id_says_so(tmp_path):
+    p = write(tmp_path, "f.px", GRID)
+    assert "needs the new frame's id" in run_err("dup", f"{p}:idle/down/0")
