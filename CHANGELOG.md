@@ -8,6 +8,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Changed
 
+- **`put --rows` repairs a frame whose rows are the wrong width.** A file with one ragged row used to
+  refuse every command, `put` included, so the only fix was retyping the file. `put` now loads it with
+  the rows as typed, writes only if the frame it edits ends up even (replacing every row may change the
+  width), and notes any other frame still ragged. `--at` still refuses a ragged frame. The first
+  E_ROW_WIDTH in a file's frame names the repair.
+- **`put --text ROW`**, once per row, gives the rows on the command line instead of stdin.
+
 - **The argv shapes people guess first now work.** `dup FILE:a FILE:b` reads `b` as the new id when
   both name the same file (another file's selector says to use `compose -o`); `shift FILE DX DY` is
   `--dx DX --dy DY` (and so is `DX,DY`); `set FILE x,y ... KEY`, the key last, is read as
