@@ -155,4 +155,4 @@ def test_width_hint_only_when_clear(tmp_path, i, row, hint):
     with pytest.raises(pxart.PxError) as e:
         pxart.parse(p)
     msg = next(x.msg for x in e.value.issues if x.code == "E_ROW_WIDTH")
-    assert msg.endswith(hint) if hint == "; one short" else hint in msg
+    assert msg.split(' (retype it:')[0].endswith(hint) if hint == "; one short" else hint in msg

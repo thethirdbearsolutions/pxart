@@ -7366,7 +7366,7 @@ def test_check_output_is_unchanged_by_error_prefixes(tmp_path, capsys):
     bad = write(tmp_path, "parts.px", BROKEN)
     assert run("check", bad) == 1
     out = capsys.readouterr().out
-    assert out.splitlines()[1] == f"     {bad}:4: E_ROW_WIDTH (frame hat, row 1): row is 1 wide, but 1 of 2 rows are 2 wide: 'k'"
+    assert out.splitlines()[1] == f"     {bad}:4: E_ROW_WIDTH (frame hat, row 1): row is 1 wide, but 1 of 2 rows are 2 wide: 'k' (retype it: put FILE:hat --rows 1 --text ROW)"
     assert "check:" not in out and "FILE (" not in out
 
 

@@ -43,7 +43,7 @@ pxart check broken.px
 
 ```text
 FAIL broken.px: 3 error(s)
-     broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'; one '.' short (at an edge or in a gap)
+     broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'; one '.' short (at an edge or in a gap) (retype it: put FILE:idle/1 --rows 3 --text ROW)
      broken.px:63: E_UNKNOWN_KEY (frame idle/2, row 7, x=[7]): keys 'W' aren't in the palette
      broken.px:85: E_UNKNOWN_KEY (frame idle/3, row 11, x=[4]): keys 'с' aren't in the palette
      note: broken.px:85 (frame idle/3, row 11, x=4): 'с' is U+0441 CYRILLIC SMALL LETTER ES, not ASCII 'c'
@@ -65,7 +65,7 @@ errors in order.
 ## Step 2: A row one pixel short
 
 ```text
-     broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'; one '.' short (at an edge or in a gap)
+     broken.px:41: E_ROW_WIDTH (frame idle/1, row 3): row is 15 wide, but 15 of 16 rows are 16 wide: '.....kfiak.....'; one '.' short (at an edge or in a gap) (retype it: put FILE:idle/1 --rows 3 --text ROW)
 ```
 
 Every row of a frame must be the same width. This frame's rows are 16 letters wide,
