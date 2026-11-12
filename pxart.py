@@ -1879,7 +1879,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
         for i, (r, w) in enumerate(zip(f.grid, widths)):
             if w != expect:
                 err("E_ROW_WIDTH", f"row is {w} wide, but {widths.count(expect)} of {len(widths)} rows are "
-                    f"{expect} wide: {r!r}",
+                    f"{expect} wide: {r!r}"
+                    + (width_fix(r, expect, f.grid, i) if widths.count(expect) >= max(3, len(widths) // 2 + 1) else ""),
                     f.row_lines[i], frame=f.id, row=i)
             bad = [] if pal_failed else [x for x, c in enumerate(r) if c not in pal]
             if bad:
@@ -1904,6 +1905,29 @@ def split_variant(arg):
     return arg, None
 
 
+def width_fix(row, expect, grid, i):
+    """For a row one char off: where to delete or add it, chosen so the row lines up best with its neighbours
+    of the right width (a typed grid's usual slip). '' when it's further off, or nothing lines up."""
+    if abs(len(row) - expect) != 1:
+        return ""
+    near = [grid[j] for j in (i - 1, i + 1, i - 2, i + 2) if 0 <= j < len(grid) and len(grid[j]) == expect][:2]
+    if not near:
+        return ""
+
+    def score(cand):  # all the neighbours, then the nearest alone (ties are common in symmetric outlines)
+        return (sum(sum(a == b for a, b in zip(cand, n)) for n in near), sum(a == b for a, b in zip(cand, near[0])))
+
+    if len(row) > expect:
+        best = max(range(len(row)), key=lambda x: (score(row[:x] + row[x + 1:]), -x))
+        if row[best] == ".":  # a stray see-through pixel: an edge or a gap, the rows can't say which
+            return "; one '.' too many"
+        return f"; one too many: deleting the {row[best]!r} at x={best} lines it up with the rows around it"
+    best = max(range(len(row) + 1), key=lambda x: (score(row[:x] + near[0][x] + row[x:]), -x))
+    if near[0][best] == ".":
+        return "; one '.' short (at an edge or in a gap)"
+    return f"; one short: adding {near[0][best]!r} at x={best} lines it up with the rows around it"
+
+
 def split_sel(arg):
     """'hero.px:walk/down' -> (path, 'walk/down'); a plain path -> (path, None)."""
     arg = split_variant(arg)[0]
@@ -1913,6 +1937,7 @@ def split_sel(arg):
     return arg, None
 
 
+POINT_RE = re.compile(r"-?\d+,-?\d+")
 FLIP_RE = re.compile(r"^(.+)\+([hvb]{1,3})(%[A-Za-z0-9_\-]+)?$")
 
 
@@ -5104,6 +5129,12 @@ def cmd_transpose(a):
 
 def cmd_shift(a):
     """Vacated pixels (in the region, not under the moved block) become '.', or --fill KEY."""
+    if a.delta:  # shift FILE DX DY, the shape a reader guesses first, is --dx DX --dy DY
+        if len(a.delta) != 2 or not all(re.fullmatch(r"-?\d+", d) for d in a.delta):
+            fail("E_BAD_ARG", f"shift FILE DX DY takes two whole numbers, got {' '.join(a.delta)!r}; or --dx N --dy N")
+        if a.dx or a.dy:
+            fail("E_BAD_ARG", "shift: give DX DY or --dx/--dy, not both")
+        a.dx, a.dy = int(a.delta[0]), int(a.delta[1])
     doc, frames, out = edit_target(a.file, a.o, coords=a.region and "--region")
     pal, blank = doc.resolved(), doc.blanks()
     if a.fill is not None and a.wrap:
@@ -5414,7 +5445,14 @@ def rename_keys(doc, renames, left=None):
 
 def cmd_set(a):
     doc, frames, out = edit_target(a.file, a.o, coords="x,y")
-    if a.key not in doc.resolved():
+    pal = doc.resolved()
+    if a.key not in pal and POINT_RE.fullmatch(a.key) and a.points[-1] in pal:
+        # set FILE x,y ... KEY: the key last, as a reader may guess; unambiguous, since a key is one char
+        a.key, a.points = a.points[-1], [a.key, *a.points[:-1]]
+        print(f"note: set takes the key first: read as 'set {a.file} {a.key} {' '.join(a.points)}'")
+    if a.key not in pal and POINT_RE.fullmatch(a.key):
+        fail("E_BAD_ARG", f"set: the key comes first, then the points: set FILE KEY x,y ... ({a.key!r} is a point)")
+    if a.key not in pal:
         fail("E_SELECT", f"set: key {a.key!r} not in palette (add it with palette --add)")
     for f in frames:
         g = [list(r) for r in f.grid]
@@ -7467,6 +7505,12 @@ def compose_layers(a):
 
 def cmd_dup(a):
     path, sel = split_sel(a.src)
+    npath, nsel = split_sel(a.new)
+    if nsel is not None:  # dup FILE:a FILE:b: NEWID with the source's own file in front means that id
+        if os.path.normpath(npath) != os.path.normpath(path):
+            fail("E_BAD_ARG", f"dup copies within {path}; NEWID is a frame id ({nsel!r}), not another file's "
+                 f"({npath}). To copy into another file: compose -o {npath}:{nsel} {a.src}@0,0")
+        a.new = nsel
     one_id(sel, a.src, "SRC")
     one_id(a.new, a.new, "NEWID")
     with reading(f"FILE ({a.src})"):
@@ -11902,6 +11946,7 @@ def parser(describe=True):
     p.add_argument("-o", help="OUT, or FILE:NEWGROUP to transpose a copy of FILE:GROUP")
     p.add_argument("--replace", action="store_true", help=REPLACE_HELP)
     p = sub.add_parser("shift"); p.add_argument("file"); p.add_argument("-o")
+    p.add_argument("delta", nargs="*", metavar="DX DY", help="the same as --dx DX --dy DY")
     p.add_argument("--dx", type=int, default=0); p.add_argument("--dy", type=int, default=0); p.add_argument("--region")
     p.add_argument("--wrap", action="store_true")
     p.add_argument("--fill", help="key for the pixels the shift leaves behind (default '.')")

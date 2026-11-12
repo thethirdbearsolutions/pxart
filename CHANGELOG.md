@@ -4,6 +4,18 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-12
+
+### Changed
+
+- **The argv shapes people guess first now work.** `dup FILE:a FILE:b` reads `b` as the new id when
+  both name the same file (another file's selector says to use `compose -o`); `shift FILE DX DY` is
+  `--dx DX --dy DY`; `set FILE x,y ... KEY`, the key last, is read as `set FILE KEY x,y ...` with a
+  note, and a point where the key goes says the order instead of "not in palette".
+- **A row one pixel off says where.** When most of a frame's rows agree on a width, `E_ROW_WIDTH`
+  for a row one too wide or short names the pixel to delete or add that lines it up with the rows
+  around it, or says it's a `.` (an edge or a gap: the rows can't tell which).
+
 ## 2026-11-10
 
 ### Added
