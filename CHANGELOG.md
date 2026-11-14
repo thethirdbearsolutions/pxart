@@ -4,6 +4,15 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-14
+
+### Changed
+
+- **Rendering a file with palette variants is no longer slower the more frames it has.** Every frame
+  rendered in a variant re-read every row of every frame to look for colors the variant leaves at base.
+  A 640-frame cast with two variants took 8.2 s to build and now takes 2.0 s, with byte-identical
+  output and the same warnings.
+
 ## 2026-11-12
 
 ### Changed

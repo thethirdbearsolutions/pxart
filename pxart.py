@@ -6589,12 +6589,16 @@ def half_variants(d, only=None):
     file with its own @variant line of that name has chosen what its keys do there, and is left alone."""
     if not d.palette_refs:
         return []
-    drawn = set("".join(r for f in d.frames for r in f.grid)) if d.frames else None
+    drawn = None  # the keys d's frames draw: every row of every frame, so joined only once a variant needs it
     out = []
     for name, over in d.shared_variants.items():
         if name in d.variants or name == "base" or (only is not None and name != only):
             continue
-        ks = [k for k, c in d.palette.items() if c[3] and k not in over and (drawn is None or k in drawn)]
+        ks = [k for k, c in d.palette.items() if c[3] and k not in over]
+        if ks and d.frames:
+            if drawn is None:
+                drawn = set("".join(r for f in d.frames for r in f.grid))
+            ks = [k for k in ks if k in drawn]
         if ks:
             out.append((name, ks))
     return out
@@ -6664,10 +6668,12 @@ def warn_half(d, name):
     @palette and leaves keys of d's own at their base colors (half_variants)."""
     if not name or name == "base" or d is None or d.path is None:
         return
+    key = (d.path.resolve(), name)
+    if key in WARNED:  # said already: Doc.image calls this per frame, and half_variants reads every frame
+        return
     for n, ks in half_variants(d, name):
-        if (d.path.resolve(), n) not in WARNED:
-            WARNED.add((d.path.resolve(), n))
-            print(f"WARNING: {d.path}: {said_half(d, n, ks)}")
+        WARNED.add(key)
+        print(f"WARNING: {d.path}: {said_half(d, n, ks)}")
 
 
 def layer_variants(d, vmap):
