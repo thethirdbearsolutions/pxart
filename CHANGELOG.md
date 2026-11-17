@@ -4,6 +4,15 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-17
+
+### Added
+
+- **`js/px.ts`, a reader for `.px` in the browser.** It draws frames, variants and maps from the
+  `.px` text, so a web game can ship its sprites' sources instead of PNGs. It draws every frame and
+  variant of `examples/` byte for byte as pxart.py does, and CI checks that on every push. It was
+  the pxart website's playground reader; it doesn't validate, so pxart.py stays the reference.
+
 ## 2026-11-14
 
 ### Changed
