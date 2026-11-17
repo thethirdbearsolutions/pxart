@@ -375,6 +375,26 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
     PNG) or from the CSV a pack ships: `--labels dungeon/labels.csv` names each PNG by its row's
     `proposed_name` (`--label-col`, `--file-col` pick other columns).
 
+## Drawing .px in a browser: js/px.ts
+
+[`js/px.ts`](js/px.ts) is a TypeScript reader for `.px`, with no dependencies, for drawing sprites
+in a web page or a game without shipping PNGs. It reads palettes, variants, frames, `@palette`
+imports and `.map` files, and gives each frame as RGBA bytes, an SVG, or a canvas drawing:
+
+```ts
+import { resolvePx, paletteFor, frameRgba } from './px.ts';
+
+const texts = { 'hero.px': heroText, 'palette.px': paletteText };
+const doc = resolvePx('hero.px', (path) => texts[path] ?? null);
+const { width, height, data } = frameRgba(doc.frames[0], paletteFor(doc, 'dusk'));
+ctx.putImageData(new ImageData(data, width, height), 0, 0);
+```
+
+pxart.py is the reference: px.ts draws every frame and variant of `examples/` byte for byte as
+pxart.py renders it (`tests/test_px_ts.py`, run in CI on every pull request and every push to
+`main`). Maps are checked by the website's tests, not here. It doesn't validate, so check a file
+with `pxart check` before you ship it.
+
 ## Prior art
 
 pxart's grid-plus-keyed-palette format is close to XPM2 without its header. It sits in
