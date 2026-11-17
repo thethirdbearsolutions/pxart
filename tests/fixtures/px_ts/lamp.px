@@ -1,0 +1,17 @@
+pxart 1
+@palette base.px
+y #ffe17acc
+
+@variant night
+y #806020
+
+@frame lit/0
+.oo.
+oygo
+osgo
+.oo.
+@frame lit/1
+.oo.
+ogyo
+ogso
+.oo.

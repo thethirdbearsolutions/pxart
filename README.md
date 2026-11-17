@@ -382,7 +382,7 @@ in a web page or a game without shipping PNGs. It reads palettes, variants, fram
 imports and `.map` files, and gives each frame as RGBA bytes, an SVG, or a canvas drawing:
 
 ```ts
-import { resolvePx, paletteFor, frameRgba } from './px';
+import { resolvePx, paletteFor, frameRgba } from './px.ts';
 
 const texts = { 'hero.px': heroText, 'palette.px': paletteText };
 const doc = resolvePx('hero.px', (path) => texts[path] ?? null);
@@ -391,8 +391,9 @@ ctx.putImageData(new ImageData(data, width, height), 0, 0);
 ```
 
 pxart.py is the reference: px.ts draws every frame and variant of `examples/` byte for byte as
-pxart.py renders it (`tests/test_px_ts.py`, run in CI on every push). It doesn't validate, so check a
-file with `pxart check` before you ship it.
+pxart.py renders it (`tests/test_px_ts.py`, run in CI on every pull request and every push to
+`main`). Maps are checked by the website's tests, not here. It doesn't validate, so check a file
+with `pxart check` before you ship it.
 
 ## Prior art
 

@@ -1,0 +1,9 @@
+pxart 1
+# a palette file: an alpha color, a slot list, and a variant the importer inherits
+o #2a1f2e
+g #4f9a4a80
+s #e0a982 | #b5785a | #704325
+
+@variant night
+o #101020
+g #20406080

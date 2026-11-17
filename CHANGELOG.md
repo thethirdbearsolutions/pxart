@@ -9,8 +9,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
 ### Added
 
 - **`js/px.ts`, a reader for `.px` in the browser.** It draws frames, variants and maps from the
-  `.px` text, so a web game can ship its sprites' sources instead of PNGs. It draws every frame and
-  variant of `examples/` byte for byte as pxart.py does, and CI checks that on every push. It was
+  `.px` text, so a web game can ship its sprites' sources instead of PNGs. CI checks that it draws
+  every frame and variant of `examples/` byte for byte as pxart.py does. It was
   the pxart website's playground reader; it doesn't validate, so pxart.py stays the reference.
 
 ## 2026-11-14
