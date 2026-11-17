@@ -1,0 +1,14 @@
+{
+ "render": 0.25736966600379674,
+ "encode": 0.20937404199503362,
+ "total": 0.4673580000016955,
+ "frames_rendered": 300,
+ "files": [
+  "atlas/elsabunny.png",
+  "atlas/hootison.png",
+  "atlas/knight.png",
+  "atlas/mage.png",
+  "atlas/sivouette.png",
+  "manifest.json"
+ ]
+}

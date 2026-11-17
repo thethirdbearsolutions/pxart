@@ -1,0 +1,24 @@
+{
+ "render": 1.9186623749992577,
+ "encode": 0.6312153339968063,
+ "total": 2.5516080419984064,
+ "frames_rendered": 900,
+ "files": [
+  "atlas/elsabunny.png",
+  "atlas/hootison.png",
+  "atlas/knight.png",
+  "atlas/mage.png",
+  "atlas/sivouette.png",
+  "atlas/dawn/elsabunny.png",
+  "atlas/dawn/hootison.png",
+  "atlas/dawn/knight.png",
+  "atlas/dawn/mage.png",
+  "atlas/dawn/sivouette.png",
+  "atlas/dusk/elsabunny.png",
+  "atlas/dusk/hootison.png",
+  "atlas/dusk/knight.png",
+  "atlas/dusk/mage.png",
+  "atlas/dusk/sivouette.png",
+  "manifest.json"
+ ]
+}
