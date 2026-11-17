@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pxart cast axes bench</title></head>
+<body style="margin:0;background:#111"><canvas id="game" width="768" height="576"></canvas>
+<script>
+  addEventListener("error", (e) => { window.__results ??= { error: "page: " + (e.message || e.target?.src || "load error") }; }, true);
+  addEventListener("unhandledrejection", (e) => { window.__results ??= { error: "page: " + e.reason }; });
+</script>
+<script type="module" src="axes.js"></script></body></html>
