@@ -1,0 +1,4 @@
+{"cast": "s300", "parity": {"pxart_frames": 300, "pxc_frames": 300, "identical": 300, "differ": 0, "missing_in_pxc": 0, "extra_in_pxc": 0, "first": []}}
+{"cast": "s300v2", "parity": {"pxart_frames": 900, "pxc_frames": 900, "identical": 900, "differ": 0, "missing_in_pxc": 0, "extra_in_pxc": 0, "first": []}}
+{"cast": "s650v2", "parity": {"pxart_frames": 1935, "pxc_frames": 1935, "identical": 1935, "differ": 0, "missing_in_pxc": 0, "extra_in_pxc": 0, "first": []}}
+{"cast": "s300ax", "parity": {"pxart_frames": 32400, "pxc_frames": 32400, "identical": 32400, "differ": 0, "missing_in_pxc": 0, "extra_in_pxc": 0, "first": []}}
