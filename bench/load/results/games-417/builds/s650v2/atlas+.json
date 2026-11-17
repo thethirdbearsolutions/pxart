@@ -1,0 +1,15 @@
+{
+ "render": 7.209890040998289,
+ "recolor_clashes": [],
+ "encode": 0.7103133749988046,
+ "total": 7.924069665998104,
+ "frames_rendered": 1917,
+ "files": [
+  "atlas/elsabunny.png",
+  "atlas/hootison.png",
+  "atlas/knight.png",
+  "atlas/mage.png",
+  "atlas/sivouette.png",
+  "manifest.json"
+ ]
+}

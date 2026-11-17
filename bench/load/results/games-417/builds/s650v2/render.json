@@ -1,0 +1,15 @@
+{
+ "render": 8.280332999995153,
+ "encode": 0.01014658299391158,
+ "total": 8.293464458001836,
+ "frames_rendered": 1917,
+ "files": [
+  "pxart/elsabunny.px",
+  "pxart/hootison.px",
+  "pxart/knight.px",
+  "pxart/mage.px",
+  "pxart/palette.px",
+  "pxart/sivouette.px",
+  "manifest.json"
+ ]
+}

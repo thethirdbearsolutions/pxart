@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pxart load bench: parity</title></head>
+<body><script>
+  // a module that fails to load never reports: report it, so the run fails fast
+  addEventListener("error", (e) => { window.__results ??= { error: "page: " + (e.message || e.target?.src || "load error") }; }, true);
+  addEventListener("unhandledrejection", (e) => { window.__results ??= { error: "page: " + e.reason }; });
+</script>
+<script type="module" src="parity.js"></script></body></html>

@@ -12,6 +12,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `.px` text, so a web game can ship its sprites' sources instead of PNGs. CI checks that it draws
   every frame and variant of `examples/` byte for byte as pxart.py does. It was
   the pxart website's playground reader; it doesn't validate, so pxart.py stays the reference.
+- **`bench/load/`, the load bench, and every result it has recorded.** It times how long a web
+  game takes to load and draw a cast shipped as PNG or WebP frames, as sheets, or as `.px` drawn by
+  px.ts, in Chromium on desktop broadband, 4G and an emulated phone. One command reruns it on a
+  synthetic cast that it draws itself: `uv run bench/load/run.py --out DIR`.
+- **`bench/cast/`, a whole-cast format spike.** PXC1 ships a cast as one file of palette
+  indices, with palettes and damage and expression overlays as data, and decodes it in a Web
+  Worker. Its README has the results.
 
 ## 2026-11-14
 
