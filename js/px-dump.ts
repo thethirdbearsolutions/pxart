@@ -8,7 +8,7 @@ import { frameRgba, paletteFor, resolvePx } from './px.ts';
 
 const [out, ...files] = process.argv.slice(2);
 const read = (p: string): string | null => (existsSync(p) ? readFileSync(p, 'utf8') : null);
-const index: { file: string; frame?: string; variant?: string; w?: number; h?: number; offset?: number; error?: string }[] = [];
+const index: { file: string; frame?: string; variant?: string; pick?: string; w?: number; h?: number; offset?: number; error?: string }[] = [];
 const chunks: Uint8Array[] = [];
 let offset = 0;
 for (const file of files) {
@@ -19,13 +19,19 @@ for (const file of files) {
     index.push({ file, error: String(e) });
     continue;
   }
+  // the base palette, then each slot color picked alone (k=i, i >= 1), keys in order; in each variant
+  const picks: [string, Record<string, number> | undefined][] = [['', undefined]];
+  for (const k of [...doc.slots.keys()].sort())
+    for (let i = 1; i < doc.slots.get(k)!.length; i++) picks.push([`${k}=${i}`, { [k]: i }]);
   for (const variant of ['', ...doc.variants.keys()]) {
-    const pal = paletteFor(doc, variant || undefined);
-    for (const f of doc.frames) {
-      const { width, height, data } = frameRgba(f, pal);
-      index.push({ file, frame: f.id, variant, w: width, h: height, offset });
-      chunks.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-      offset += data.byteLength;
+    for (const [pick, chosen] of picks) {
+      const pal = paletteFor(doc, variant || undefined, chosen);
+      for (const f of doc.frames) {
+        const { width, height, data } = frameRgba(f, pal);
+        index.push({ file, frame: f.id, variant, pick, w: width, h: height, offset });
+        chunks.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+        offset += data.byteLength;
+      }
     }
   }
 }

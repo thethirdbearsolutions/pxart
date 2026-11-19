@@ -390,9 +390,19 @@ const { width, height, data } = frameRgba(doc.frames[0], paletteFor(doc, 'dusk')
 ctx.putImageData(new ImageData(data, width, height), 0, 0);
 ```
 
+For a game that recolors at runtime, px.ts keeps each slot's colors (`doc.slots`, and `slotsOf(doc,
+variant)` as a variant draws them). `paletteFor(doc, variant, { f: 2 })` picks slot colors by index, as
+`render --slots f=2` does, and `mixPalettes(day, dusk, 0.4)` blends two palettes key by key, for a
+light that changes by the minute:
+
+```ts
+const dusk = mixPalettes(paletteFor(doc), paletteFor(doc, 'dusk'), 0.4);
+const villager = paletteFor(doc, 'night', { h: 1, f: 3 }); // other hair, other skin, at night
+```
+
 pxart.py is the reference: px.ts draws every frame and variant of `examples/` byte for byte as
-pxart.py renders it (`tests/test_px_ts.py`, run in CI on every pull request and every push to
-`main`). Maps are checked by the website's tests, not here. It doesn't validate, so check a file
+pxart.py renders it, each slot color picked alone too (`tests/test_px_ts.py`, run in CI on every pull
+request and every push to `main`). Maps are checked by the website's tests, not here. It doesn't validate, so check a file
 with `pxart check` before you ship it.
 
 ## Prior art

@@ -1,0 +1,22 @@
+pxart 1
+# px.ts slots: its own slots (f, h), one imported from base.px (s), a variant that gives f a list (one
+# color per slot color) and h one color (whatever the slot), and s left to the import's night.
+@palette base.px
+f #e0ac69 | #f5cfa0 | #c68642
+h #6b3e1f | #2b1a0e
+k #1a1a1a
+
+@variant night
+f #6f5634 | #7a6750 | #634321
+h #201008
+
+@frame walk/0
+.hh.
+.fk.
+ffss
+.gg.
+@frame walk/1
+.hh.
+.kf.
+ssff
+.oo.

@@ -1,4 +1,4 @@
-"""js/px.ts draws what pxart.py renders, byte for byte.
+"""js/px.ts draws what pxart.py renders, byte for byte: every slot color picked alone too.
 
 Every frame of every .px under examples/ (and tests/fixtures/px_ts/, for alpha colors, slot lists
 and variants that come through @palette), in the base palette and in each variant, is drawn by px.ts
@@ -32,13 +32,17 @@ def example_files():
 
 
 def pxart_renders(path):
-    """[((frame id, variant or ''), (w, h, RGBA bytes))], in order, as pxart.py renders them."""
+    """[((frame id, variant or '', slot pick or ''), (w, h, RGBA bytes))], in order, as pxart.py renders them:
+    each variant in the base palette, then with each slot color picked alone (k=i, i >= 1, keys in order)."""
     doc = pxart.parse(path, palette_only=not pxart._has_grid(path))
+    slots = doc.slots()
+    picks = [("", None)] + [(f"{k}={i}", {k: i}) for k in sorted(slots) for i in range(1, len(slots[k]))]
     out = []
     for variant in ["", *pxart.variant_names(doc)]:
-        for f in doc.frames:
-            im = doc.image(f, variant or None)
-            out.append(((f.id or "", variant), (im.width, im.height, im.tobytes())))
+        for pick, chosen in picks:
+            for f in doc.frames:
+                im = doc.image(f, variant or None, chosen)
+                out.append(((f.id or "", variant, pick), (im.width, im.height, im.tobytes())))
     return out
 
 
@@ -68,7 +72,7 @@ def test_px_ts_draws_every_example_as_pxart_does():
     ours = {}
     for e in index:
         ours.setdefault(e["file"], []).append(
-            ((e["frame"], e["variant"]), (e["w"], e["h"], blob[e["offset"] : e["offset"] + e["w"] * e["h"] * 4]))
+            ((e["frame"], e["variant"], e["pick"]), (e["w"], e["h"], blob[e["offset"] : e["offset"] + e["w"] * e["h"] * 4]))
         )
 
     checked, problems = 0, []
@@ -81,7 +85,7 @@ def test_px_ts_draws_every_example_as_pxart_does():
                             f"pxart.py {[k for k, _ in want_list][:6]}... (order or count differs)")
         want, got = dict(want_list), dict(got_list)
         for key in sorted(set(want) | set(got)):
-            name = f"{rel}:{key[0]}{'%' + key[1] if key[1] else ''}"
+            name = f"{rel}:{key[0]}{'%' + key[1] if key[1] else ''}{' ' + key[2] if key[2] else ''}"
             if key not in got:
                 problems.append(f"{name}: px.ts has no such frame")
             elif key not in want:
@@ -93,3 +97,13 @@ def test_px_ts_draws_every_example_as_pxart_does():
             checked += 1
     assert checked > 250, f"only {checked} frames x variants checked"
     assert not problems, f"{len(problems)} of {checked} differ:\n" + "\n".join(problems[:40])
+
+
+def test_px_ts_runtime_helpers():
+    """slotsOf, slot picks and mixPalettes: js/px.test.ts under node --test."""
+    if not NODE:
+        skip("node isn't installed")
+    proc = subprocess.run([NODE, "--test", "js/px.test.ts"], cwd=ROOT, capture_output=True, text=True)
+    if proc.returncode != 0 and "Unknown file extension" in proc.stderr:
+        skip("this node can't run TypeScript directly (needs 22.18 or newer)")
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-2000:]
