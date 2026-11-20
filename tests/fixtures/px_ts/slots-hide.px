@@ -1,0 +1,11 @@
+pxart 1
+# px.ts slots: base.px's slot s, hidden by a plain local line of its base color (no alternatives:
+# s isn't a slot here), and its o replaced by a local slot of other colors.
+@palette base.px
+s #e0a982
+o #2a1f2e | #5a3f6e | #1f3a2e
+
+@frame face
+.oo.
+osso
+.ss.

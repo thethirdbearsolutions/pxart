@@ -4,6 +4,17 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-19
+
+### Added
+
+- **px.ts keeps slots and blends palettes, for games that recolor at runtime.** `doc.slots` holds
+  each slot's colors (a local line replaces an imported slot whole; a plain one hides its
+  alternatives, as pxart.py resolves them), and `slotsOf(doc, variant)` gives them as a variant draws
+  them. `paletteFor(doc, variant, picks)` picks slot colors by index, as `render --slots k=i` does, and
+  CI now checks every slot color picked alone byte for byte against pxart.py too. `mixPalettes(a, b,
+  t)` blends two palettes key by key, for a dusk that deepens by the minute.
+
 ## 2026-11-17
 
 ### Added

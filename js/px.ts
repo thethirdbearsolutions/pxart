@@ -1,5 +1,6 @@
 // px.ts: a TypeScript reader for the .px format, part of pxart (MIT, like pxart.py). It draws
-// .px in a browser or under node: palette lines (slots too, drawn in their base color), @variant
+// .px in a browser or under node: palette lines (slots too: drawn in their base color, and kept, for a
+// game to pick from with paletteFor's picks), @variant
 // blocks, @frame grids and comments, @palette imports (through resolvePx), selectors, and .map
 // files (renderMap), with an SVG and a canvas drawer for a frame.
 //
@@ -19,6 +20,13 @@ export interface PxFrame {
 export interface PxDoc {
   palette: Map<string, Rgba>;
   variants: Map<string, Map<string, Rgba>>;
+  /** each slot's colors, base first (`f #a | #b | #c`), as the file resolves them with its imports */
+  slots: Map<string, Rgba[]>;
+  /** the slots a variant gives a list of colors, one per slot color */
+  variantSlots: Map<string, Map<string, Rgba[]>>;
+  /** the keys this file's own lines set (not its imports'): how resolvePx layers slots */
+  own: Set<string>;
+  ownVariant: Map<string, Set<string>>;
   imports: string[];
   frames: PxFrame[];
   anims: Map<string, { ms?: number }>;
@@ -29,6 +37,17 @@ export interface PxDoc {
 
 // A key line as pxart reads one: a key, whitespace, a color or a slot list (`#a | #b`).
 const KEY_LINE = /^(\S)\s+(\S+(?:\s*\|\s*\S*)*)$/;
+
+/** A slot list's colors (`#a | #b | #c`), or null when any of them isn't a color. */
+export function parseSlots(text: string): Rgba[] | null {
+  const out: Rgba[] = [];
+  for (const part of text.split("|")) {
+    const c = parseColor(part);
+    if (!c) return null;
+    out.push(c);
+  }
+  return out;
+}
 
 export function parseColor(text: string): Rgba | null {
   const c = text.split("|")[0].trim(); // a slot list: the first is the key's color
@@ -50,6 +69,10 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
   const doc: PxDoc = {
     palette: new Map(),
     variants: new Map(),
+    slots: new Map(),
+    variantSlots: new Map(),
+    own: new Set(),
+    ownVariant: new Map(),
     imports: [],
     frames: [],
     anims: new Map(),
@@ -60,6 +83,7 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
   const own = new Map<string, Rgba>();
   let state: "header" | "variant" | "frame" | "ext" = "header";
   let variant: Map<string, Rgba> | null = null;
+  let variantName = "";
   let frame: PxFrame | null = null;
   let started = false;
 
@@ -87,6 +111,7 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
       } else if (word === "@variant") {
         variant = doc.variants.get(arg) ?? new Map();
         doc.variants.set(arg, variant);
+        variantName = arg;
         state = "variant";
       } else if (word === "@anim" || word === "@still") {
         if (word === "@anim") doc.anims.set(arg, { ms: ms ? Number(ms[1]) : undefined });
@@ -99,7 +124,23 @@ export function parsePx(text: string, imports: Map<string, Rgba>[] = []): PxDoc 
     const key = KEY_LINE.exec(line);
     if (key) {
       const color = parseColor(key[2]);
-      if (color) (state === "variant" ? variant! : own).set(key[1], color);
+      if (color) {
+        const list = key[2].includes("|") ? parseSlots(key[2]) : null;
+        if (state === "variant") {
+          variant!.set(key[1], color);
+          const vs = doc.variantSlots.get(variantName) ?? new Map();
+          if (list && list.length > 1) vs.set(key[1], list);
+          else vs.delete(key[1]);
+          doc.variantSlots.set(variantName, vs);
+          if (!doc.ownVariant.has(variantName)) doc.ownVariant.set(variantName, new Set());
+          doc.ownVariant.get(variantName)!.add(key[1]);
+        } else {
+          own.set(key[1], color);
+          doc.own.add(key[1]);
+          if (list && list.length > 1) doc.slots.set(key[1], list);
+          else doc.slots.delete(key[1]);
+        }
+      }
       continue;
     }
     if (!frame) {
@@ -144,6 +185,32 @@ export function resolvePx(path: string, read: (path: string) => string | null, s
     const v = doc.variants.get(name) ?? new Map();
     for (const [k, c] of keys) v.set(k, c);
     doc.variants.set(name, v);
+  }
+  // Slots layer like colors: the imports' first, then a local line replaces the key's whole (a plain
+  // local line, no alternatives, hides the import's). A variant's lists layer the same way.
+  const ownSlots = doc.slots;
+  doc.slots = new Map();
+  for (const d of imported) for (const [k, list] of d.slots) doc.slots.set(k, list);
+  for (const k of doc.own) {
+    if (ownSlots.has(k)) doc.slots.set(k, ownSlots.get(k)!);
+    else doc.slots.delete(k);
+  }
+  const ownVariantSlots = doc.variantSlots;
+  doc.variantSlots = new Map();
+  for (const d of imported)
+    for (const [name, keys] of d.variantSlots) {
+      const vs = doc.variantSlots.get(name) ?? new Map();
+      for (const [k, list] of keys) vs.set(k, list);
+      doc.variantSlots.set(name, vs);
+    }
+  for (const [name, keys] of doc.ownVariant) {
+    const vs = doc.variantSlots.get(name) ?? new Map();
+    for (const k of keys) {
+      const list = ownVariantSlots.get(name)?.get(k);
+      if (list) vs.set(k, list);
+      else vs.delete(k);
+    }
+    doc.variantSlots.set(name, vs);
   }
   return doc;
 }
@@ -195,11 +262,55 @@ export function tileAnimation(doc: PxDoc, f: PxFrame): { frame: PxFrame; ms: num
   return fs.map((x) => ({ frame: x, ms: msOf(doc, x) }));
 }
 
-/** The palette a variant renders: the base, with the variant's keys over it. */
-export function paletteFor(doc: PxDoc, variant?: string): Map<string, Rgba> {
+/**
+ * The palette a variant renders: the base, with the variant's keys over it. `picks` chooses a slot's
+ * color by index (0 the base), as pxart.py's `render --slots k=i` does: in a variant that gives the
+ * slot a list, its i-th; one that gives it one color, that color; else the slot's i-th. A pick for a
+ * key that isn't a slot, or past its list, is left out.
+ */
+export function paletteFor(doc: PxDoc, variant?: string, picks?: Record<string, number>): Map<string, Rgba> {
   const pal = new Map(doc.palette);
   if (variant) for (const [k, v] of doc.variants.get(variant) ?? []) pal.set(k, v);
+  if (picks)
+    for (const [k, i] of Object.entries(picks)) {
+      const c = slotColor(doc, k, i, variant);
+      if (c) pal.set(k, c);
+    }
   return pal;
+}
+
+/** Slot k's color i (0 the base) as drawn in a variant, or null when k has no such slot color. */
+export function slotColor(doc: PxDoc, k: string, i: number, variant?: string): Rgba | null {
+  const list = doc.slots.get(k);
+  if (!list || i < 0 || i >= list.length) return null;
+  if (variant) {
+    const vlist = doc.variantSlots.get(variant)?.get(k);
+    if (vlist) return vlist.length === list.length ? vlist[i] : vlist[0];
+    const one = doc.variants.get(variant)?.get(k);
+    if (one) return one;
+  }
+  return list[i];
+}
+
+/** Each slot's colors as a variant draws them (base first): what a game can pick from. */
+export function slotsOf(doc: PxDoc, variant?: string): Map<string, Rgba[]> {
+  const out = new Map<string, Rgba[]>();
+  for (const [k, list] of doc.slots) out.set(k, list.map((_, i) => slotColor(doc, k, i, variant)!));
+  return out;
+}
+
+/**
+ * Two palettes blended key by key, t of the way from a to b (0..1), each channel rounded: a dusk
+ * that deepens by the minute. A key only one palette has keeps that palette's color.
+ */
+export function mixPalettes(a: Map<string, Rgba>, b: Map<string, Rgba>, t: number): Map<string, Rgba> {
+  const u = Math.min(1, Math.max(0, t));
+  const out = new Map<string, Rgba>(a);
+  for (const [k, cb] of b) {
+    const ca = a.get(k);
+    out.set(k, ca ? (ca.map((v, j) => Math.round(v + (cb[j] - v) * u)) as Rgba) : cb);
+  }
+  return out;
 }
 
 export function hex([r, g, b, a]: Rgba): string {
