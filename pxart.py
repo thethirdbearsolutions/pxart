@@ -227,7 +227,7 @@ LOOKING
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
-        [--outline K]
+        [--outline K [--min-alpha A]]
       Every format error with a code and location, then size / off-palette colors / color budget /
       unused keys / see-through px. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
       3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames (a file
@@ -245,8 +245,8 @@ CHECKING
       entry loads as one frame; .world, .tmj: help worlds.
       --outline K (keys: kL) notes each frame's edge pixels (shape pixels with an empty side; the
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
-      (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes; a file with no K
-      is silent, and a K no file has is a note.
+      (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes (give
+      --min-alpha as you gave outline); a file that draws no K is silent; a K no file has, a note.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -4107,7 +4107,11 @@ def cmd_check(a):
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
-    outlined = set()  # --outline's keys some checked file has
+    outlined, pxed = set(), False  # --outline's keys some checked file has; whether any .px frame was checked
+    keys = outline_keys(a.outline) if a.outline is not None else None
+    if a.min_alpha is not None and (keys is None or not 1 <= a.min_alpha <= 255):
+        fail("E_BAD_ARG", f"--min-alpha {a.min_alpha}: " + ("give 1 to 255" if keys else
+                                                            "it goes with --outline K, as for outline --min-alpha"))
     for arg in dict.fromkeys(check_args(a.files, a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
@@ -4256,7 +4260,8 @@ def cmd_check(a):
                 for bad, l in lines:
                     if bad:
                         print(f"     {l}")
-            gaps = outline_gaps_said(its, path, a.outline, None if a.verbose else 8, outlined) if a.outline else []
+            gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
+            pxed |= any(it.frame is not None for it in its)
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
                 print(f"FAIL {path}: slot alternatives off-palette: {slot_off}")
@@ -4274,8 +4279,8 @@ def cmd_check(a):
                 tally["warnings"] += 1
             tally["failed"] += failed
             failed |= bad_before
-    if a.outline and tally["frames"] and not outlined:  # a typo in K looks like a clean pass otherwise
-        named = " or ".join(repr(k) for k in outline_keys(a.outline))
+    if keys and pxed and not outlined:  # a typo in K looks like a clean pass otherwise
+        named = " or ".join(repr(k) for k in keys)
         print(f"note: --outline {a.outline}: no file checked has a key {named}, so no outline was checked")
         tally["warnings"] += 1
     if tally["files"] > 1:
@@ -4286,28 +4291,32 @@ def cmd_check(a):
 
 
 def outline_keys(arg):
-    """check --outline's keys, in the order typed: a run of key characters ('kL'), or keys between commas ('k,L'); ','
-    alone is that key."""
-    return [arg] if len(arg) == 1 else list(dict.fromkeys(k for k in arg if k != ","))
+    """check --outline's keys, in the order typed, as key_list reads them ('kL', 'k,L', ',,k' for ',' and 'k'). '.' is
+    nothing drawn, never an outline, and an empty K is no key: both E_BAD_ARG."""
+    if not arg:
+        fail("E_BAD_ARG", "--outline wants the outline key (--outline k), or keys (--outline kL)")
+    keys = key_list(arg, "--outline")
+    if "." in keys:
+        fail("E_BAD_ARG", "--outline .: '.' draws nothing, so it can't be an outline; name the outline's key")
+    return keys
 
 
-def outline_gaps(doc, f, keys):
+def outline_gaps(doc, f, keys, min_alpha=None):
     """The shape's edge pixels that aren't drawn in an outline key, in reading order: pixels of the frame's shape
     (opaque_set: every key that draws in some variant) with an empty side neighbor. Off the frame isn't empty there:
     a shape cut by the frame's edge has no outline to give it, and 'outline --outside' (no --pad) leaves it so. Every
     edge pixel of a frame that 'outline --key K' just drew, --outside or --inside, --corners or not, is K (or --lit's
-    key, when it is listed too)."""
-    shape = opaque_set(doc, f)
+    key, when it is listed too). min_alpha: the shape as 'outline --min-alpha A' sees it, faint keys left out."""
+    shape = opaque_set(doc, f, min_alpha)
     w, h = f.size
     return [(x, y) for y in range(h) for x in range(w) if (x, y) in shape and f.grid[y][x] not in keys
             and any(0 <= x + dx < w and 0 <= y + dy < h and (x + dx, y + dy) not in shape for dx, dy in SIDES)]
 
 
-def outline_gaps_said(its, path, arg, most=8, seen=None):
+def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
     """check --outline K's notes, a frame each: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)" (most
     coordinates; None: all of them). None for a file that draws no frame with an outline key (it has no outline to
     check), or for PNGs. seen (a set) gets the keys the file's palette has, so check can say when no file had one."""
-    keys = outline_keys(arg)
     frames = [it for it in its if it.frame is not None]
     if seen is not None and frames:
         seen.update(k for k in keys if k in frames[0].doc.resolved())
@@ -4316,7 +4325,7 @@ def outline_gaps_said(its, path, arg, most=8, seen=None):
     named = " or ".join(repr(k) for k in keys)
     out = []
     for it in frames:
-        gaps = outline_gaps(it.doc, it.frame, keys)
+        gaps = outline_gaps(it.doc, it.frame, keys, min_alpha)
         if gaps:
             name = path if len(its) == 1 and not it.frame.id else f"{path}:{it.label}"
             shown = gaps if most is None else gaps[:most]
@@ -12105,6 +12114,8 @@ def parser(describe=True):
     p.add_argument("--size"); p.add_argument("--max-colors", type=int); p.add_argument("--strict", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true", help="a line per frame, not per file")
     p.add_argument("--outline", metavar="K", help="note the shape's edge pixels not drawn in outline key K (or keys: kL)")
+    p.add_argument("--min-alpha", type=int, metavar="A",
+                   help="with --outline: the shape is keys of alpha A+, as for outline --min-alpha")
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")

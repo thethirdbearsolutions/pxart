@@ -102,18 +102,87 @@ d #1e6b40
 """
 
 
+# a 1px diagonal, a ring with a hole, a split foot, a faint glow, a shape cut by the frame's border, and a second frame
+# of another size
+ODD = """pxart 1
+k #1a1c2c
+l #5d275d
+g #38b764
+d #1e6b40
+f #00ff0040
+
+@frame odd/0
+............
+.f..gggg....
+.f.gggggg...
+..gggddggg..
+..ggg..ggg..
+..gggddggg..
+...gggggg...
+....gg.gg...
+.g..........
+..g.........
+...g........
+gg..........
+@frame odd/1
+..........
+..ffff....
+..fggf....
+..fggf....
+..ffff....
+.g......gg
+"""
+
+
 @pytest.mark.parametrize("mode", [
     ["--outside"], ["--inside"], ["--outside", "--corners"], ["--inside", "--corners"],
     ["--lit", "l", "--light", "nw"], ["--lit", "l", "--selective", "--inside"], ["--min-alpha", "1"],
+    ["--min-alpha", "128"], ["--min-alpha", "128", "--inside"], ["--pad"],
 ])
-def test_a_frame_outline_just_drew_passes(tmp_path, monkeypatch, capsys, mode):
-    # every outline mode, on a shape with a hole and a split foot: no gaps after
+@pytest.mark.parametrize("art", ["BARE", "ODD"])
+def test_a_frame_outline_just_drew_passes(tmp_path, monkeypatch, capsys, mode, art):
+    # every outline mode, on two sprites: no gaps after, given --min-alpha as outline was
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "b.px").write_text(BARE)
+    (tmp_path / "b.px").write_text(globals()[art])
     assert run("outline", "b.px:*", "--key", "k", *mode) == 0
     keys = "kl" if "--lit" in mode else "k"
-    _, out = check("b.px", "--outline", keys, capsys=capsys)
+    extra = mode[mode.index("--min-alpha"):mode.index("--min-alpha") + 2] if "--min-alpha" in mode else []
+    _, out = check("b.px", "--outline", keys, *extra, capsys=capsys)
     assert "gap" not in out, out
+
+
+def test_without_min_alpha_a_faint_ring_is_the_edge(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "f.px").write_text("pxart 1\nk #000000\ng #00ff00\nf #00ff0040\n\n@frame a\n.......\n.fffff.\n"
+                                   ".fgggf.\n.fgggf.\n.fffff.\n.......\n")
+    assert run("outline", "f.px", "--key", "k", "--min-alpha", "128") == 0
+    _, out = check("f.px", "--outline", "k", capsys=capsys)
+    assert "outline 'k' has" in out  # the faint ring is shape, and isn't k
+    code, out = check("f.px", "--outline", "k", "--min-alpha", "128", capsys=capsys)
+    assert code == 0 and "gap" not in out
+
+
+@pytest.mark.parametrize("argv, says", [
+    (["--outline", "."], "'.' draws nothing"),
+    (["--outline", ""], "--outline wants the outline key"),
+    (["--outline", "kk"], "names a key twice"),
+    (["--min-alpha", "128"], "it goes with --outline K"),
+    (["--outline", "k", "--min-alpha", "0"], "give 1 to 255"),
+])
+def test_bad_arguments(tmp_path, monkeypatch, capsys, argv, says):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hero.px").write_text(PICO)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["check", "hero.px", *argv])
+    assert says in str(e.value.code) + capsys.readouterr().err
+
+
+def test_a_png_is_not_a_missing_key(tmp_path, monkeypatch, capsys):
+    from PIL import Image
+    monkeypatch.chdir(tmp_path)
+    Image.new("RGBA", (4, 4), (0, 255, 0, 255)).save(tmp_path / "d.png")
+    _, out = check("d.png", "--outline", "k", capsys=capsys)
+    assert "no file checked" not in out
 
 
 def test_pad_grows_the_frame_and_still_passes(tmp_path, monkeypatch, capsys):
@@ -155,9 +224,11 @@ def test_several_keys_and_their_spelling(tmp_path, monkeypatch, capsys):
         assert "outline 'k' or 'l' has 1 gap at (1,2)" in out
     _, out = check("s.px", "--outline", "lk", capsys=capsys)  # named in the order typed
     assert "outline 'l' or 'k' has 1 gap at (1,2)" in out
+    _, out = check("s.px", "--outline", ",,k", capsys=capsys)  # ',' as a key, with k
+    assert "outline ',' or 'k' has 2 gaps" in out
     _, out = check("s.px", "--outline", "k", capsys=capsys)
     assert "outline 'k' has 2 gaps at (2,1) (1,2)" in out
-    assert pxart.outline_keys(",") == [","]
+    assert pxart.outline_keys(",") == [","] and pxart.outline_keys(",,k") == [",", "k"]
 
 
 def test_many_gaps_are_counted_not_all_listed(tmp_path, monkeypatch, capsys):
@@ -194,7 +265,7 @@ def test_the_drawing_tutorials_outlined_chest_passes(capsys):
 
 def test_help_and_readme_say_it():
     doc = " ".join(pxart.__doc__.split())
-    assert "[--outline K]" in doc and "A frame just outlined by outline --key K passes" in doc
+    assert "[--outline K [--min-alpha A]]" in doc and "A frame just outlined by outline --key K passes (give --min-alpha as you gave outline)" in doc
     assert "--outline K" in " ".join((ROOT / "README.md").read_text().split())
 
 

@@ -15,9 +15,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)`. It agrees with `outline`: a
   frame `outline --key K` just drew, outside or inside, with `--corners` or `--lit`, has no gaps.
   Where the shape meets the frame's border isn't a gap (`outline` can't draw there without
-  `--pad`), and a file that never draws in K says nothing, so `check DIR --outline k` is safe
-  on a mixed folder; a K that no checked file has at all (a typo) is a note of its own. `-v`
-  lists every gap's coordinates, not the first eight.
+  `--pad`; `outline` itself notes that the outline is open there). A file that never draws in K
+  says nothing, but one that draws K anywhere is checked, so on a folder name a key your sprites
+  keep for outlines. A K that no checked file has at all (a typo) is a note of its own; `.` or an
+  empty K is an error. `--min-alpha A` reads the shape as `outline --min-alpha A` did. `-v` lists
+  every gap's coordinates, not the first eight.
 
 - **`check` notes an animation's repeated neighbour frames (PX-10).** Two frames in a row that draw the
   same in the base and every variant read as a stutter, and only looking caught it (a slime idle in the
