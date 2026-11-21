@@ -65,7 +65,7 @@ def rgb(h):
 def test_every_existing_file_round_trips_byte_for_byte():
     # no file had slots before: each parses and writes back exactly as it was. The px.ts parity fixtures are newer and
     # hold a slot list on purpose (tests/test_px_ts.py); they round-trip too.
-    with_slots = ROOT / "tests" / "fixtures" / "px_ts"
+    with_slots = {ROOT / "tests" / "fixtures" / "px_ts" / n for n in ("base.px", "lamp.px", "slots-hide.px", "slots.px")}
     n = 0
     for p in sorted(list((ROOT / "examples").rglob("*.px")) + list((ROOT / "tests" / "fixtures").rglob("*.px"))):
         text = p.read_text()
@@ -77,7 +77,7 @@ def test_every_existing_file_round_trips_byte_for_byte():
             except pxart.PxError:
                 continue
         assert doc.text() == text, p
-        assert with_slots in p.parents or not doc.slots(), p
+        assert bool(doc.slots()) == (p in with_slots), p
         n += 1
     assert n > 20
 
