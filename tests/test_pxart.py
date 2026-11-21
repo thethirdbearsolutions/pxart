@@ -7724,7 +7724,7 @@ def test_check_strict_fails_on_orphans(tmp_path, capsys):
 
 
 def test_check_strict_passes_without_orphans(tmp_path, capsys):
-    p = write(tmp_path, "o.px", ORPH)
+    p = write(tmp_path, "o.px", ORPH.replace("@frame walk/1\nk\n", "@frame walk/1\n.\n"))  # no E_SAME_FRAMES either
     assert run("check", "--strict", p) == 0
     assert "no frames" not in capsys.readouterr().out
 
@@ -17759,7 +17759,8 @@ def test_readme_documents_sheet_rows_group():
 # ---------------------------------------------------------------- check: a line per file, -v for a line per frame
 
 CHK = ("pxart 1\nk #000000\nw #ffffff\nz #ff0000\n@anim walk ms=100\n"
-       + "".join(f"@frame walk/{i}\nkw\nwk\n" for i in range(4)) + "@frame big\nkwk\nwkw\nkkk\n")
+       + "".join(f"@frame walk/{i}\n" + ("kw\nwk\n", "wk\nkw\n")[i % 2] for i in range(4))
+       + "@frame big\nkwk\nwkw\nkkk\n")
 
 
 def chk(tmp_path, capsys, *more, text=CHK, name="c.px"):
@@ -17861,13 +17862,13 @@ def test_check_no_summary_for_one_file(tmp_path, capsys):
 
 def test_check_strict_quiet_by_default(tmp_path, capsys):
     # The session's crossover: ~150 frames printed one per line; now one line per file.
-    text = "pxart 1\nk #000000\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\nk\n" for i in range(150))
+    text = "pxart 1\nk #000000\nw #ffffff\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\n{'kw'[i % 2]}\n" for i in range(150))
     code, p, out = chk(tmp_path, capsys, "--strict", text=text)
     assert code == 0 and out == [f"ok   {p}: 150 frames, 1x1, 1c"]
 
 
 def test_check_strict_verbose_still_per_frame(tmp_path, capsys):
-    text = "pxart 1\nk #000000\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\nk\n" for i in range(150))
+    text = "pxart 1\nk #000000\nw #ffffff\n@anim walk ms=100\n" + "".join(f"@frame walk/{i}\n{'kw'[i % 2]}\n" for i in range(150))
     code, p, out = chk(tmp_path, capsys, "--strict", "-v", text=text)
     assert len(out) == 150
 
@@ -23244,9 +23245,10 @@ def test_help_all_does_not_grow(capsys):
     # 67277 bytes at 3dd8747; the recipes are their own topic, and duplicated passages now say things once (crop,
     # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering). Worlds
     # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are. 67832 after put --at/--rows and
-    # compose --erase (CZY-2556), the layered-pass edits, documented in five lines.
+    # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
+    # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 67832
+    assert len(capsys.readouterr().out.encode()) <= 67991
 
 
 def test_help_says_each_shared_rule_once():
