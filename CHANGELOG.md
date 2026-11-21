@@ -6,6 +6,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ## 2026-11-21
 
+### Added
+
+- **`check` notes an animation's repeated neighbour frames (PX-10).** Two frames in a row that draw the
+  same in the base and every variant read as a stutter, and only looking caught it (a slime idle in the
+  cave run). `check` now says `idle/1 and idle/2 are identical (0 px differ, in every variant too)`,
+  including the wrap from the last frame back to the first when the group loops (forward or reverse,
+  repeat other than 1), and gives the hold that does it on purpose: remove one, and give the other the
+  two frames' `ms=`, as two commands to run. `@still` groups and top-level frames are exempt.
+  `--strict` fails it as `E_SAME_FRAMES`, at the line of the frame to remove.
+
 ### Fixed
 
 - **The test suite passes again, on any machine (PX-27).** The example check compared PNGs and

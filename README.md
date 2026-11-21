@@ -215,8 +215,11 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   it can offer composing it again once the map's sprites have that variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
   keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
-  notes Cyrillic/Greek/fullwidth letters posing as ASCII and `@anim`/`@still` lines with
-  no frames, which `--strict` fails; one line per file, the failing frames under it, and a
+  notes Cyrillic/Greek/fullwidth letters posing as ASCII, `@anim`/`@still` lines with
+  no frames, and neighbour frames of an animation that draw the same in every variant
+  (`idle/1 and idle/2 are identical`, the wrap from last to first too when it loops: a
+  stutter; a hold is one frame with a longer `ms=`), the last two of which `--strict` fails
+  (`E_SAME_FRAMES`); one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
   hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;
   a frame drawn only in keys lit at night says `bbox none (96 px drawn, all transparent in the base; visible in
