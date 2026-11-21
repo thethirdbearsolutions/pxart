@@ -8,6 +8,19 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Added
 
+- **`check --outline K` finds the gaps in an outline (PX-11).** A sprite with holes in its outline
+  passed `check`, and only looking caught them. With `--outline k` (`--outline kL` for an outline
+  in several keys, a selective one's lit key too), each frame's shape is walked and every edge
+  pixel (a drawn pixel with an empty side) not drawn in K is a note, with its coordinates:
+  `hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)`. It agrees with `outline`: a
+  frame `outline --key K` just drew, outside or inside, with `--corners` or `--lit`, has no gaps.
+  Where the shape meets the frame's border isn't a gap (`outline` can't draw there without
+  `--pad`; `outline` itself notes that the outline is open there). A file that never draws in K
+  says nothing, but one that draws K anywhere is checked, so on a folder name a key your sprites
+  keep for outlines. A K that no checked file has at all (a typo) is a note of its own; `.` or an
+  empty K is an error. `--min-alpha A` reads the shape as `outline --min-alpha A` did. `-v` lists
+  every gap's coordinates, not the first eight.
+
 - **`check` notes an animation's repeated neighbour frames (PX-10).** Two frames in a row that draw the
   same in the base and every variant read as a stutter, and only looking caught it (a slime idle in the
   cave run). `check` now says `idle/1 and idle/2 are identical (0 px differ, in every variant too)`,

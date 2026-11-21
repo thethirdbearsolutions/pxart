@@ -220,7 +220,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   (`idle/1 and idle/2 are identical`, the wrap from last to first too when it loops: a
   repeated frame; a hold is one frame with a longer `ms=`, and the note gives the commands,
   or `--still` for a group that is icons), the last two of which `--strict` fails
-  (`E_SAME_FRAMES`); one line per file, the failing frames under it, and a
+  (`E_SAME_FRAMES`); `--outline K` (or `--outline kL` for several keys) notes each frame's
+  outline gaps, the shape's edge pixels not drawn in K, with their coordinates
+  (`hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)`), and agrees with what
+  `outline --key K` draws (with `--min-alpha` as you gave it), so a frame it just outlined passes; one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
   hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;
   a frame drawn only in keys lit at night says `bbox none (96 px drawn, all transparent in the base; visible in
