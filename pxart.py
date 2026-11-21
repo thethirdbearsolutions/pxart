@@ -245,7 +245,8 @@ CHECKING
       entry loads as one frame; .world, .tmj: help worlds.
       --outline K (keys: kL) notes each frame's edge pixels (shape pixels with an empty side; the
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
-      (11,7) (11,8)". A frame just outlined by outline --key K passes; a file with no K is silent.
+      (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes; a file with no K
+      is silent, and a K no file has is a note.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -4106,6 +4107,7 @@ def cmd_check(a):
     want = tuple(map(int, a.size.split("x"))) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
+    outlined = set()  # --outline's keys some checked file has
     for arg in dict.fromkeys(check_args(a.files, a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
@@ -4254,7 +4256,7 @@ def cmd_check(a):
                 for bad, l in lines:
                     if bad:
                         print(f"     {l}")
-            gaps = outline_gaps_said(its, path, a.outline) if a.outline else []
+            gaps = outline_gaps_said(its, path, a.outline, None if a.verbose else 8, outlined) if a.outline else []
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
                 print(f"FAIL {path}: slot alternatives off-palette: {slot_off}")
@@ -4272,6 +4274,10 @@ def cmd_check(a):
                 tally["warnings"] += 1
             tally["failed"] += failed
             failed |= bad_before
+    if a.outline and tally["frames"] and not outlined:  # a typo in K looks like a clean pass otherwise
+        named = " or ".join(repr(k) for k in outline_keys(a.outline))
+        print(f"note: --outline {a.outline}: no file checked has a key {named}, so no outline was checked")
+        tally["warnings"] += 1
     if tally["files"] > 1:
         t = tally
         print(f"{t['files']} files, {t['frames']} frame{'s' * (t['frames'] != 1)}, {t['warnings']} "
@@ -4280,8 +4286,9 @@ def cmd_check(a):
 
 
 def outline_keys(arg):
-    """check --outline's keys: a run of key characters ('kL'), or keys between commas ('k,L'); ',' alone is that key."""
-    return set(arg) if len(arg) == 1 else {k for k in arg if k != ","}
+    """check --outline's keys, in the order typed: a run of key characters ('kL'), or keys between commas ('k,L'); ','
+    alone is that key."""
+    return [arg] if len(arg) == 1 else list(dict.fromkeys(k for k in arg if k != ","))
 
 
 def outline_gaps(doc, f, keys):
@@ -4296,20 +4303,25 @@ def outline_gaps(doc, f, keys):
             and any(0 <= x + dx < w and 0 <= y + dy < h and (x + dx, y + dy) not in shape for dx, dy in SIDES)]
 
 
-def outline_gaps_said(its, path, arg, most=8):
-    """check --outline K's notes, a frame each: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)". None for
-    a file that draws no frame with an outline key (it has no outline to check), or for PNGs."""
+def outline_gaps_said(its, path, arg, most=8, seen=None):
+    """check --outline K's notes, a frame each: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)" (most
+    coordinates; None: all of them). None for a file that draws no frame with an outline key (it has no outline to
+    check), or for PNGs. seen (a set) gets the keys the file's palette has, so check can say when no file had one."""
     keys = outline_keys(arg)
     frames = [it for it in its if it.frame is not None]
+    if seen is not None and frames:
+        seen.update(k for k in keys if k in frames[0].doc.resolved())
     if not frames or not any(k in row for it in frames for row in it.frame.grid for k in keys):
         return []
-    named = " or ".join(repr(k) for k in sorted(keys))
+    named = " or ".join(repr(k) for k in keys)
     out = []
     for it in frames:
         gaps = outline_gaps(it.doc, it.frame, keys)
         if gaps:
             name = path if len(its) == 1 and not it.frame.id else f"{path}:{it.label}"
-            at = " ".join(f"({x},{y})" for x, y in gaps[:most]) + (f" and {len(gaps) - most} more" if len(gaps) > most else "")
+            shown = gaps if most is None else gaps[:most]
+            at = " ".join(f"({x},{y})" for x, y in shown) + (f" and {len(gaps) - len(shown)} more (-v lists them all)"
+                                                              if len(gaps) > len(shown) else "")
             out.append(f"{name}: outline {named} has {len(gaps)} gap{'s' * (len(gaps) != 1)} at {at}")
     return out
 

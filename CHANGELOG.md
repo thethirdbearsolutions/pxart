@@ -16,7 +16,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
   frame `outline --key K` just drew, outside or inside, with `--corners` or `--lit`, has no gaps.
   Where the shape meets the frame's border isn't a gap (`outline` can't draw there without
   `--pad`), and a file that never draws in K says nothing, so `check DIR --outline k` is safe
-  on a mixed folder.
+  on a mixed folder; a K that no checked file has at all (a typo) is a note of its own. `-v`
+  lists every gap's coordinates, not the first eight.
 
 - **`check` notes an animation's repeated neighbour frames (PX-10).** Two frames in a row that draw the
   same in the base and every variant read as a stutter, and only looking caught it (a slime idle in the

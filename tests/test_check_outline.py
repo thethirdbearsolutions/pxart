@@ -150,12 +150,14 @@ def test_silent_without_the_key(tmp_path, monkeypatch, capsys):
 def test_several_keys_and_their_spelling(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "s.px").write_text("pxart 1\nk #000000\nl #333333\ng #00ff00\n\n@frame a\n....\n.kl.\n.gk.\n.kk.\n....\n")
-    for arg in ("kl", "k,l", "lk"):
+    for arg in ("kl", "k,l"):
         _, out = check("s.px", "--outline", arg, capsys=capsys)
         assert "outline 'k' or 'l' has 1 gap at (1,2)" in out
+    _, out = check("s.px", "--outline", "lk", capsys=capsys)  # named in the order typed
+    assert "outline 'l' or 'k' has 1 gap at (1,2)" in out
     _, out = check("s.px", "--outline", "k", capsys=capsys)
     assert "outline 'k' has 2 gaps at (2,1) (1,2)" in out
-    assert pxart.outline_keys(",") == {","}
+    assert pxart.outline_keys(",") == [","]
 
 
 def test_many_gaps_are_counted_not_all_listed(tmp_path, monkeypatch, capsys):
@@ -164,7 +166,11 @@ def test_many_gaps_are_counted_not_all_listed(tmp_path, monkeypatch, capsys):
     (tmp_path / "m.px").write_text("pxart 1\nk #000000\ng #00ff00\n\n@frame a\n" + "\n".join(rows) + "\n")
     _, out = check("m.px", "--outline", "k", capsys=capsys)
     line = next(l for l in out.splitlines() if "gaps" in l)
-    assert " and " in line and line.count("(") == 8
+    assert line.endswith("more (-v lists them all)") and line.count("(") == 9
+    _, out = check("m.px", "--outline", "k", "-v", capsys=capsys)
+    line = next(l for l in out.splitlines() if "gaps" in l)
+    n = int(line.split(" has ")[1].split()[0])
+    assert "more" not in line and line.count("(") == n > 8
 
 
 def test_a_selection_and_a_single_grid(tmp_path, monkeypatch, capsys):
@@ -190,3 +196,13 @@ def test_help_and_readme_say_it():
     doc = " ".join(pxart.__doc__.split())
     assert "[--outline K]" in doc and "A frame just outlined by outline --key K passes" in doc
     assert "--outline K" in " ".join((ROOT / "README.md").read_text().split())
+
+
+def test_a_key_no_file_has_says_so(tmp_path, monkeypatch, capsys):
+    # a typo in K would otherwise look like a clean pass
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hero.px").write_text(PICO)
+    code, out = check("hero.px", "--outline", "x", capsys=capsys)
+    assert code == 0 and out.splitlines()[-1] == "note: --outline x: no file checked has a key 'x', so no outline was checked"
+    _, out = check("hero.px", "--outline", "kx", capsys=capsys)  # one of them is there: checked, no such note
+    assert "no file checked" not in out and "outline 'k' or 'x' has 3 gaps" in out
