@@ -8,7 +8,7 @@
 # Each example copies only its sources into a scratch directory and runs there, so an
 # output left over from an earlier build never feeds a later command.
 # tests/test_examples.py builds into a temp dir and checks every committed file is
-# identical (text byte for byte, images by decoded pixels), so a pxart change that
+# identical (text byte for byte, images as decoded), so a pxart change that
 # alters an example fails the tests.
 set -euo pipefail
 

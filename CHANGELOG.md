@@ -8,13 +8,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
-- **The test suite passes on a fresh machine (PX-27).** The example check compared PNGs and GIFs
-  byte for byte, so a Pillow built against another zlib failed 63 of them that draw exactly the
-  same; images now compare by their decoded pixels, frames and timings (text stays byte for
-  byte). The glade's Tiled parity test counted every `.map` under `examples/` and broke when the
-  map-variants tutorial added six; it now reads the scene tutorial's own. Two more failed outside
-  the author's machine: the slot round trip didn't allow the px.ts fixtures' deliberate slot list,
-  and the read-only-output test failed under root, which can write to a read-only directory.
+- **The test suite passes again, on any machine (PX-27).** The example check compared PNGs and
+  GIFs byte for byte, and the bytes depend on the machine for the same picture (zlib deflates
+  PNGs differently, Pillow versions order a GIF's palette differently): which images failed
+  depended on where you ran it, though none drew differently. Images now compare by mode, size,
+  metadata and each frame's pixels, timing and disposal; text stays byte for byte. The glade's
+  Tiled parity test counted every `.map` under `examples/` and broke when the map-variants
+  tutorial added six; it reads the scene tutorial's own, and each map-variants room now has a
+  Tiled parity test of its own. The slot round trip failed everywhere since the px.ts fixtures
+  added a slot list on purpose; those four files are now named as having slots. The
+  read-only-output test failed under root, which can write to a read-only directory.
 
 ## 2026-11-19
 
