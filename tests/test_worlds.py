@@ -2098,8 +2098,9 @@ def glade_tilesets(tmp_path):
 
 
 def test_parity_pxart_example_glade(tmp_path, capsys):
-    # every map in pxart's examples: the glade (layers of different heights, a big top-left sky, flipped trees)
-    maps = sorted(EXAMPLES.rglob("*.map"))
+    # the scene tutorial's map: the glade (layers of different heights, a big top-left sky, flipped trees). The
+    # map-variants tutorial's maps (10-map-variants/) export to Tiled in its build.sh, checked by test_examples.
+    maps = sorted((EXAMPLES / "06-scene").rglob("*.map"))
     assert [m.relative_to(EXAMPLES).as_posix() for m in maps] == ["06-scene/rooms/glade.map"]
     shutil.copytree(EXAMPLES / "06-scene", tmp_path / "06-scene")
     tsj = glade_tilesets(tmp_path)

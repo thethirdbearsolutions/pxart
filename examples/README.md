@@ -62,8 +62,9 @@ here would overwrite the files it comes with.
 
 Each folder holds the `.px` sources, the commands, and everything they produce, all
 committed. [`build.sh`](build.sh) regenerates every output from the sources, and
-`tests/test_examples.py` rebuilds them and checks each is byte-identical, and that every
-output a README quotes is what the command really printed. So the tutorials can't drift
+`tests/test_examples.py` rebuilds them and checks each is identical (text byte for byte;
+images by their decoded pixels, frames and timings, since zlib builds deflate the same pixels
+differently), and that every output a README quotes is what the command really printed. So the tutorials can't drift
 from the tool.
 
 After changing a source (or pxart itself), rebuild and commit what changed:
