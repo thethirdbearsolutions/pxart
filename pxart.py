@@ -854,7 +854,7 @@ ERROR CODES
   E_VERSION E_BAD_KEY E_DOT_RESERVED E_BAD_COLOR E_DUP_KEY E_PALETTE_AFTER_GRID
   E_PALETTE_FILE E_BAD_ROW E_ROW_WIDTH E_UNKNOWN_KEY E_EMPTY_FRAME E_NO_FRAMES
   E_BAD_ID E_DUP_FRAME E_MIXED_FRAMES E_BAD_ARG E_VARIANT_KEY E_UNKNOWN_SECTION
-  E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE
+  E_SELECT E_KEY_CONFLICT E_TILE_SIZE E_FILE E_SAME_FRAMES
   Every error line starts with the command ('ellipse: E_BAD_ARG: cy=1.5 and ry=1 ...'). An
   error in an input file also says which input it came from, then where in the file:
   'compose: layer 2 (parts.px:hat): parts.px:4: E_ROW_WIDTH (frame hat, ...'.
@@ -4200,9 +4200,9 @@ def cmd_check(a):
                         print(f"FAIL {path}:{n}: E_SELECT: {msg}")
                     else:
                         notes.append(f"line {n}: {msg} (check --strict fails on it)")
-                picked = {it.frame.group for it in its if it.frame}
+                picked = {id(it.frame) for it in its if it.frame}
                 for g, run, wrap in repeated_frames(doc):
-                    if g not in picked:
+                    if sum(id(f) in picked for f in run) < 2:  # FILE:walk/2 alone says nothing of walk/0 and walk/1
                         continue
                     msg = said_repeat(doc, path, g, run, wrap)
                     if a.strict:
@@ -4953,12 +4953,12 @@ def repeated_frames(doc):
     """check: runs of neighbour frames of an animation that draw the same in the base and in every variant, as
     [(group, run, wrap)]: run is the frames in play order, kept frame first. wrap True: the run goes round the loop's
     end, from the last frames back to the first (forward or reverse, repeat other than 1; a pingpong turns at its ends
-    and never wraps), so its kept frame is frame 0. @still groups and the top level are no animation. Pixels compare
-    by color, so two keys of one color draw alike, and a see-through pixel is see-through whatever its rgb."""
+    and never wraps), so its kept frame is frame 0. @still groups and the top level are no animation. Frames compare
+    by size, pivot and pixels; pixels by color, so two keys of one color draw alike, and a see-through pixel is see-through whatever its rgb."""
     pals = [doc.resolved()] + [doc.resolved(n) for n in variant_names(doc)]
 
-    def drawn(f):
-        return f.size, tuple(tuple(c if c[3] else CLEAR for c in (p.get(k, CLEAR) for row in f.grid for k in row))
+    def drawn(f):  # the pivot too: the same pixels on another pivot are a move (anim lines frames up by it)
+        return f.size, doc.pivot(f), tuple(tuple(c if c[3] else CLEAR for c in (p.get(k, CLEAR) for row in f.grid for k in row))
                              for p in pals)
 
     out = []
@@ -5002,6 +5002,11 @@ def said_repeat(doc, path, g, run, wrap):
     def both(xs):
         return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
     names = [f.id for f in (sorted(run, key=fs.index) if wrap else run)]
+    if len(run) == len(fs):  # one picture: a still, or frames not drawn yet
+        return (f"every frame of {g} is the same ({both(names)}, 0 px differ{every}): no motion; if {g} is not an "
+                f"animation (icons, parts), mark it still: " + shlex.join(["pxart", "anim-set", f"{path}:{g}", "--still"])
+                + f"; if it is, draw the frames that move, or keep one: "
+                + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]))
     still = "" if g in doc.anims else (f"if {g} is not an animation (icons, parts), mark it still: "
                                        + shlex.join(["pxart", "anim-set", f"{path}:{g}", "--still"]) + "; if it is, ")
     return (both(names) + (" (where the loop comes back round)" if wrap else "")

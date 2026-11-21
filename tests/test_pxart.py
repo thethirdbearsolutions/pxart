@@ -23245,10 +23245,10 @@ def test_help_all_does_not_grow(capsys):
     # 67277 bytes at 3dd8747; the recipes are their own topic, and duplicated passages now say things once (crop,
     # paste and frames --copy-to point at compose; the '#'-color quoting note lives in Centering). Worlds
     # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are. 67832 after put --at/--rows and
-    # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67977 with check's E_SAME_FRAMES
-    # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines.
+    # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
+    # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 67977
+    assert len(capsys.readouterr().out.encode()) <= 67991
 
 
 def test_help_says_each_shared_rule_once():

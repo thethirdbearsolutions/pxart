@@ -15,8 +15,10 @@ release, entries are grouped by the day they landed on `main`. The file format i
   group loops (forward or reverse, repeat other than 1), and gives the hold that does it on purpose as
   two commands: remove the copies, and give the frame kept their time on screen as its `ms=` (at a
   pingpong's turn, the end frame's plus twice the others'). A group with no `@anim` line may be icons,
-  so the note offers `anim-set FILE:GROUP --still` too. `@still` groups and top-level frames are
-  exempt. `--strict` fails it as `E_SAME_FRAMES`, at the line of the first copy to remove.
+  so the note offers `anim-set FILE:GROUP --still` first. A group whose frames are all alike is called
+  one picture rather than a hold. The same pixels on another pivot are a move, not a copy.
+  `@still` groups and top-level frames are exempt, and `check FILE:SEL` speaks only of the frames it
+  selects. `--strict` fails it as `E_SAME_FRAMES`, at the line of the first copy to remove.
 
 ### Fixed
 
