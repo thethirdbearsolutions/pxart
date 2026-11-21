@@ -226,7 +226,8 @@ def test_a_pingpong_hold_is_the_time_on_screen(tmp_path, capsys, frames, hold):
 def test_a_group_with_no_anim_line_may_be_icons(tmp_path, capsys):
     p = sprite(tmp_path, [("ui/heart", UP), ("ui/life", UP), ("ui/coin", DOWN)], anim="")
     _, out = check(p, capsys=capsys)
-    assert f"; or, if ui is no animation (icons, parts), mark it still: pxart anim-set {p}:ui --still" in out
+    assert (f"a stutter in an engine that draws every frame; if ui is not an animation (icons, parts), mark it still: "
+            f"pxart anim-set {p}:ui --still; if it is, for a hold, remove ui/life") in out
     p = sprite(tmp_path, [("walk/0", UP), ("walk/1", UP), ("walk/2", DOWN)], name="w.px")
     _, out = check(p, capsys=capsys)
     assert "mark it still" not in out

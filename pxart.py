@@ -4989,7 +4989,7 @@ def said_repeat(doc, path, g, run, wrap):
     draws every frame; for a hold, remove walk/2 and give walk/1 ms=250 (pxart frames F --rm walk/2; pxart anim-set
     F:walk/1 ms=250)'. The hold is the run's time on screen: at a pingpong's turn the end frame plays once a cycle and
     the others twice, so a run there holds the end frame's ms plus twice the rest's. A group with no @anim line may be
-    icons or parts: the note offers @still too."""
+    icons or parts: the note offers @still first."""
     keep, drop = run[0], run[1:]
     hold = sum(doc.ms(f) for f in run)
     fs = doc.groups()[g]
@@ -5002,13 +5002,13 @@ def said_repeat(doc, path, g, run, wrap):
     def both(xs):
         return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
     names = [f.id for f in (sorted(run, key=fs.index) if wrap else run)]
+    still = "" if g in doc.anims else (f"if {g} is not an animation (icons, parts), mark it still: "
+                                       + shlex.join(["pxart", "anim-set", f"{path}:{g}", "--still"]) + "; if it is, ")
     return (both(names) + (" (where the loop comes back round)" if wrap else "")
             + f" are identical (0 px differ{every}): a repeated frame, a stutter in an engine that draws every frame; "
-            f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
+            + (still or "") + f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
             + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]) + "; "
-            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")"
-            + ("" if g in doc.anims else f"; or, if {g} is no animation (icons, parts), mark it still: "
-               + shlex.join(["pxart", "anim-set", f"{path}:{g}", "--still"])))
+            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")")
 
 
 def orphans(doc):
