@@ -1,4 +1,4 @@
-"""examples/ is rebuilt from its .px sources and must match what's committed, byte for byte.
+"""examples/ is rebuilt from its .px sources and must match what's committed: text byte for byte, images as decoded.
 
 examples/build.sh regenerates every output (PNG, GIF, JSON, .px, and the text commands
 print) with pxart commands. These tests run it into a temp dir with this checkout's
@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 import pytest
+from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
@@ -113,10 +114,39 @@ def test_every_committed_file_is_built(built):
     assert not missing, f"committed but not made by build.sh (stale?): {missing}"
 
 
+IMAGES = (".png", ".gif")
+
+
+def decoded(path):
+    """What an image shows, without the bytes its encoder chose: its first frame's mode, its size and metadata
+    (gamma, ICC profile, text chunks: whatever Pillow reads into info), and every frame's RGBA, duration, loop and
+    disposal. The bytes vary by machine for the same picture: zlib builds deflate a PNG's pixels differently, and
+    Pillow versions order a GIF's palette differently (the order of a GIF's palette is left out on purpose)."""
+    with Image.open(path) as im:
+        mode, frames = im.mode, []
+        info = {k: v for k, v in im.info.items() if k not in ("duration", "loop")}
+        for i in range(getattr(im, "n_frames", 1)):
+            im.seek(i)
+            frames.append((im.convert("RGBA").tobytes(), im.info.get("duration"), im.info.get("loop"),
+                           getattr(im, "disposal_method", None)))
+        return mode, im.size, info, frames
+
+
 @pytest.mark.parametrize("rel", COMMITTED)
-def test_output_is_byte_identical(built, rel):
+def test_output_is_identical(built, rel):
+    """Text, JSON and .px byte for byte; images as decoded() reads them, since their bytes vary by machine."""
     got = (built / rel).read_bytes()
     want = (EXAMPLES / rel).read_bytes()
+    if got == want:
+        return
+    if rel.endswith(IMAGES):
+        g, w = decoded(built / rel), decoded(EXAMPLES / rel)
+        assert g == w, (
+            f"examples/{rel} draws differently from what build.sh makes now "
+            f"(committed {w[0]} {w[1][0]}x{w[1][1]}, {len(w[3])} frame(s); built {g[0]} {g[1][0]}x{g[1][1]}, "
+            f"{len(g[3])} frame(s)); if the change is intended, run examples/build.sh and commit"
+        )
+        return
     assert got == want, (
         f"examples/{rel} differs from what build.sh makes now "
         f"({len(want)} bytes committed, {len(got)} built); "

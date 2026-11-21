@@ -4,6 +4,21 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-21
+
+### Fixed
+
+- **The test suite passes again, on any machine (PX-27).** The example check compared PNGs and
+  GIFs byte for byte, and the bytes depend on the machine for the same picture (zlib deflates
+  PNGs differently, Pillow versions order a GIF's palette differently): which images failed
+  depended on where you ran it, though none drew differently. Images now compare by mode, size,
+  metadata and each frame's pixels, timing and disposal; text stays byte for byte. The glade's
+  Tiled parity test counted every `.map` under `examples/` and broke when the map-variants
+  tutorial added six; it reads the scene tutorial's own, and each map-variants room now has a
+  Tiled parity test of its own. The slot round trip failed everywhere since the px.ts fixtures
+  added a slot list on purpose; those four files are now named as having slots. The
+  read-only-output test failed under root, which can write to a read-only directory.
+
 ## 2026-11-19
 
 ### Added

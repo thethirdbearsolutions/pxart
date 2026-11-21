@@ -62,11 +62,15 @@ here would overwrite the files it comes with.
 
 Each folder holds the `.px` sources, the commands, and everything they produce, all
 committed. [`build.sh`](build.sh) regenerates every output from the sources, and
-`tests/test_examples.py` rebuilds them and checks each is byte-identical, and that every
-output a README quotes is what the command really printed. So the tutorials can't drift
+`tests/test_examples.py` rebuilds them into a temporary folder of its own and checks each
+is identical to the committed file (text byte for byte; images by mode, size, metadata, and
+every frame's pixels and timing, since zlib and Pillow versions encode the same picture in
+different bytes), that two builds in a row are byte-identical, and that every output a README quotes is what the command really printed. So the tutorials can't drift
 from the tool.
 
-After changing a source (or pxart itself), rebuild and commit what changed:
+After changing a source (or pxart itself), rebuild and commit what changed. An image whose
+only change is its bytes (`git diff` shows it, the test doesn't fail on it) is encoder churn
+from your machine: leave it out of the commit.
 
 ```sh
 examples/build.sh                 # in place

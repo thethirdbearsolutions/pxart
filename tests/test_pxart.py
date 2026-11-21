@@ -2,6 +2,7 @@ import difflib
 import io
 import json
 import math
+import os
 import pathlib
 import re
 import shlex
@@ -24067,6 +24068,14 @@ def test_image_output_read_only_place_is_e_file(tmp_path, monkeypatch, capsys):
     (tmp_path / "ro").mkdir()
     (tmp_path / "ro").chmod(0o500)
     monkeypatch.chdir(tmp_path)
+    if hasattr(os, "geteuid") and os.geteuid() == 0:  # root writes through a read-only mode: refuse as the OS would
+        save = Image.Image.save
+
+        def refuse(self, fp, *args, **kw):
+            if pathlib.Path(fp).resolve().parent == (tmp_path / "ro").resolve():
+                raise PermissionError(13, "Permission denied", str(fp))
+            return save(self, fp, *args, **kw)
+        monkeypatch.setattr(Image.Image, "save", refuse)
     try:
         err = run_err("render", "a.px", "-o", "ro/x.png")
     finally:
