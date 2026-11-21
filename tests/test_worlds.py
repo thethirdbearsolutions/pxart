@@ -2099,7 +2099,7 @@ def glade_tilesets(tmp_path):
 
 def test_parity_pxart_example_glade(tmp_path, capsys):
     # the scene tutorial's map: the glade (layers of different heights, a big top-left sky, flipped trees). The
-    # map-variants tutorial's maps (10-map-variants/) export to Tiled in its build.sh, checked by test_examples.
+    # map-variants tutorial's rooms have a test of their own: test_parity_pxart_example_map_variants.
     maps = sorted((EXAMPLES / "06-scene").rglob("*.map"))
     assert [m.relative_to(EXAMPLES).as_posix() for m in maps] == ["06-scene/rooms/glade.map"]
     shutil.copytree(EXAMPLES / "06-scene", tmp_path / "06-scene")
@@ -2604,3 +2604,20 @@ def test_tileset_search_includes_the_roots_own_tiled(tmp_path):
     (tmp_path / "mini" / ".git").mkdir()
     got = pxart.TileFinder().near(tmp_path / "mini" / "world" / "floor.png")
     assert sorted(t.path.name for t in got) == ["mini-ground.tsj", "mini-props.tsj"]
+
+
+@pytest.mark.parametrize("rel", sorted(p.relative_to(EXAMPLES / "10-map-variants").as_posix()
+                                       for p in (EXAMPLES / "10-map-variants").rglob("*.map")))
+def test_parity_pxart_example_map_variants(tmp_path, rel):
+    # the map-variants tutorial's rooms (variant lists in the legend, picks per cell, animated water): Tiled draws each
+    # exported room as scene draws it, pixel for pixel. picks/ swaps in a stone the tutorial's tileset doesn't hold, so
+    # those rooms get a tileset for it.
+    shutil.copytree(EXAMPLES / "10-map-variants", tmp_path / "10")
+    m = tmp_path / "10" / rel
+    extra = []
+    if rel.startswith("picks/"):
+        field = tmp_path / "10" / "tiles" / "field.px"
+        assert run("export", f"{field}:stone", "--tiled", tmp_path / "stone.tsj") == 0
+        extra = ["--tileset", tmp_path / "stone.tsj"]
+    assert run("export", m, "--tiled", *extra) == 0
+    assert same_pixels(tiled_render(m.with_suffix(".tmj")), scene_render(m, tmp_path / "s.png"))
