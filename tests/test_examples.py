@@ -130,7 +130,7 @@ def decoded(path):
 
 
 @pytest.mark.parametrize("rel", COMMITTED)
-def test_output_is_byte_identical(built, rel):
+def test_output_is_identical(built, rel):
     """Text, JSON and .px byte for byte; images by what they draw (decoded), since deflate differs by zlib build."""
     got = (built / rel).read_bytes()
     want = (EXAMPLES / rel).read_bytes()
