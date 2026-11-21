@@ -69,10 +69,10 @@ def test_slime_notes_the_repeat_and_the_loop_back(tmp_path, monkeypatch, capsys)
     (tmp_path / "slime.px").write_text(SLIME)
     code, out = check("slime.px", capsys=capsys)
     assert code == 0
-    assert ("slime.px: idle/1 and idle/2 are identical (0 px differ, in every variant too): the animation stutters "
-            "there; for a hold, remove idle/2 and give idle/1 ms=300 (pxart frames slime.px --rm idle/2; pxart "
+    assert ("slime.px: idle/1 and idle/2 are identical (0 px differ, in every variant too): a repeated frame, a "
+            "stutter in an engine that draws every frame; for a hold, remove idle/2 and give idle/1 ms=300 (pxart frames slime.px --rm idle/2; pxart "
             "anim-set slime.px:idle/1 ms=300) (check --strict fails on it)") in out
-    assert "idle/3 and idle/0 (where the loop comes back round) are identical" in out
+    assert "idle/0 and idle/3 (where the loop comes back round) are identical" in out
     assert "remove idle/3 and give idle/0 ms=300" in out
     assert "6 files" not in out and out.count("are identical") == 2
 
@@ -83,8 +83,8 @@ def test_strict_fails_at_the_frame_to_remove(tmp_path, monkeypatch, capsys):
     code, out = check("slime.px", "--strict", capsys=capsys)
     assert code == 1
     lines = [l for l in out.splitlines() if "E_SAME_FRAMES" in l]
-    assert lines[0].startswith("FAIL slime.px:18: E_SAME_FRAMES: idle/1 and idle/2 are identical")  # idle/2's line
-    assert lines[1].startswith("FAIL slime.px:23: E_SAME_FRAMES: idle/3 and idle/0")  # idle/3's line
+    assert lines[0].startswith("FAIL slime.px:23: E_SAME_FRAMES: idle/0 and idle/3")  # idle/3's line (frame 0's run first)
+    assert lines[1].startswith("FAIL slime.px:18: E_SAME_FRAMES: idle/1 and idle/2 are identical")  # idle/2's line
     assert "check --strict fails on it" not in out
 
 
@@ -143,7 +143,7 @@ def test_still_groups_and_the_top_level_are_exempt(tmp_path, capsys):
 def test_the_wrap_only_where_the_loop_comes_back_round(tmp_path, capsys, anim, wraps):
     p = sprite(tmp_path, [("walk/0", UP), ("walk/1", DOWN), ("walk/2", SIDE), ("walk/3", UP)], anim=anim)
     _, out = check(p, capsys=capsys)
-    assert ("walk/3 and walk/0 (where the loop comes back round) are identical" in out) == wraps
+    assert ("walk/0 and walk/3 (where the loop comes back round) are identical" in out) == wraps
     assert out.count("are identical") == wraps
 
 
@@ -182,6 +182,51 @@ def test_every_example_passes(capsys):
 
 def test_help_says_it():
     doc = " ".join(pxart.__doc__.split())
-    assert "E_SAME_FRAMES: animation neighbours alike in every variant" in doc
+    assert "E_SAME_FRAMES: neighbour frames of an animation that draw alike in every variant" in doc
     readme = (pathlib.Path(__file__).resolve().parent.parent / "README.md").read_text()
     assert "E_SAME_FRAMES" in " ".join(readme.split())
+
+
+def test_a_run_of_three_is_one_note_and_its_advice_works(tmp_path, monkeypatch, capsys):
+    # three copies in a row: one note, both copies removed in one call, the hold all three's time
+    monkeypatch.chdir(tmp_path)
+    sprite(tmp_path, [("walk/0", UP), ("walk/1", DOWN), ("walk/2", DOWN), ("walk/3", DOWN), ("walk/4", SIDE)])
+    _, out = check("s.px", capsys=capsys)
+    assert out.count("are identical") == 1
+    assert ("walk/1, walk/2 and walk/3 are identical (0 px differ): a repeated frame, a stutter in an engine that draws "
+            "every frame; for a hold, remove walk/2 and walk/3 and give walk/1 ms=300 (pxart frames s.px --rm walk/2 "
+            "walk/3; pxart anim-set s.px:walk/1 ms=300)") in out
+    assert run("frames", "s.px", "--rm", "walk/2", "walk/3") == 0
+    assert run("anim-set", "s.px:walk/1", "ms=300") == 0
+    capsys.readouterr()
+    code, out = check("s.px", "--strict", capsys=capsys)
+    assert code == 0 and "identical" not in out
+
+
+def test_a_run_round_the_loop_keeps_frame_0(tmp_path, capsys):
+    # frames 3, 0 and 1 are alike: one run, kept at frame 0, the hold all three's time
+    p = sprite(tmp_path, [("walk/0", UP), ("walk/1", UP), ("walk/2", DOWN), ("walk/3", UP)])
+    _, out = check(p, capsys=capsys)
+    assert out.count("are identical") == 1
+    assert "walk/0, walk/1 and walk/3 (where the loop comes back round) are identical" in out
+    assert "remove walk/1 and walk/3 and give walk/0 ms=300" in out
+
+
+@pytest.mark.parametrize("frames, hold", [
+    ([UP, DOWN, SIDE, SIDE], 300),   # 2 3 2 at the turn: 100 + 2 x 100
+    ([UP, UP, DOWN, SIDE], 300),     # 1 0 1 at the other turn
+    ([UP, DOWN, DOWN, SIDE], 200),   # mid-cycle, passed twice a cycle, each pass 200
+])
+def test_a_pingpong_hold_is_the_time_on_screen(tmp_path, capsys, frames, hold):
+    p = sprite(tmp_path, [(f"walk/{i}", r) for i, r in enumerate(frames)], anim="@anim walk direction=pingpong ms=100")
+    _, out = check(p, capsys=capsys)
+    assert f"ms={hold} (" in out
+
+
+def test_a_group_with_no_anim_line_may_be_icons(tmp_path, capsys):
+    p = sprite(tmp_path, [("ui/heart", UP), ("ui/life", UP), ("ui/coin", DOWN)], anim="")
+    _, out = check(p, capsys=capsys)
+    assert f"; or, if ui is no animation (icons, parts), mark it still: pxart anim-set {p}:ui --still" in out
+    p = sprite(tmp_path, [("walk/0", UP), ("walk/1", UP), ("walk/2", DOWN)], name="w.px")
+    _, out = check(p, capsys=capsys)
+    assert "mark it still" not in out

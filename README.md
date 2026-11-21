@@ -218,7 +218,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   notes Cyrillic/Greek/fullwidth letters posing as ASCII, `@anim`/`@still` lines with
   no frames, and neighbour frames of an animation that draw the same in every variant
   (`idle/1 and idle/2 are identical`, the wrap from last to first too when it loops: a
-  stutter; a hold is one frame with a longer `ms=`), the last two of which `--strict` fails
+  repeated frame; a hold is one frame with a longer `ms=`, and the note gives the commands,
+  or `--still` for a group that is icons), the last two of which `--strict` fails
   (`E_SAME_FRAMES`); one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
   hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;

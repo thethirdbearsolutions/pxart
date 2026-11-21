@@ -11,10 +11,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
 - **`check` notes an animation's repeated neighbour frames (PX-10).** Two frames in a row that draw the
   same in the base and every variant read as a stutter, and only looking caught it (a slime idle in the
   cave run). `check` now says `idle/1 and idle/2 are identical (0 px differ, in every variant too)`,
-  including the wrap from the last frame back to the first when the group loops (forward or reverse,
-  repeat other than 1), and gives the hold that does it on purpose: remove one, and give the other the
-  two frames' `ms=`, as two commands to run. `@still` groups and top-level frames are exempt.
-  `--strict` fails it as `E_SAME_FRAMES`, at the line of the frame to remove.
+  one note for a run of copies, including the wrap from the last frames back to the first when the
+  group loops (forward or reverse, repeat other than 1), and gives the hold that does it on purpose as
+  two commands: remove the copies, and give the frame kept their time on screen as its `ms=` (at a
+  pingpong's turn, the end frame's plus twice the others'). A group with no `@anim` line may be icons,
+  so the note offers `anim-set FILE:GROUP --still` too. `@still` groups and top-level frames are
+  exempt. `--strict` fails it as `E_SAME_FRAMES`, at the line of the first copy to remove.
 
 ### Fixed
 

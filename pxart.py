@@ -236,8 +236,9 @@ CHECKING
       a warning is a note line). A directory checks every .px and .map under it, recursively,
       sorted by path; a palette file (no frames) is checked as one: 'ok   palette.px: palette file,
       17 key(s), variants night'. P is a .px, .gpl, .hex, or text of #rrggbb. --strict also
-      fails unknown @sections, @anim/@still of no frames, and E_SAME_FRAMES: animation neighbours
-      alike in every variant (last to first if it loops; hold with one frame's ms=); else notes.
+      fails unknown @sections, @anim/@still lines with no frames, and E_SAME_FRAMES: neighbour
+      frames of an animation that draw alike in every variant, the loop's last and first too (a
+      hold is one frame with a longer ms=). Without --strict each is a note.
       Exit 1 on any failure. --exclude GLOB leaves files out, as for sheet.
       A .map (scene --map) is checked too: every row char has a legend line and every legend
       entry loads as one frame; .world, .tmj: help worlds.
@@ -4200,13 +4201,13 @@ def cmd_check(a):
                     else:
                         notes.append(f"line {n}: {msg} (check --strict fails on it)")
                 picked = {it.frame.group for it in its if it.frame}
-                for x, y, wrap in repeated_frames(doc):
-                    if x.group not in picked:
+                for g, run, wrap in repeated_frames(doc):
+                    if g not in picked:
                         continue
-                    msg = said_repeat(doc, path, x, y, wrap)
+                    msg = said_repeat(doc, path, g, run, wrap)
                     if a.strict:
                         failed = True
-                        print(f"FAIL {path}:{(x if wrap else y).line}: E_SAME_FRAMES: {msg}")
+                        print(f"FAIL {path}:{run[1].line}: E_SAME_FRAMES: {msg}")
                     else:
                         notes.append(f"{msg} (check --strict fails on it)")
                 used = set("".join(r for f in doc.frames for r in f.grid))
@@ -4949,40 +4950,65 @@ def keep_spacing(doc, gone):
 
 
 def repeated_frames(doc):
-    """check: neighbour frames of an animation that draw the same in the base and in every variant, as [(a, b, wrap)]:
-    each pair in order, and, wrap True, the last frame against the first when the group loops back to it (forward or
-    reverse, repeat other than 1; a pingpong turns at its ends, and two frames are one pair). @still groups and the
-    top level are no animation. Pixels compare by color, so two keys of one color draw alike, and a see-through pixel
-    is see-through whatever its rgb."""
+    """check: runs of neighbour frames of an animation that draw the same in the base and in every variant, as
+    [(group, run, wrap)]: run is the frames in play order, kept frame first. wrap True: the run goes round the loop's
+    end, from the last frames back to the first (forward or reverse, repeat other than 1; a pingpong turns at its ends
+    and never wraps), so its kept frame is frame 0. @still groups and the top level are no animation. Pixels compare
+    by color, so two keys of one color draw alike, and a see-through pixel is see-through whatever its rgb."""
     pals = [doc.resolved()] + [doc.resolved(n) for n in variant_names(doc)]
 
-    def drawn(f, pal):
-        return f.size, tuple(c if c[3] else CLEAR for c in (pal.get(k, CLEAR) for row in f.grid for k in row))
+    def drawn(f):
+        return f.size, tuple(tuple(c if c[3] else CLEAR for c in (p.get(k, CLEAR) for row in f.grid for k in row))
+                             for p in pals)
 
     out = []
     for g, fs in doc.groups().items():
         if not doc.animated(g) or len(fs) < 2:
             continue
         a = doc.anims.get(g, {})
-        pairs = [(x, y, False) for x, y in zip(fs, fs[1:])]
-        if len(fs) > 2 and a.get("direction", "forward") in ("forward", "reverse") and a.get("repeat") != 1:
-            pairs.append((fs[-1], fs[0], True))
-        out += [(x, y, w) for x, y, w in pairs if all(drawn(x, p) == drawn(y, p) for p in pals)]
+        look = [drawn(f) for f in fs]
+        runs, cur = [], [0]
+        for i in range(1, len(fs)):
+            if look[i] == look[i - 1]:
+                cur.append(i)
+            else:
+                runs.append(cur)
+                cur = [i]
+        runs.append(cur)
+        loops = a.get("direction", "forward") in ("forward", "reverse") and a.get("repeat") != 1
+        wrap = loops and len(runs) > 1 and look[-1] == look[0]
+        if wrap:  # the last run comes round into the first: one run, kept at frame 0
+            runs = [runs[0] + runs[-1]] + runs[1:-1]
+        out += [(g, [fs[i] for i in r], wrap and r is runs[0]) for r in runs if len(r) > 1]
     return out
 
 
-def said_repeat(doc, path, x, y, wrap):
-    """check's words for two identical neighbour frames, with the hold that says the same thing on purpose: 'walk/1 and
-    walk/2 are identical (0 px differ, in every variant too): the animation stutters there; for a hold, remove walk/2
-    and give walk/1 ms=250 (pxart frames F --rm walk/2; pxart anim-set F:walk/1 ms=250)'. Where the loop comes back
-    round, the hold is on the first frame and the last one goes."""
+def said_repeat(doc, path, g, run, wrap):
+    """check's words for a run of identical neighbour frames, with the hold that says the same thing on purpose:
+    'walk/1 and walk/2 are identical (0 px differ, in every variant too): a repeated frame, a stutter in an engine that
+    draws every frame; for a hold, remove walk/2 and give walk/1 ms=250 (pxart frames F --rm walk/2; pxart anim-set
+    F:walk/1 ms=250)'. The hold is the run's time on screen: at a pingpong's turn the end frame plays once a cycle and
+    the others twice, so a run there holds the end frame's ms plus twice the rest's. A group with no @anim line may be
+    icons or parts: the note offers @still too."""
+    keep, drop = run[0], run[1:]
+    hold = sum(doc.ms(f) for f in run)
+    fs = doc.groups()[g]
+    if doc.anims.get(g, {}).get("direction", "forward").startswith("pingpong"):
+        end = next((f for f in run if f is fs[0] or f is fs[-1]), None)
+        if end is not None and len(fs) > len(run):
+            hold = doc.ms(end) + 2 * sum(doc.ms(f) for f in run if f is not end)
     every = ", in every variant too" if variant_names(doc) else ""
-    keep, drop = (y, x) if wrap else (x, y)
-    hold = doc.ms(x) + doc.ms(y)
-    return (f"{x.id} and {y.id}" + (" (where the loop comes back round)" if wrap else "")
-            + f" are identical (0 px differ{every}): the animation stutters there; for a hold, remove {drop.id} and "
-            f"give {keep.id} ms={hold} (" + shlex.join(["pxart", "frames", path, "--rm", drop.id]) + "; "
-            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")")
+
+    def both(xs):
+        return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+    names = [f.id for f in (sorted(run, key=fs.index) if wrap else run)]
+    return (both(names) + (" (where the loop comes back round)" if wrap else "")
+            + f" are identical (0 px differ{every}): a repeated frame, a stutter in an engine that draws every frame; "
+            f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
+            + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]) + "; "
+            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")"
+            + ("" if g in doc.anims else f"; or, if {g} is no animation (icons, parts), mark it still: "
+               + shlex.join(["pxart", "anim-set", f"{path}:{g}", "--still"])))
 
 
 def orphans(doc):
