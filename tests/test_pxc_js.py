@@ -17,7 +17,8 @@ def test_fetch_cast_gunzips_by_content():
         if os.environ.get("CI"):
             pytest.fail("node isn't installed: CI must run this test")
         pytest.skip("node isn't installed")
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}  # a reporter set there would clash with tap's
     proc = subprocess.run([NODE, "--test", "--test-reporter=tap", "bench/cast/web/pxc.test.mjs"], cwd=ROOT,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-2000:]
     assert "# pass 5" in proc.stdout
