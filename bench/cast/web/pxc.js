@@ -74,13 +74,22 @@ export function decode(buffer) {
   return { layered, cols, palettes, axes, tables, nkeys, characters, damage, expression, plane };
 }
 
-/** Fetch a .pxc as bytes. A URL ending .gz is gunzipped here (DecompressionStream), for hosts that
- *  won't compress an unknown type; otherwise the host's Content-Encoding (brotli) does it. */
+/** Fetch a .pxc as bytes. Bytes that are still gzip (they start 1f 8b) are gunzipped here
+ *  (DecompressionStream), for hosts that won't compress an unknown type and serve cast.pxc.gz as is;
+ *  otherwise the host's Content-Encoding (brotli, or gzip) has already done it. The bytes decide,
+ *  not the URL: a cache-busting query (cast.pxc.gz?r=2) still gunzips, and a .gz a server already
+ *  decoded (sent with Content-Encoding: gzip) isn't gunzipped twice. A .pxc starts 'PXC1'. */
 export async function fetchCast(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  if (!String(url).endsWith('.gz')) return res.arrayBuffer();
-  return new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  return gunzipped(await res.arrayBuffer());
+}
+
+/** buf gunzipped if it is gzip (magic 1f 8b), else buf itself. */
+export async function gunzipped(buf) {
+  const b = new Uint8Array(buf);
+  if (b.length < 2 || b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  return new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
 const axis = (c, mul, add) => Math.max(0, Math.min(255, Math.floor(c * mul + add + 0.5)));
