@@ -8705,7 +8705,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             continue
         over[k] = got
         theirs += [k] if imported else []
-        if got != c:
+        if got != c and not imported:  # FILE's own keys; the imported ones it writes are named as `theirs`
             recolored.append(k)
     if own and not had and not over:  # every key is imported, and the import's variant colors them all: nothing to add
         del doc.variants[name]

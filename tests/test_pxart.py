@@ -16186,6 +16186,19 @@ def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
     assert "over it" not in capsys.readouterr().out and "w" not in p.read_text()
 
 
+def test_lamplit_imported_key_count_and_zero_say_what_they_do(tmp_path, capsys):
+    # "recolors 2 key(s) of its own" counted the imported w; and w@0 over an existing w line took the line out unsaid
+    write(tmp_path, "pal.px", IMPORTED_NIGHT)
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "w") == 0
+    assert "recolors 1 key(s) of its own (pal.px's night colors the imported ones; w lamplit over it, on a line of " \
+        "s.px's own)" in capsys.readouterr().out
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "w@0") == 0
+    out = capsys.readouterr().out
+    assert "w back to pal.px's night: dropped its line of s.px's own" in out and "lamplit: w (0)" in out
+    assert "w" not in pxart.parse(p, palette_only=True).variants["night"]
+
+
 def test_add_over_a_lamplit_key_says_so(tmp_path, capsys):
     p = write(tmp_path, "p.px", LPAL)
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f,g@0.42",
