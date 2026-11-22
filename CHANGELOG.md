@@ -4,6 +4,17 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-22
+
+### Fixed
+
+- **`paste` and `frames --copy-to` say what the `--rekey` their WARNINGs offer would change (PX-35).**
+  Pasting quarters of tiles key for key into a file with a night printed one WARNING per key, each
+  ending `paste --rekey L gives it a key of its own`; following that would have renamed stand-in keys
+  a game's fill code reads by letter. After those WARNINGs a note now says so: `note: paste --rekey
+  D,E,F,L would give those pixels new letters in tiles.px; left off, the keys stay (a key-for-key copy)
+  and take its variant colors`. A source that shares DST's palette gets no WARNING and no note.
+
 ## 2026-11-21
 
 ### Added
