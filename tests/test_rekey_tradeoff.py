@@ -59,3 +59,36 @@ def test_copy_to_says_it_too(tmp_path, monkeypatch, capsys):
     assert run("frames", "more.px", "--copy-to", "tiles.px") == 0
     out = capsys.readouterr().out
     assert "note: frames --copy-to --rekey D,E,F,L would give those pixels new letters in tiles.px" in out
+
+
+# ---------------------------------------------------------------- the PR #13 review's findings
+
+
+def test_review_1_2_punctuation_or_many_keys_give_bare_rekey(tmp_path, monkeypatch, capsys):
+    """A list with ',' '=' or '*' can't be run as written (--rekey splits on commas; a shell globs '*'), and more than six
+    keys used to print a literal KEYS: both now offer plain --rekey, which every WARNING's key goes with."""
+    monkeypatch.chdir(tmp_path)
+    keys = "LE,*+="
+    pal = "".join(f"{k} #{i:02x}3a44\n" for i, k in enumerate(keys, 16))
+    night = "@variant night\n" + "".join(f"{k} #{i:02x}0000\n" for i, k in enumerate(keys, 16))
+    (tmp_path / "d.px").write_text(pal + night + "\n@frame b\n......\n")
+    (tmp_path / "s.px").write_text(pal + "\n" + keys + "\n")
+    assert run("paste", "s.px", "--into", "d.px:b", "--at", "0,0") == 0
+    note = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("note: paste --rekey"))
+    assert note.startswith("note: paste --rekey would give those pixels new letters in d.px")
+    many = "abcdefg"
+    pal = "".join(f"{k} #{i:02x}3a44\n" for i, k in enumerate(many, 16))
+    night = "@variant night\n" + "".join(f"{k} #{i:02x}0000\n" for i, k in enumerate(many, 16))
+    (tmp_path / "d2.px").write_text(pal + night + "\n@frame b\n.......\n")
+    (tmp_path / "s2.px").write_text(pal + "\n" + many + "\n")
+    assert run("paste", "s2.px", "--into", "d2.px:b", "--at", "0,0") == 0
+    out = capsys.readouterr().out
+    assert "note: paste --rekey would give those pixels new letters in d2.px" in out and "KEYS" not in out
+
+
+def test_review_3_after_a_partial_rekey_the_note_says_add(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("paste", "quarter.px", "--into", "tiles.px:b", "--at", "0,0", "--rekey", "D,F") == 0
+    out = capsys.readouterr().out
+    assert ("note: adding E,L to --rekey would give those pixels new letters too in tiles.px; left off, the keys stay "
+            "(a key-for-key copy) and take tiles.px's variant colors") in out
