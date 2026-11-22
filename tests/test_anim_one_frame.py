@@ -21,7 +21,7 @@ def test_one_frame_file_is_a_note_and_still_writes(tmp_path, capsys):
     p.write_text(MUSHROOM)
     assert run("anim", p, "-o", tmp_path / "m.gif") == 0
     out = capsys.readouterr().out
-    assert "note: mushroom: 1 frame, nothing to compare" in out and " vs " not in out
+    assert "note: mushroom: 1 frame (100ms), nothing to compare" in out and " vs " not in out
     assert (tmp_path / "m.gif").exists() and (tmp_path / "m.strip.png").exists()
 
 
@@ -30,5 +30,12 @@ def test_one_frame_group_among_others(tmp_path, capsys):
     p.write_text("k #000000\n@anim a ms=80\n@frame a/0\nk.\n@frame b/0\n.k\n@frame b/1\nk.\n")
     assert run("anim", p) == 0
     out = capsys.readouterr().out
-    assert "note: a/0: 1 frame, nothing to compare" in out
+    assert "note: a: 1 frame (80ms), nothing to compare" in out
     assert "b/0" in out and "vs b/1" in out  # a group of two still compares
+
+
+def test_one_frame_that_plays_once_says_so(tmp_path, capsys):
+    p = tmp_path / "s.px"
+    p.write_text("k #000000\n@anim hurt ms=300 repeat=1\n@frame hurt/0\nk.\n")
+    assert run("anim", f"{p}:hurt") == 0
+    assert "note: hurt: 1 frame (300ms, plays once), nothing to compare" in capsys.readouterr().out

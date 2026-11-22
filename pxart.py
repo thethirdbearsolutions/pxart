@@ -108,7 +108,7 @@ LOOKING
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. One
-      frame alone gets 'note: mushroom: 1 frame, nothing to compare' (the GIF is still written).
+      frame alone gets 'note: mushroom: 1 frame (100ms), nothing to compare' (GIF still written).
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
@@ -3553,8 +3553,10 @@ def animate(a, its, out):
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
         if len(framed) == 1:  # a frame against itself would read like a measurement of nothing
-            head = "1 frame, nothing to compare"
-            print(f"note: {its[i].label}: {head}")
+            once = plays_once(its)
+            head = f"1 frame ({durs[i]}ms{', plays once' if once else ''}), nothing to compare"
+            name = its[i].frame.group if its[i].frame is not None and its[i].frame.group else its[i].label
+            print(f"note: {name}: {head}")
             cells.append((fr, diff_frame(cur, cur), f"{its[i].label} {durs[i]}ms", head, ""))
             continue
         if moves[i] is None:
