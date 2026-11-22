@@ -6,7 +6,50 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ## 2026-11-22
 
+### Added
+
+- **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
+  lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the
+  answer, and one reviewer can change its verdict on frames that are identical. `review-pack
+  renders/ -o pack` puts each PNG (a directory: every `.png` under it) in `pack/<id>/image.png`
+  under a random 12-digit id, its pixels re-saved with no metadata, and writes the map of ids to
+  renders beside the folder as `pack.manifest.json` (or `--manifest M.json`; never inside it). The
+  pack goes in a new or empty directory, written in id order with one time on every file, so a
+  listing by time doesn't give the sources' order away. `--copies 2` puts each render in twice under
+  different ids, and the copies differ in bytes, size and image data (another compression, a chunk of
+  random padding), so a reviewer can't pair them by a hash; their pixels are the same, so one that
+  decodes them can. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
+  `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be `<id>/image.png`,
+  or a list of `{"id", "verdict"}`; an object verdict compares by its `"verdict"` field, so a free-text
+  reason beside it doesn't count; text compares without case or surrounding spaces, numbers as numbers;
+  UTF-16 with a BOM reads too), prints each
+  render's verdicts, the copies that DISAGREE, `agreement: 5 of 6 render(s) judged in 2+ copies
+  (83%)`, each source folder's tally when there are several (an A/B review), and notes for items with
+  no verdict and keys that name no item; verdicts that match no item at all are an error.
+  `--seed` makes the ids repeatable.
+
 ### Fixed
+
+- **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
+  smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;
+  an agent expecting the centre got a corner. The help now says the top-left is kept (x,y as typed,
+  so every existing command draws the same), and `--anchor center` (or `top`, `left`, `bottom-right`,
+  and the other edges and corners) keeps that part instead, and `--anchor X,Y` centres the window on
+  that point of the scene (a camera on the hero), with a note naming the pixels shown: `note:
+  --anchor center: the 96x64 scene shows 40,20 to 135,83 of the 176x104 the map and items fill`. A
+  bigger `--size` with `--anchor center` puts the scene in its middle.
+
+- **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s
+  `fetchCast` gunzipped only a URL ending `.gz`, so `cast.pxc.gz?r=2` (a cache-busting query)
+  reached the decoder still gzipped, and a `.gz` a server had already decoded (sent with
+  `Content-Encoding: gzip`) was gunzipped twice. It now gunzips what still starts with the gzip
+  magic `1f 8b`, whatever the URL. `bench/cast/web/pxc.test.mjs` (run by `tests/test_pxc_js.py`)
+  covers both.
+
+- **`export --indexed` writes no `ms` on a `@still` frame (PX-33).** Every frame said `"ms": 100`,
+  tiles under `@still *` too, so a game reading the JSON could take tiles for animation frames.
+  A `@still` frame (a tile, an icon) now has no `"ms"`; animated frames keep theirs, and so does a
+  top-level frame not marked still.
 
 - **`paste` and `frames --copy-to` say what the `--rekey` their WARNINGs offer would change (PX-35).**
   Pasting quarters of tiles key for key into a file with a night printed one WARNING per key, each

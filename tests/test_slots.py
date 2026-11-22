@@ -396,8 +396,24 @@ def test_export_indexed_shape(tmp_path):
     f0, f1, star = data["frames"]
     assert f0 == {"id": "walk/0", "w": 4, "h": 4, "ms": 125, "pivot": {"x": 1, "y": 3},
                   "rows": [".hh.", ".fk.", "fccf", ".cc."]}
-    assert "pivot" not in f1 and f1["ms"] == 125 and star["id"] == "icons/star"
+    assert "pivot" not in f1 and f1["ms"] == 125 and star["id"] == "icons/star" and "ms" not in star
     assert data["animations"] == [{"name": "walk", "from": 0, "to": 1, "direction": "forward", "repeat": 0}]
+
+
+def test_export_indexed_still_frames_have_no_ms(tmp_path):
+    """A tile marked @still isn't shown for a time, so its frame carries no ms for a game to treat it as animation by
+    (PX-33: every frame said "ms": 100). Animated frames keep theirs; a top-level frame not marked still keeps its own."""
+    tiles = "g #3a7d44\nw #2b5f8a\n@still *\n\n@frame bank/0\ngw\nww\n@frame bank/1\nwg\nww\n@frame lone\ngg\nww\n"
+    p = write(tmp_path, "banks.px", tiles)
+    assert run("export", p, "--indexed", tmp_path / "k.json") == 0
+    frames = json.loads((tmp_path / "k.json").read_text())["frames"]
+    assert [f["id"] for f in frames] == ["bank/0", "bank/1", "lone"] and not any("ms" in f for f in frames)
+    mixed = "g #3a7d44\n@still icons\n@anim walk ms=80\n\n@frame walk/0\ng.\n@frame walk/1\n.g\n" \
+            "@frame icons/a\ngg\n@frame top\ng.\n"
+    p = write(tmp_path, "mixed.px", mixed)
+    assert run("export", p, "--indexed", tmp_path / "m.json") == 0
+    got = {f["id"]: f.get("ms") for f in json.loads((tmp_path / "m.json").read_text())["frames"]}
+    assert got == {"walk/0": 80, "walk/1": 80, "icons/a": None, "top": 100}
 
 
 def test_export_indexed_empty_parts_are_there(tmp_path):
