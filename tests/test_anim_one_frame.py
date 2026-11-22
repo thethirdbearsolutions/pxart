@@ -39,3 +39,11 @@ def test_one_frame_that_plays_once_says_so(tmp_path, capsys):
     p.write_text("k #000000\n@anim hurt ms=300 repeat=1\n@frame hurt/0\nk.\n")
     assert run("anim", f"{p}:hurt") == 0
     assert "note: hurt: 1 frame (300ms, plays once), nothing to compare" in capsys.readouterr().out
+
+
+def test_review_1_one_frame_picked_from_a_bigger_group_is_named_as_the_frame(tmp_path, capsys):
+    p = tmp_path / "walk.px"
+    p.write_text("k #000000\n@anim walk ms=120\n@frame walk/0\nk.\n@frame walk/1\n.k\n")
+    assert run("anim", f"{p}:walk/0") == 0
+    out = capsys.readouterr().out
+    assert "note: walk/0: 1 frame (120ms), nothing to compare" in out and "note: walk:" not in out

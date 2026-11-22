@@ -33,7 +33,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
 - **`anim` on one frame says there's nothing to compare (PX-41).** A file or group of a single frame
   printed `mushroom 100ms vs mushroom: shift +0,+0 then 0px (0%)`, the frame against itself, which
   reads like a measurement. It now prints `note: mushroom: 1 frame (100ms), nothing to compare` (a
-  group's name for a group, `plays once` for `repeat=1`), and still writes the GIF and strip that `-o`
+  group of one frame by its group's name, one frame picked from a bigger group by its own; `plays once`
+  for `repeat=1`), and still writes the GIF and strip that `-o`
   asks for.
 
 - **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s

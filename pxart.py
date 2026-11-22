@@ -3554,10 +3554,13 @@ def animate(a, its, out):
         prev, cur = pairs[i][:2]
         if len(framed) == 1:  # a frame against itself would read like a measurement of nothing
             once = plays_once(its)
-            head = f"1 frame ({durs[i]}ms{', plays once' if once else ''}), nothing to compare"
-            name = its[i].frame.group if its[i].frame is not None and its[i].frame.group else its[i].label
-            print(f"note: {name}: {head}")
-            cells.append((fr, diff_frame(cur, cur), f"{its[i].label} {durs[i]}ms", head, ""))
+            it = its[i]
+            g = it.frame.group if it.frame is not None else None
+            whole = g and sum(f.group == g for f in it.doc.frames) == 1  # a group of one frame, not one of several picked
+            print(f"note: {g if whole else it.label}: 1 frame ({durs[i]}ms{', plays once' if once else ''}), "
+                  "nothing to compare")
+            head = "1 frame, nothing to compare"  # the strip's label above already has the ms
+            cells.append((fr, diff_frame(cur, cur), f"{it.label} {durs[i]}ms", head, ""))
             continue
         if moves[i] is None:
             head = "plays once (repeat=1); no wrap-around"
