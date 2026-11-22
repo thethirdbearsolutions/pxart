@@ -148,12 +148,16 @@ LOOKING
       shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
       opacity instead.
-  scene -o s.png [--scale 4] [--size WxH] [--bg #472d3c] [--map M --tile 16x16] [--variant V]
-        [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
+  scene -o s.png [--scale 4] [--size WxH] [--anchor center] [--bg #472d3c] [--map M --tile 16x16]
+        [--variant V] [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
-      default size a note also names the --size that holds every item.
+      default size a note also names the --size that holds every item. A smaller size keeps
+      the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
+      bottom-right) places the size in effect on that part of what the map and items fill
+      (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
+      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -4230,6 +4234,19 @@ def parse_tile(s):
     return parse_size(s, "--tile")
 
 
+def parse_anchor(s):
+    """--anchor X,Y: the point of the scene the window centres on."""
+    m = re.match(r"^\s*(-?\d+)\s*,\s*(-?\d+)\s*$", s or "")
+    if not m:
+        fail("E_BAD_ARG", f"--anchor {s!r}: give one of {', '.join(ANCHORS)}, or X,Y, the scene's point to centre on "
+             "(a camera on the hero: --anchor 176,80)" + guess(s, list(ANCHORS)))
+    return int(m.group(1)), int(m.group(2))
+
+
+ANCHORS = {"top-left": (0, 0), "top": (1, 0), "top-right": (2, 0), "left": (0, 1), "center": (1, 1), "right": (2, 1),
+           "bottom-left": (0, 2), "bottom": (1, 2), "bottom-right": (2, 2)}  # halves of (whole - window) to skip
+
+
 def cmd_scene(a):
     need_o(a, "s.png")
     tint = parse_tint(a.tint) if a.tint else None
@@ -4247,20 +4264,36 @@ def cmd_scene(a):
     with reading(f"--map ({a.map})"):
         tiles = load_legend(a.map, a.variant) if a.map else {}
     cut, reach = [], [0, 0]  # cut: (what, px outside the canvas); reach: the size that holds every item
-
-    def lay(what, img, x, y):
-        draw_at(sc, img, x, y)
-        n = outside_px(img, x, y, W, H)
-        if n:
-            cut.append((what, n))
-        reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
-    for arg, x, y in placed:
-        lay("the map", tiles[arg].img, *cell_spot(arg, tiles[arg].img, x, y, tile))
+    todo = [("the map", tiles[arg].img, *cell_spot(arg, tiles[arg].img, x, y, tile)) for arg, x, y in placed]
     for n, spec in enumerate(a.specs, 1):
         with reading(f"item {n} ({spec.rpartition('@')[0] or spec})"):
             path, x, y = split_at(spec)
             img = place_item(path, "scene item", a.variant).img
-        lay(f"item {n} ({path})", img, x, y)
+        todo.append((f"item {n} ({path})", img, x, y))
+    for _, img, x, y in todo:
+        reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
+    ox = oy = 0  # --anchor: where the W x H window sits on the whole scene (the map's size, or what holds every item)
+    if a.anchor is not None:
+        x0, y0 = min([0] + [x for _, _, x, _ in todo]), min([0] + [y for _, _, _, y in todo])  # items left of/above 0,0
+        ew = max(reach[0], msize[0] if a.map else 0) - x0
+        eh = max(reach[1], msize[1] if a.map else 0) - y0
+        if a.anchor in ANCHORS:
+            fx, fy = ANCHORS[a.anchor]
+
+            def part(d, f):  # the odd spare pixel goes right/below, as frames centre (x = (canvas - frame) // 2)
+                return d * f // 2 if d >= 0 else -((-d) * f // 2)
+            ox, oy = x0 + part(ew - W, fx), y0 + part(eh - H, fy)
+        else:  # X,Y: a camera on that point of the scene, the window centred on it
+            cx, cy = parse_anchor(a.anchor)
+            ox, oy = cx - W // 2, cy - H // 2
+        print(f"note: --anchor {a.anchor}: the {W}x{H} scene shows {ox},{oy} to {ox + W - 1},{oy + H - 1} of the "
+              f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill")
+              + (f" (from {x0},{y0})" if (x0, y0) != (0, 0) else ""))
+    for what, img, x, y in todo:
+        draw_at(sc, img, x - ox, y - oy)
+        n = outside_px(img, x - ox, y - oy, W, H)
+        if n:
+            cut.append((what, n))
     why = "--size" if a.size else "--map" if a.map else "the default"
     for what, n in [(w, sum(n for x, n in cut if x == w)) for w in dict.fromkeys(w for w, _ in cut)]:
         print(f"note: {n} px of {what} fall outside the {W}x{H} scene (size from {why}) and were cropped")
@@ -12385,6 +12418,8 @@ def parser(describe=True):
     p.add_argument("--tile", default="16x16", help="tile size for --map")
     p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
     p.add_argument("--tint", help="'#rrggbbaa' laid over the finished scene (quote it in scripts)")
+    p.add_argument("--anchor", metavar="WHERE",
+                   help="the part of a bigger scene --size keeps (default top-left): " + ", ".join(list(ANCHORS)[1:]) + "; or X,Y, the point to centre on")
     p = sub.add_parser("world"); p.add_argument("world"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=2); p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("tint"); p.add_argument("file"); p.add_argument("color"); p.add_argument("-o")
