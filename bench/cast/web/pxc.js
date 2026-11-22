@@ -89,7 +89,7 @@ export async function fetchCast(url) {
 export async function gunzipped(buf) {
   const b = new Uint8Array(buf);
   if (b.length < 2 || b[0] !== 0x1f || b[1] !== 0x8b) return buf;
-  return new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  return new Response(new Response(b).body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
 const axis = (c, mul, add) => Math.max(0, Math.min(255, Math.floor(c * mul + add + 0.5)));

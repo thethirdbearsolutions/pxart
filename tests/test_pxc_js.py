@@ -17,6 +17,7 @@ def test_fetch_cast_gunzips_by_content():
         if os.environ.get("CI"):
             pytest.fail("node isn't installed: CI must run this test")
         pytest.skip("node isn't installed")
-    proc = subprocess.run([NODE, "--test", "bench/cast/web/pxc.test.mjs"], cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run([NODE, "--test", "--test-reporter=tap", "bench/cast/web/pxc.test.mjs"], cwd=ROOT,
+                          capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-2000:]
     assert "# pass 5" in proc.stdout
