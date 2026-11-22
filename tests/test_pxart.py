@@ -16107,11 +16107,37 @@ def test_lamplit_helpers():
     (["--lamplit", "Q"], "E_VARIANT_KEY", "--lamplit 'Q'"),
     (["--lamplit", "f,g", "--lamplit", "g@0.2"], "E_BAD_ARG", "two --lamplit groups"),
     (["--keep-lit", "y", "--lamplit", "y"], "E_BAD_ARG", "--keep-lit too"),
+    # the whole argument, as typed, and the form where the form is what's wrong (PX-30 review 3)
+    (["--lamplit", "f:#ff0000@0.3"], "E_BAD_ARG",
+     "--lamplit 'f:#ff0000@0.3': want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070 (the strength "
+     "comes before the color)"),
+    (["--lamplit", "f@0.2@0.3"], "E_BAD_ARG", "--lamplit 'f@0.2@0.3': want KEYS[@STRENGTH][:COLOR]"),
+    (["--lamplit", "f g"], "E_BAD_ARG", "--lamplit 'f g': ' ' can't be a key; want KEYS[@STRENGTH][:COLOR]"),
+    (["--lamplit", "ff@0.3"], "E_BAD_ARG", "--lamplit 'ff@0.3' names a key twice"),
+    (["--lamplit", "f,Q@0.2"], "E_VARIANT_KEY", "--lamplit 'f,Q@0.2': the base palette doesn't define 'Q'"),
+    (["--lamplit", "f,g@0.2", "--lamplit", "g@0.3"], "E_BAD_ARG", "--lamplit 'g@0.3': g is in two --lamplit groups"),
 ])
 def test_lamplit_refusals(tmp_path, args, code, bit):
     p = write(tmp_path, "p.px", LPAL)
     msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", *args)
     assert code in msg and bit in msg and p.read_text() == LPAL
+
+
+@pytest.mark.parametrize("color", ["warm", "#ffaa5080", "transparent", "#fff"])
+def test_lamplit_color_refusal_is_its_own(tmp_path, color):
+    # parse_color's message offers #rrggbbaa and transparent, which --lamplit refuses (PX-30 review 4)
+    p = write(tmp_path, "p.px", LPAL)
+    msg = run_err("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", f"f:{color}")
+    assert "E_BAD_COLOR" in msg and f"--lamplit 'f:{color}': the lamp's color is #rrggbb, like #ffc080" in msg
+    assert "#rrggbbaa" not in msg and "or transparent" not in msg
+
+
+def test_lamplit_negative_zero_is_zero(tmp_path, capsys):
+    p = write(tmp_path, "p.px", LPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", "f@-0") == 0
+    out = capsys.readouterr().out
+    assert "lamplit: f (0)" in out and "(-0)" not in out
+    assert pxart.lamplit_arg("f@-0.0")[1] == 0 and str(pxart.lamplit_arg("f@-0.0")[1]) == "0.0"
 
 
 def test_lamplit_needs_derive(tmp_path):

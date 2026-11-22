@@ -8386,7 +8386,7 @@ def palette_edit(a):
         said += derive_variant(doc, a.variant, a.derive_from, a.darken or 0.0, a.tint,
                                key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
                                match_fit(a.match, a.variant) if a.match else None, a.lift_darks,
-                               [lamplit_arg(x) for x in a.lamplit or []])
+                               [(*lamplit_arg(x), x) for x in a.lamplit or []])
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -8628,15 +8628,16 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
         if k not in base or k == ".":
             fail("E_VARIANT_KEY", f"--keep-lit {k!r}: the base palette doesn't define it", path=doc.path)
     glow = {}  # key -> (strength, color): its --lamplit group
-    for keys, s, c in lamps:
+    for keys, s, c, *typed in lamps:  # typed: the argument as given, for a refusal
+        what = f"--lamplit {typed[0] if typed else ''.join(keys)!r}"
         for k in keys:
             if k not in base or k == ".":
-                fail("E_VARIANT_KEY", f"--lamplit {k!r}: the base palette doesn't define it", path=doc.path)
+                fail("E_VARIANT_KEY", f"{what}: the base palette doesn't define {k!r}", path=doc.path)
             if k in lit:
-                fail("E_BAD_ARG", f"--lamplit {k!r}: {k} is --keep-lit too (a lamp keeps its color; lamplit warms "
-                     "a derived one): give it one of them")
+                fail("E_BAD_ARG", f"{what}: {k} is --keep-lit too (a lamp keeps its color; lamplit lights a derived "
+                     "one): give it one of them")
             if k in glow:
-                fail("E_BAD_ARG", f"--lamplit {k!r}: {k} is in two --lamplit groups; give it one strength")
+                fail("E_BAD_ARG", f"{what}: {k} is in two --lamplit groups; give it one strength")
             glow[k] = (s, c)
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
@@ -8697,7 +8698,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
-    for keys, s, c in lamps:
+    for keys, s, c, *_ in lamps:
         said.append(f"lamplit: {' '.join(keys)} ({s:g}" + (f", toward {fmt_color(c)}" if c != LAMP else "") + ")")
     lamped = (f"lamplit {' '.join(bright)} came out brighter than {'their' if len(bright) > 1 else 'its'} {src} "
               f"color{'s' * (len(bright) > 1)}, as asked: lamplight isn't held") if bright else ""
@@ -8723,25 +8724,34 @@ LAMP_STRENGTH = 0.4
 
 def lamplit_arg(spec):
     """--lamplit KEYS[@STRENGTH][:COLOR] ('f,g,h@0.42', 'fgh:#ffc070', 'm,n@0.2:#ff9040') -> (keys, strength,
-    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffc080)."""
-    m = re.match(r"^(.+?)(?:@([^:]*))?(?::([^:@]*))?$", spec)
+    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffc080). Each
+    refusal quotes the argument as typed."""
+    what = f"--lamplit {spec!r}"
+    form = "want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070"
+    m = re.match(r"^([^@:]+)(?:@([^@:]*))?(?::([^@:]*))?$", spec)
     if not m:
-        fail("E_BAD_ARG", f"--lamplit {spec!r}: want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070")
-    keys = key_list(m.group(1), "--lamplit")
+        late = ":" in spec and "@" in spec and spec.index(":") < spec.index("@")
+        fail("E_BAD_ARG", f"{what}: {form}" + (" (the strength comes before the color)" if late else ""))
+    bad = next((k for k in m.group(1) if k.isspace() or k in '#"\\'), None)
+    if bad is not None:
+        fail("E_BAD_ARG", f"{what}: {bad!r} can't be a key; {form}")
+    keys = key_list(m.group(1), what)
     s = LAMP_STRENGTH
     if m.group(2) is not None:
         try:
-            s = float(m.group(2))
+            s = float(m.group(2)) + 0.0  # + 0.0: -0 is 0
         except ValueError:
             s = -1
         if not 0 <= s <= 1:
-            fail("E_BAD_ARG", f"--lamplit {spec!r}: the strength after @ is a fraction from 0 (as derived) to 1 (the "
-                 "lamp's color), like 0.4")
+            fail("E_BAD_ARG", f"{what}: the strength after @ is a fraction from 0 (as derived) to 1 (its day color "
+                 "in lamplight), like 0.4")
     c = LAMP
     if m.group(3) is not None:
-        c = parse_color(m.group(3), "--lamplit")
-        if c[3] != 255:
-            fail("E_BAD_COLOR", f"--lamplit {spec!r}: the lamp's color is #rrggbb (STRENGTH says how much of it)")
+        v = m.group(3) if m.group(3).startswith("#") else "#" + m.group(3)
+        if not re.match(r"^#[0-9a-fA-F]{6}$", v):
+            fail("E_BAD_COLOR", f"{what}: the lamp's color is #rrggbb, like #ffc080 (no alpha: the strength after "
+                 "@ says how much of it; quote a '#' in a script)")
+        c = hex2rgba(v)
     return keys, s, c
 
 
