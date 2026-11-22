@@ -21,7 +21,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
   71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
   strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
   lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
-  undo the warming. The file format is unchanged: the variant's lines are plain colors, so
+  undo the warming, and the summary doesn't call a lamplit key held (it names one lit brighter
+  than its `--derive-from` color as lamplit). The file format is unchanged: the variant's lines are plain colors, so
   `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two

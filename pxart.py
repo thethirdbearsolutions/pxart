@@ -8642,7 +8642,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
     had = name in doc.variants
     over = doc.variants.setdefault(name, {})
-    recolored, held = [], []
+    recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter that came out brighter
     for k, c in base.items():
         if k == "." or not any(x[3] for x in choices(c)) or (own and k not in doc.palette):
             continue
@@ -8653,11 +8653,13 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             xs, days = choices(from_[k]), choices(c)
             for i, x in enumerate(xs):
                 one = derived(matched(x, match[1]) if match else x, darken, color)
-                if brightness(x) < DARK * x[3] / 255 and brightness(one) > brightness(x):
-                    held += [k] if k not in held else []  # with lift: brightened, as asked
+                dark = brightness(x) < DARK * x[3] / 255
+                if dark and brightness(one) > brightness(x):
+                    held += [k] if k not in held and k not in glow else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
                 if k in glow:  # toward its day color under the lamp: the slot's own, or its base
                     one = lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
+                    bright += [k] if dark and brightness(one) > brightness(x) and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
         if got == c and k not in lit:
@@ -8685,15 +8687,21 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                     f"color{'s' * (len(lit) > 1)})")
     for keys, s, c in lamps:
         said.append(f"lamplit: {' '.join(keys)} ({s:g}" + (f", toward {fmt_color(c)}" if c != LAMP else "") + ")")
+    lamped = (f"lamplit {' '.join(bright)} came out brighter than {'their' if len(bright) > 1 else 'its'} {src} "
+              f"color{'s' * (len(bright) > 1)}, as asked: lamplight isn't held") if bright else ""
     if lift:  # the hold is off: say which dark keys it would have held
         said.append(f"--lift-darks: {' '.join(held)} brightened (darker than a quarter; the hold would have kept "
-                    f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened")
+                    f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened"
+                    + (" but lamplit ones" if bright else ""))
     elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
                     f"color{'s' * (len(held) > 1)} by Rec. 709 luma (darker than a quarter: an outline stays dark; "
                     "--lift-darks lets the derive brighten them)")
     else:
-        said.append("held: none (no key darker than a quarter came out brighter)")
+        said.append("held: none (no key darker than a quarter" + (", lamplit ones aside," if glow else "")
+                    + " came out brighter)")
+    if lamped:
+        said.append(lamped)
     return said
 
 
