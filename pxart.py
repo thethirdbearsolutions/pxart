@@ -437,8 +437,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       mirror SRC first, as for compose layers and scene items (--region is then in the
       mirrored frame's coordinates). --under fills only DST's empty pixels: SRC goes behind.
       SRC's keys join DST as a compose layer's join an existing OUT: E_KEY_CONFLICT, the
-      variant WARNINGs, --rekey [KEYS] and --variant-map work alike. --align: one paste
-      follows a bob across frames.
+      variant WARNINGs, --rekey [KEYS] and --variant-map work alike; a note says what that
+      --rekey changes (other letters in DST), which a key-for-key copy leaves off. --align:
+      one paste follows a bob across frames.
   compose -o OUT[:frame] [--size WxH] [--under] [--rekey [KEYS]] [--used-keys-only]
           [--variant-map NAME=V1,V2] [--replace] [--dry-run] LAYER@x,y ...
   compose --map MAP [--tile N] -o OUT[:frame] [the options above] [LAYER@x,y ...]
@@ -3137,6 +3138,23 @@ def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
     return lines
 
 
+def rekey_tradeoff(warn, dst_name, rekey_said, given=None):
+    """After said_vclash's WARNINGs for a copy into an existing file (paste, frames --copy-to): one note on what the
+    --rekey they offer changes, since a copy made key for key (stand-in keys a game's code reads by letter) wants the
+    keys kept and DST's colors taken. None when no WARNING offers it."""
+    offered = [l for l in warn if l.endswith("gives it a key of its own")]
+    if not offered:
+        return None
+    ks = [re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered]
+    listable = len(ks) <= 6 and all(k.isalnum() for k in ks)  # a list a shell and --rekey both read as written
+    if given is not None:  # --rekey was given for other keys: these would join its list
+        which = f"adding {','.join(ks)} to --rekey" if listable else "adding those keys to --rekey"
+        head = f"note: {which} would give those pixels new letters too"
+    else:
+        head = f"note: {rekey_said}" + (f" {','.join(ks)}" if listable else "") + " would give those pixels new letters"
+    return f"{head} in {dst_name}; left off, the keys stay (a key-for-key copy) and take {dst_name}'s variant colors"
+
+
 def said_uncovered(label, d, dst, opath, vmap, added):
     """A note when d's file adds keys to an existing dst but has none of some of dst's variants (though it has variants
     of its own): those keys stay at base colors there, and --variant-map would read one of its variants as that one."""
@@ -5157,6 +5175,7 @@ def frames_copy(a, doc, sel, picked):
     for n, src in layer_variants(doc, vmap).items():  # a variant of DST the copies take from FILE's import alone
         if n in variant_names(dst):
             warn_half(doc, src)
+    warn += [x for x in [rekey_tradeoff(warn, dpath, "frames --copy-to --rekey", a.rekey)] if x]
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
     said = []
@@ -5994,6 +6013,7 @@ def cmd_paste(a):
     uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
     moved = [f"{ax + offsets[id(f)][0]},{ay + offsets[id(f)][1]} in {ddoc.label(f)}" for f in dframes] \
         if len(dframes) > 1 and a.align else []
+    warn += [x for x in [rekey_tradeoff(warn, out, "paste --rekey", a.rekey)] if x]
     for line in warn + ([f"note: {uncovered}"] if uncovered else []):  # one line per key, and per reason
         print(line)
     if moved:
