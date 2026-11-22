@@ -663,14 +663,18 @@ EDITING (writes .px; -o defaults to editing the input in place)
       dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
       over at its alpha, the math of scene --tint; the --keep-lit keys keep their
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
-      gets no line. --add in the same call then sets single keys over the derived ones.
+      gets no line. --add in the same call then sets single keys over the derived ones. Run
+      again, it rewrites the line of every key it derives, an earlier --add's too.
 
       --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each
       key's derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under
       the lamp (base x COLOR / 255 per channel; #rrggbb, default #ffc080). At 1 a key is its
       day color in lamplight, so a lit ramp keeps the day ramp's contrast. It repeats, for
       rings: '--lamplit f,g@0.42 --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n
-      (0.2)'.
+      (0.2)'. Set up: give what the lamp lights keys of its own, a hair off the plain wood's
+      (f #6c4a2e by b #6b4a2e: alike by day), drawn where the light falls; a ring further out
+      takes another --lamplit; dither the zones' edges for a falloff. To change a strength,
+      derive from base again (from a lamplit variant it lights twice).
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -1017,6 +1021,8 @@ RECIPES = """RECIPES (pxart help recipes)
   3. Build a dusk or a night
      A night derived from the base colors (darkened, tinted, the lamp kept lit), or a dusk
      fitted to another pack's; then read what each recolors, and one pixel in every variant.
+     For wood by the lamp, give it keys a hair off the plain wood's, drawn where the light
+     falls, and add --lamplit KEYS@S per ring ('pxart help palette' has the setup).
        $ pxart palette pal.px --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y
        $ pxart palette pal.px --variant dusk --derive-from base --match mossback.px%dusk
        $ pxart palette pal.px

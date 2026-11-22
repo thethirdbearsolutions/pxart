@@ -21,11 +21,14 @@ release, entries are grouped by the day they landed on `main`. The file format i
   71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
   strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
   lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
-  undo the warming, and the summary doesn't call a lamplit key held (it names one lit brighter
-  than its `--derive-from` color as lamplit). When FILE imports a palette whose own file has a variant
-  by that name, a `--lamplit` key from the import is that variant's color lamplit, and a
-  `--keep-lit` one its base color, each on a line of FILE's own (both were skipped, and still
-  listed as done). The file format is unchanged: the variant's lines are plain colors, so
+  undo the warming, and the summary doesn't call a lamplit key held (it names one lit brighter than
+  its `--derive-from` color as lamplit). When FILE imports a palette whose own file has a variant by
+  that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
+  one its base color, each on a line of FILE's own (both were skipped, and still listed as done).
+  `pxart help palette` (and the night recipe) says the setup it needs: keys of their own for what
+  the lamp lights, a hair off the plain wood's so they match by day, another `--lamplit` per ring, a
+  dithered edge; and to change a strength, derive from base again. An `--add` in the same call that
+  sets a lamplit key says so. The file format is unchanged: the variant's lines are plain colors, so
   `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
@@ -49,6 +52,10 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `--seed` makes the ids repeatable.
 
 ### Fixed
+
+- **`pxart help topics` lists the topics.** The main help says `pxart help TOPIC`, but `help
+  topics` was "no such topic or command". It now lists each topic with the commands it covers, and
+  the unknown-topic error points at it.
 
 - **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
   smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;

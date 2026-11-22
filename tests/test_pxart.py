@@ -16163,6 +16163,30 @@ def test_help_documents_lamplit(capsys):
     assert "[--keep-lit KEYS] [--lamplit KEYS[@S][:COLOR] ...] [--lift-darks]]" in out
     assert "--lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp" in out
     assert "'--lamplit f,g@0.42 --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n (0.2)'" in out
+    # the setup it needs, and how to change a strength (PX-30 drawing test, review 6)
+    assert "Set up: give what the lamp lights keys of its own, a hair off the plain wood's (f #6c4a2e by b #6b4a2e: " \
+        "alike by day), drawn where the light falls; a ring further out takes another --lamplit; dither the zones' " \
+        "edges for a falloff." in out
+    assert "To change a strength, derive from base again (from a lamplit variant it lights twice)." in out
+    assert "Run again, it rewrites the line of every key it derives, an earlier --add's too." in out
+    recipe = " ".join(pxart.RECIPES.split("  3. ")[1].split("  4. ")[0].split())
+    assert "For wood by the lamp, give it keys a hair off the plain wood's, drawn where the light falls, and add " \
+        "--lamplit KEYS@S per ring ('pxart help palette' has the setup)." in recipe
+
+
+def test_lamplit_setup_from_the_help_works(tmp_path, capsys):
+    # the help's own example: f a hair off b, invisible by day, lit at night; deriving again from the lamplit night
+    # lights twice, from base it doesn't; a re-derive rewrites an --add's line
+    p = write(tmp_path, "p.px", LPAL)
+    assert pxart.parse(p, palette_only=True).palette["f"] != pxart.parse(p, palette_only=True).palette["b"]
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f") == 0
+    once = dv(p, "night", "f")
+    assert pxart.brightness(once) > pxart.brightness(dv(p, "night", "b"))
+    assert run("palette", p, "--variant", "eve", "--derive-from", "night", "--lamplit", "f") == 0
+    assert dv(p, "eve", "f") != once
+    assert run("palette", p, "--variant", "night", "--add", "g=#ffffff") == 0
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f") == 0
+    assert dv(p, "night", "f") == once and dv(p, "night", "g") != pxart.hex2rgba("#ffffff")
 
 
 def test_derive_bad_tint(tmp_path):
@@ -23510,9 +23534,10 @@ def test_help_all_does_not_grow(capsys):
     # palette --lamplit (PX-30), lamplight on what stands near a lamp, in four and a usage flag. 70595 with lamplit
     # mixing toward the base color under the lamp (PX-30 fixes), in two more. 70674 with what a derive does with
     # imported keys kept lit or lamplit over the import's own variant, in one. 70712 with 'pxart help topics' (a
-    # list of its own, outside 'help all') named in HELP.
+    # list of its own, outside 'help all') named in HELP. 71135 with --lamplit's setup (its own keys for what the
+    # lamp lights, rings, a dithered edge), re-deriving from base to change a strength, and what a re-derive rewrites.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 70712
+    assert len(capsys.readouterr().out.encode()) <= 71135
 
 
 def test_help_says_each_shared_rule_once():
