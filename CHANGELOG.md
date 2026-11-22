@@ -6,6 +6,28 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ## 2026-11-22
 
+### Added
+
+- **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
+  lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the
+  answer, and one reviewer can change its verdict on frames that are identical. `review-pack
+  renders/ -o pack` puts each PNG (a directory: every `.png` under it) in `pack/<id>/image.png`
+  under a random 12-digit id, its pixels re-saved with no metadata, and writes the map of ids to
+  renders beside the folder as `pack.manifest.json` (or `--manifest M.json`; never inside it). The
+  pack goes in a new or empty directory, written in id order with one time on every file, so a
+  listing by time doesn't give the sources' order away. `--copies 2` puts each render in twice under
+  different ids, and the copies differ in bytes, size and image data (another compression, a chunk of
+  random padding), so a reviewer can't pair them by a hash; their pixels are the same, so one that
+  decodes them can. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
+  `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be `<id>/image.png`,
+  or a list of `{"id", "verdict"}`; an object verdict compares by its `"verdict"` field, so a free-text
+  reason beside it doesn't count; text compares without case or surrounding spaces, numbers as numbers;
+  UTF-16 with a BOM reads too), prints each
+  render's verdicts, the copies that DISAGREE, `agreement: 5 of 6 render(s) judged in 2+ copies
+  (83%)`, each source folder's tally when there are several (an A/B review), and notes for items with
+  no verdict and keys that name no item; verdicts that match no item at all are an error.
+  `--seed` makes the ids repeatable.
+
 ### Fixed
 
 - **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s
