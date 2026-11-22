@@ -28,7 +28,7 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `--lift-darks`, brightened), and says `lamplit d came out brighter` only when the lamp itself lit
   it past its `--derive-from` color. When FILE imports a palette whose own file has a variant by
   that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
-  one its base color, each on a line of FILE's own (both were skipped, and still listed as done),
+  one its `--derive-from` color, each on a line of FILE's own (both were skipped, and still listed as done),
   unless the import's variant already has that color; a re-derive without the flag drops the line
   and says so.
   `pxart help palette` (and the night recipe) says the setup it needs: keys of their own for what
