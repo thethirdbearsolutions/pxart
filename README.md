@@ -315,8 +315,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `--variant night --keep l,g` lets keys inherit the base colors; `--variant night
   --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y,W` builds a whole night
   from the base colors, as `scene --tint` would, with the lamps still lit; `--lamplit f,g@0.42
-  --lamplit m,n@0.2` then mixes those keys' derived colors toward a warm lamp (`#ffaa50`, or
-  `:COLOR`), near ring and far, for the wood a lamp lights; `--match
+  --lamplit m,n@0.2` then mixes those keys' derived colors toward their base colors under a warm
+  lamp (base times `#ffc080`, or `:COLOR`), near ring and far, so the wood a lamp lights keeps
+  its day ramp's contrast; `--match
   mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted
   gain and offset: warm lights, blue shadows), and a key darker than a quarter is never
   brightened, by Rec. 709 luma (hue kept), unless `--lift-darks`; `--hoist l,g`

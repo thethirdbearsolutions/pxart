@@ -15929,7 +15929,8 @@ def test_derive_keep_lit_unknown_key(tmp_path):
     assert "E_VARIANT_KEY" in run_err("palette", p, "--variant", "night", "--derive-from", "base", "--keep-lit", "Q")
 
 
-# --lamplit (PX-30): what a lamp lights. After the derive, each listed key's DERIVED color is mixed toward the lamp.
+# --lamplit (PX-30): what a lamp lights. After the derive, each listed key's DERIVED color is mixed toward its BASE
+# color under the lamp (base x lamp / 255), so a lit ramp keeps the day ramp's contrast.
 LPAL = "pxart 1\nk #000000\nb #6b4a2e\nf #6c4a2e\ng #8b6440\nm #6a4a2e\ny #ffd040\n"
 
 
@@ -15940,8 +15941,10 @@ def test_lamplit_mixes_the_derived_color(tmp_path, capsys):
     assert "lamplit: f g (0.42)" in capsys.readouterr().out
     tint = pxart.hex2rgba("#10183060")
     for k, c in (("f", "#6c4a2e"), ("g", "#8b6440")):
-        night = pxart.derived(pxart.hex2rgba(c), 0.5, tint)
-        want = tuple(int(round(v + 0.42 * (w - v))) for v, w in zip(night[:3], (0xff, 0xaa, 0x50))) + (255,)
+        day = pxart.hex2rgba(c)
+        night = pxart.derived(day, 0.5, tint)
+        relit = [d * w / 255 for d, w in zip(day[:3], (0xff, 0xc0, 0x80))]
+        want = tuple(int(round(v + 0.42 * (r - v))) for v, r in zip(night[:3], relit)) + (255,)
         assert dv(p, "night", k) == want
     assert dv(p, "night", "b") == pxart.derived(pxart.hex2rgba("#6b4a2e"), 0.5, tint)  # not listed: as derived
 
@@ -15950,8 +15953,9 @@ def test_lamplit_defaults(tmp_path, capsys):
     p = write(tmp_path, "p.px", LPAL)
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f") == 0
     assert "lamplit: f (0.4)" in capsys.readouterr().out
-    assert dv(p, "night", "f") == pxart.lamplit((54, 37, 23, 255), 0.4, pxart.hex2rgba("#ffaa50"))
-    assert dv(p, "night", "f") == (134, 90, 46, 255)
+    assert dv(p, "night", "f") == pxart.lamplit((54, 37, 23, 255), 0.4, pxart.hex2rgba("#ffc080"),
+                                                pxart.hex2rgba("#6c4a2e"))
+    assert dv(p, "night", "f") == (76, 44, 23, 255)  # 54 + .4 x (108 - 54), 37 + .4 x (74 x 192/255 - 37), ...
 
 
 def test_lamplit_repeats_with_own_strengths_and_colors(tmp_path, capsys):
@@ -15960,8 +15964,9 @@ def test_lamplit_repeats_with_own_strengths_and_colors(tmp_path, capsys):
                "--lamplit", "m@0.2:#ff8040") == 0
     out = capsys.readouterr().out
     assert "lamplit: f g (0.42); lamplit: m (0.2, toward #ff8040)" in out
-    assert dv(p, "night", "f") == pxart.lamplit((54, 37, 23, 255), 0.42, pxart.LAMP)
-    assert dv(p, "night", "m") == pxart.lamplit((53, 37, 23, 255), 0.2, pxart.hex2rgba("#ff8040"))
+    assert dv(p, "night", "f") == pxart.lamplit((54, 37, 23, 255), 0.42, pxart.LAMP, pxart.hex2rgba("#6c4a2e"))
+    assert dv(p, "night", "m") == pxart.lamplit((53, 37, 23, 255), 0.2, pxart.hex2rgba("#ff8040"),
+                                                pxart.hex2rgba("#6a4a2e"))
     near, far = dv(p, "night", "f"), dv(p, "night", "m")
     assert pxart.brightness(near) > pxart.brightness(far) > pxart.brightness(dv(p, "night", "b"))
 
@@ -15984,26 +15989,59 @@ def test_lamplit_strength_zero_is_the_plain_derive(tmp_path):
     assert a.read_text() == b.read_text()
 
 
+WOOD = "pxart 1\nd #5a3c22\nw #8b6440\nl #b08a5e\n"  # a wood ramp: dark, mid, light
+
+
+def spread(c1, c3):
+    return max(abs(a - b) for a, b in zip(c1[:3], c3[:3]))
+
+
+@pytest.mark.parametrize("darken, tint, s", [(0.5, "#10183060", 0.45), (0.35, None, 0.45), (0.6, "#10183080", 1),
+                                             (0.5, "#10183060", 0.2)])
+def test_lamplit_keeps_a_ramps_contrast(tmp_path, capsys, darken, tint, s):
+    # mixing toward one flat lamp color shrank a lit ramp by 1 - S; toward each key's own day color under the lamp
+    # it keeps (at least) the plain-derived ramp's spread, and more of the day ramp's the stronger the light
+    plain, lit = write(tmp_path, "a.px", WOOD), write(tmp_path, "b.px", WOOD)
+    shape = ["--darken", str(darken)] + (["--tint", tint] if tint else [])
+    assert run("palette", plain, "--variant", "night", "--derive-from", "base", *shape) == 0
+    assert run("palette", lit, "--variant", "night", "--derive-from", "base", *shape, "--lamplit", f"dwl@{s}") == 0
+    flat = spread(dv(plain, "night", "d"), dv(plain, "night", "l"))
+    warm = spread(dv(lit, "night", "d"), dv(lit, "night", "l"))
+    assert warm >= flat
+    for k in "dwl":
+        assert pxart.brightness(dv(lit, "night", k)) > pxart.brightness(dv(plain, "night", k))
+    ramp = [dv(lit, "night", k) for k in "dwl"]
+    assert pxart.brightness(ramp[0]) < pxart.brightness(ramp[1]) < pxart.brightness(ramp[2])
+
+
+def test_lamplit_at_full_strength_is_the_day_ramp_in_lamplight(tmp_path):
+    p = write(tmp_path, "p.px", WOOD)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit",
+               "dwl@1:#ffffff") == 0
+    assert [dv(p, "night", k) for k in "dwl"] == [pxart.hex2rgba(h) for h in ("#5a3c22", "#8b6440", "#b08a5e")]
+
+
 def test_lamplit_warms_past_the_dark_hold(tmp_path):
     # k is darker than a quarter: the hold keeps a tint from brightening it, but lamplight is asked for
     p = write(tmp_path, "p.px", LPAL)
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit",
                "k@0.5") == 0
-    assert dv(p, "night", "k") == (128, 85, 40, 255)
+    assert dv(p, "night", "k") == (0, 0, 0, 255)  # black in lamplight is black
 
 
 def test_lamplit_keeps_alpha(tmp_path):
     p = write(tmp_path, "p.px", "pxart 1\ng #80808080\n")
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", "g@1") == 0
-    assert dv(p, "night", "g") == (0xff, 0xaa, 0x50, 128)
+    assert dv(p, "night", "g") == (0x80, 0x60, 0x40, 128)  # its day color under the lamp, at its own alpha
 
 
 def test_lamplit_helpers():
     assert pxart.lamplit_arg("f,g,h@0.42") == (["f", "g", "h"], 0.42, pxart.LAMP)
-    assert pxart.lamplit_arg("fgh") == (["f", "g", "h"], 0.4, (0xff, 0xaa, 0x50, 255))
+    assert pxart.lamplit_arg("fgh") == (["f", "g", "h"], 0.4, (0xff, 0xc0, 0x80, 255))
     assert pxart.lamplit_arg("m,n@0.2:#ff9040") == (["m", "n"], 0.2, (0xff, 0x90, 0x40, 255))
     assert pxart.lamplit_arg("m:ffc070") == (["m"], 0.4, (0xff, 0xc0, 0x70, 255))
-    assert pxart.lamplit((100, 100, 100, 255), 0.5, (200, 0, 100, 255)) == (150, 50, 100, 255)
+    assert pxart.lamplit((100, 100, 100, 255), 0.5, (255, 0, 102, 255), (200, 50, 250, 255)) == (150, 50, 100, 255)
+    assert pxart.lamplit((10, 20, 30, 128), 1, (255, 255, 255, 255), (90, 80, 70, 255)) == (90, 80, 70, 128)
 
 
 @pytest.mark.parametrize("args, code, bit", [
@@ -23361,9 +23399,10 @@ def test_help_all_does_not_grow(capsys):
     # 68417 with check --outline (PX-11), the second, in six. 69479 with review-pack (PX-5), a command of its own for
     # the blind, duplicated review, in twelve. 69880 with scene --anchor (PX-36), in six. 69985 with the note on what
     # paste --rekey changes (PX-35), in two. 70087 with anim's note for a single frame (PX-41), in one. 70468 with
-    # palette --lamplit (PX-30), lamplight on what stands near a lamp, in four and a usage flag.
+    # palette --lamplit (PX-30), lamplight on what stands near a lamp, in four and a usage flag. 70595 with lamplit
+    # mixing toward the base color under the lamp (PX-30 fixes), in two more.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 70468
+    assert len(capsys.readouterr().out.encode()) <= 70595
 
 
 def test_help_says_each_shared_rule_once():

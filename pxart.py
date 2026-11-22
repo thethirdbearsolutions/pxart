@@ -665,9 +665,11 @@ EDITING (writes .px; -o defaults to editing the input in place)
       gets no line. --add in the same call then sets single keys over the derived ones.
 
       --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each
-      key's derived color mixed toward COLOR (#rrggbb, default #ffaa50) by STRENGTH (0..1,
-      default 0.4), which keeps a ramp's grain. It repeats, for rings: '--lamplit f,g@0.42
-      --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n (0.2)'.
+      key's derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under
+      the lamp (base x COLOR / 255 per channel; #rrggbb, default #ffc080). At 1 a key is its
+      day color in lamplight, so a lit ramp keeps the day ramp's contrast. It repeats, for
+      rings: '--lamplit f,g@0.42 --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n
+      (0.2)'.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -8606,8 +8608,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     (match: (label, [(gain, offset)] * 3, how many keys it was fitted on)), made darker (each channel times 1 - F) and
     then tinted (COLOR laid over at its alpha, as scene --tint does); the --keep-lit keys keep their `src` color (a
     lamp). A key darker than DARK never comes out brighter (scaled back to its own brightness, the hue kept) unless
-    lift. Then each --lamplit group's keys (lamps: [(keys, strength, color)]) have their derived color mixed toward
-    the group's color by its strength (lamplight on what stands near a lamp; after the hold, which doesn't undo it). A
+    lift. Then each --lamplit group's keys (lamps: [(keys, strength, color)]) have their derived color mixed by its
+    strength toward their base color lit by the group's color (base x color / 255: lamplight on what stands near a
+    lamp, after the hold). A
     key that comes out in its base color gets no line (it inherits), unless it is kept lit (then it is listed: a
     relist). NAME is made when FILE has none. What it did."""
     if name == "base" or not re.match(r"^[A-Za-z0-9_\-]+$", name):
@@ -8647,13 +8650,14 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             got = from_[k]
         else:
             gots = []  # a slot's colors each derived: the variant's list, one per slot color
-            for x in choices(from_[k]):
+            xs, days = choices(from_[k]), choices(c)
+            for i, x in enumerate(xs):
                 one = derived(matched(x, match[1]) if match else x, darken, color)
                 if brightness(x) < DARK * x[3] / 255 and brightness(one) > brightness(x):
                     held += [k] if k not in held else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
-                if k in glow:
-                    one = lamplit(one, *glow[k])
+                if k in glow:  # toward its day color under the lamp: the slot's own, or its base
+                    one = lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
         if got == c and k not in lit:
@@ -8693,13 +8697,13 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     return said
 
 
-LAMP = (0xff, 0xaa, 0x50, 255)  # --lamplit's default color: a warm lamp
+LAMP = (0xff, 0xc0, 0x80, 255)  # --lamplit's default color: a warm lamp (a day color times it keeps 80% of its luma)
 LAMP_STRENGTH = 0.4
 
 
 def lamplit_arg(spec):
     """--lamplit KEYS[@STRENGTH][:COLOR] ('f,g,h@0.42', 'fgh:#ffc070', 'm,n@0.2:#ff9040') -> (keys, strength,
-    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffaa50)."""
+    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffc080)."""
     m = re.match(r"^(.+?)(?:@([^:]*))?(?::([^:@]*))?$", spec)
     if not m:
         fail("E_BAD_ARG", f"--lamplit {spec!r}: want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070")
@@ -8721,9 +8725,12 @@ def lamplit_arg(spec):
     return keys, s, c
 
 
-def lamplit(c, strength, lamp):
-    """One derived color warmed by --lamplit: each channel c + strength x (lamp - c), rounded; the alpha stays."""
-    return tuple(int(round(v + strength * (w - v))) for v, w in zip(c[:3], lamp[:3])) + (c[3],)
+def lamplit(c, strength, lamp, day):
+    """One derived color c lit by --lamplit: mixed by strength toward `day` (the key's day color) under the lamp,
+    relit = day x lamp / 255 per channel; each channel c + strength x (relit - c), rounded; c's alpha stays. At 1 the
+    key is its day color in lamplight, so a lit ramp keeps the day ramp's contrast (times the lamp's color)."""
+    relit = [d * w / 255 for d, w in zip(day[:3], lamp[:3])]
+    return tuple(int(round(v + strength * (r - v))) for v, r in zip(c[:3], relit)) + (c[3],)
 
 
 def no_brighter(c, ref):
@@ -12717,8 +12724,8 @@ def parser(describe=True):
     g.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
     g.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
     g.add_argument("--lamplit", action="append", metavar="KEYS[@S][:COLOR]",
-                   help="with --derive-from: mix these keys' derived colors toward COLOR (default #ffaa50) by S "
-                        "(default 0.4): what a lamp lights; repeat for rings")
+                   help="with --derive-from: mix these keys' derived colors by S (default 0.4) toward their base "
+                        "colors times COLOR (default #ffc080): what a lamp lights; repeat for rings")
     g.add_argument("--lift-darks", action="store_true",
                    help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
     g = p.add_argument_group("import / hoist", "Share one palette file between sprites.")

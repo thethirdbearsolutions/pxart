@@ -12,12 +12,17 @@ release, entries are grouped by the day they landed on `main`. The file format i
   lit through a derived night, but lit nothing around it; a pack warmed the wood by a light by hand.
   `palette pal.px --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y
   --lamplit f,g@0.42 --lamplit m,n@0.2` derives as before, then mixes each listed key's derived
-  color toward the lamp (`#ffaa50` by default, or `KEYS@S:#rrggbb`) by its strength (default 0.4),
-  each channel `c + S x (lamp - c)`, alpha kept. Warming the derived color rather than the daylight
-  one keeps a ramp's grain. It repeats, so a near and a far ring take their own strengths, and the
-  output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42); lamplit: m n (0.2)`. A
-  key is in one group, and not also `--keep-lit`; the dark-key hold doesn't undo the warming. The
-  file format is unchanged: the variant's lines are plain colors, so `js/px.ts` needs nothing new.
+  color by its strength (default 0.4) toward the key's base color under the lamp, `relit = base x
+  lamp / 255` per channel (lamp `#ffc080` by default, or `KEYS@S:#rrggbb`): each channel `c + S x
+  (relit - c)`, alpha kept. At strength 1 a key is its day color in lamplight, so a lit ramp keeps
+  the day ramp's contrast. The first cut, merged earlier the same day, mixed toward the flat lamp
+  color (`#ffaa50`) instead, which squeezed a lit wood ramp nearly flat (12 apart in red where the
+  day ramp was 86); the default lamp is now `#ffc080`, since a day color times `#ffaa50` keeps only
+  71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
+  strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
+  lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
+  undo the warming. The file format is unchanged: the variant's lines are plain colors, so
+  `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
   lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the
