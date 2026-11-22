@@ -5349,7 +5349,7 @@ def test_frames_copy_group_new_to_dst(tmp_path, capsys):
         f"WARNING: FILE ({s}:walk) draws 'k' #000000 in {d}'s variant colors, not s.px's: night #000011 (s.px: "
         "#000000); frames --copy-to --rekey k gives it a key of its own\n"
         f"note: frames --copy-to --rekey k would give those pixels new letters in {d}; left off, the keys stay (a "
-        "key-for-key copy) and take its variant colors\n"
+        f"key-for-key copy) and take {d}'s variant colors\n"
         f"copied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n")
     assert ids(d) == ["idle", "tail/0", "walk/0", "walk/1"]
     doc = pxart.parse(d)

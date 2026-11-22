@@ -3131,7 +3131,7 @@ def rekey_tradeoff(warn, dst_name, rekey_said):
     ks = [re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered]
     which = ",".join(ks) if len(ks) <= 6 else "KEYS"
     return (f"note: {rekey_said} {which} would give those pixels new letters in {dst_name}; left off, the keys stay "
-            "(a key-for-key copy) and take its variant colors")
+            f"(a key-for-key copy) and take {dst_name}'s variant colors")
 
 
 def said_uncovered(label, d, dst, opath, vmap, added):

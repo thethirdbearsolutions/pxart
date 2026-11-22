@@ -42,7 +42,7 @@ def test_paste_says_what_rekey_would_change(tmp_path, monkeypatch, capsys):
     assert len(warns) == 4 and all(w.endswith("gives it a key of its own") for w in warns)
     note = next(l for l in lines if l.startswith("note: paste --rekey"))
     assert note == ("note: paste --rekey D,E,F,L would give those pixels new letters in tiles.px; left off, the keys "
-                    "stay (a key-for-key copy) and take its variant colors")
+                    "stay (a key-for-key copy) and take tiles.px's variant colors")
     assert lines.index(note) == lines.index(warns[-1]) + 1  # right after the WARNINGs it explains
     assert pxart.parse(tmp_path / "tiles.px").frames[1].grid == ["LE..", "FD..", "....", "...."]  # keys kept
 
