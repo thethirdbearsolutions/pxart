@@ -658,7 +658,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
       --keep-lit y,W sets every key of FILE's palette (imported ones too, unless FILE imports
-      a night) in night from its base color (or from another variant's: --derive-from
+      a night: then only its --keep-lit and --lamplit ones, the import's night lamplit) in
+      night from its base color (or from another variant's: --derive-from
       dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
       over at its alpha, the math of scene --tint; the --keep-lit keys keep their
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
@@ -8643,17 +8644,23 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     had = name in doc.variants
     over = doc.variants.setdefault(name, {})
     recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter that came out brighter
+    theirs = []  # imported keys kept lit or lamplit over the import's own variant: on lines of FILE's own
     for k, c in base.items():
-        if k == "." or not any(x[3] for x in choices(c)) or (own and k not in doc.palette):
+        if k == "." or not any(x[3] for x in choices(c)):
+            continue
+        imported = own and k not in doc.palette  # the import's variant colors it, unless it is kept lit or lamplit
+        if imported and k not in lit and k not in glow:
             continue
         if k in lit:
             got = from_[k]
         else:
             gots = []  # a slot's colors each derived: the variant's list, one per slot color
             xs, days = choices(from_[k]), choices(c)
+            if imported:  # lamplit from its night as the import has it (that is what this call would otherwise keep)
+                xs = choices(doc.shared_variants[name].get(k, c))
             for i, x in enumerate(xs):
-                one = derived(matched(x, match[1]) if match else x, darken, color)
-                dark = brightness(x) < DARK * x[3] / 255
+                one = x if imported else derived(matched(x, match[1]) if match else x, darken, color)
+                dark = not imported and brightness(x) < DARK * x[3] / 255
                 if dark and brightness(one) > brightness(x):
                     held += [k] if k not in held and k not in glow else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
@@ -8662,12 +8669,13 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                     bright += [k] if dark and brightness(one) > brightness(x) and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
-        if got == c and k not in lit:
+        if got == (doc.shared_variants[name].get(k, c) if imported else c) and k not in lit:
             if k in over:
                 del over[k]
                 doc.lead.pop(("vkey", name, k), None)
             continue
         over[k] = got
+        theirs += [k] if imported else []
         if got != c:
             recolored.append(k)
     if own and not had and not over:  # every key is imported, and the import's variant colors them all: nothing to add
@@ -8679,9 +8687,13 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     how = ", ".join(([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else []))
     how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
                     + ([how] if how else []))
+    over_it = " and ".join(f"{' '.join(ks)} {how_}" for ks, how_ in (([k for k in theirs if k in glow], "lamplit"),
+                                                                     ([k for k in theirs if k in lit], "kept lit")) if ks)
     said = [f"new @variant {name}" if made else f"@variant {name}",
             f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"
-            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones)" if own else "")]
+            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones"
+               + (f"; {over_it} over it, on {'lines' if len(theirs) > 1 else 'a line'} of {doc.path.name}'s own"
+                  if theirs else "") + ")" if own else "")]
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")

@@ -22,7 +22,10 @@ release, entries are grouped by the day they landed on `main`. The file format i
   strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
   lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
   undo the warming, and the summary doesn't call a lamplit key held (it names one lit brighter
-  than its `--derive-from` color as lamplit). The file format is unchanged: the variant's lines are plain colors, so
+  than its `--derive-from` color as lamplit). When FILE imports a palette whose own file has a variant
+  by that name, a `--lamplit` key from the import is that variant's color lamplit, and a
+  `--keep-lit` one its base color, each on a line of FILE's own (both were skipped, and still
+  listed as done). The file format is unchanged: the variant's lines are plain colors, so
   `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two

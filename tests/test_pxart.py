@@ -16057,6 +16057,33 @@ def test_lamplit_held_none_says_lamplit_aside(tmp_path, capsys):
     assert "held: none (no key darker than a quarter, lamplit ones aside, came out brighter)" in capsys.readouterr().out
 
 
+IMPORTED_NIGHT = "pxart 1\nw #8b6440\ny #ffd040\n@variant night\nw #302820\ny #403820\n"
+
+
+def test_lamplit_and_keep_lit_work_on_keys_an_imported_night_colors(tmp_path, capsys):
+    # w and y come from pal.px, whose own night colors them: they were skipped, and the summary still said
+    # "lamplit: w" and "y kept lit". Now each gets a line of s.px's own: w is pal.px's night lamplit, y its base
+    write(tmp_path, "pal.px", IMPORTED_NIGHT)
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "w",
+               "--keep-lit", "y") == 0
+    out = capsys.readouterr().out
+    assert "(pal.px's night colors the imported ones; w lamplit and y kept lit over it, on lines of s.px's own)" in out
+    own = pxart.parse(p, palette_only=True).variants["night"]
+    assert own["w"] == pxart.lamplit(pxart.hex2rgba("#302820"), 0.4, pxart.LAMP, pxart.hex2rgba("#8b6440"))
+    assert own["y"] == pxart.hex2rgba("#ffd040")
+    assert dv(p, "night", "w") == own["w"] and dv(p, "night", "y") == pxart.hex2rgba("#ffd040")
+    assert "lamplit w came out brighter" not in out  # the hold is the derive's; the import's night isn't derived here
+    assert (tmp_path / "pal.px").read_text() == IMPORTED_NIGHT
+
+
+def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
+    write(tmp_path, "pal.px", IMPORTED_NIGHT)
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", "w@0") == 0
+    assert "over it" not in capsys.readouterr().out and "w" not in p.read_text()
+
+
 def test_lamplit_keeps_alpha(tmp_path):
     p = write(tmp_path, "p.px", "pxart 1\ng #80808080\n")
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", "g@1") == 0
@@ -23428,9 +23455,10 @@ def test_help_all_does_not_grow(capsys):
     # the blind, duplicated review, in twelve. 69880 with scene --anchor (PX-36), in six. 69985 with the note on what
     # paste --rekey changes (PX-35), in two. 70087 with anim's note for a single frame (PX-41), in one. 70468 with
     # palette --lamplit (PX-30), lamplight on what stands near a lamp, in four and a usage flag. 70595 with lamplit
-    # mixing toward the base color under the lamp (PX-30 fixes), in two more.
+    # mixing toward the base color under the lamp (PX-30 fixes), in two more. 70674 with what a derive does with
+    # imported keys kept lit or lamplit over the import's own variant, in one.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 70595
+    assert len(capsys.readouterr().out.encode()) <= 70674
 
 
 def test_help_says_each_shared_rule_once():
@@ -23842,7 +23870,7 @@ def test_help_says_a_half_variant_warns():
     doc = " ".join(pxart.__doc__.split())
     assert "A variant a file gets only from its @palette leaves the file's own keys at base colors; commands that " \
         "render it print a WARNING naming them and the fix, and check notes it." in doc
-    assert "(imported ones too, unless FILE imports a night)" in doc
+    assert "(imported ones too, unless FILE imports a night: then only its --keep-lit and --lamplit ones," in doc
 
 
 def test_readme_says_a_half_variant_warns():
