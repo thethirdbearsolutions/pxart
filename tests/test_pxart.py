@@ -16096,6 +16096,24 @@ def test_plain_rederive_drops_an_imported_keys_own_line(tmp_path, capsys, flag):
     assert run(*shape) == 0 and "dropped" not in capsys.readouterr().out  # nothing left to drop
 
 
+def test_keep_lit_imported_key_the_import_already_lights_gets_no_line(tmp_path, capsys):
+    # pal2.px's night already has y lit (#ffd040): --keep-lit y wrote a line of s.px's own anyway, which would shadow a
+    # later change to pal2.px. As before --lamplit (4605419), only f gets a line; one written earlier is dropped
+    write(tmp_path, "pal2.px", "pxart 1\nw #8b6440\ny #ffd040\nk #000000\n\n@variant night\nw #463220\ny #ffd040\n")
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n")
+    argv = ("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--keep-lit", "y")
+    assert run(*argv) == 0
+    out = capsys.readouterr().out
+    assert "recolors 1 key(s) of its own (pal2.px's night colors the imported ones); y kept lit (in its base color)" \
+        in out and "over it" not in out
+    assert p.read_text() == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
+    assert dv(p, "night", "y") == pxart.hex2rgba("#ffd040")
+    p.write_text("pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\ny #ffd040\nf #362517\n")  # this branch's
+    assert run(*argv) == 0
+    assert "y back to pal2.px's night: dropped its line of s.px's own" in capsys.readouterr().out
+    assert p.read_text() == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
+
+
 def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
     write(tmp_path, "pal.px", IMPORTED_NIGHT)
     p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")

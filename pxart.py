@@ -8688,7 +8688,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                     bright += [k] if dark and brightness(one) > brightness(x) and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
-        if got == (doc.shared_variants[name].get(k, c) if imported else c) and k not in lit:
+        # no line when it comes out as it would with none: its base color, or for an imported key the import's
+        # variant color, kept lit or not (a line there would only shadow the palette file); FILE's own lamp relists
+        if got == (doc.shared_variants[name].get(k, c) if imported else c) and (imported or k not in lit):
             if k in over:
                 del over[k]
                 doc.lead.pop(("vkey", name, k), None)
