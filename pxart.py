@@ -8406,6 +8406,9 @@ def palette_edit(a):
         if over:  # the --add wins: say so, so the lamplit line above isn't read as what was written
             said.append(f"--add sets {' '.join(over)} over {'their' if len(over) > 1 else 'its'} lamplit "
                         f"color{'s' * (len(over) > 1)}")
+        kept = [k for k in (key_list(a.keep, "--keep") if a.keep else []) if k in lamped]
+        if kept:  # so does a --keep: the key is back at its base color
+            said.append(f"--keep drops {' '.join(kept)}'s lamplit color{'s' * (len(kept) > 1)}")
     elif a.add:
         adds = [key_color(m) for m in a.add]
         have = doc.resolved()
