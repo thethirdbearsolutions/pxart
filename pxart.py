@@ -107,7 +107,8 @@ LOOKING
       groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff.
+      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. One
+      frame alone gets 'note: mushroom: 1 frame (100ms), nothing to compare' (GIF still written).
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
       only the part above moves (a breath), shifting would light up the legs, so the strip
@@ -3573,6 +3574,16 @@ def animate(a, its, out):
     cells = []  # per frame: (framed, what changed, its label, head, alt), for the strip
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
+        if len(framed) == 1:  # a frame against itself would read like a measurement of nothing
+            once = plays_once(its)
+            it = its[i]
+            g = it.frame.group if it.frame is not None else None
+            whole = g and sum(f.group == g for f in it.doc.frames) == 1  # a group of one frame, not one of several picked
+            print(f"note: {g if whole else it.label}: 1 frame ({durs[i]}ms{', plays once' if once else ''}), "
+                  "nothing to compare")
+            head = "1 frame, nothing to compare"  # the strip's label above already has the ms
+            cells.append((fr, diff_frame(cur, cur), f"{it.label} {durs[i]}ms", head, ""))
+            continue
         if moves[i] is None:
             head = "plays once (repeat=1); no wrap-around"
             print(f"  {its[i].label:24} {durs[i]:5}ms  {head}")

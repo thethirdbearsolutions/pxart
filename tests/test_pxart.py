@@ -23255,9 +23255,9 @@ def test_help_all_does_not_grow(capsys):
     # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
     # 68417 with check --outline (PX-11), the second, in six. 69479 with review-pack (PX-5), a command of its own for
     # the blind, duplicated review, in twelve. 69880 with scene --anchor (PX-36), in six. 69985 with the note on what
-    # paste --rekey changes (PX-35), in two.
+    # paste --rekey changes (PX-35), in two. 70087 with anim's note for a single frame (PX-41), in one.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 69985
+    assert len(capsys.readouterr().out.encode()) <= 70087
 
 
 def test_help_says_each_shared_rule_once():

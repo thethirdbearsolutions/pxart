@@ -39,6 +39,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
   --anchor center: the 96x64 scene shows 40,20 to 135,83 of the 176x104 the map and items fill`. A
   bigger `--size` with `--anchor center` puts the scene in its middle.
 
+- **`anim` on one frame says there's nothing to compare (PX-41).** A file or group of a single frame
+  printed `mushroom 100ms vs mushroom: shift +0,+0 then 0px (0%)`, the frame against itself, which
+  reads like a measurement. It now prints `note: mushroom: 1 frame (100ms), nothing to compare` (a
+  group of one frame by its group's name, one frame picked from a bigger group by its own; `plays once`
+  for `repeat=1`), and still writes the GIF and strip that `-o`
+  asks for.
+
 - **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s
   `fetchCast` gunzipped only a URL ending `.gz`, so `cast.pxc.gz?r=2` (a cache-busting query)
   reached the decoder still gzipped, and a `.gz` a server had already decoded (sent with
