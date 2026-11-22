@@ -23250,9 +23250,9 @@ def test_help_all_does_not_grow(capsys):
     # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
     # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
     # 68417 with check --outline (PX-11), the second, in six. 69479 with review-pack (PX-5), a command of its own for
-    # the blind, duplicated review, in twelve. 69665 with scene --anchor (PX-36), in three.
+    # the blind, duplicated review, in twelve. 69779 with scene --anchor (PX-36), in five.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 69665
+    assert len(capsys.readouterr().out.encode()) <= 69779
 
 
 def test_help_says_each_shared_rule_once():

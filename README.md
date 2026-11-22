@@ -190,8 +190,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   then counts),
   `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`
   says otherwise, pixels past its edge cropped with a note; a `--size` smaller than the map keeps its
-  top-left, and `--anchor center` (or `top`, `bottom-right`, ...) keeps that part instead, with a note
-  saying which pixels; items are mirrored with a `+h`/`+v` suffix as in
+  top-left, and `--anchor center` (or `top`, `bottom-right`, ...) keeps that part instead, `--anchor
+  176,80` centres on that point (a camera on the hero), with a note saying which pixels; items are mirrored with a `+h`/`+v` suffix as in
   `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as

@@ -154,8 +154,9 @@ LOOKING
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item. A smaller --size keeps
-      the top-left; --anchor center (top, bottom-right, ...) keeps that part of what the map
-      and items fill, and a note says which pixels.
+      the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
+      bottom-right) keeps that part of what the map and items fill, --anchor X,Y centres on
+      that point (a camera on the hero), and a note says which pixels it shows.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -4232,6 +4233,15 @@ def parse_tile(s):
     return parse_size(s, "--tile")
 
 
+def parse_anchor(s):
+    """--anchor X,Y: the point of the scene the window centres on."""
+    m = re.match(r"^(-?\d+),(-?\d+)$", s or "")
+    if not m:
+        fail("E_BAD_ARG", f"--anchor {s!r}: give one of {', '.join(ANCHORS)}, or X,Y, the scene's point to centre on "
+             "(a camera on the hero: --anchor 176,80)" + guess(s, list(ANCHORS)))
+    return int(m.group(1)), int(m.group(2))
+
+
 ANCHORS = {"top-left": (0, 0), "top": (1, 0), "top-right": (2, 0), "left": (0, 1), "center": (1, 1), "right": (2, 1),
            "bottom-left": (0, 2), "bottom": (1, 2), "bottom-right": (2, 2)}  # halves of (whole - window) to skip
 
@@ -4262,10 +4272,14 @@ def cmd_scene(a):
     for _, img, x, y in todo:
         reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
     ox = oy = 0  # --anchor: where the W x H window sits on the whole scene (the map's size, or what holds every item)
-    if a.anchor != "top-left":
+    if a.anchor is not None:
         ew, eh = max(reach[0], msize[0] if a.map else 0), max(reach[1], msize[1] if a.map else 0)
-        fx, fy = ANCHORS[a.anchor]
-        ox, oy = (ew - W) * fx // 2, (eh - H) * fy // 2
+        if a.anchor in ANCHORS:
+            fx, fy = ANCHORS[a.anchor]
+            ox, oy = (ew - W) * fx // 2, (eh - H) * fy // 2
+        else:  # X,Y: a camera on that point of the scene, the window centred on it
+            cx, cy = parse_anchor(a.anchor)
+            ox, oy = cx - W // 2, cy - H // 2
         print(f"note: --anchor {a.anchor}: the {W}x{H} scene shows {ox},{oy} to {ox + W - 1},{oy + H - 1} of the "
               f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill"))
     for what, img, x, y in todo:
@@ -12397,8 +12411,8 @@ def parser(describe=True):
     p.add_argument("--tile", default="16x16", help="tile size for --map")
     p.add_argument("--variant", help="variant for every map tile and item without its own %%variant")
     p.add_argument("--tint", help="'#rrggbbaa' laid over the finished scene (quote it in scripts)")
-    p.add_argument("--anchor", choices=list(ANCHORS), default="top-left", metavar="WHERE",
-                   help="the part of a bigger scene --size keeps: center, top, bottom-right, ... (default top-left)")
+    p.add_argument("--anchor", metavar="WHERE",
+                   help="the part of a bigger scene --size keeps (default top-left): " + ", ".join(list(ANCHORS)[1:]) + "; or X,Y, the point to centre on")
     p = sub.add_parser("world"); p.add_argument("world"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=2); p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("tint"); p.add_argument("file"); p.add_argument("color"); p.add_argument("-o")

@@ -13,11 +13,18 @@ BOX = "k #000000\nr #ff0000\n\nkkkk\nkrrk\nkrrk\nkkkk\n"
 RED, BLACK, BG = (255, 0, 0, 255), (0, 0, 0, 255), (0x47, 0x2d, 0x3c, 255)
 
 
+ERR = []
+
+
 def run(*argv):
+    ERR.clear()
     try:
         pxart.main([str(a) for a in argv])
     except SystemExit as e:
-        return e.code if isinstance(e.code, int) else 1
+        if isinstance(e.code, int):
+            return e.code
+        ERR.append(str(e.code))
+        return 1
     return 0
 
 
@@ -67,6 +74,23 @@ def test_a_bigger_size_centres_the_scene_in_it(box):
     assert px("a.png", (0, 0), (2, 2), (3, 3)) == [BG, BLACK, RED]  # the 4x4 box sits at 2,2
 
 
-def test_bad_anchor(box, capsys):
-    assert run("scene", "--size", "4x4", "-o", "a.png", "box.px@0,0", "--anchor", "middle") == 2
-    assert "argument --anchor: invalid choice: 'middle'" in capsys.readouterr().err
+def test_bad_anchor_lists_them_and_the_point_form(box):
+    assert run("scene", "--size", "4x4", "-o", "a.png", "box.px@0,0", "--anchor", "middle") == 1
+    assert "--anchor 'middle': give one of top-left, top, top-right, left, center" in ERR[0]
+    assert "or X,Y, the scene's point to centre on" in ERR[0]
+
+
+def test_anchor_on_a_point_centres_the_window_there(box, capsys):
+    """A camera on the hero (the loop's ask): the window centred on X,Y."""
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "box.px@8,8",
+               "--anchor", "10,10") == 0
+    assert "note: --anchor 10,10: the 4x4 scene shows 8,8 to 11,11 of the 12x12 the items fill" in \
+        capsys.readouterr().out
+    assert px("a.png", (0, 0), (1, 1)) == [BLACK, RED]
+
+
+def test_top_left_said_when_asked(box, capsys):
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "box.px@8,8",
+               "--anchor", "top-left") == 0
+    assert "note: --anchor top-left: the 4x4 scene shows 0,0 to 3,3 of the 12x12 the items fill" in \
+        capsys.readouterr().out
