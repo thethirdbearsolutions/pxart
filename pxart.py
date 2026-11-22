@@ -148,15 +148,16 @@ LOOKING
       shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
       opacity instead.
-  scene -o s.png [--scale 4] [--size WxH [--anchor center]] [--bg #472d3c] [--map M --tile 16x16]
+  scene -o s.png [--scale 4] [--size WxH] [--anchor center] [--bg #472d3c] [--map M --tile 16x16]
         [--variant V] [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
       edge are cropped, with a note per item (and one for the map) saying how many; at the
-      default size a note also names the --size that holds every item. A smaller --size keeps
+      default size a note also names the --size that holds every item. A smaller size keeps
       the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
-      bottom-right) keeps that part of what the map and items fill, --anchor X,Y centres on
-      that point (a camera on the hero), and a note says which pixels it shows.
+      bottom-right) places the size in effect on that part of what the map and items fill
+      (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
+      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -4235,7 +4236,7 @@ def parse_tile(s):
 
 def parse_anchor(s):
     """--anchor X,Y: the point of the scene the window centres on."""
-    m = re.match(r"^(-?\d+),(-?\d+)$", s or "")
+    m = re.match(r"^\s*(-?\d+)\s*,\s*(-?\d+)\s*$", s or "")
     if not m:
         fail("E_BAD_ARG", f"--anchor {s!r}: give one of {', '.join(ANCHORS)}, or X,Y, the scene's point to centre on "
              "(a camera on the hero: --anchor 176,80)" + guess(s, list(ANCHORS)))
@@ -4273,15 +4274,21 @@ def cmd_scene(a):
         reach[0], reach[1] = max(reach[0], x + img.width), max(reach[1], y + img.height)
     ox = oy = 0  # --anchor: where the W x H window sits on the whole scene (the map's size, or what holds every item)
     if a.anchor is not None:
-        ew, eh = max(reach[0], msize[0] if a.map else 0), max(reach[1], msize[1] if a.map else 0)
+        x0, y0 = min([0] + [x for _, _, x, _ in todo]), min([0] + [y for _, _, _, y in todo])  # items left of/above 0,0
+        ew = max(reach[0], msize[0] if a.map else 0) - x0
+        eh = max(reach[1], msize[1] if a.map else 0) - y0
         if a.anchor in ANCHORS:
             fx, fy = ANCHORS[a.anchor]
-            ox, oy = (ew - W) * fx // 2, (eh - H) * fy // 2
+
+            def part(d, f):  # the odd spare pixel goes right/below, as frames centre (x = (canvas - frame) // 2)
+                return d * f // 2 if d >= 0 else -((-d) * f // 2)
+            ox, oy = x0 + part(ew - W, fx), y0 + part(eh - H, fy)
         else:  # X,Y: a camera on that point of the scene, the window centred on it
             cx, cy = parse_anchor(a.anchor)
             ox, oy = cx - W // 2, cy - H // 2
         print(f"note: --anchor {a.anchor}: the {W}x{H} scene shows {ox},{oy} to {ox + W - 1},{oy + H - 1} of the "
-              f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill"))
+              f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill")
+              + (f" (from {x0},{y0})" if (x0, y0) != (0, 0) else ""))
     for what, img, x, y in todo:
         draw_at(sc, img, x - ox, y - oy)
         n = outside_px(img, x - ox, y - oy, W, H)

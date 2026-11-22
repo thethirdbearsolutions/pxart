@@ -94,3 +94,30 @@ def test_top_left_said_when_asked(box, capsys):
                "--anchor", "top-left") == 0
     assert "note: --anchor top-left: the 4x4 scene shows 0,0 to 3,3 of the 12x12 the items fill" in \
         capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- the PR #14 review's findings
+
+
+def test_review_1_items_left_of_and_above_the_origin_count(box, capsys):
+    assert run("scene", "--size", "8x8", "--scale", "1", "-o", "a.png", "box.px@-4,-4", "--anchor", "center") == 0
+    assert "shows -6,-6 to 1,1 of the 4x4 the items fill (from -4,-4)" in capsys.readouterr().out
+    assert px("a.png", (1, 1), (2, 2), (3, 3)) == [BG, BLACK, RED]  # the box in the middle, not the corner
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "b.png", "box.px@-8,-8", "box.px@4,4",
+               "--anchor", "center") == 0
+    assert "shows -2,-2 to 1,1 of the 16x16 the items fill (from -8,-8)" in capsys.readouterr().out
+
+
+def test_review_2_the_spare_pixel_goes_right_both_ways(box, capsys):
+    (box / "wide.px").write_text("k #000000\n\nkkkkk\n")
+    assert run("scene", "--size", "4x1", "--scale", "1", "-o", "a.png", "wide.px@0,0", "--anchor", "center") == 0
+    assert "shows 0,0 to 3,0 of the 5x1" in capsys.readouterr().out  # a smaller window: the scene's spare px right
+    assert run("scene", "--size", "5x5", "--scale", "1", "-o", "b.png", "box.px@0,0", "--anchor", "center") == 0
+    assert "shows 0,0 to 4,4 of the 4x4" in capsys.readouterr().out  # a bigger one: the window's spare px right
+
+
+def test_review_3_a_point_with_spaces_or_negative(box, capsys):
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "--anchor", "1, 1") == 0
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "--anchor=-1,-1") == 0
+    assert "shows -3,-3 to 0,0" in capsys.readouterr().out
+    assert "--anchor=-8,4" in pxart.__doc__
