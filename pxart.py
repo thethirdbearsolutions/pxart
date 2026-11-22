@@ -667,15 +667,18 @@ EDITING (writes .px; -o defaults to editing the input in place)
       again, it rewrites the line of every key it derives, an earlier --add's too, and drops
       FILE's own line for an imported key no longer --keep-lit or --lamplit.
 
-      --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each
-      key's derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under
-      the lamp (base x COLOR / 255 per channel; #rrggbb, default #ffc080). At 1 a key is its
-      day color in lamplight, so a lit ramp keeps the day ramp's contrast. It repeats, for
-      rings: '--lamplit f,g@0.42 --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n
-      (0.2)'. Set up: give what the lamp lights keys of its own, a hair off the plain wood's
-      (f #6c4a2e by b #6b4a2e: alike by day), drawn where the light falls; a ring further out
-      takes another --lamplit; dither the zones' edges for a falloff. To change a strength,
-      derive from base again (from a lamplit variant it lights twice).
+      --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each key's
+      derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under the lamp
+      (base x COLOR / 255 per channel; #rrggbb, default #ffc080). At 1 a key is its day color
+      in lamplight. It lifts a key only where COLOR / 255 beats what the darken and tint left,
+      so after a light --darken a dim lamp darkens keys (the summary names them); and as it
+      lights a key toward its own day color, it can't brighten a dark key much (a lantern's
+      iron): give that one a lighter --add. It repeats, for rings: '--lamplit f,g@0.42
+      --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n (0.2)'. Set up: give what
+      the lamp lights keys of its own, a hair off the plain wood's (f #6c4a2e by b #6b4a2e:
+      alike by day), drawn where the light falls; a ring further out takes another --lamplit;
+      dither the zones' edges for a falloff. To change a strength, derive from base again (from
+      a lamplit variant it lights twice).
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -8658,6 +8661,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     had = name in doc.variants
     over = doc.variants.setdefault(name, {})
     recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter that came out brighter
+    dimmed = []  # lamplit keys the lamp made darker than their plain derive: a lamp dimmer than the night left them
     theirs = []  # imported keys kept lit or lamplit over the import's own variant: on lines of FILE's own
     dropped = []  # imported keys whose line of FILE's own this derive took out: the import's variant colors them again
     for k, c in base.items():
@@ -8684,7 +8688,8 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                     held += [k] if k not in held and k not in glow else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
                 if k in glow:  # toward its day color under the lamp: the slot's own, or its base
-                    one = lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
+                    plain, one = one, lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
+                    dimmed += [k] if brightness(one) < brightness(plain) and k not in dimmed else []
                     bright += [k] if dark and brightness(one) > brightness(x) and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
@@ -8739,6 +8744,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                     + " came out brighter)")
     if lamped:
         said.append(lamped)
+    if dimmed:
+        said.append(f"lamplit {' '.join(dimmed)} came out darker than without the lamp: the lamp is dimmer than this "
+                    f"{name}")
     return said
 
 
@@ -8782,7 +8790,8 @@ def lamplit_arg(spec):
 def lamplit(c, strength, lamp, day):
     """One derived color c lit by --lamplit: mixed by strength toward `day` (the key's day color) under the lamp,
     relit = day x lamp / 255 per channel; each channel c + strength x (relit - c), rounded; c's alpha stays. At 1 the
-    key is its day color in lamplight, so a lit ramp keeps the day ramp's contrast (times the lamp's color)."""
+    key is its day color in lamplight. It brightens a channel only where lamp / 255 beats what the derive left of it
+    (with a light darken, a dim lamp darkens: derive_variant names those keys)."""
     relit = [d * w / 255 for d, w in zip(day[:3], lamp[:3])]
     return tuple(int(round(v + strength * (r - v))) for v, r in zip(c[:3], relit)) + (c[3],)
 

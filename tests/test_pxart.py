@@ -15996,15 +15996,20 @@ def spread(c1, c3):
     return max(abs(a - b) for a, b in zip(c1[:3], c3[:3]))
 
 
-@pytest.mark.parametrize("darken, tint, s", [(0.5, "#10183060", 0.45), (0.35, None, 0.45), (0.6, "#10183080", 1),
-                                             (0.5, "#10183060", 0.2)])
-def test_lamplit_keeps_a_ramps_contrast(tmp_path, capsys, darken, tint, s):
+@pytest.mark.parametrize("darken, tint, s, lamp", [(0.5, "#10183060", 0.45, ""), (0.35, None, 0.45, ""),
+                                                   (0.6, "#10183080", 1, ""), (0.5, "#10183060", 0.2, ""),
+                                                   (0.6, None, 0.6, ":#e0c080")])
+def test_lamplit_keeps_a_ramps_contrast(tmp_path, capsys, darken, tint, s, lamp):
     # mixing toward one flat lamp color shrank a lit ramp by 1 - S; toward each key's own day color under the lamp
-    # it keeps (at least) the plain-derived ramp's spread, and more of the day ramp's the stronger the light
+    # it keeps (at least) the plain-derived ramp's spread, and more of the day ramp's the stronger the light, where
+    # the lamp is brighter than the night (lamp / 255 over what the darken and tint left: a night this dark)
     plain, lit = write(tmp_path, "a.px", WOOD), write(tmp_path, "b.px", WOOD)
     shape = ["--darken", str(darken)] + (["--tint", tint] if tint else [])
     assert run("palette", plain, "--variant", "night", "--derive-from", "base", *shape) == 0
-    assert run("palette", lit, "--variant", "night", "--derive-from", "base", *shape, "--lamplit", f"dwl@{s}") == 0
+    capsys.readouterr()
+    assert run("palette", lit, "--variant", "night", "--derive-from", "base", *shape, "--lamplit",
+               f"dwl@{s}{lamp}") == 0
+    assert "darker than without the lamp" not in capsys.readouterr().out
     flat = spread(dv(plain, "night", "d"), dv(plain, "night", "l"))
     warm = spread(dv(lit, "night", "d"), dv(lit, "night", "l"))
     assert warm >= flat
@@ -16012,6 +16017,37 @@ def test_lamplit_keeps_a_ramps_contrast(tmp_path, capsys, darken, tint, s):
         assert pxart.brightness(dv(lit, "night", k)) > pxart.brightness(dv(plain, "night", k))
     ramp = [dv(lit, "night", k) for k in "dwl"]
     assert pxart.brightness(ramp[0]) < pxart.brightness(ramp[1]) < pxart.brightness(ramp[2])
+
+
+@pytest.mark.parametrize("lamp", ["", ":#e0c0a0"])
+def test_lamplit_dimmer_than_a_light_night_darkens_and_says_so(tmp_path, capsys, lamp):
+    # --darken 0.1 leaves 90% of each channel; #ffc080's blue (50%) and #e0c0a0's every channel but red (88%) are
+    # less: the lamp pulls the ramp down and flattens it (luma spread 70.3 plain, 62.6 at @1 under #ffc080). The help
+    # says when the lamp lifts a key, and the summary names each key it made darker
+    plain, lit = write(tmp_path, "a.px", WOOD), write(tmp_path, "b.px", WOOD)
+    assert run("palette", plain, "--variant", "night", "--derive-from", "base", "--darken", "0.1") == 0
+    capsys.readouterr()
+    assert run("palette", lit, "--variant", "night", "--derive-from", "base", "--darken", "0.1", "--lamplit",
+               f"dwl@1{lamp}") == 0
+    out = capsys.readouterr().out
+    for k in "dwl":
+        assert pxart.brightness(dv(lit, "night", k)) < pxart.brightness(dv(plain, "night", k))
+    assert "lamplit d w l came out darker than without the lamp: the lamp is dimmer than this night" in out
+    luma = [pxart.brightness(dv(f, "night", k)) for f in (plain, lit) for k in "dl"]
+    assert luma[3] - luma[2] < luma[1] - luma[0]  # the lit ramp is flatter than the plain one, here
+    # one key only: f lit at 0.4 by a red lamp in a light night is darker; g (not lamplit) isn't named
+    p = write(tmp_path, "p.px", LPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.1", "--lamplit",
+               "f:#c08060") == 0
+    assert "lamplit f came out darker than without the lamp" in capsys.readouterr().out
+
+
+def test_help_says_when_the_lamp_lifts_a_key(capsys):
+    out = " ".join(cmd_help(capsys, "palette").split())
+    assert "It lifts a key only where COLOR / 255 beats what the darken and tint left, so after a light --darken a " \
+        "dim lamp darkens keys (the summary names them); and as it lights a key toward its own day color, it can't " \
+        "brighten a dark key much (a lantern's iron): give that one a lighter --add." in out
+    assert "keeps the day ramp's contrast" not in out
 
 
 def test_lamplit_at_full_strength_is_the_day_ramp_in_lamplight(tmp_path):
@@ -23575,8 +23611,9 @@ def test_help_all_does_not_grow(capsys):
     # list of its own, outside 'help all') named in HELP. 71135 with --lamplit's setup (its own keys for what the
     # lamp lights, rings, a dithered edge), re-deriving from base to change a strength, and what a re-derive rewrites.
     # 71222 with what a re-derive drops for an imported key no longer kept lit or lamplit (PX-30 review2 1).
+    # 71480 with when the lamp lifts a key and when it darkens one, and that it can't brighten a dark key much (PX-30 review2 3).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 71222
+    assert len(capsys.readouterr().out.encode()) <= 71480
 
 
 def test_help_says_each_shared_rule_once():

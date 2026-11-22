@@ -14,8 +14,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
   --lamplit f,g@0.42 --lamplit m,n@0.2` derives as before, then mixes each listed key's derived
   color by its strength (default 0.4) toward the key's base color under the lamp, `relit = base x
   lamp / 255` per channel (lamp `#ffc080` by default, or `KEYS@S:#rrggbb`): each channel `c + S x
-  (relit - c)`, alpha kept. At strength 1 a key is its day color in lamplight, so a lit ramp keeps
-  the day ramp's contrast. The first cut, merged earlier the same day, mixed toward the flat lamp
+  (relit - c)`, alpha kept. At strength 1 a key is its day color in lamplight. It lifts a key only
+  where `lamp / 255` beats what the darken and tint left of it, so after a light darken (0.1) a dim
+  lamp darkens keys, and the summary names any lamplit key that came out darker than its plain
+  derive; and as it lights a key toward its own day color, it can't brighten a dark key (a
+  lantern's iron) much. The first cut, merged earlier the same day, mixed toward the flat lamp
   color (`#ffaa50`) instead, which squeezed a lit wood ramp nearly flat (12 apart in red where the
   day ramp was 86); the default lamp is now `#ffc080`, since a day color times `#ffaa50` keeps only
   71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
