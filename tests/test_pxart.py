@@ -16294,7 +16294,8 @@ def test_help_cmd_is_cmd_dash_h(capsys, cmd):
 
 def test_help_unknown_topic(capsys):
     msg = run_err("help", "nope")
-    assert msg.startswith("help: E_BAD_ARG: help 'nope': no such topic or command; topics: all, recipes, FORMAT") and \
+    assert msg.startswith("help: E_BAD_ARG: help 'nope': no such topic or command ('pxart help topics' says what each "
+                          "is); topics: all, recipes, FORMAT") and \
         "commands:" in msg
 
 
@@ -23470,6 +23471,20 @@ def test_overview_points_at_the_recipes(capsys):
     assert "'pxart help recipes'" in capsys.readouterr().out
 
 
+def test_help_topics_lists_the_topics(capsys):
+    # the main help says 'pxart help TOPIC'; 'help topics' was itself an error
+    assert run("help", "topics") == 0
+    out = capsys.readouterr().out
+    for t in ["all", "recipes", *pxart.TOPICS, "worlds", "slots", "fonts", "plain", "compose-rules", "palette-rules"]:
+        assert re.search(rf"^  {re.escape(t)} +\S", out, re.M), t
+    assert "LOOKING        render sheet" in out
+    for t in ["recipes", "worlds", "slots", "fonts", "plain", "palette-rules", "looking", "ERRORS"]:
+        assert run("help", t) == 0
+    capsys.readouterr()
+    assert "'pxart help topics'" in run_err("help", "nope")
+    assert "'pxart help topics' lists them" in " ".join(pxart.__doc__.split())
+
+
 def test_unknown_help_topic_lists_recipes(capsys):
     assert "topics: all, recipes, FORMAT" in run_err("help", "nope")
 
@@ -23494,9 +23509,10 @@ def test_help_all_does_not_grow(capsys):
     # paste --rekey changes (PX-35), in two. 70087 with anim's note for a single frame (PX-41), in one. 70468 with
     # palette --lamplit (PX-30), lamplight on what stands near a lamp, in four and a usage flag. 70595 with lamplit
     # mixing toward the base color under the lamp (PX-30 fixes), in two more. 70674 with what a derive does with
-    # imported keys kept lit or lamplit over the import's own variant, in one.
+    # imported keys kept lit or lamplit over the import's own variant, in one. 70712 with 'pxart help topics' (a
+    # list of its own, outside 'help all') named in HELP.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 70674
+    assert len(capsys.readouterr().out.encode()) <= 70712
 
 
 def test_help_says_each_shared_rule_once():

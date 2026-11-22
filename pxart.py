@@ -877,7 +877,8 @@ HELP
   help [all | recipes | TOPIC | CMD]
       'pxart help recipes': seven workflows, command by command; 'help worlds': Tiled worlds.
       'pxart help all' prints this whole reference; 'pxart help TOPIC' one part of
-      it (a heading here, any case); 'pxart help CMD' is 'pxart CMD -h'.
+      it (a heading here, any case; 'pxart help topics' lists them); 'pxart help CMD' is
+      'pxart CMD -h'.
       'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
       sections open with.
 
@@ -12359,6 +12360,8 @@ def cmd_help(a):
         print(PLAIN.rstrip())
     elif want.lower() == "fonts":
         print(FONTS.rstrip())
+    elif want.lower() == "topics":
+        print(topics())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
     elif want.endswith("-rules") and rules(want[:-len("-rules")]):
@@ -12369,9 +12372,25 @@ def cmd_help(a):
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, fonts, plain, slots, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command ('pxart help topics' says what each is); "
+             f"topics: all, recipes, {', '.join(TOPICS)}, fonts, plain, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
+
+
+def topics():
+    """pxart help topics: each topic 'pxart help TOPIC' prints, and what is in it (a reference topic: its commands)."""
+    by = commands_by_topic()
+    rows = [("all", "the whole reference"), ("recipes", "seven workflows, end to end"),
+            ("FORMAT", "the .px format: frames, animation, pivots, variants, selecting frames")] \
+        + [(t, " ".join(by.get(t, [])) or {"HELP": "help", "ERRORS": "the error codes"}.get(t, "")) for t in TOPICS
+           if t != "FORMAT"] \
+        + [("worlds", "Tiled worlds (export --tiled)"), ("slots", "palette slots: a key's alternatives for a game to "
+            "recolor"), ("fonts", "a pixel font from glyph frames (export --font)"), ("plain", "plain sheets with no "
+            "text (sheet --plain)")] + [(f"{c}-rules", f"only the rules {c}'s section opens with") for c in RULED]
+    return "\n".join(["Topics ('pxart help TOPIC'; any case for the reference's own, FORMAT to ERRORS):"]
+                     + [f"  {t:<14} {what}" for t, what in rows]
+                     + ["Commands: 'pxart help CMD' is 'pxart CMD -h'; 'pxart -h' lists them by topic."])
 
 
 RULED = ("compose", "palette")  # sections that open with a 'Rules' list: 'pxart help compose-rules'
