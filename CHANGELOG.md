@@ -30,6 +30,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
+  smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;
+  an agent expecting the centre got a corner. The help now says the top-left is kept (x,y as typed,
+  so every existing command draws the same), and `--anchor center` (or `top`, `left`, `bottom-right`,
+  and the other edges and corners) keeps that part instead, and `--anchor X,Y` centres the window on
+  that point of the scene (a camera on the hero), with a note naming the pixels shown: `note:
+  --anchor center: the 96x64 scene shows 40,20 to 135,83 of the 176x104 the map and items fill`. A
+  bigger `--size` with `--anchor center` puts the scene in its middle.
+
 - **`anim` on one frame says there's nothing to compare (PX-41).** A file or group of a single frame
   printed `mushroom 100ms vs mushroom: shift +0,+0 then 0px (0%)`, the frame against itself, which
   reads like a measurement. It now prints `note: mushroom: 1 frame (100ms), nothing to compare` (a
@@ -48,6 +57,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
   tiles under `@still *` too, so a game reading the JSON could take tiles for animation frames.
   A `@still` frame (a tile, an icon) now has no `"ms"`; animated frames keep theirs, and so does a
   top-level frame not marked still.
+
+- **`paste` and `frames --copy-to` say what the `--rekey` their WARNINGs offer would change (PX-35).**
+  Pasting quarters of tiles key for key into a file with a night printed one WARNING per key, each
+  ending `paste --rekey L gives it a key of its own`; following that would have renamed stand-in keys
+  a game's fill code reads by letter. After those WARNINGs a note now says so: `note: paste --rekey
+  D,E,F,L would give those pixels new letters in tiles.px; left off, the keys stay (a key-for-key copy)
+  and take tiles.px's variant colors`. Keys a shell or `--rekey` can't take as a list (`,` `=` `*`),
+  or more than six, give plain `--rekey`; after a partial `--rekey D,F` it says `adding E,L to --rekey`.
+  A source that shares DST's palette gets no WARNING and no note.
 
 ## 2026-11-21
 

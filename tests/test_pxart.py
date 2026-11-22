@@ -5348,6 +5348,8 @@ def test_frames_copy_group_new_to_dst(tmp_path, capsys):
     assert capsys.readouterr().out == (
         f"WARNING: FILE ({s}:walk) draws 'k' #000000 in {d}'s variant colors, not s.px's: night #000011 (s.px: "
         "#000000); frames --copy-to --rekey k gives it a key of its own\n"
+        f"note: frames --copy-to --rekey k would give those pixels new letters in {d}; left off, the keys stay (a "
+        f"key-for-key copy) and take {d}'s variant colors\n"
         f"copied walk/0, walk/1 to {d}; added @anim walk; wrote {d}\n")
     assert ids(d) == ["idle", "tail/0", "walk/0", "walk/1"]
     doc = pxart.parse(d)
@@ -15009,7 +15011,9 @@ def test_report_copy_to_one_line_per_reason_for_vclash_and_base_note(tmp_path, c
     lines = capsys.readouterr().out.splitlines()
     warns, notes = [l for l in lines if l.startswith("WARNING:")], [l for l in lines if l.startswith("note:")]
     assert len(warns) == 1 and "draws 'r' #c4473a" in warns[0] and "no @variant" not in warns[0]
-    assert len(notes) == 1 and notes[0].startswith("note: keeper.px has no @variant dusk")
+    assert len(notes) == 2 and notes[0].startswith("note: frames --copy-to --rekey r would give those pixels new "
+                                                   "letters")  # what the WARNING's --rekey changes (PX-35)
+    assert notes[1].startswith("note: keeper.px has no @variant dusk")
 
 
 def test_help_documents_the_compose_report(capsys):
@@ -23250,9 +23254,10 @@ def test_help_all_does_not_grow(capsys):
     # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
     # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
     # 68417 with check --outline (PX-11), the second, in six. 69479 with review-pack (PX-5), a command of its own for
-    # the blind, duplicated review, in twelve. 69581 with anim's note for a single frame (PX-41), in one.
+    # the blind, duplicated review, in twelve. 69880 with scene --anchor (PX-36), in six. 69985 with the note on what
+    # paste --rekey changes (PX-35), in two. 70087 with anim's note for a single frame (PX-41), in one.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 69581
+    assert len(capsys.readouterr().out.encode()) <= 70087
 
 
 def test_help_says_each_shared_rule_once():
