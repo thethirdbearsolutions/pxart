@@ -23249,10 +23249,10 @@ def test_help_all_does_not_grow(capsys):
     # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are. 67832 after put --at/--rows and
     # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
     # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
-    # 68417 with check --outline (PX-11), the second, in six. 69111 with review-pack (PX-5), a command of its own for
-    # the blind, duplicated review, in ten.
+    # 68417 with check --outline (PX-11), the second, in six. 69419 with review-pack (PX-5), a command of its own for
+    # the blind, duplicated review, in eleven.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 69311
+    assert len(capsys.readouterr().out.encode()) <= 69419
 
 
 def test_help_says_each_shared_rule_once():

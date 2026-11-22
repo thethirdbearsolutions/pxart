@@ -289,7 +289,8 @@ CHECKING
       random id, its pixels re-saved (nothing of the source's metadata; one file time). The
       map of id to render is DIR.manifest.json, beside DIR: keep it from the reviewer. A label
       drawn in a render (a file's name) isn't hidden: pack render --plain PNGs. --copies 2 puts
-      each render in twice (other ids and bytes, same pixels). --score reads JSON verdicts
+      each render in twice (other ids, sizes and image data; the same pixels, which a
+      reviewer that decodes them can still pair: give copies to separate reviewers). --score reads JSON verdicts
       ({"<id>": "keep", ...}, or [{"id": .., "verdict": ..}]; text compares without case) and
       prints each render's verdicts, the copies that DISAGREE, 'agreement: 5 of 6 render(s)
       judged in 2+ copies (83%)', and with sources in several folders each folder's tally.
@@ -3998,6 +3999,13 @@ def pack_ids(n, seed):
     return ids
 
 
+def pack_png(img, level):
+    """img as PNG bytes at a zlib level: two levels that give the same bytes give the same image data."""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", compress_level=level)
+    return buf.getvalue()
+
+
 def cmd_review_pack(a):
     if a.score:
         return review_score(a)
@@ -4023,16 +4031,21 @@ def cmd_review_pack(a):
             items[next(ids)] = {"source": src.as_posix(), "copy": c}
     n = len(items)
     if not DRY["run"]:
-        pics = {}
+        pics, seen = {}, {}
         for h in sorted(items):  # written in id order, so file times and inodes follow the random ids, not the sources
             src = items[h]["source"]
             if src not in pics:  # its pixels alone: no palette order, profile or text of the source's
                 pics[src] = Image.open(src).convert("RGBA")
-            # a chunk of random bytes and length, so two copies of one render differ in bytes and size (their pixels
-            # are the same): a reviewer can't pair them by a file hash or an ls
+            # each copy of a render compressed another way where one can be found (its image data differs, not only
+            # its size), and a chunk of random bytes and length: a reviewer can't pair copies by hashing a file or its
+            # data, only by decoding the pixels, which are the same
+            levels = list(range(10))
+            rng.shuffle(levels)
+            level = next((lv for lv in levels if pack_png(pics[src], lv) not in seen.setdefault(src, set())), levels[0])
+            seen[src].add(pack_png(pics[src], level))
             pad = PngImagePlugin.PngInfo()
             pad.add(b"paDd", bytes(rng.getrandbits(8) for _ in range(rng.randint(1, 64))))
-            pics[src].save(outpath(d / h / "image.png"), format="PNG", pnginfo=pad)
+            pics[src].save(outpath(d / h / "image.png"), format="PNG", pnginfo=pad, compress_level=level)
         when = os.stat(d).st_mtime
         for h in items:  # one time on every file and folder: nothing to sort the pack by but the ids
             os.utime(d / h / "image.png", (when, when))

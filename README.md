@@ -240,7 +240,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `review-pack` (a blind review: `review-pack renders/ -o pack --copies 2` puts each PNG in
   `pack/<id>/image.png` under a random id, twice, its pixels re-saved without the source's metadata and
   every file given one time, so no folder name, file name or file time tells a reviewer which render is
-  which, and two copies differ in bytes and size (not in pixels); a label drawn into a render isn't hidden,
+  which, and two copies differ in bytes, size and compressed image data, though not in pixels (a reviewer that
+  decodes them can pair copies: give them to separate reviewers); a label drawn into a render isn't hidden,
   so pack `render --plain` PNGs. It writes the map of ids to renders beside the pack as
   `pack.manifest.json`, to keep from the reviewer; `review-pack --score pack verdicts.json` reads the
   reviewer's `{"<id>": verdict}` back (text verdicts compare without case or spaces), prints each

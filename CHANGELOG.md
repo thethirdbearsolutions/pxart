@@ -16,8 +16,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   renders beside the folder as `pack.manifest.json` (or `--manifest M.json`; never inside it). The
   pack goes in a new or empty directory, written in id order with one time on every file, so a
   listing by time doesn't give the sources' order away. `--copies 2` puts each render in twice under
-  different ids, and the copies differ in bytes and size (a chunk of random padding), so a reviewer
-  can't pair them by a hash. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
+  different ids, and the copies differ in bytes, size and image data (another compression, a chunk of
+  random padding), so a reviewer can't pair them by a hash; their pixels are the same, so one that
+  decodes them can. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
   `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be `<id>/image.png`,
   or a list of `{"id", "verdict"}`; text compares without case or surrounding spaces), prints each
   render's verdicts, the copies that DISAGREE, `agreement: 5 of 6 render(s) judged in 2+ copies

@@ -159,6 +159,16 @@ def test_copies_differ_in_bytes_and_the_pack_has_one_time(renders):
         by_src.setdefault(it["source"], set()).add(
             Image.open(renders / "pack" / h / "image.png").convert("RGBA").tobytes())
     assert all(len(v) == 1 for v in by_src.values())  # the same pixels in every copy
+    # and other image data: hashing the IDAT chunks (loop 2's cheat) doesn't pair them either
+    def idat(path):
+        b, i, out = path.read_bytes(), 8, b""
+        while i < len(b):
+            n = int.from_bytes(b[i:i + 4], "big")
+            if b[i + 4:i + 8] == b"IDAT":
+                out += b[i + 8:i + 8 + n]
+            i += 12 + n
+        return out
+    assert len({idat(f) for f in files}) == 9
 
 
 def test_score_takes_a_list_and_structured_verdicts(renders, capsys):
