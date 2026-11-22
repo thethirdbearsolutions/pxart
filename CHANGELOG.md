@@ -30,6 +30,14 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
+  smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;
+  an agent expecting the centre got a corner. The help now says the top-left is kept (x,y as typed,
+  so every existing command draws the same), and `--anchor center` (or `top`, `left`, `bottom-right`,
+  and the other edges and corners) keeps that part instead, with a note naming the pixels shown: `note:
+  --anchor center: the 96x64 scene shows 40,20 to 135,83 of the 176x104 the map and items fill`. A
+  bigger `--size` with `--anchor center` puts the scene in its middle.
+
 - **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s
   `fetchCast` gunzipped only a URL ending `.gz`, so `cast.pxc.gz?r=2` (a cache-busting query)
   reached the decoder still gzipped, and a `.gz` a server had already decoded (sent with
