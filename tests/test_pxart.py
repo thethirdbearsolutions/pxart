@@ -23629,6 +23629,13 @@ def test_help_topics_lists_the_topics(capsys):
     assert "LOOKING        render sheet" in out
     for t in ["recipes", "worlds", "slots", "fonts", "plain", "palette-rules", "looking", "ERRORS"]:
         assert run("help", t) == 0
+    # "in any case" is true of every topic: 'help ALL' and 'help Palette-Rules' were refused, the rest weren't
+    assert "Topics ('pxart help TOPIC', in any case):" in out
+    for t in ["all", "recipes", *pxart.TOPICS, "worlds", "slots", "fonts", "plain", "compose-rules", "palette-rules"]:
+        for v in (t.upper(), t.lower(), t.title()):
+            assert run("help", v) == 0, v
+    capsys.readouterr()
+    assert run("help", "ALL") == 0 and capsys.readouterr().out.rstrip() == pxart.__doc__.rstrip()
     capsys.readouterr()
     assert "'pxart help topics'" in run_err("help", "nope")
     assert "'pxart help topics' lists them" in " ".join(pxart.__doc__.split())

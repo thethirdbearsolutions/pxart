@@ -12380,7 +12380,7 @@ def cmd_help(a):
     want = a.topic
     if want is None:
         print(parser()[0].format_help().rstrip())
-    elif want == "all":
+    elif want.lower() == "all":
         print(__doc__.rstrip())
     elif want.lower() == "recipes":
         print(RECIPES.rstrip())
@@ -12396,8 +12396,8 @@ def cmd_help(a):
         print(topics())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
-    elif want.endswith("-rules") and rules(want[:-len("-rules")]):
-        cmd = want[:-len("-rules")]
+    elif want.lower().endswith("-rules") and rules(want.lower()[:-len("-rules")]):
+        cmd = want.lower()[:-len("-rules")]
         print(f"{cmd}: the rules ('pxart {cmd} -h' has the whole section)\n{rules(cmd)}")
     elif want in parser(describe=False)[1].choices:  # a command's name first: 'help help' is help's own -h
         print(parser()[1].choices[want].format_help().rstrip())
@@ -12420,7 +12420,7 @@ def topics():
         + [("worlds", "Tiled worlds (export --tiled)"), ("slots", "palette slots: a key's alternatives for a game to "
             "recolor"), ("fonts", "a pixel font from glyph frames (export --font)"), ("plain", "plain sheets with no "
             "text (sheet --plain)")] + [(f"{c}-rules", f"only the rules {c}'s section opens with") for c in RULED]
-    return "\n".join(["Topics ('pxart help TOPIC'; any case for the reference's own, FORMAT to ERRORS):"]
+    return "\n".join(["Topics ('pxart help TOPIC', in any case):"]
                      + [f"  {t:<14} {what}" for t, what in rows]
                      + ["Commands: 'pxart help CMD' is 'pxart CMD -h'; 'pxart -h' lists them by topic."])
 

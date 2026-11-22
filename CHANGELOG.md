@@ -28,9 +28,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `--lift-darks`, brightened), and says `lamplit d came out brighter` only when the lamp itself lit
   it past its `--derive-from` color. When FILE imports a palette whose own file has a variant by
   that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
-  one its `--derive-from` color, each on a line of FILE's own (both were skipped, and still listed as done),
-  unless the import's variant already has that color; a re-derive without the flag drops the line
-  and says so.
+  one its `--derive-from` color, each on a line of FILE's own (both were skipped, and still listed
+  as done), unless the import's variant already has that color; a re-derive without the flag drops
+  the line and says so.
   `pxart help palette` (and the night recipe) says the setup it needs: keys of their own for what
   the lamp lights, a hair off the plain wood's so they match by day, another `--lamplit` per ring, a
   dithered edge; and to change a strength, derive from base again. An `--add` in the same call that
@@ -61,7 +61,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 - **`pxart help topics` lists the topics.** The main help says `pxart help TOPIC`, but `help
   topics` was "no such topic or command". It now lists each topic with the commands it covers, and
-  the unknown-topic error points at it.
+  the unknown-topic error points at it. Every topic takes any case now (`help ALL` and `help
+  Palette-Rules` were refused).
 
 - **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
   smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;
