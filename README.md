@@ -237,6 +237,18 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   side by side (of several pairs, the one that differs, named), or for several pairs `-o DIR` one picture per
   pair that differs; a size mismatch against a
   render or a scaled copy gets a note naming `render --plain`),
+  `review-pack` (a blind review: `review-pack renders/ -o pack --copies 2` puts each PNG in
+  `pack/<id>/image.png` under a random id, twice, its pixels re-saved without the source's metadata and
+  every file given one time, so no folder name, file name or file time tells a reviewer which render is
+  which, and two copies differ in bytes, size and compressed image data, though not in pixels (a reviewer that
+  decodes them can pair copies: give them to separate reviewers); a label drawn into a render isn't hidden,
+  so pack `render --plain` PNGs. It writes the map of ids to renders beside the pack as
+  `pack.manifest.json`, to keep from the reviewer; `review-pack --score pack verdicts.json` reads the
+  reviewer's `{"<id>": verdict}` back (an object verdict by its `"verdict"` field, text without case or
+  spaces, numbers as numbers), prints each
+  render's verdicts and the copies that disagree, `agreement: 5 of 6 render(s) judged in 2+ copies
+  (83%)`, and, when the renders came from several folders (method-a/, method-b/), each folder's tally: a
+  reviewer that changes its mind on the same picture is noise, not a finding),
   `frames` (`--rm`/`--move` print only what they did, and a move to where the frames
   already are says `already in place`; with a selector, `frames hero.px:walk/left` lists
   those frames, `--rm` removes them and `--after ID` moves them; removing a group's last

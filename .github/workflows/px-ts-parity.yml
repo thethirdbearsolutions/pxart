@@ -1,6 +1,7 @@
 name: px.ts parity
 
-# js/px.ts must draw every frame x variant of examples/ byte for byte as pxart.py renders it.
+# js/px.ts must draw every frame x variant of examples/ byte for byte as pxart.py renders it; bench/cast/web/pxc.js
+# must gunzip a cast by its bytes (tests/test_pxc_js.py).
 on:
   push:
     branches: [main]
@@ -18,4 +19,4 @@ jobs:
         with:
           node-version: "22.18"
       - run: pip install pillow pytest
-      - run: python -m pytest -v tests/test_px_ts.py
+      - run: python -m pytest -v tests/test_px_ts.py tests/test_pxc_js.py

@@ -39,7 +39,9 @@ await cast.paint({ blend: { from: '', to: 'dusk', amount: 0.3 } });  // any blen
 Serve the `.pxc` brotli-compressed, as you would `.px`: the format leaves the byte-level
 compression to brotli. Hosts compress only the types they know. Where a host won't compress
 `.pxc`, gzip it yourself (`gzip -9 -k cast.pxc`) and load `cast.pxc.gz`: the worker gunzips it
-with DecompressionStream. Chromium's DecompressionStream has no brotli. The gzip file is about 3×
+with DecompressionStream. It goes by the bytes, not the URL: what arrives still gzipped (it starts
+`1f 8b`) is gunzipped, so `cast.pxc.gz?r=2` works, and a `.gz` a server has already decoded isn't
+gunzipped twice. Chromium's DecompressionStream has no brotli. The gzip file is about 3×
 the brotli size.
 
 ## PXC1
