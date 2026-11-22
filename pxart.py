@@ -8660,7 +8660,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
     had = name in doc.variants
     over = doc.variants.setdefault(name, {})
-    recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter that came out brighter
+    recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter the lamp lit past their src color
     dimmed = []  # lamplit keys the lamp made darker than their plain derive: a lamp dimmer than the night left them
     theirs = []  # imported keys kept lit or lamplit over the import's own variant: on lines of FILE's own
     dropped = []  # imported keys whose line of FILE's own this derive took out: the import's variant colors them again
@@ -8685,12 +8685,14 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                 one = x if imported else derived(matched(x, match[1]) if match else x, darken, color)
                 dark = not imported and brightness(x) < DARK * x[3] / 255
                 if dark and brightness(one) > brightness(x):
-                    held += [k] if k not in held and k not in glow else []  # with lift: brightened, as asked
+                    held += [k] if k not in held else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
                 if k in glow:  # toward its day color under the lamp: the slot's own, or its base
                     plain, one = one, lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
                     dimmed += [k] if brightness(one) < brightness(plain) and k not in dimmed else []
-                    bright += [k] if dark and brightness(one) > brightness(x) and k not in bright else []
+                    # the lamp itself took it past its src color (not the tint, with --lift-darks, before it)
+                    past = dark and brightness(plain) <= brightness(x) < brightness(one)
+                    bright += [k] if past and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
         # no line when it comes out as it would with none: its base color, or for an imported key the import's
@@ -8734,14 +8736,14 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     if lift:  # the hold is off: say which dark keys it would have held
         said.append(f"--lift-darks: {' '.join(held)} brightened (darker than a quarter; the hold would have kept "
                     f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened"
-                    + (" but lamplit ones" if bright else ""))
+                    + (" by the derive" if bright else ""))
     elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
                     f"color{'s' * (len(held) > 1)} by Rec. 709 luma (darker than a quarter: an outline stays dark; "
                     "--lift-darks lets the derive brighten them)")
     else:
-        said.append("held: none (no key darker than a quarter" + (", lamplit ones aside," if glow else "")
-                    + " came out brighter)")
+        said.append("held: none (no key darker than a quarter came out brighter" + (" from the derive" if bright
+                                                                                     else "") + ")")
     if lamped:
         said.append(lamped)
     if dimmed:

@@ -24,8 +24,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
   strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
   lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
-  undo the warming, and the summary doesn't call a lamplit key held (it names one lit brighter than
-  its `--derive-from` color as lamplit). When FILE imports a palette whose own file has a variant by
+  undo the warming: the summary names a dark lamplit key the derive brightened as held (or, with
+  `--lift-darks`, brightened), and says `lamplit d came out brighter` only when the lamp itself lit
+  it past its `--derive-from` color. When FILE imports a palette whose own file has a variant by
   that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
   one its base color, each on a line of FILE's own (both were skipped, and still listed as done),
   unless the import's variant already has that color; a re-derive without the flag drops the line

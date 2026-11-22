@@ -16060,37 +16060,66 @@ def test_lamplit_at_full_strength_is_the_day_ramp_in_lamplight(tmp_path):
 HOLD = "pxart 1\nk #000000\nd #2a1c12\nw #8b6440\n@variant dusk\nk #000000\nd #140d08\nw #5a4030\n"
 
 
-def test_lamplit_key_is_not_reported_held(tmp_path, capsys):
-    # k and d are darker than a quarter, and the blue tint brightens both: the hold keeps them dark. d is lamplit:
-    # it is lit (from its held color), and the summary names only k as held
+def test_lamplit_dark_key_is_reported_held(tmp_path, capsys):
+    # k and d are darker than a quarter, and the blue tint brightens both: the hold keeps them dark, and the summary
+    # names both (d was left out for being lamplit: "held: none" read as if d hadn't been). d is then lit from its
+    # held color, toward its base color under the lamp: never past its day color, so no "came out brighter"
     p = write(tmp_path, "p.px", HOLD)
     tint = "#4060c0a0"
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--tint", tint, "--lamplit", "d@0.5") == 0
     out = capsys.readouterr().out
-    assert "k held no brighter than its base color" in out and "d held" not in out and "k d held" not in out
+    assert "k d held no brighter than their base colors by Rec. 709 luma" in out
     d = pxart.hex2rgba("#2a1c12")
     want = pxart.lamplit(pxart.no_brighter(pxart.derived(d, 0, pxart.hex2rgba(tint)), d), 0.5, pxart.LAMP, d)
     assert dv(p, "night", "d") == want
     assert pxart.brightness(dv(p, "night", "d")) <= pxart.brightness(d)  # lit from base: never past its day color
-    assert "lamplit d came out brighter" not in out
+    assert "came out brighter" not in out
+
+
+@pytest.mark.parametrize("lift", [False, True])
+def test_lamplit_dark_key_the_tint_brightened(tmp_path, capsys, lift):
+    # the reviewer's hold.px: the tint, not the lamp, brightens d. Without --lift-darks d is held, and said so (it
+    # was "held: none (... lamplit ones aside ...)"); with it, d is named as brightened by the derive, and the lamp
+    # isn't blamed ("lamplit d came out brighter ..., as asked", after "no dark key brightened but lamplit ones")
+    p = write(tmp_path, "hold.px", "pxart 1\nd #2a1c12\nw #8b6440\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--tint", "#4060c0a0", "--lamplit",
+               "d@0.3", *(["--lift-darks"] if lift else [])) == 0
+    out = capsys.readouterr().out
+    if lift:
+        assert "--lift-darks: d brightened (darker than a quarter; the hold would have kept it dark)" in out
+    else:
+        assert "d held no brighter than its base color by Rec. 709 luma" in out
+    assert "came out brighter" not in out and "held: none" not in out and "but lamplit" not in out
+    assert "lamplit d came out darker than without the lamp" in out  # #ffc080 x d is dimmer than d tinted (or held)
 
 
 def test_lamplit_warms_past_the_dark_hold(tmp_path, capsys):
-    # derived from a dusk darker than the day: the lamp lights d toward its BASE color under the lamp, brighter than
-    # its dusk color. The hold doesn't undo it, and the summary says so instead of calling d held (k is)
+    # derived from a dusk darker than the day: the hold keeps k and d at their dusk brightness, then the lamp lights d
+    # toward its BASE color under the lamp, brighter than its dusk color. The summary says both
     p = write(tmp_path, "p.px", HOLD)
     assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--tint", "#4060c0a0", "--lamplit",
                "d@0.8") == 0
     out = capsys.readouterr().out
-    assert "k held no brighter than its dusk color" in out
+    assert "k d held no brighter than their dusk colors" in out
     assert "lamplit d came out brighter than its dusk color, as asked: lamplight isn't held" in out
     assert pxart.brightness(dv(p, "night", "d")) > pxart.brightness(pxart.hex2rgba("#140d08"))
 
 
-def test_lamplit_held_none_says_lamplit_aside(tmp_path, capsys):
+def test_lamplit_past_its_dusk_color_with_nothing_held(tmp_path, capsys):
+    # nothing held (the darken keeps every key dark) but the lamp lights d past its dusk color: "held: none" says
+    # it's the derive that brightened none
+    p = write(tmp_path, "p.px", HOLD)
+    assert run("palette", p, "--variant", "night", "--derive-from", "dusk", "--darken", "0.5", "--lamplit",
+               "d@0.8") == 0
+    out = capsys.readouterr().out
+    assert "held: none (no key darker than a quarter came out brighter from the derive)" in out
+    assert "lamplit d came out brighter than its dusk color, as asked: lamplight isn't held" in out
+
+
+def test_lamplit_held_none(tmp_path, capsys):
     p = write(tmp_path, "p.px", HOLD)
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "d") == 0
-    assert "held: none (no key darker than a quarter, lamplit ones aside, came out brighter)" in capsys.readouterr().out
+    assert "held: none (no key darker than a quarter came out brighter)" in capsys.readouterr().out
 
 
 IMPORTED_NIGHT = "pxart 1\nw #8b6440\ny #ffd040\n@variant night\nw #302820\ny #403820\n"
