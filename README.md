@@ -244,7 +244,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   decodes them can pair copies: give them to separate reviewers); a label drawn into a render isn't hidden,
   so pack `render --plain` PNGs. It writes the map of ids to renders beside the pack as
   `pack.manifest.json`, to keep from the reviewer; `review-pack --score pack verdicts.json` reads the
-  reviewer's `{"<id>": verdict}` back (text verdicts compare without case or spaces), prints each
+  reviewer's `{"<id>": verdict}` back (an object verdict by its `"verdict"` field, text without case or
+  spaces, numbers as numbers), prints each
   render's verdicts and the copies that disagree, `agreement: 5 of 6 render(s) judged in 2+ copies
   (83%)`, and, when the renders came from several folders (method-a/, method-b/), each folder's tally: a
   reviewer that changes its mind on the same picture is noise, not a finding),

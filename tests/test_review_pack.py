@@ -246,3 +246,99 @@ def test_a_folder_of_px_only_says_render_first(renders):
     (renders / "art" / "s.px").write_text("k #000000\nk\n")
     assert run("review-pack", "art", "-o", "pack") == 1
     assert "a directory with no .png under it; render its .px first ('pxart render art/s.px -o art/s.png')" in err()
+
+
+# ---------------------------------------------------------------- the PR #10 review's findings
+
+
+def score_out(renders, capsys, verdicts, *pack_args, name="pack"):
+    assert run("review-pack", *pack_args, "-o", name, "--seed", "9") == 0
+    items = manifest(renders, name)["items"]
+    v = verdicts(items)
+    (renders / "v.json").write_bytes(v if isinstance(v, bytes) else json.dumps(v).encode())
+    capsys.readouterr()
+    code = run("review-pack", "--score", name, "v.json")
+    return code, capsys.readouterr().out
+
+
+def test_review_1_an_object_verdict_compares_by_its_verdict_field(renders, capsys):
+    code, out = score_out(renders, capsys, lambda items: {
+        h: {"verdict": "pass", "reason": f"looks fine {i}"} for i, h in enumerate(items)},
+        "era-old/owl.png", "--copies", "2")
+    assert code == 0 and "(2 copies agree)" in out and "agreement: 1 of 1 render(s) judged in 2+ copies (100%)" in out
+
+
+def test_review_2_a_list_with_an_id_twice_is_an_error(renders, capsys):
+    code, _ = score_out(renders, capsys, lambda items: [{"id": h, "verdict": v} for h in list(items)[:1]
+                                                        for v in ("pass", "fail")], "era-old/owl.png", "--copies", "2")
+    assert code == 1 and "has two verdicts in the list" in err()
+
+
+def test_review_3_a_16_bit_grey_png_keeps_its_greys(renders):
+    Image.new("I;16", (2, 2), 40000).save(renders / "grey16.png")
+    assert run("review-pack", "grey16.png", "-o", "pack", "--seed", "1") == 0
+    (h,) = manifest(renders)["items"]
+    px = Image.open(renders / "pack" / h / "image.png").convert("RGBA").getpixel((0, 0))
+    assert px == (156, 156, 156, 255)  # 40000 / 256, not white
+
+
+@pytest.mark.parametrize("bad", ["{trunc", '{"pxart_review_pack": 1}', '{"pxart_review_pack": 1, "items": {}}',
+                                 '{"pxart_review_pack": 1, "items": {"0123456789ab": "x.png"}}',
+                                 '{"pxart_review_pack": 1, "items": {"0123456789ab": {"copy": 1}}}'])
+def test_review_4_a_broken_manifest_is_an_error_not_a_traceback(renders, bad):
+    (renders / "pack").mkdir()
+    (renders / "pack.manifest.json").write_text(bad)
+    (renders / "v.json").write_text('{"0123456789ab": "pass"}')
+    assert run("review-pack", "--score", "pack", "v.json") == 1
+    assert "E_BAD_ARG" in err() and ("not a review-pack manifest" in err() or "not JSON" in err())
+
+
+def test_review_5_utf16_verdicts_read_and_other_bytes_refused(renders, capsys):
+    code, out = score_out(renders, capsys, lambda items: json.dumps({h: "keep" for h in items}).encode("utf-16"),
+                          "era-old/owl.png")
+    assert code == 0 and 'era-old/owl.png: "keep"' in out
+    (renders / "v.json").write_bytes(b'{"\xff\xfe\xfa": 1}')
+    assert run("review-pack", "--score", "pack", "v.json") == 1 and "not UTF-8" in err()
+
+
+def test_review_6_agreement_rounds_down(renders, capsys):
+    for i in range(3):
+        png(renders / "three" / f"{i}.png", (i * 50, 9, 9, 255))
+    code, out = score_out(renders, capsys, lambda items: {
+        h: ("fail" if it["source"].endswith("0.png") and it["copy"] == 2 else "pass") for h, it in items.items()},
+        "three", "--copies", "2")
+    assert "agreement: 2 of 3 render(s) judged in 2+ copies (66%)" in out
+
+
+def test_review_7_more_copies_than_compressions_says_so(renders, capsys):
+    assert run("review-pack", "era-old/owl.png", "-o", "pack", "--copies", "12", "--seed", "1") == 0
+    assert "share image data with another copy of the same render" in capsys.readouterr().out
+
+
+def test_review_8_an_animated_png_gets_a_note(renders, capsys):
+    frames = [Image.new("RGBA", (2, 2), c) for c in ((255, 0, 0, 255), (0, 255, 0, 255))]
+    frames[0].save(renders / "a.png", save_all=True, append_images=frames[1:])
+    assert run("review-pack", "a.png", "-o", "pack") == 0
+    assert "note: a.png is an animated PNG (2 frames); the pack has its first frame" in capsys.readouterr().out
+
+
+def test_review_9_a_folder_scan_takes_upper_case_png(renders):
+    png(renders / "caps" / "BIG.PNG", (1, 2, 3, 255))
+    assert run("review-pack", "caps", "-o", "pack") == 0
+    assert [it["source"] for it in manifest(renders)["items"].values()] == ["caps/BIG.PNG"]
+
+
+def test_review_10_numbers_compare_as_numbers_and_the_tally_shows_verdicts_as_written(renders, capsys):
+    code, out = score_out(renders, capsys, lambda items: {
+        h: (1 if it["copy"] == 1 else 1.0) if "owl" in it["source"] else ("Fail" if it["copy"] == 1 else "fail")
+        for h, it in items.items()}, "era-old", "era-new", "--copies", "2")
+    assert "era-old/owl.png: 1 (2 copies agree)" in out
+    assert 'era-new/: "Fail" x2' in out
+
+
+def test_review_11_dash_o_dot_names_the_manifest_after_the_folder(renders):
+    (renders / "here").mkdir()
+    import os
+    os.chdir(renders / "here")
+    assert run("review-pack", "../era-old/owl.png", "-o", ".") == 0
+    assert (renders / "here.manifest.json").exists()

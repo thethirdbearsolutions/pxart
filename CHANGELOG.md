@@ -20,7 +20,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   random padding), so a reviewer can't pair them by a hash; their pixels are the same, so one that
   decodes them can. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
   `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be `<id>/image.png`,
-  or a list of `{"id", "verdict"}`; text compares without case or surrounding spaces), prints each
+  or a list of `{"id", "verdict"}`; an object verdict compares by its `"verdict"` field, so a free-text
+  reason beside it doesn't count; text compares without case or surrounding spaces, numbers as numbers;
+  UTF-16 with a BOM reads too), prints each
   render's verdicts, the copies that DISAGREE, `agreement: 5 of 6 render(s) judged in 2+ copies
   (83%)`, each source folder's tally when there are several (an A/B review), and notes for items with
   no verdict and keys that name no item; verdicts that match no item at all are an error.

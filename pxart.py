@@ -291,7 +291,8 @@ CHECKING
       drawn in a render (a file's name) isn't hidden: pack render --plain PNGs. --copies 2 puts
       each render in twice (other ids, sizes and image data; the same pixels, which a
       reviewer that decodes them can still pair: give copies to separate reviewers). --score reads JSON verdicts
-      ({"<id>": "keep", ...}, or [{"id": .., "verdict": ..}]; text compares without case) and
+      ({"<id>": "keep"}, {"<id>": {"verdict": "keep", "why": ..}}, [{"id": .., "verdict": ..}];
+      text compares without case, numbers as numbers) and
       prints each render's verdicts, the copies that DISAGREE, 'agreement: 5 of 6 render(s)
       judged in 2+ copies (83%)', and with sources in several folders each folder's tally.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
@@ -3956,6 +3957,8 @@ PACK_VERSION = 1  # manifest.json's "pxart_review_pack"
 def pack_manifest_path(d, m=None):
     """Where a pack's manifest goes: --manifest, else beside DIR as DIR.manifest.json (outside what the reviewer gets)."""
     d = pathlib.Path(d)
+    if not d.name:  # -o . or -o ..: name it by the folder it is
+        d = d.resolve()
     return pathlib.Path(m) if m else d.parent / f"{d.name}.manifest.json"
 
 
@@ -3966,7 +3969,7 @@ def pack_sources(files):
     out, seen = [], set()
     for f in files:
         p = pathlib.Path(f)
-        found = sorted(q for q in p.rglob("*.png") if q.is_file()) if p.is_dir() else [p]
+        found = sorted(q for q in p.rglob("*") if q.is_file() and q.suffix.lower() == ".png") if p.is_dir() else [p]
         if p.is_dir() and not found:
             pxs = sorted(p.rglob("*.px"))
             hint = f"; render its .px first ('pxart render {pxs[0]} -o {pxs[0].with_suffix('.png')}')" if pxs else ""
@@ -3999,6 +4002,18 @@ def pack_ids(n, seed):
     return ids
 
 
+def pack_rgba(src):
+    """A source PNG as 8-bit RGBA: a 16-bit grey (mode I;16) scaled down, not clipped to white; an animated PNG's first
+    frame, with a note."""
+    img = Image.open(src)
+    if getattr(img, "n_frames", 1) > 1:
+        print(f"note: {src} is an animated PNG ({img.n_frames} frames); the pack has its first frame (a strip, from "
+              "anim, shows them all)")
+    if img.mode.startswith("I"):
+        img = img.convert("I").point(lambda v: v / 256).convert("L")
+    return img.convert("RGBA")
+
+
 def pack_png(img, level):
     """img as PNG bytes at a zlib level: two levels that give the same bytes give the same image data."""
     buf = io.BytesIO()
@@ -4021,7 +4036,9 @@ def cmd_review_pack(a):
              "new or empty directory, so nothing else in it can tell the reviewer anything")
     m = pack_manifest_path(d, a.manifest)
     if d.resolve() in m.resolve().parents:
-        fail("E_BAD_ARG", f"--manifest {m}: it is inside -o {d}, where the reviewer would read it; put it outside")
+        fail("E_BAD_ARG", f"--manifest {m}: it is inside -o {d}, where the reviewer would read it; put it outside"
+             if a.manifest else f"-o {d}: its manifest would go to {m}, inside the pack; give --manifest M.json "
+             "outside it")
     srcs = pack_sources(a.files)
     ids = iter(pack_ids(len(srcs) * a.copies, a.seed))
     rng = random.Random(a.seed) if a.seed is not None else random.SystemRandom()
@@ -4031,21 +4048,26 @@ def cmd_review_pack(a):
             items[next(ids)] = {"source": src.as_posix(), "copy": c}
     n = len(items)
     if not DRY["run"]:
-        pics, seen = {}, {}
+        pics, seen, shared = {}, {}, 0
         for h in sorted(items):  # written in id order, so file times and inodes follow the random ids, not the sources
             src = items[h]["source"]
             if src not in pics:  # its pixels alone: no palette order, profile or text of the source's
-                pics[src] = Image.open(src).convert("RGBA")
+                pics[src] = pack_rgba(src)
             # each copy of a render compressed another way where one can be found (its image data differs, not only
             # its size), and a chunk of random bytes and length: a reviewer can't pair copies by hashing a file or its
             # data, only by decoding the pixels, which are the same
             levels = list(range(10))
             rng.shuffle(levels)
-            level = next((lv for lv in levels if pack_png(pics[src], lv) not in seen.setdefault(src, set())), levels[0])
+            level = next((lv for lv in levels if pack_png(pics[src], lv) not in seen.setdefault(src, set())), None)
+            if level is None:  # every compression of it is taken (more copies than ways): this copy repeats one's data
+                level, shared = levels[0], shared + 1
             seen[src].add(pack_png(pics[src], level))
             pad = PngImagePlugin.PngInfo()
             pad.add(b"paDd", bytes(rng.getrandbits(8) for _ in range(rng.randint(1, 64))))
             pics[src].save(outpath(d / h / "image.png"), format="PNG", pnginfo=pad, compress_level=level)
+        if shared:
+            print(f"note: {shared} cop{'ies' if shared > 1 else 'y'} share image data with another copy of the same "
+                  "render (it compresses only so many ways): hashing that data pairs them; fewer --copies avoids it")
         when = os.stat(d).st_mtime
         for h in items:  # one time on every file and folder: nothing to sort the pack by but the ids
             os.utime(d / h / "image.png", (when, when))
@@ -4069,14 +4091,15 @@ def cmd_review_pack(a):
 def pack_verdicts(path, known):
     """VERDICTS.json as {id: verdict}: an object whose keys are item ids, or paths with an id as one part
     (<id>/image.png, DIR/<id>), or a list of {"id": ..., "verdict": ...}. Keys that name no item come back apart."""
-    try:
-        data = json.loads(pathlib.Path(path).read_text())
-    except json.JSONDecodeError as e:
-        fail("E_BAD_ARG", f"{path}: not JSON ({e.msg}, line {e.lineno})")
+    data = pack_json(path)
     if isinstance(data, list):
         if not all(isinstance(r, dict) and "id" in r and "verdict" in r for r in data):
             fail("E_BAD_ARG", f"{path}: a list of verdicts has an {{\"id\": ..., \"verdict\": ...}} object per item")
-        data = {str(r["id"]): r["verdict"] for r in data}
+        rows, data = data, {}
+        for r in rows:
+            if str(r["id"]) in data:
+                fail("E_BAD_ARG", f"{path}: item {r['id']} has two verdicts in the list")
+            data[str(r["id"])] = r["verdict"]
     if not isinstance(data, dict):
         fail("E_BAD_ARG", f"{path}: give an object of item id -> verdict, e.g. {{\"3f9a0c1d2e4b\": \"pass\"}}")
     got, stray = {}, []
@@ -4091,8 +4114,34 @@ def pack_verdicts(path, known):
     return got, stray
 
 
+def pack_json(path):
+    """A JSON file as data: UTF-8 (a BOM too) or UTF-16 with its BOM (PowerShell's '>'); anything else, or text that
+    isn't JSON, is E_BAD_ARG."""
+    raw = pathlib.Path(path).read_bytes()
+    try:
+        text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        fail("E_BAD_ARG", f"{path}: not UTF-8 (or UTF-16 with a BOM) text; save it as UTF-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        fail("E_BAD_ARG", f"{path}: not JSON ({e.msg}, line {e.lineno})")
+
+
 def verdict_text(v):
     return json.dumps(v, sort_keys=True, ensure_ascii=False)
+
+
+def verdict_key(v):
+    """What two verdicts are compared by: an object's "verdict" field when it has one (a reason beside it is free
+    text), text without case or surrounding spaces, a number as a number (1 and 1.0 agree)."""
+    if isinstance(v, dict) and "verdict" in v:
+        v = v["verdict"]
+    if isinstance(v, str):
+        v = v.strip().casefold()
+    elif isinstance(v, (int, float)) and not isinstance(v, bool):
+        v = float(v)
+    return verdict_text(v)
 
 
 def review_score(a):
@@ -4100,10 +4149,13 @@ def review_score(a):
     m = pack_manifest_path(d, a.manifest)
     if not m.exists():
         fail("E_FILE", f"{m}: no manifest for {d} (review-pack writes it beside DIR; give --manifest if it moved)")
-    doc = json.loads(m.read_text())
-    if not isinstance(doc, dict) or doc.get("pxart_review_pack") != PACK_VERSION:
-        fail("E_BAD_ARG", f"{m}: not a review-pack manifest")
-    items = doc["items"]
+    doc = pack_json(m)
+    items = doc.get("items") if isinstance(doc, dict) else None
+    if (not isinstance(doc, dict) or doc.get("pxart_review_pack") != PACK_VERSION or not isinstance(items, dict)
+            or not items or not all(isinstance(it, dict) and isinstance(it.get("source"), str)
+                                    and isinstance(it.get("copy"), int) for it in items.values())):
+        fail("E_BAD_ARG", f"{m}: not a review-pack manifest (an object with \"pxart_review_pack\": {PACK_VERSION} and "
+             "\"items\" of id -> {\"source\", \"copy\"}), or edited since review-pack wrote it")
     got, stray = pack_verdicts(vpath, items)
     if not got:
         why = (f"none of its {len(stray)} key(s) names an item of {d} (verdicts for another pack?)" if stray
@@ -4120,7 +4172,7 @@ def review_score(a):
             print(f"{src}: no verdict")
             continue
         texts = [verdict_text(v) for _, v in vs]
-        same = {verdict_text(v.strip().casefold() if isinstance(v, str) else v) for _, v in vs}
+        same = {verdict_key(v) for _, v in vs}
         if len(vs) == 1:
             more = f" (1 of {len(hs)} copies judged)" if len(hs) > 1 else ""
             print(f"{src}: {texts[0]}{more}")
@@ -4135,13 +4187,17 @@ def review_score(a):
     dirs = sorted({posixpath.dirname(it["source"]) or "." for it in items.values()})
     if len(dirs) > 1:  # an A/B review: each folder's verdicts, every copy counted
         for dr in dirs:
-            tally = collections.Counter(verdict_text(got[h].strip().casefold() if isinstance(got[h], str) else got[h])
-                                        for h, it in items.items()
-                                        if h in got and (posixpath.dirname(it["source"]) or ".") == dr)
-            print(f"{dr}/: " + (", ".join(f"{v} x{k}" for v, k in tally.most_common()) or "no verdicts"))
+            mine = [got[h] for h, it in sorted(items.items())
+                    if h in got and (posixpath.dirname(it["source"]) or ".") == dr]
+            shown = {}  # each verdict as first written, counted with those that compare alike
+            for v in mine:
+                shown.setdefault(verdict_key(v), verdict_text(v["verdict"] if isinstance(v, dict) and "verdict" in v
+                                                              else v))
+            tally = collections.Counter(verdict_key(v) for v in mine)
+            print(f"{dr}/: " + (", ".join(f"{shown[v]} x{k}" for v, k in tally.most_common()) or "no verdicts"))
     missing = [h for h in items if h not in got]
     if judged:
-        pct = round(100 * agree / judged)
+        pct = 100 * agree // judged  # rounded down: 199 of 200 is 99%, not 100%
         print(f"agreement: {agree} of {judged} render(s) judged in 2+ copies ({pct}%)"
               + (f"; {len(differ)} disagree" if differ else ""))
     elif doc.get("copies", 1) > 1:
