@@ -16084,6 +16084,18 @@ def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
     assert "over it" not in capsys.readouterr().out and "w" not in p.read_text()
 
 
+def test_add_over_a_lamplit_key_says_so(tmp_path, capsys):
+    p = write(tmp_path, "p.px", LPAL)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f,g@0.42",
+               "--add", "f=#a07040") == 0
+    out = capsys.readouterr().out
+    assert "lamplit: f g (0.42)" in out and "--add sets f over its lamplit color" in out
+    assert dv(p, "night", "f") == pxart.hex2rgba("#a07040")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f",
+               "--add", "b=#a07040") == 0
+    assert "over its lamplit" not in capsys.readouterr().out
+
+
 def test_lamplit_keeps_alpha(tmp_path):
     p = write(tmp_path, "p.px", "pxart 1\ng #80808080\n")
     assert run("palette", p, "--variant", "night", "--derive-from", "base", "--lamplit", "g@1") == 0

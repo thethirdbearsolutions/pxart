@@ -8390,6 +8390,11 @@ def palette_edit(a):
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
+        lamped = {k for x in a.lamplit or [] for k in lamplit_arg(x)[0]}
+        over = [k for k in dict(key_color(m) for m in a.add or []) if k in lamped]
+        if over:  # the --add wins: say so, so the lamplit line above isn't read as what was written
+            said.append(f"--add sets {' '.join(over)} over {'their' if len(over) > 1 else 'its'} lamplit "
+                        f"color{'s' * (len(over) > 1)}")
     elif a.add:
         adds = [key_color(m) for m in a.add]
         have = doc.resolved()
