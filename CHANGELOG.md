@@ -14,11 +14,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
   renders/ -o pack` puts each PNG (a directory: every `.png` under it) in `pack/<id>/image.png`
   under a random 12-digit id, its pixels re-saved with no metadata, and writes the map of ids to
   renders beside the folder as `pack.manifest.json` (or `--manifest M.json`; never inside it). The
-  pack goes in a new or empty directory. `--copies 2` puts each render in twice under different
-  ids. `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be
-  `<id>/image.png`, or a list of `{"id", "verdict"}`), prints each render's verdicts, the copies
-  that DISAGREE, and `agreement: 5 of 6 render(s) judged in 2+ copies (83%)`, with notes for items
-  with no verdict and keys that name no item. `--seed` makes the ids repeatable.
+  pack goes in a new or empty directory, written in id order with one time on every file, so a
+  listing by time doesn't give the sources' order away. `--copies 2` puts each render in twice under
+  different ids, and the copies differ in bytes and size (a chunk of random padding), so a reviewer
+  can't pair them by a hash. A label drawn into a render isn't hidden: pack `render --plain` PNGs.
+  `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be `<id>/image.png`,
+  or a list of `{"id", "verdict"}`; text compares without case or surrounding spaces), prints each
+  render's verdicts, the copies that DISAGREE, `agreement: 5 of 6 render(s) judged in 2+ copies
+  (83%)`, each source folder's tally when there are several (an A/B review), and notes for items with
+  no verdict and keys that name no item; verdicts that match no item at all are an error.
+  `--seed` makes the ids repeatable.
 
 ## 2026-11-21
 

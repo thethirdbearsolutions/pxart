@@ -76,6 +76,7 @@ def test_pixels_kept_and_metadata_dropped(renders):
     (h, it), = manifest(renders)["items"].items()
     img = Image.open(renders / "pack" / h / "image.png")
     assert "Comment" not in img.info and not any("era" in str(v) for v in img.info.values())
+    assert b"era" not in (renders / "pack" / h / "image.png").read_bytes()
     src = Image.open(renders / "era-old" / "fox.png").convert("RGBA")
     assert img.convert("RGBA").tobytes() == src.tobytes() and img.size == src.size
 
@@ -131,8 +132,33 @@ def test_score_agreement_and_disagreement(renders, capsys):
     assert "agreement: 1 of 2 render(s) judged in 2+ copies (50%); 1 disagree" in out
     assert "note: 1 of 6 item(s) have no verdict" in out
     assert "note: 1 verdict key(s) name no item of pack: not-an-id" in out
-    lines = [l.split(":")[0] for l in out.splitlines() if l.startswith("era-")]
+    lines = [l.split(":")[0] for l in out.splitlines() if l.startswith("era-") and ".png" in l.split(":")[0]]
     assert lines == sorted(lines)  # by render, not by id
+    assert 'era-new/: "pass" x1' in out and 'era-old/: "pass" x3, "fail" x1' in out  # each folder's tally
+
+
+def test_text_verdicts_compare_without_case_or_spaces(renders, capsys):
+    assert run("review-pack", "era-old/owl.png", "-o", "pack", "--copies", "2", "--seed", "3") == 0
+    a, b = sorted(manifest(renders)["items"])
+    (renders / "v.json").write_text(json.dumps({a: "Keep ", b: "keep"}))
+    capsys.readouterr()
+    assert run("review-pack", "--score", "pack", "v.json") == 0
+    assert "(2 copies agree)" in capsys.readouterr().out
+
+
+def test_copies_differ_in_bytes_and_the_pack_has_one_time(renders):
+    """A reviewer can't pair a render's copies by a hash or a size, or order the pack by file time (the loop's leaks)."""
+    import hashlib, os
+    assert run("review-pack", "era-old", "era-new", "-o", "pack", "--copies", "3", "--seed", "8") == 0
+    files = list((renders / "pack").glob("*/image.png"))
+    assert len({hashlib.md5(f.read_bytes()).hexdigest() for f in files}) == 9
+    assert len({f.stat().st_size for f in files}) > 3
+    assert len({os.stat(f).st_mtime for f in files} | {os.stat(f.parent).st_mtime for f in files}) == 1
+    by_src = {}
+    for h, it in manifest(renders)["items"].items():
+        by_src.setdefault(it["source"], set()).add(
+            Image.open(renders / "pack" / h / "image.png").convert("RGBA").tobytes())
+    assert all(len(v) == 1 for v in by_src.values())  # the same pixels in every copy
 
 
 def test_score_takes_a_list_and_structured_verdicts(renders, capsys):
@@ -197,3 +223,16 @@ def test_score_bad_verdicts(renders, capsys):
     (renders / "v.json").write_text(json.dumps({h: "a", f"{h}/image.png": "b"}))
     assert run("review-pack", "--score", "pack", "v.json") == 1
     assert "two verdicts" in err()
+    (renders / "v.json").write_text(json.dumps({"0123456789ab": "keep"}))
+    assert run("review-pack", "--score", "pack", "v.json") == 1
+    assert "none of its 1 key(s) names an item of pack (verdicts for another pack?)" in err()
+    (renders / "v.json").write_text("{}")
+    assert run("review-pack", "--score", "pack", "v.json") == 1
+    assert "it has no verdicts" in err()
+
+
+def test_a_folder_of_px_only_says_render_first(renders):
+    (renders / "art").mkdir()
+    (renders / "art" / "s.px").write_text("k #000000\nk\n")
+    assert run("review-pack", "art", "-o", "pack") == 1
+    assert "a directory with no .png under it; render its .px first ('pxart render art/s.px -o art/s.png')" in err()

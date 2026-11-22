@@ -285,12 +285,14 @@ CHECKING
       A render or scaled copy of a frame gets a note naming render --plain.
   review-pack PNG|DIR... -o DIR [--copies N] [--manifest M.json] [--seed S] [--dry-run]
   review-pack --score DIR VERDICTS.json [--manifest M.json]
-      A blind review: each PNG (a DIR: every .png under it) goes to DIR/<id>/image.png, its
-      pixels re-saved (no metadata), under a random id; no source name is in any path. The
-      map of id to render is DIR.manifest.json, beside DIR: keep it from the reviewer.
-      --copies 2 puts each render in twice, under two ids. --score reads verdicts as JSON
-      ({"<id>": "pass", ...}; keys may be <id>/image.png) and prints each render's verdicts,
-      the copies that DISAGREE, and 'agreement: 5 of 6 render(s) judged in 2+ copies (83%)'.
+      A blind review: each PNG (a DIR: every .png under it) goes to DIR/<id>/image.png under a
+      random id, its pixels re-saved (nothing of the source's metadata; one file time). The
+      map of id to render is DIR.manifest.json, beside DIR: keep it from the reviewer. A label
+      drawn in a render (a file's name) isn't hidden: pack render --plain PNGs. --copies 2 puts
+      each render in twice (other ids and bytes, same pixels). --score reads JSON verdicts
+      ({"<id>": "keep", ...}, or [{"id": .., "verdict": ..}]; text compares without case) and
+      prints each render's verdicts, the copies that DISAGREE, 'agreement: 5 of 6 render(s)
+      judged in 2+ copies (83%)', and with sources in several folders each folder's tally.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -878,7 +880,7 @@ ERROR CODES
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
 import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont, PngImagePlugin
 
 WORLDS = """WORLDS (pxart help worlds)
   export world.src.json|ROOM.map|DIR... --tiled [--tile 16x16] [--tileset T.tsj]
@@ -3965,7 +3967,9 @@ def pack_sources(files):
         p = pathlib.Path(f)
         found = sorted(q for q in p.rglob("*.png") if q.is_file()) if p.is_dir() else [p]
         if p.is_dir() and not found:
-            fail("E_BAD_ARG", f"{f}: a directory with no .png under it")
+            pxs = sorted(p.rglob("*.px"))
+            hint = f"; render its .px first ('pxart render {pxs[0]} -o {pxs[0].with_suffix('.png')}')" if pxs else ""
+            fail("E_BAD_ARG", f"{f}: a directory with no .png under it{hint}")
         for q in found:
             if not q.exists():
                 raise FileNotFoundError(2, "No such file or directory", str(q))
@@ -4012,15 +4016,27 @@ def cmd_review_pack(a):
         fail("E_BAD_ARG", f"--manifest {m}: it is inside -o {d}, where the reviewer would read it; put it outside")
     srcs = pack_sources(a.files)
     ids = iter(pack_ids(len(srcs) * a.copies, a.seed))
+    rng = random.Random(a.seed) if a.seed is not None else random.SystemRandom()
     items = {}
     for src in srcs:
-        img = Image.open(src).convert("RGBA")  # its pixels alone: no palette order, profile or text of the source's
         for c in range(1, a.copies + 1):
-            h = next(ids)
-            items[h] = {"source": src.as_posix(), "copy": c}
-            if not DRY["run"]:
-                img.save(outpath(d / h / "image.png"), format="PNG")
+            items[next(ids)] = {"source": src.as_posix(), "copy": c}
     n = len(items)
+    if not DRY["run"]:
+        pics = {}
+        for h in sorted(items):  # written in id order, so file times and inodes follow the random ids, not the sources
+            src = items[h]["source"]
+            if src not in pics:  # its pixels alone: no palette order, profile or text of the source's
+                pics[src] = Image.open(src).convert("RGBA")
+            # a chunk of random bytes and length, so two copies of one render differ in bytes and size (their pixels
+            # are the same): a reviewer can't pair them by a file hash or an ls
+            pad = PngImagePlugin.PngInfo()
+            pad.add(b"paDd", bytes(rng.getrandbits(8) for _ in range(rng.randint(1, 64))))
+            pics[src].save(outpath(d / h / "image.png"), format="PNG", pnginfo=pad)
+        when = os.stat(d).st_mtime
+        for h in items:  # one time on every file and folder: nothing to sort the pack by but the ids
+            os.utime(d / h / "image.png", (when, when))
+            os.utime(d / h, (when, when))
     if DRY["run"]:
         print(wrote(f"{d.as_posix()}/ ({n} item(s))", m.as_posix()))
         return
@@ -4033,7 +4049,8 @@ def cmd_review_pack(a):
           f"'review-pack --score {d.as_posix()} VERDICTS.json' reads it")
     if a.copies > 1:
         print("note: give each reviewer the whole folder; copies of one render are separate items under "
-              "different ids, so agreement between them measures the reviewer, not the art")
+              "different ids and bytes (their pixels are the same), so agreement between them measures the reviewer, "
+              "not the art")
 
 
 def pack_verdicts(path, known):
@@ -4075,6 +4092,10 @@ def review_score(a):
         fail("E_BAD_ARG", f"{m}: not a review-pack manifest")
     items = doc["items"]
     got, stray = pack_verdicts(vpath, items)
+    if not got:
+        why = (f"none of its {len(stray)} key(s) names an item of {d} (verdicts for another pack?)" if stray
+               else "it has no verdicts")
+        fail("E_BAD_ARG", f"{vpath}: {why}; keys are the ids in {d} ({next(iter(items), '')}, ...)")
     by_src = {}
     for h, it in items.items():
         by_src.setdefault(it["source"], []).append((it["copy"], h))
@@ -4086,17 +4107,25 @@ def review_score(a):
             print(f"{src}: no verdict")
             continue
         texts = [verdict_text(v) for _, v in vs]
+        same = {verdict_text(v.strip().casefold() if isinstance(v, str) else v) for _, v in vs}
         if len(vs) == 1:
             more = f" (1 of {len(hs)} copies judged)" if len(hs) > 1 else ""
             print(f"{src}: {texts[0]}{more}")
             continue
         judged += 1
-        if len(set(texts)) == 1:
+        if len(same) == 1:
             agree += 1
             print(f"{src}: {texts[0]} ({len(vs)} copies agree)")
         else:
             differ.append(src)
             print(f"{src}: copies DISAGREE: " + ", ".join(f"{h} {t}" for (h, _), t in zip(vs, texts)))
+    dirs = sorted({posixpath.dirname(it["source"]) or "." for it in items.values()})
+    if len(dirs) > 1:  # an A/B review: each folder's verdicts, every copy counted
+        for dr in dirs:
+            tally = collections.Counter(verdict_text(got[h].strip().casefold() if isinstance(got[h], str) else got[h])
+                                        for h, it in items.items()
+                                        if h in got and (posixpath.dirname(it["source"]) or ".") == dr)
+            print(f"{dr}/: " + (", ".join(f"{v} x{k}" for v, k in tally.most_common()) or "no verdicts"))
     missing = [h for h in items if h not in got]
     if judged:
         pct = round(100 * agree / judged)
