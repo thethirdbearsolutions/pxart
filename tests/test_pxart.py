@@ -16077,6 +16077,25 @@ def test_lamplit_and_keep_lit_work_on_keys_an_imported_night_colors(tmp_path, ca
     assert (tmp_path / "pal.px").read_text() == IMPORTED_NIGHT
 
 
+@pytest.mark.parametrize("flag", [["--lamplit", "w"], ["--keep-lit", "y"]])
+def test_plain_rederive_drops_an_imported_keys_own_line(tmp_path, capsys, flag):
+    # a re-derive without the flag rewrote FILE's own keys but left the imported key's lamplit / kept-lit line
+    # ("no change"): it now drops it, as it would FILE's own key's, and says so; pal.px's night colors it again
+    write(tmp_path, "pal.px", IMPORTED_NIGHT)
+    p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
+    shape = ("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5")
+    assert run(*shape, *flag) == 0
+    k = flag[1]
+    assert k in pxart.parse(p, palette_only=True).variants["night"]
+    capsys.readouterr()
+    assert run(*shape) == 0
+    out = capsys.readouterr().out
+    assert f"{k} back to pal.px's night: dropped its line of s.px's own" in out and "no change" not in out
+    assert pxart.parse(p, palette_only=True).variants["night"] == {"f": pxart.hex2rgba("#362517")}
+    assert dv(p, "night", k) == pxart.hex2rgba({"w": "#302820", "y": "#403820"}[k])
+    assert run(*shape) == 0 and "dropped" not in capsys.readouterr().out  # nothing left to drop
+
+
 def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
     write(tmp_path, "pal.px", IMPORTED_NIGHT)
     p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
@@ -16168,7 +16187,8 @@ def test_help_documents_lamplit(capsys):
         "alike by day), drawn where the light falls; a ring further out takes another --lamplit; dither the zones' " \
         "edges for a falloff." in out
     assert "To change a strength, derive from base again (from a lamplit variant it lights twice)." in out
-    assert "Run again, it rewrites the line of every key it derives, an earlier --add's too." in out
+    assert "Run again, it rewrites the line of every key it derives, an earlier --add's too, and drops FILE's own " \
+        "line for an imported key no longer --keep-lit or --lamplit." in out
     recipe = " ".join(pxart.RECIPES.split("  3. ")[1].split("  4. ")[0].split())
     assert "For wood by the lamp, give it keys a hair off the plain wood's, drawn where the light falls, and add " \
         "--lamplit KEYS@S per ring ('pxart help palette' has the setup)." in recipe
@@ -23536,8 +23556,9 @@ def test_help_all_does_not_grow(capsys):
     # imported keys kept lit or lamplit over the import's own variant, in one. 70712 with 'pxart help topics' (a
     # list of its own, outside 'help all') named in HELP. 71135 with --lamplit's setup (its own keys for what the
     # lamp lights, rings, a dithered edge), re-deriving from base to change a strength, and what a re-derive rewrites.
+    # 71222 with what a re-derive drops for an imported key no longer kept lit or lamplit (PX-30 review2 1).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 71135
+    assert len(capsys.readouterr().out.encode()) <= 71222
 
 
 def test_help_says_each_shared_rule_once():

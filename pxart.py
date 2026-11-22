@@ -664,7 +664,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       over at its alpha, the math of scene --tint; the --keep-lit keys keep their
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
       gets no line. --add in the same call then sets single keys over the derived ones. Run
-      again, it rewrites the line of every key it derives, an earlier --add's too.
+      again, it rewrites the line of every key it derives, an earlier --add's too, and drops
+      FILE's own line for an imported key no longer --keep-lit or --lamplit.
 
       --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each
       key's derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under
@@ -8658,11 +8659,16 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     over = doc.variants.setdefault(name, {})
     recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter that came out brighter
     theirs = []  # imported keys kept lit or lamplit over the import's own variant: on lines of FILE's own
+    dropped = []  # imported keys whose line of FILE's own this derive took out: the import's variant colors them again
     for k, c in base.items():
         if k == "." or not any(x[3] for x in choices(c)):
             continue
         imported = own and k not in doc.palette  # the import's variant colors it, unless it is kept lit or lamplit
         if imported and k not in lit and k not in glow:
+            if k in over:  # a line of FILE's own (an earlier derive's lamplit or kept-lit one): the import colors it
+                del over[k]
+                doc.lead.pop(("vkey", name, k), None)
+                dropped.append(k)
             continue
         if k in lit:
             got = from_[k]
@@ -8686,6 +8692,7 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             if k in over:
                 del over[k]
                 doc.lead.pop(("vkey", name, k), None)
+                dropped += [k] if imported else []
             continue
         over[k] = got
         theirs += [k] if imported else []
@@ -8707,6 +8714,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones"
                + (f"; {over_it} over it, on {'lines' if len(theirs) > 1 else 'a line'} of {doc.path.name}'s own"
                   if theirs else "") + ")" if own else "")]
+    if dropped:
+        said.append(f"{' '.join(dropped)} back to {' and '.join(doc.palette_refs)}'s {name}: dropped "
+                    f"{'their lines' if len(dropped) > 1 else 'its line'} of {doc.path.name}'s own")
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
