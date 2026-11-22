@@ -658,16 +658,28 @@ EDITING (writes .px; -o defaults to editing the input in place)
 
       Deriving a variant: --variant night --derive-from base --darken 0.35 --tint '#10183060'
       --keep-lit y,W sets every key of FILE's palette (imported ones too, unless FILE imports
-      a night) in night from its base color (or from another variant's: --derive-from
+      a night: then only its --keep-lit and --lamplit ones, the import's night lamplit) in
+      night from its base color (or from another variant's: --derive-from
       dusk), each channel times 1 - F (--darken 0.35 keeps 65%), then the --tint color laid
       over at its alpha, the math of scene --tint; the --keep-lit keys keep their
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
-      gets no line. --add in the same call then sets single keys over the derived ones.
+      gets no line. --add in the same call then sets single keys over the derived ones. Run
+      again, it rewrites the line of every key it derives, an earlier --add's too, and drops
+      the line it wrote (marked '# lamplit' or '# kept lit') for an imported key no longer
+      --keep-lit or --lamplit; an --add's line for one stays.
 
-      --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each
-      key's derived color mixed toward COLOR (#rrggbb, default #ffaa50) by STRENGTH (0..1,
-      default 0.4), which keeps a ramp's grain. It repeats, for rings: '--lamplit f,g@0.42
-      --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n (0.2)'.
+      --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each key's
+      derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under the lamp
+      (base x COLOR / 255 per channel; #rrggbb, default #ffc080). At 1 a key is its day color
+      in lamplight. It lifts a key only where COLOR / 255 beats what the darken and tint left,
+      so after a light --darken a dim lamp darkens keys (the summary names them); and as it
+      lights a key toward its own day color, it can't brighten a dark key much (a lantern's
+      iron): give that one a lighter --add. It repeats, for rings: '--lamplit f,g@0.42
+      --lamplit m,n@0.2' prints 'lamplit: f g (0.42); lamplit: m n (0.2)'. Set up: give what
+      the lamp lights keys of its own, a hair off the plain wood's (f #6c4a2e by b #6b4a2e:
+      alike by day), drawn where the light falls; a ring further out takes another --lamplit;
+      dither the zones' edges for a falloff. To change a strength, derive from base again (from
+      a lamplit variant it lights twice).
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -874,7 +886,8 @@ HELP
   help [all | recipes | TOPIC | CMD]
       'pxart help recipes': seven workflows, command by command; 'help worlds': Tiled worlds.
       'pxart help all' prints this whole reference; 'pxart help TOPIC' one part of
-      it (a heading here, any case); 'pxart help CMD' is 'pxart CMD -h'.
+      it (a heading here, any case; 'pxart help topics' lists them); 'pxart help CMD' is
+      'pxart CMD -h'.
       'pxart help compose-rules' and 'pxart help palette-rules' print only the rules those
       sections open with.
 
@@ -1013,6 +1026,8 @@ RECIPES = """RECIPES (pxart help recipes)
   3. Build a dusk or a night
      A night derived from the base colors (darkened, tinted, the lamp kept lit), or a dusk
      fitted to another pack's; then read what each recolors, and one pixel in every variant.
+     For wood by the lamp, give it keys a hair off the plain wood's, drawn where the light
+     falls, and add --lamplit KEYS@S per ring ('pxart help palette' has the setup).
        $ pxart palette pal.px --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y
        $ pxart palette pal.px --variant dusk --derive-from base --match mossback.px%dusk
        $ pxart palette pal.px
@@ -8383,10 +8398,18 @@ def palette_edit(a):
         said += derive_variant(doc, a.variant, a.derive_from, a.darken or 0.0, a.tint,
                                key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
                                match_fit(a.match, a.variant) if a.match else None, a.lift_darks,
-                               [lamplit_arg(x) for x in a.lamplit or []])
+                               [(*lamplit_arg(x), x) for x in a.lamplit or []])
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
+        lamped = {k for x in a.lamplit or [] for k in lamplit_arg(x)[0]}
+        over = [k for k in dict(key_color(m) for m in a.add or []) if k in lamped]
+        if over:  # the --add wins: say so, so the lamplit line above isn't read as what was written
+            said.append(f"--add sets {' '.join(over)} over {'their' if len(over) > 1 else 'its'} lamplit "
+                        f"color{'s' * (len(over) > 1)}")
+        kept = [k for k in (key_list(a.keep, "--keep") if a.keep else []) if k in lamped]
+        if kept:  # so does a --keep: the key is back at its base color
+            said.append(f"--keep drops {' '.join(kept)}'s lamplit color{'s' * (len(kept) > 1)}")
     elif a.add:
         adds = [key_color(m) for m in a.add]
         have = doc.resolved()
@@ -8563,10 +8586,12 @@ def variant_edit(doc, name, adds, keeps):
                  f"{len(choices(base[k]))} ({fmt_color(base[k])}): a variant's list is one color per slot color, in "
                  "order; one color alone is the key's color in the variant whatever the slot", path=doc.path)
     said = [f"@variant {name}" if have else f"new @variant {name}"]
-    same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c]  # its line says so already
+    same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c  # its line says so already
+            and not derive_marked(doc, name, k)]  # (a derive's lamplit line becomes one set by hand)
     sets = [(k, c) for k, c in adds if (k, c) not in same]
     for k, c in sets:
         doc.variants.setdefault(name, {})[k] = c
+        derive_mark(doc, name, k)  # set by hand now: a re-derive leaves it
     if sets:
         said.append("sets " + " ".join(f"{k} {fmt_color(c)}" + (" (its base color)" if c == base[k] else "")
                                       for k, c in sets))
@@ -8596,6 +8621,28 @@ def variant_edit(doc, name, adds, keeps):
     return said
 
 
+MARK_RE = re.compile(r"#\s*(lamplit|kept lit) \(palette --derive-from\)")
+
+
+def derive_mark(doc, name, k, how=None):
+    """The comment right above an imported key's line in @variant NAME that --lamplit or --keep-lit wrote ('# lamplit
+    (palette --derive-from)', '# kept lit (...)'): a later derive without the flag drops a line so marked, and leaves
+    an unmarked one (an --add's) alone. how: 'lamplit' or 'kept lit' writes the mark; None takes it off (an --add
+    sets the key by hand). Whether the line had one."""
+    anchor = ("vkey", name, k)
+    lead = doc.lead.get(anchor) or []
+    rest = [l for l in lead if not MARK_RE.fullmatch(l.strip())]
+    new = rest + ([f"# {how} (palette --derive-from)"] if how else [])
+    if new != lead:
+        doc.lead[anchor] = new
+    return len(rest) != len(lead)
+
+
+def derive_marked(doc, name, k):
+    """Whether an imported key's line in @variant NAME is one --lamplit or --keep-lit wrote (see derive_mark)."""
+    return any(MARK_RE.fullmatch(l.strip()) for l in doc.lead.get(("vkey", name, k)) or [])
+
+
 DARK = 64  # derive never brightens a key darker than this (Rec. 709 luma of 255): an outline stays an outline
 
 
@@ -8606,8 +8653,9 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     (match: (label, [(gain, offset)] * 3, how many keys it was fitted on)), made darker (each channel times 1 - F) and
     then tinted (COLOR laid over at its alpha, as scene --tint does); the --keep-lit keys keep their `src` color (a
     lamp). A key darker than DARK never comes out brighter (scaled back to its own brightness, the hue kept) unless
-    lift. Then each --lamplit group's keys (lamps: [(keys, strength, color)]) have their derived color mixed toward
-    the group's color by its strength (lamplight on what stands near a lamp; after the hold, which doesn't undo it). A
+    lift. Then each --lamplit group's keys (lamps: [(keys, strength, color)]) have their derived color mixed by its
+    strength toward their base color lit by the group's color (base x color / 255: lamplight on what stands near a
+    lamp, after the hold). A
     key that comes out in its base color gets no line (it inherits), unless it is kept lit (then it is listed: a
     relist). NAME is made when FILE has none. What it did."""
     if name == "base" or not re.match(r"^[A-Za-z0-9_\-]+$", name):
@@ -8624,45 +8672,70 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
         if k not in base or k == ".":
             fail("E_VARIANT_KEY", f"--keep-lit {k!r}: the base palette doesn't define it", path=doc.path)
     glow = {}  # key -> (strength, color): its --lamplit group
-    for keys, s, c in lamps:
+    for keys, s, c, *typed in lamps:  # typed: the argument as given, for a refusal
+        what = f"--lamplit {typed[0] if typed else ''.join(keys)!r}"
         for k in keys:
             if k not in base or k == ".":
-                fail("E_VARIANT_KEY", f"--lamplit {k!r}: the base palette doesn't define it", path=doc.path)
+                fail("E_VARIANT_KEY", f"{what}: the base palette doesn't define {k!r}", path=doc.path)
             if k in lit:
-                fail("E_BAD_ARG", f"--lamplit {k!r}: {k} is --keep-lit too (a lamp keeps its color; lamplit warms "
-                     "a derived one): give it one of them")
+                fail("E_BAD_ARG", f"{what}: {k} is --keep-lit too (a lamp keeps its color; lamplit lights a derived "
+                     "one): give it one of them")
             if k in glow:
-                fail("E_BAD_ARG", f"--lamplit {k!r}: {k} is in two --lamplit groups; give it one strength")
+                fail("E_BAD_ARG", f"{what}: {k} is in two --lamplit groups; give it one strength")
             glow[k] = (s, c)
     color = parse_color(tint, "--tint") if tint else None
     made = name not in doc.variants and name not in doc.shared_variants
     own = name in doc.shared_variants  # an imported variant: FILE's own keys only; the import colors the rest
     had = name in doc.variants
     over = doc.variants.setdefault(name, {})
-    recolored, held = [], []
+    recolored, held, bright = [], [], []  # bright: lamplit keys darker than a quarter the lamp lit past their src color
+    dimmed = []  # lamplit keys the lamp made darker than their plain derive: a lamp dimmer than the night left them
+    theirs = []  # imported keys kept lit or lamplit over the import's own variant: on lines of FILE's own
+    dropped = []  # imported keys whose line of FILE's own this derive took out: the import's variant colors them again
     for k, c in base.items():
-        if k == "." or not any(x[3] for x in choices(c)) or (own and k not in doc.palette):
+        if k == "." or not any(x[3] for x in choices(c)):
+            continue
+        imported = own and k not in doc.palette  # the import's variant colors it, unless it is kept lit or lamplit
+        if imported and k not in lit and k not in glow:
+            if k in over and derive_marked(doc, name, k):  # an earlier derive's lamplit or kept-lit line: the import
+                del over[k]                                    # colors it again; an --add's line stays
+                doc.lead.pop(("vkey", name, k), None)
+                dropped.append(k)
             continue
         if k in lit:
             got = from_[k]
         else:
             gots = []  # a slot's colors each derived: the variant's list, one per slot color
-            for x in choices(from_[k]):
-                one = derived(matched(x, match[1]) if match else x, darken, color)
-                if brightness(x) < DARK * x[3] / 255 and brightness(one) > brightness(x):
+            xs, days = choices(from_[k]), choices(c)
+            if imported:  # lamplit from its night as the import has it (that is what this call would otherwise keep)
+                xs = choices(doc.shared_variants[name].get(k, c))
+            for i, x in enumerate(xs):
+                one = x if imported else derived(matched(x, match[1]) if match else x, darken, color)
+                dark = not imported and brightness(x) < DARK * x[3] / 255
+                if dark and brightness(one) > brightness(x):
                     held += [k] if k not in held else []  # with lift: brightened, as asked
                     one = one if lift else no_brighter(one, x)
-                if k in glow:
-                    one = lamplit(one, *glow[k])
+                if k in glow:  # toward its day color under the lamp: the slot's own, or its base
+                    plain, one = one, lamplit(one, *glow[k], days[i] if len(days) == len(xs) else days[0])
+                    dimmed += [k] if brightness(one) < brightness(plain) and k not in dimmed else []
+                    # the lamp itself took it past its src color (not the tint, with --lift-darks, before it)
+                    past = dark and brightness(plain) <= brightness(x) < brightness(one)
+                    bright += [k] if past and k not in bright else []
                 gots.append(one)
             got = Slot(gots[0], gots[1:]) if len(gots) > 1 else gots[0]
-        if got == c and k not in lit:
+        # no line when it comes out as it would with none: its base color, or for an imported key the import's
+        # variant color, kept lit or not (a line there would only shadow the palette file); FILE's own lamp relists
+        if got == (doc.shared_variants[name].get(k, c) if imported else c) and (imported or k not in lit):
             if k in over:
                 del over[k]
                 doc.lead.pop(("vkey", name, k), None)
+                dropped += [k] if imported else []
             continue
         over[k] = got
-        if got != c:
+        if imported:  # marked, so a later derive without the flag knows the line is its to drop
+            derive_mark(doc, name, k, "lamplit" if k in glow else "kept lit")
+        theirs += [k] if imported else []
+        if got != c and not imported:  # FILE's own keys; the imported ones it writes are named as `theirs`
             recolored.append(k)
     if own and not had and not over:  # every key is imported, and the import's variant colors them all: nothing to add
         del doc.variants[name]
@@ -8673,57 +8746,86 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
     how = ", ".join(([f"darkened {darken:.0%}"] if darken else []) + ([f"tinted {fmt_color(color)}"] if color else []))
     how = "; ".join(([f"matched {match[0]}, fitted on {match[2]} keys: {said_fit(match[1])}"] if match else [])
                     + ([how] if how else []))
+    over_it = " and ".join(f"{' '.join(ks)} {how_}" for ks, how_ in (([k for k in theirs if k in glow], "lamplit"),
+                                                                     ([k for k in theirs if k in lit], "kept lit")) if ks)
     said = [f"new @variant {name}" if made else f"@variant {name}",
             f"derived from {src}" + (f" ({how})" if how else "") + f": recolors {len(recolored)} key(s)"
-            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones)" if own else "")]
+            + (f" of its own ({' and '.join(doc.palette_refs)}'s {name} colors the imported ones"
+               + (f"; {over_it} over it, on {'lines' if len(theirs) > 1 else 'a line'} of {doc.path.name}'s own"
+                  if theirs else "") + ")" if own else "")]
+    if dropped:
+        said.append(f"{' '.join(dropped)} back to {' and '.join(doc.palette_refs)}'s {name}: dropped "
+                    f"{'their lines' if len(dropped) > 1 else 'its line'} of {doc.path.name}'s own")
     if lit:
         said.append(f"{' '.join(lit)} kept lit (in {'their' if len(lit) > 1 else 'its'} {src} "
                     f"color{'s' * (len(lit) > 1)})")
-    for keys, s, c in lamps:
+    for keys, s, c, *_ in lamps:
         said.append(f"lamplit: {' '.join(keys)} ({s:g}" + (f", toward {fmt_color(c)}" if c != LAMP else "") + ")")
+    lamped = (f"lamplit {' '.join(bright)} came out brighter than {'their' if len(bright) > 1 else 'its'} {src} "
+              f"color{'s' * (len(bright) > 1)}, as asked: lamplight isn't held") if bright else ""
     if lift:  # the hold is off: say which dark keys it would have held
         said.append(f"--lift-darks: {' '.join(held)} brightened (darker than a quarter; the hold would have kept "
-                    f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened")
+                    f"{'them' if len(held) > 1 else 'it'} dark)" if held else "--lift-darks: no dark key brightened"
+                    + (" by the derive" if bright else ""))
     elif held:
         said.append(f"{' '.join(held)} held no brighter than {'their' if len(held) > 1 else 'its'} {src} "
                     f"color{'s' * (len(held) > 1)} by Rec. 709 luma (darker than a quarter: an outline stays dark; "
                     "--lift-darks lets the derive brighten them)")
     else:
-        said.append("held: none (no key darker than a quarter came out brighter)")
+        said.append("held: none (no key darker than a quarter came out brighter" + (" from the derive" if bright
+                                                                                     else "") + ")")
+    if lamped:
+        said.append(lamped)
+    if dimmed:
+        said.append(f"lamplit {' '.join(dimmed)} came out darker than without the lamp: the lamp is dimmer than this "
+                    f"{name}")
     return said
 
 
-LAMP = (0xff, 0xaa, 0x50, 255)  # --lamplit's default color: a warm lamp
+LAMP = (0xff, 0xc0, 0x80, 255)  # --lamplit's default color: a warm lamp (a day color times it keeps 80% of its luma)
 LAMP_STRENGTH = 0.4
 
 
 def lamplit_arg(spec):
     """--lamplit KEYS[@STRENGTH][:COLOR] ('f,g,h@0.42', 'fgh:#ffc070', 'm,n@0.2:#ff9040') -> (keys, strength,
-    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffaa50)."""
-    m = re.match(r"^(.+?)(?:@([^:]*))?(?::([^:@]*))?$", spec)
+    color): the keys as key_list reads them, a strength from 0 to 1 (default 0.4), a #rrggbb (default #ffc080). Each
+    refusal quotes the argument as typed."""
+    what = f"--lamplit {spec!r}"
+    form = "want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070"
+    m = re.match(r"^([^@:]+)(?:@([^@:]*))?(?::([^@:]*))?$", spec)
     if not m:
-        fail("E_BAD_ARG", f"--lamplit {spec!r}: want KEYS[@STRENGTH][:COLOR], like f,g,h@0.42 or f,g@0.2:#ffc070")
-    keys = key_list(m.group(1), "--lamplit")
+        late = ":" in spec and "@" in spec and spec.index(":") < spec.index("@")
+        fail("E_BAD_ARG", f"{what}: {form}" + (" (the strength comes before the color)" if late else ""))
+    bad = next((k for k in m.group(1) if k.isspace() or k in '#"\\'), None)
+    if bad is not None:
+        fail("E_BAD_ARG", f"{what}: {bad!r} can't be a key; {form}")
+    keys = key_list(m.group(1), what)
     s = LAMP_STRENGTH
     if m.group(2) is not None:
         try:
-            s = float(m.group(2))
+            s = float(m.group(2)) + 0.0  # + 0.0: -0 is 0
         except ValueError:
             s = -1
         if not 0 <= s <= 1:
-            fail("E_BAD_ARG", f"--lamplit {spec!r}: the strength after @ is a fraction from 0 (as derived) to 1 (the "
-                 "lamp's color), like 0.4")
+            fail("E_BAD_ARG", f"{what}: the strength after @ is a fraction from 0 (as derived) to 1 (its day color "
+                 "in lamplight), like 0.4")
     c = LAMP
     if m.group(3) is not None:
-        c = parse_color(m.group(3), "--lamplit")
-        if c[3] != 255:
-            fail("E_BAD_COLOR", f"--lamplit {spec!r}: the lamp's color is #rrggbb (STRENGTH says how much of it)")
+        v = m.group(3) if m.group(3).startswith("#") else "#" + m.group(3)
+        if not re.match(r"^#[0-9a-fA-F]{6}$", v):
+            fail("E_BAD_COLOR", f"{what}: the lamp's color is #rrggbb, like #ffc080 (no alpha: the strength after "
+                 "@ says how much of it; quote a '#' in a script)")
+        c = hex2rgba(v)
     return keys, s, c
 
 
-def lamplit(c, strength, lamp):
-    """One derived color warmed by --lamplit: each channel c + strength x (lamp - c), rounded; the alpha stays."""
-    return tuple(int(round(v + strength * (w - v))) for v, w in zip(c[:3], lamp[:3])) + (c[3],)
+def lamplit(c, strength, lamp, day):
+    """One derived color c lit by --lamplit: mixed by strength toward `day` (the key's day color) under the lamp,
+    relit = day x lamp / 255 per channel; each channel c + strength x (relit - c), rounded; c's alpha stays. At 1 the
+    key is its day color in lamplight. It brightens a channel only where lamp / 255 beats what the derive left of it
+    (with a light darken, a dim lamp darkens: derive_variant names those keys)."""
+    relit = [d * w / 255 for d, w in zip(day[:3], lamp[:3])]
+    return tuple(int(round(v + strength * (r - v))) for v, r in zip(c[:3], relit)) + (c[3],)
 
 
 def no_brighter(c, ref):
@@ -8843,7 +8945,8 @@ def set_comments(doc, notes, variant=None, header=None):
             anchor, what = ("key", name), name
         was = doc.lead.get(anchor)
         lead = list(was) if was is not None else [""] * default.get(anchor, 0)
-        new = [l for l in lead if not l.strip()] + comment_lines(text)
+        new = [l for l in lead if not l.strip()] + comment_lines(text) \
+            + [l for l in lead if MARK_RE.fullmatch(l.strip())]  # a derive's mark stays right above its line
         if new == lead:
             said.append(f"the comment above {what} is already that; unchanged")
             continue
@@ -12305,7 +12408,7 @@ def cmd_help(a):
     want = a.topic
     if want is None:
         print(parser()[0].format_help().rstrip())
-    elif want == "all":
+    elif want.lower() == "all":
         print(__doc__.rstrip())
     elif want.lower() == "recipes":
         print(RECIPES.rstrip())
@@ -12317,19 +12420,37 @@ def cmd_help(a):
         print(PLAIN.rstrip())
     elif want.lower() == "fonts":
         print(FONTS.rstrip())
+    elif want.lower() == "topics":
+        print(topics())
     elif want == "rename":
         print(f"rename: {RENAME_HINT}")
-    elif want.endswith("-rules") and rules(want[:-len("-rules")]):
-        cmd = want[:-len("-rules")]
+    elif want.lower().endswith("-rules") and rules(want.lower()[:-len("-rules")]):
+        cmd = want.lower()[:-len("-rules")]
         print(f"{cmd}: the rules ('pxart {cmd} -h' has the whole section)\n{rules(cmd)}")
     elif want in parser(describe=False)[1].choices:  # a command's name first: 'help help' is help's own -h
         print(parser()[1].choices[want].format_help().rstrip())
     elif want.upper() in TOPICS:
         print(topic(want.upper()))
     else:
-        fail("E_BAD_ARG", f"help {want!r}: no such topic or command; topics: all, recipes, {', '.join(TOPICS)}, fonts, plain, slots, worlds, "
+        fail("E_BAD_ARG", f"help {want!r}: no such topic or command ('pxart help topics' says what each is); "
+             f"topics: all, recipes, {', '.join(TOPICS)}, fonts, plain, slots, worlds, "
              f"{', '.join(f'{c}-rules' for c in RULED)}; commands: "
              f"{' '.join(sorted(parser(describe=False)[1].choices))}")
+
+
+def topics():
+    """pxart help topics: each topic 'pxart help TOPIC' prints, and what is in it (a reference topic: its commands)."""
+    by = commands_by_topic()
+    rows = [("all", "the whole reference"), ("recipes", "seven workflows, end to end"),
+            ("FORMAT", "the .px format: frames, animation, pivots, variants, selecting frames")] \
+        + [(t, " ".join(by.get(t, [])) or {"HELP": "help", "ERRORS": "the error codes"}.get(t, "")) for t in TOPICS
+           if t != "FORMAT"] \
+        + [("worlds", "Tiled worlds (export --tiled)"), ("slots", "palette slots: a key's alternatives for a game to "
+            "recolor"), ("fonts", "a pixel font from glyph frames (export --font)"), ("plain", "plain sheets with no "
+            "text (sheet --plain)")] + [(f"{c}-rules", f"only the rules {c}'s section opens with") for c in RULED]
+    return "\n".join(["Topics ('pxart help TOPIC', in any case):"]
+                     + [f"  {t:<14} {what}" for t, what in rows]
+                     + ["Commands: 'pxart help CMD' is 'pxart CMD -h'; 'pxart -h' lists them by topic."])
 
 
 RULED = ("compose", "palette")  # sections that open with a 'Rules' list: 'pxart help compose-rules'
@@ -12717,8 +12838,8 @@ def parser(describe=True):
     g.add_argument("--tint", metavar="COLOR", help="with --derive-from: '#rrggbbaa' laid over each color, as scene's")
     g.add_argument("--keep-lit", metavar="KEYS", help="with --derive-from: these keys keep their color (lamps)")
     g.add_argument("--lamplit", action="append", metavar="KEYS[@S][:COLOR]",
-                   help="with --derive-from: mix these keys' derived colors toward COLOR (default #ffaa50) by S "
-                        "(default 0.4): what a lamp lights; repeat for rings")
+                   help="with --derive-from: mix these keys' derived colors by S (default 0.4) toward their base "
+                        "colors times COLOR (default #ffc080): what a lamp lights; repeat for rings")
     g.add_argument("--lift-darks", action="store_true",
                    help="with --derive-from: let the derive brighten keys darker than a quarter (else never)")
     g = p.add_argument_group("import / hoist", "Share one palette file between sprites.")

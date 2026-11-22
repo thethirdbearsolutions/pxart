@@ -12,12 +12,33 @@ release, entries are grouped by the day they landed on `main`. The file format i
   lit through a derived night, but lit nothing around it; a pack warmed the wood by a light by hand.
   `palette pal.px --variant night --derive-from base --darken 0.35 --tint '#10183060' --keep-lit y
   --lamplit f,g@0.42 --lamplit m,n@0.2` derives as before, then mixes each listed key's derived
-  color toward the lamp (`#ffaa50` by default, or `KEYS@S:#rrggbb`) by its strength (default 0.4),
-  each channel `c + S x (lamp - c)`, alpha kept. Warming the derived color rather than the daylight
-  one keeps a ramp's grain. It repeats, so a near and a far ring take their own strengths, and the
-  output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42); lamplit: m n (0.2)`. A
-  key is in one group, and not also `--keep-lit`; the dark-key hold doesn't undo the warming. The
-  file format is unchanged: the variant's lines are plain colors, so `js/px.ts` needs nothing new.
+  color by its strength (default 0.4) toward the key's base color under the lamp, `relit = base x
+  lamp / 255` per channel (lamp `#ffc080` by default, or `KEYS@S:#rrggbb`): each channel `c + S x
+  (relit - c)`, alpha kept. At strength 1 a key is its day color in lamplight. It lifts a key only
+  where `lamp / 255` beats what the darken and tint left of it, so after a light darken (0.1) a dim
+  lamp darkens keys, and the summary names any lamplit key that came out darker than its plain
+  derive; and as it lights a key toward its own day color, it can't brighten a dark key (a
+  lantern's iron) much. The first cut, merged earlier the same day, mixed toward the flat lamp
+  color (`#ffaa50`) instead, which squeezed a lit wood ramp nearly flat (12 apart in red where the
+  day ramp was 86); the default lamp is now `#ffc080`, since a day color times `#ffaa50` keeps only
+  71% of its luma and turns tan wood red. It repeats, so a near and a far ring take their own
+  strengths, and the output lists each group as `--keep-lit` is listed: `lamplit: f g (0.42);
+  lamplit: m n (0.2)`. A key is in one group, and not also `--keep-lit`; the dark-key hold doesn't
+  undo the warming: the summary names a dark lamplit key the derive brightened as held (or, with
+  `--lift-darks`, brightened), and says `lamplit d came out brighter` only when the lamp itself lit
+  it past its `--derive-from` color. When FILE imports a palette whose own file has a variant by
+  that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
+  one its `--derive-from` color, each on a line of FILE's own (both were skipped, and still listed
+  as done), unless the import's variant already has that color. That line has a comment right
+  above it, `# lamplit (palette --derive-from)` or `# kept lit (palette --derive-from)`, and a
+  re-derive without the flag drops a line so marked and says so; it leaves an unmarked line (an
+  `--add`'s) alone, as before. An `--add` over a marked line takes the mark off: the color is set by
+  hand now.
+  `pxart help palette` (and the night recipe) says the setup it needs: keys of their own for what
+  the lamp lights, a hair off the plain wood's so they match by day, another `--lamplit` per ring, a
+  dithered edge; and to change a strength, derive from base again. An `--add` in the same call that
+  sets a lamplit key says so. The file format is unchanged: the variant's lines are plain colors,
+  and the mark an ordinary comment line, so `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
   lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the
@@ -40,6 +61,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
   `--seed` makes the ids repeatable.
 
 ### Fixed
+
+- **`pxart help topics` lists the topics.** The main help says `pxart help TOPIC`, but `help
+  topics` was "no such topic or command". It now lists each topic with the commands it covers, and
+  the unknown-topic error points at it. Every topic takes any case now (`help ALL` and `help
+  Palette-Rules` were refused).
 
 - **`scene --anchor`: a smaller `--size` can keep the middle of a scene (PX-36).** `scene --size WxH`
   smaller than the map (or than what the items fill) kept the top-left, and the help didn't say so;
