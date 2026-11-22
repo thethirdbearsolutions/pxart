@@ -1177,9 +1177,10 @@ SLOTS = """SLOTS (pxart help slots)
       #rrggbbaa when not opaque. A game draws key k in variant V (slot color i) as V's k
       (its i-th when a list), else as slots' k's i-th, else as palette's k. "slots",
       "variants" and "animations" are there when empty too; "pivot" is left out for a
-      frame without one. Frames are in export's id order (help CONVERTING), which "from"
-      and "to" index; a @still group is no animation. repeat 0 is forever. --prefix-file
-      ids frames and names animations FILE/ID. Every file shares one palette and one set of
+      frame without one, and "ms" for a @still frame (a tile, an icon: nothing to play).
+      Frames are in export's id order (help CONVERTING), which "from" and "to" index; a
+      @still group is no animation. repeat 0 is forever. --prefix-file ids frames and
+      names animations FILE/ID. Every file shares one palette and one set of
       variants: a key two files color differently, in the base or in a variant (a file
       without that variant draws its base colors there), is E_KEY_CONFLICT. --indexed goes
       alone or with --frames, --aseprite and --tiled; --variant V colors only their PNGs.
@@ -9360,7 +9361,9 @@ def export_indexed(entries, its, groups, out):
     frames, index = [], {}
     for n, it in enumerate(its):
         w, h = it.frame.size
-        fr = {"id": it.label, "w": w, "h": h, "ms": it.ms}
+        fr = {"id": it.label, "w": w, "h": h}
+        if not it.doc.still(it.frame.group):  # a @still frame isn't shown for a time: no ms for a game to play it by
+            fr["ms"] = it.ms
         if it.doc.pivot(it.frame):
             fr["pivot"] = dict(zip("xy", it.doc.pivot(it.frame)))
         frames.append({**fr, "rows": list(it.frame.grid)})

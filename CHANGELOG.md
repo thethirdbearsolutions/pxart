@@ -37,6 +37,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
   magic `1f 8b`, whatever the URL. `bench/cast/web/pxc.test.mjs` (run by `tests/test_pxc_js.py`)
   covers both.
 
+- **`export --indexed` writes no `ms` on a `@still` frame (PX-33).** Every frame said `"ms": 100`,
+  tiles under `@still *` too, so a game reading the JSON could take tiles for animation frames.
+  A `@still` frame (a tile, an icon) now has no `"ms"`; animated frames keep theirs, and so does a
+  top-level frame not marked still.
+
 ## 2026-11-21
 
 ### Added
