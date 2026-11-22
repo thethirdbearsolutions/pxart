@@ -28,6 +28,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
   no verdict and keys that name no item; verdicts that match no item at all are an error.
   `--seed` makes the ids repeatable.
 
+### Fixed
+
+- **The cast decoder gunzips by the bytes, not the URL (PX-29).** `bench/cast/web/pxc.js`'s
+  `fetchCast` gunzipped only a URL ending `.gz`, so `cast.pxc.gz?r=2` (a cache-busting query)
+  reached the decoder still gzipped, and a `.gz` a server had already decoded (sent with
+  `Content-Encoding: gzip`) was gunzipped twice. It now gunzips what still starts with the gzip
+  magic `1f 8b`, whatever the URL. `bench/cast/web/pxc.test.mjs` (run by `tests/test_pxc_js.py`)
+  covers both.
+
 ## 2026-11-21
 
 ### Added
