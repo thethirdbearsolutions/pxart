@@ -4,6 +4,22 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-22
+
+### Added
+
+- **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
+  lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the
+  answer, and one reviewer can change its verdict on frames that are identical. `review-pack
+  renders/ -o pack` puts each PNG (a directory: every `.png` under it) in `pack/<id>/image.png`
+  under a random 12-digit id, its pixels re-saved with no metadata, and writes the map of ids to
+  renders beside the folder as `pack.manifest.json` (or `--manifest M.json`; never inside it). The
+  pack goes in a new or empty directory. `--copies 2` puts each render in twice under different
+  ids. `review-pack --score pack verdicts.json` reads `{"<id>": verdict}` (keys may be
+  `<id>/image.png`, or a list of `{"id", "verdict"}`), prints each render's verdicts, the copies
+  that DISAGREE, and `agreement: 5 of 6 render(s) judged in 2+ copies (83%)`, with notes for items
+  with no verdict and keys that name no item. `--seed` makes the ids repeatable.
+
 ## 2026-11-21
 
 ### Added

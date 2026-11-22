@@ -17434,6 +17434,8 @@ def error_cases(t):
         ["world", t / "missing.world", "-o", png], ["world", f, "-o", png], ["world", t / "w.world", "--scale", "0"],
         ["stats", m], ["stats", f"{f}:nope"], ["stats", f, "--at", "9,9"], ["stats", f, "--at", "x"],
         ["diff", m, f], ["diff", f"{f}:walk/0", f"{f}:walk/0", "--variant", "x"], ["diff", f, f"{f}:walk/0"],
+        ["review-pack", t / "missing.png", "-o", t / "pack"], ["review-pack", f, "-o", t / "pack"],
+        ["review-pack", "--score", t / "pack", t / "v.json"],
         ["frames", m], ["frames", f, "--rm", "nope"], ["frames", f, "--copy-to", m],
         ["frames", f, "--move", "walk"], ["frames", f, "--rename", "nope", "x"], ["frames", f, "--prefix", "a/"],
         ["flip", m], ["flip", f"{f}:nope"],
@@ -23247,9 +23249,10 @@ def test_help_all_does_not_grow(capsys):
     # (GAMES-327) are their own topic, 'pxart help worlds', as the recipes are. 67832 after put --at/--rows and
     # compose --erase (CZY-2556), the layered-pass edits, documented in five lines. 67991 with check's E_SAME_FRAMES
     # (PX-10), the first of the checks for faults models miss in their own sprites, in three lines and an error code.
-    # 68417 with check --outline (PX-11), the second, in six.
+    # 68417 with check --outline (PX-11), the second, in six. 69111 with review-pack (PX-5), a command of its own for
+    # the blind, duplicated review, in eight.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 68417
+    assert len(capsys.readouterr().out.encode()) <= 69111
 
 
 def test_help_says_each_shared_rule_once():

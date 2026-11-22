@@ -283,6 +283,14 @@ CHECKING
       wins. -o DIFF.png draws A, B and the differing pixels in magenta side by side
       (top-left aligned) of the one pair that differs; -o DIR gets one per pair that differs.
       A render or scaled copy of a frame gets a note naming render --plain.
+  review-pack PNG|DIR... -o DIR [--copies N] [--manifest M.json] [--seed S] [--dry-run]
+  review-pack --score DIR VERDICTS.json [--manifest M.json]
+      A blind review: each PNG (a DIR: every .png under it) goes to DIR/<id>/image.png, its
+      pixels re-saved (no metadata), under a random id; no source name is in any path. The
+      map of id to render is DIR.manifest.json, beside DIR: keep it from the reviewer.
+      --copies 2 puts each render in twice, under two ids. --score reads verdicts as JSON
+      ({"<id>": "pass", ...}; keys may be <id>/image.png) and prints each render's verdicts,
+      the copies that DISAGREE, and 'agreement: 5 of 6 render(s) judged in 2+ copies (83%)'.
   frames FILE[:SEL] [--rm [ID...]] [--move ID --after|--before ID] [--rename GROUP NEWGROUP]
          [--copy-to DST [ID...] [--rekey [KEYS]] [--variant-map NAME=V1,V2]
           [--prefix P | --rename GROUP NEWGROUP]]
@@ -3935,6 +3943,173 @@ def cmd_tint(a):
     out = a.o or a.file
     save_image(tinted(Image.open(a.file).convert("RGBA"), color), out)
     print("wrote", out)
+
+
+# ---------------------------------------------------------------------------- review-pack: blind reviewer hand-off
+
+PACK_VERSION = 1  # manifest.json's "pxart_review_pack"
+
+
+def pack_manifest_path(d, m=None):
+    """Where a pack's manifest goes: --manifest, else beside DIR as DIR.manifest.json (outside what the reviewer gets)."""
+    d = pathlib.Path(d)
+    return pathlib.Path(m) if m else d.parent / f"{d.name}.manifest.json"
+
+
+def pack_sources(files):
+    """The PNGs review-pack copies: each FILE, and every .png under each DIR (sorted by path). A .px, or any other
+    file, is E_BAD_ARG naming render, since a reviewer judges what an artist would see. A file given twice is kept
+    once, with a note."""
+    out, seen = [], set()
+    for f in files:
+        p = pathlib.Path(f)
+        found = sorted(q for q in p.rglob("*.png") if q.is_file()) if p.is_dir() else [p]
+        if p.is_dir() and not found:
+            fail("E_BAD_ARG", f"{f}: a directory with no .png under it")
+        for q in found:
+            if not q.exists():
+                raise FileNotFoundError(2, "No such file or directory", str(q))
+            if q.suffix.lower() != ".png":
+                hint = (f"render it first ('pxart render {q} -o {q.with_suffix('.png')}', or sheet for a set)"
+                        if q.suffix == ".px" else "give PNGs, the renders a reviewer looks at")
+                fail("E_BAD_ARG", f"{q}: review-pack takes PNGs; {hint}")
+            key = q.resolve()
+            if key in seen:
+                print(f"note: {q} is given twice; it goes in the pack once")
+                continue
+            seen.add(key)
+            out.append(q)
+    return out
+
+
+def pack_ids(n, seed):
+    """n distinct random ids, 12 hex digits each: nothing in them comes from a source's name or order. --seed makes
+    them repeatable (a test, or a pack rebuilt the same)."""
+    rng = random.Random(seed) if seed is not None else random.SystemRandom()
+    ids = []
+    while len(ids) < n:
+        h = f"{rng.getrandbits(48):012x}"
+        if h not in ids:
+            ids.append(h)
+    return ids
+
+
+def cmd_review_pack(a):
+    if a.score:
+        return review_score(a)
+    if not a.files:
+        fail("E_BAD_ARG", "give the renders to pack: review-pack A.png B.png ... -o DIR (or --score DIR VERDICTS.json)")
+    if a.o is None:
+        fail("E_BAD_ARG", "-o DIR is required: the folder the reviewer gets")
+    if a.copies < 1:
+        fail("E_BAD_ARG", f"--copies {a.copies}: give 1 or more (2: each item twice, to see whether verdicts hold)")
+    d = pathlib.Path(a.o)
+    if d.exists() and (not d.is_dir() or any(d.iterdir())):
+        fail("E_BAD_ARG", f"-o {d}: {'is a file' if not d.is_dir() else 'already has files in it'}; a pack goes in a "
+             "new or empty directory, so nothing else in it can tell the reviewer anything")
+    m = pack_manifest_path(d, a.manifest)
+    if d.resolve() in m.resolve().parents:
+        fail("E_BAD_ARG", f"--manifest {m}: it is inside -o {d}, where the reviewer would read it; put it outside")
+    srcs = pack_sources(a.files)
+    ids = iter(pack_ids(len(srcs) * a.copies, a.seed))
+    items = {}
+    for src in srcs:
+        img = Image.open(src).convert("RGBA")  # its pixels alone: no palette order, profile or text of the source's
+        for c in range(1, a.copies + 1):
+            h = next(ids)
+            items[h] = {"source": src.as_posix(), "copy": c}
+            if not DRY["run"]:
+                img.save(outpath(d / h / "image.png"), format="PNG")
+    n = len(items)
+    if DRY["run"]:
+        print(wrote(f"{d.as_posix()}/ ({n} item(s))", m.as_posix()))
+        return
+    doc = {"pxart_review_pack": PACK_VERSION, "dir": d.as_posix(), "copies": a.copies,
+           "items": dict(sorted(items.items()))}
+    outpath(m).write_text(json.dumps(doc, indent=2) + "\n")
+    copies = f" x {a.copies} copies" if a.copies > 1 else ""
+    print(f"wrote {d.as_posix()}/: {n} item(s), {len(srcs)} render(s){copies}, each as <id>/image.png")
+    print(f"wrote {m.as_posix()}: which id is which render. Keep it from the reviewer; "
+          f"'review-pack --score {d.as_posix()} VERDICTS.json' reads it")
+    if a.copies > 1:
+        print("note: give each reviewer the whole folder; copies of one render are separate items under "
+              "different ids, so agreement between them measures the reviewer, not the art")
+
+
+def pack_verdicts(path, known):
+    """VERDICTS.json as {id: verdict}: an object whose keys are item ids, or paths with an id as one part
+    (<id>/image.png, DIR/<id>), or a list of {"id": ..., "verdict": ...}. Keys that name no item come back apart."""
+    try:
+        data = json.loads(pathlib.Path(path).read_text())
+    except json.JSONDecodeError as e:
+        fail("E_BAD_ARG", f"{path}: not JSON ({e.msg}, line {e.lineno})")
+    if isinstance(data, list):
+        if not all(isinstance(r, dict) and "id" in r and "verdict" in r for r in data):
+            fail("E_BAD_ARG", f"{path}: a list of verdicts has an {{\"id\": ..., \"verdict\": ...}} object per item")
+        data = {str(r["id"]): r["verdict"] for r in data}
+    if not isinstance(data, dict):
+        fail("E_BAD_ARG", f"{path}: give an object of item id -> verdict, e.g. {{\"3f9a0c1d2e4b\": \"pass\"}}")
+    got, stray = {}, []
+    for k, v in data.items():
+        h = next((part for part in pathlib.PurePosixPath(str(k)).parts if part in known), None)
+        if h is None:
+            stray.append(str(k))
+        elif h in got:
+            fail("E_BAD_ARG", f"{path}: item {h} has two verdicts ({k!r} is the second)")
+        else:
+            got[h] = v
+    return got, stray
+
+
+def verdict_text(v):
+    return json.dumps(v, sort_keys=True, ensure_ascii=False)
+
+
+def review_score(a):
+    d, vpath = a.score
+    m = pack_manifest_path(d, a.manifest)
+    if not m.exists():
+        fail("E_FILE", f"{m}: no manifest for {d} (review-pack writes it beside DIR; give --manifest if it moved)")
+    doc = json.loads(m.read_text())
+    if not isinstance(doc, dict) or doc.get("pxart_review_pack") != PACK_VERSION:
+        fail("E_BAD_ARG", f"{m}: not a review-pack manifest")
+    items = doc["items"]
+    got, stray = pack_verdicts(vpath, items)
+    by_src = {}
+    for h, it in items.items():
+        by_src.setdefault(it["source"], []).append((it["copy"], h))
+    agree, differ, judged = 0, [], 0
+    for src, hs in sorted(by_src.items()):
+        hs.sort()
+        vs = [(h, got[h]) for _, h in hs if h in got]
+        if not vs:
+            print(f"{src}: no verdict")
+            continue
+        texts = [verdict_text(v) for _, v in vs]
+        if len(vs) == 1:
+            more = f" (1 of {len(hs)} copies judged)" if len(hs) > 1 else ""
+            print(f"{src}: {texts[0]}{more}")
+            continue
+        judged += 1
+        if len(set(texts)) == 1:
+            agree += 1
+            print(f"{src}: {texts[0]} ({len(vs)} copies agree)")
+        else:
+            differ.append(src)
+            print(f"{src}: copies DISAGREE: " + ", ".join(f"{h} {t}" for (h, _), t in zip(vs, texts)))
+    missing = [h for h in items if h not in got]
+    if judged:
+        pct = round(100 * agree / judged)
+        print(f"agreement: {agree} of {judged} render(s) judged in 2+ copies ({pct}%)"
+              + (f"; {len(differ)} disagree" if differ else ""))
+    elif doc.get("copies", 1) > 1:
+        print("agreement: no render has verdicts on 2+ copies yet")
+    if missing:
+        print(f"note: {len(missing)} of {len(items)} item(s) have no verdict: {' '.join(sorted(missing)[:8])}"
+              + (" ..." if len(missing) > 8 else ""))
+    if stray:
+        print(f"note: {len(stray)} verdict key(s) name no item of {d}: {', '.join(stray[:8])}"
+              + (" ..." if len(stray) > 8 else ""))
 
 
 def outside_px(img, x, y, w, h):
@@ -11781,7 +11956,7 @@ SEE = {  # what a command's section relies on: other commands' sections (by name
     "scene": ["FORMAT: variants", "FORMAT: paths", "LOOKING: centering"], "tint": ["scene"],
     "world": ["LOOKING: centering"],
     "check": ["FORMAT: still groups", "FORMAT: paths"], "stats": ["FORMAT: variants", "FORMAT: selecting frames"],
-    "diff": ["FORMAT: variants", "FORMAT: selecting frames"],
+    "diff": ["FORMAT: variants", "FORMAT: selecting frames"], "review-pack": [],
     "frames": ["FORMAT: frames and animation", "FORMAT: pivots and timing", "FORMAT: still groups",
                "FORMAT: selecting frames"],
     "flip": ["FORMAT: pivots and timing"] + EDITS, "shift": EDITS, "set": EDITS, "fill": EDITS,
@@ -11816,6 +11991,8 @@ SUMMARY = {  # 'pxart CMD -h': what CMD is for, in a line or three, above its op
              "pixel's key and color in every variant (--at x,y).",
     "diff": "Compare renders pixel by pixel (a frame, a file, a folder of PNGs) and exit 1 when they differ:\n"
             "proof that a port or a copy renders as its original. -o DIFF.png draws what differs.",
+    "review-pack": "Hand renders to a reviewer blind: each under a random id, no names in any path, the map kept\n"
+                   "aside; --copies 2 to see whether verdicts hold, --score to join them back.",
     "frames": "List a file's frames and animations; or remove (--rm), move (--after/--before), rename\n"
               "(--rename) or copy them into another file (--copy-to).",
     "flip": "", "rotate": "", "transpose": "", "set": "", "fill": "", "rect": "",  # their usage line says it
@@ -12146,6 +12323,16 @@ def parser(describe=True):
                         "that differs")
     p.add_argument("--scale", type=int, metavar="N", help="with -o: default 8, or less to keep the picture within 2048 "
                    "px wide")
+    p = sub.add_parser("review-pack"); p.add_argument("files", nargs="*", metavar="FILE|DIR")
+    p.add_argument("-o", metavar="DIR", help="the folder the reviewer gets: new or empty")
+    p.add_argument("--copies", type=int, default=1, metavar="N",
+                   help="each render N times under different ids, to see whether a reviewer's verdicts hold")
+    p.add_argument("--manifest", metavar="M.json", help="where the id -> render map goes (default DIR.manifest.json, "
+                   "beside DIR); --score reads it from there")
+    p.add_argument("--seed", type=int, help="the same ids every time (a test, a pack rebuilt alike)")
+    p.add_argument("--score", nargs=2, metavar=("DIR", "VERDICTS.json"),
+                   help="join a reviewer's verdicts back to the renders and report where copies agree")
+    p.add_argument("--dry-run", action="store_true", help="say what would be written, and write nothing")
     p = sub.add_parser("frames"); p.add_argument("file")
     p.add_argument("--rm", nargs="*", metavar="ID",
                    help="remove these frame ids, or FILE:SEL's frames with none (a group goes in the selector: "
