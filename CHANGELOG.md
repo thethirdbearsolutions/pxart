@@ -4,6 +4,15 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-22
+
+### Fixed
+
+- **`export --indexed` writes no `ms` on a `@still` frame (PX-33).** Every frame said `"ms": 100`,
+  tiles under `@still *` too, so a game reading the JSON could take tiles for animation frames.
+  A `@still` frame (a tile, an icon) now has no `"ms"`; animated frames keep theirs, and so does a
+  top-level frame not marked still.
+
 ## 2026-11-21
 
 ### Added
