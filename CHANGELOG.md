@@ -29,13 +29,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
   it past its `--derive-from` color. When FILE imports a palette whose own file has a variant by
   that name, a `--lamplit` key from the import is that variant's color lamplit, and a `--keep-lit`
   one its `--derive-from` color, each on a line of FILE's own (both were skipped, and still listed
-  as done), unless the import's variant already has that color; a re-derive without the flag drops
-  the line and says so.
+  as done), unless the import's variant already has that color. That line has a comment right
+  above it, `# lamplit (palette --derive-from)` or `# kept lit (palette --derive-from)`, and a
+  re-derive without the flag drops a line so marked and says so; it leaves an unmarked line (an
+  `--add`'s) alone, as before. An `--add` over a marked line takes the mark off: the color is set by
+  hand now.
   `pxart help palette` (and the night recipe) says the setup it needs: keys of their own for what
   the lamp lights, a hair off the plain wood's so they match by day, another `--lamplit` per ring, a
   dithered edge; and to change a strength, derive from base again. An `--add` in the same call that
-  sets a lamplit key says so. The file format is unchanged: the variant's lines are plain colors, so
-  `js/px.ts` needs nothing new.
+  sets a lamplit key says so. The file format is unchanged: the variant's lines are plain colors,
+  and the mark an ordinary comment line, so `js/px.ts` needs nothing new.
 
 - **`review-pack`: a blind reviewer hand-off, with copies to measure the reviewer (PX-5).** Two
   lessons about judging art were hand-run procedure: a folder name can tell a model reviewer the

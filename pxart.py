@@ -665,7 +665,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       --derive-from color, listed as lamps kept lit. A key that comes out in its base color
       gets no line. --add in the same call then sets single keys over the derived ones. Run
       again, it rewrites the line of every key it derives, an earlier --add's too, and drops
-      FILE's own line for an imported key no longer --keep-lit or --lamplit.
+      the line it wrote (marked '# lamplit' or '# kept lit') for an imported key no longer
+      --keep-lit or --lamplit; an --add's line for one stays.
 
       --lamplit f,g,h@0.42 (KEYS[@STRENGTH][:COLOR]) lights what stands near a lamp: each key's
       derived color mixed by STRENGTH (0..1, default 0.4) toward its base color under the lamp
@@ -8585,10 +8586,12 @@ def variant_edit(doc, name, adds, keeps):
                  f"{len(choices(base[k]))} ({fmt_color(base[k])}): a variant's list is one color per slot color, in "
                  "order; one color alone is the key's color in the variant whatever the slot", path=doc.path)
     said = [f"@variant {name}" if have else f"new @variant {name}"]
-    same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c]  # its line says so already
+    same = [(k, c) for k, c in adds if doc.variants.get(name, {}).get(k) == c  # its line says so already
+            and not derive_marked(doc, name, k)]  # (a derive's lamplit line becomes one set by hand)
     sets = [(k, c) for k, c in adds if (k, c) not in same]
     for k, c in sets:
         doc.variants.setdefault(name, {})[k] = c
+        derive_mark(doc, name, k)  # set by hand now: a re-derive leaves it
     if sets:
         said.append("sets " + " ".join(f"{k} {fmt_color(c)}" + (" (its base color)" if c == base[k] else "")
                                       for k, c in sets))
@@ -8616,6 +8619,28 @@ def variant_edit(doc, name, adds, keeps):
     if already:
         said.append(inherit(already, "already inherit"))
     return said
+
+
+MARK_RE = re.compile(r"#\s*(lamplit|kept lit) \(palette --derive-from\)")
+
+
+def derive_mark(doc, name, k, how=None):
+    """The comment right above an imported key's line in @variant NAME that --lamplit or --keep-lit wrote ('# lamplit
+    (palette --derive-from)', '# kept lit (...)'): a later derive without the flag drops a line so marked, and leaves
+    an unmarked one (an --add's) alone. how: 'lamplit' or 'kept lit' writes the mark; None takes it off (an --add
+    sets the key by hand). Whether the line had one."""
+    anchor = ("vkey", name, k)
+    lead = doc.lead.get(anchor) or []
+    rest = [l for l in lead if not MARK_RE.fullmatch(l.strip())]
+    new = rest + ([f"# {how} (palette --derive-from)"] if how else [])
+    if new != lead:
+        doc.lead[anchor] = new
+    return len(rest) != len(lead)
+
+
+def derive_marked(doc, name, k):
+    """Whether an imported key's line in @variant NAME is one --lamplit or --keep-lit wrote (see derive_mark)."""
+    return any(MARK_RE.fullmatch(l.strip()) for l in doc.lead.get(("vkey", name, k)) or [])
 
 
 DARK = 64  # derive never brightens a key darker than this (Rec. 709 luma of 255): an outline stays an outline
@@ -8672,8 +8697,8 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
             continue
         imported = own and k not in doc.palette  # the import's variant colors it, unless it is kept lit or lamplit
         if imported and k not in lit and k not in glow:
-            if k in over:  # a line of FILE's own (an earlier derive's lamplit or kept-lit one): the import colors it
-                del over[k]
+            if k in over and derive_marked(doc, name, k):  # an earlier derive's lamplit or kept-lit line: the import
+                del over[k]                                    # colors it again; an --add's line stays
                 doc.lead.pop(("vkey", name, k), None)
                 dropped.append(k)
             continue
@@ -8707,6 +8732,8 @@ def derive_variant(doc, name, src, darken, tint, lit, match=None, lift=False, la
                 dropped += [k] if imported else []
             continue
         over[k] = got
+        if imported:  # marked, so a later derive without the flag knows the line is its to drop
+            derive_mark(doc, name, k, "lamplit" if k in glow else "kept lit")
         theirs += [k] if imported else []
         if got != c and not imported:  # FILE's own keys; the imported ones it writes are named as `theirs`
             recolored.append(k)
@@ -8918,7 +8945,8 @@ def set_comments(doc, notes, variant=None, header=None):
             anchor, what = ("key", name), name
         was = doc.lead.get(anchor)
         lead = list(was) if was is not None else [""] * default.get(anchor, 0)
-        new = [l for l in lead if not l.strip()] + comment_lines(text)
+        new = [l for l in lead if not l.strip()] + comment_lines(text) \
+            + [l for l in lead if MARK_RE.fullmatch(l.strip())]  # a derive's mark stays right above its line
         if new == lead:
             said.append(f"the comment above {what} is already that; unchanged")
             continue
