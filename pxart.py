@@ -109,8 +109,9 @@ LOOKING
       groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. A
-      direction=pingpong group plays 0 1 2 3 2 1 (reverse 3 2 1 0), GIF and numbers both. One
+      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. A whole
+      group plays in its direction: pingpong 0 1 2 3 2 1 (the way back labeled 'back'), reverse
+      3 2 1 0, pingpong_reverse 3 2 1 0 1 2; a part of one plays as selected. One
       frame alone gets 'note: mushroom: 1 frame (100ms), nothing to compare' (GIF still written).
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
@@ -3572,7 +3573,10 @@ def play_order(its):
     keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
     if len(its) < 2 or len(keys) != 1 or None in keys:
         return its
-    way = its[0].doc.anims.get(its[0].frame.group, {}).get("direction") or "forward"
+    doc, g = its[0].doc, its[0].frame.group
+    if not doc.animated(g) or [it.frame for it in its] != [f for f in doc.frames if f.group == g]:
+        return its  # a @still group, or a part of a group or another order: played as selected
+    way = doc.anims.get(g, {}).get("direction") or "forward"
     back = its[::-1]
     order = {"reverse": back, "pingpong": its + its[-2:0:-1], "pingpong_reverse": back + back[-2:0:-1]}.get(way, its)
     return its if [id(it) for it in order] == [id(it) for it in its] else order  # a 2-frame pingpong plays 0 1
@@ -3589,7 +3593,7 @@ def animate(a, its, out):
         print(f"note: {its[0].frame.group} plays {a_['direction']}: "
               f"{' '.join(it.frame.id.rsplit('/', 1)[-1] for it in order)} ({len(order)} frames, {ms} ms), "
               + ("once" if reps == 1 else f"{reps} times" if reps else "then again")
-              + "; the GIF and the numbers follow it, the way back marked 'back'")
+              + "; the GIF and the numbers follow it" + (", the way back marked 'back'" if len(order) > len(its) else ""))
         seen = set()
         marked = []
         for it in order:  # the way back plays frames already shown: their copies say so, on the strip and the numbers

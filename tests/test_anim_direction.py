@@ -86,3 +86,54 @@ def test_a_two_frame_pingpong_plays_as_forward_and_says_nothing(tmp_path, capsys
 def test_repeat_n_says_how_many_times_and_fps_sets_the_total(tmp_path, capsys):
     assert run("anim", walk(tmp_path, "pingpong", " repeat=3"), "--fps", 10) == 0
     assert "(6 frames, 600 ms), 3 times;" in capsys.readouterr().out
+
+
+def test_a_part_of_a_group_plays_as_selected(tmp_path, capsys):
+    p = walk(tmp_path, "pingpong")
+    assert run("anim", f"{p}:walk/0,walk/1,walk/3") == 0
+    out = capsys.readouterr().out
+    assert "plays" not in out and [a for a, _ in pairs(out)] == ["walk/0", "walk/1", "walk/3"]
+    p = walk(tmp_path, "reverse")
+    assert run("anim", f"{p}:walk/2,walk/0") == 0
+    out = capsys.readouterr().out
+    assert "plays" not in out and [a for a, _ in pairs(out)] == ["walk/2", "walk/0"]
+
+
+def test_reverse_marks_nothing_back(tmp_path, capsys):
+    assert run("anim", walk(tmp_path, "reverse")) == 0
+    out = capsys.readouterr().out
+    assert "plays reverse: 3 2 1 0 (4 frames, 520 ms), then again; the GIF and the numbers follow it\n" in out
+    assert "back" not in out
+    assert ("walk/3", "walk/0") in pairs(out)  # the reverse's wrap: 0 -> 3
+
+
+def test_a_still_group_with_a_direction_is_not_played(tmp_path, capsys):
+    p = tmp_path / "s.px"
+    p.write_text("k #000000\n@anim ui direction=pingpong\n@still ui\n@frame ui/0\nk.\n@frame ui/1\n.k\n@frame ui/2\nkk\n")
+    run("anim", p)
+    assert "plays pingpong" not in capsys.readouterr().out
+
+
+def test_the_gif_durations_follow_the_order(tmp_path):
+    p = tmp_path / "d.px"
+    p.write_text("k #000000\n@anim a direction=pingpong ms=100\n@frame a/0 ms=300\nk..\n@frame a/1\n.k.\n"
+                 "@frame a/2 ms=200\n..k\n")
+    out = tmp_path / "d.gif"
+    assert run("anim", p, "-o", out) == 0
+    gif = pxart.Image.open(out)
+    durs = []
+    for i in range(gif.n_frames):
+        gif.seek(i)
+        durs.append(gif.info["duration"])
+    assert durs == [300, 100, 200, 100]
+
+
+def test_dir_output_plays_each_group_its_way(tmp_path, capsys):
+    p = tmp_path / "m.px"
+    p.write_text("k #000000\n@anim a direction=pingpong ms=100\n@anim b direction=reverse ms=100\n"
+                 + "".join(f"@frame a/{i}\n" + "." * i + "k" + "." * (2 - i) + "\n" for i in range(3))
+                 + "".join(f"@frame b/{i}\n" + "." * i + "k" + "." * (2 - i) + "\n" for i in range(3)))
+    assert run("anim", p, "-o", tmp_path / "out") == 0
+    out = capsys.readouterr().out
+    assert "a plays pingpong: 0 1 2 1" in out and "b plays reverse: 2 1 0" in out
+    assert pxart.Image.open(tmp_path / "out" / "a.gif").n_frames == 4

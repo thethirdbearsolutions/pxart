@@ -15,8 +15,10 @@ release, entries are grouped by the day they landed on `main`. The file format i
   1 2, each compared with the frame played before it (the cycle's wrap is the 1 -> 0 that really plays), with a
   note that gives the cycle's frames and time and how often it plays (`repeat`): `note: walk plays pingpong: 0 1 2 3
   2 1 (6 frames, 780 ms), then again; the GIF and the numbers follow it, the way back marked 'back'`. The frames of the
-  way back are labeled `walk/2 back` on the strip and in the numbers. `forward`, a 2-frame pingpong (it plays 0 1)
-  and a selection across several groups or files are as before. The GIF still loops forever whatever `repeat` says
+  way back are labeled `walk/2 back` on the strip and in the numbers. `forward`, a 2-frame pingpong (it plays 0 1), a
+  `@still` group, and a selection that isn't one whole group in file order (`walk/0,walk/3`, several groups or files)
+  play as before, as selected. `repeat=N` counts whole cycles (a pingpong's 0 1 2 3 2 1 is one), as `check`'s
+  E_SAME_FRAMES does. The GIF still loops forever whatever `repeat` says
   (PX-50).
 
 ### Added
