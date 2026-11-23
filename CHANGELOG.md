@@ -12,13 +12,17 @@ release, entries are grouped by the day they landed on `main`. The file format i
   standing frame already filled; reviewers named the fault in only 7 of 20 jumps, and it was set when the standing
   frame was drawn. `check fox.px --headroom 8` notes, a line per group (or top-level frame), the frames standing on
   the group's ground whose topmost drawn pixel (a key drawn in any variant counts) is fewer than 8 rows from the
-  canvas top, and gives the `crop` that grows the canvas: `note: fox.px:stand/0: 2 rows of headroom (want 8); to grow
+  canvas top, and gives the `crop` that grows the canvas (and, for a frame with a pivot, the `anim-set` that keeps its
+  feet put). The ground is where `anim` lines the frames up: each frame's lowest solid pixel (alpha 128 and up)
+  against its pivot, or its bottom row, judged over the whole group whatever was selected, so a faint shadow, frames
+  of other sizes and a pivoted jump read as they play. `.px` frames only: a PNG has no note. `note: fox.px:stand/0: 2 rows of headroom (want 8); to grow
   the canvas 6 rows up: pxart crop fox.px:stand/0 0,-6,16,22 -o fox.px:stand/0`. A jump's airborne frames (their
   bottom edge above the group's lowest) are meant to be high and aren't noted. It's a note, not a failure. `anim`
   adds a line for a group whose bottom edge moves, from the frames as it places them (by pivot, or as drawn on one
   canvas), counting only solid pixels (alpha 128 and up), so a faint ground shadow doesn't pin it: `vertical travel:
   3 rows (the bottom edge from row 23 up to 20); 1 row of headroom at its highest (jump/2)`, so a 3-row jump is a
-  number. A walk or an idle whose feet stay gets no such line; a walk that lifts the whole body a row does.
+  number. It reads what `anim` draws (the base, or `--variant`), so a key drawn only at night counts for `check`'s
+  headroom and not for a base `anim`. A walk or an idle whose feet stay gets no such line; a walk that lifts the whole body a row does.
 
 ## 2026-11-22
 

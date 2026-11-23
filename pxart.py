@@ -3666,16 +3666,14 @@ def said_travel(clear, labels=None):
     """anim's line for a group whose feet leave the ground: 'vertical travel: 3 rows (the bottom edge from row 23 up to
     20); 2 rows of headroom at its highest (jump/2)', from the frames as placed on one canvas (by pivot, or
     bottom-centered). The bottom edge is the lowest row of the frame's solid pixels (alpha 128 and up: a faint ground
-    shadow doesn't pin it); headroom, the rows above the highest drawn pixel in any frame. None when the bottom edge
+    shadow doesn't pin it); headroom, the rows above the highest solid pixel in any frame (of ties, the most airborne). None when the bottom edge
     never moves (a walk, an idle) or there is only one frame."""
     solid = [c.getchannel("A").point(lambda v: 255 if v >= 128 else 0).getbbox() for c in clear]
-    drawn = [c.getchannel("A").getbbox() for c in clear]
     lows = [b[3] - 1 for b in solid if b]
     if len(lows) < 2 or max(lows) == min(lows):
         return None
-    tops = [b[1] if b else None for b in drawn]
-    top = min(t for t in tops if t is not None)
-    at = f" ({labels[tops.index(top)]})" if labels else ""
+    top, _, i = min((b[1], b[3], i) for i, b in enumerate(solid) if b)  # the highest frame; of ties, the most airborne
+    at = f" ({labels[i]})" if labels else ""
     n = max(lows) - min(lows)
     return (f"vertical travel: {n} row{'s' * (n != 1)} (the bottom edge from row {max(lows)} up to {min(lows)}); "
             f"{top} row{'s' * (top != 1)} of headroom at its highest{at}")
@@ -4722,49 +4720,57 @@ def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
 
 
 def headroom(doc, f):
-    """The rows above a frame's topmost drawn pixel (opaque_set: a key drawn in any variant counts), or None for a
-    frame that draws nothing."""
-    shape = opaque_set(doc, f)
-    return min((y for _, y in shape), default=None)
+    """The rows above a frame's topmost drawn pixel (opaque_set: a key drawn in any variant counts, at any alpha), or
+    None for a frame that draws nothing."""
+    return min((y for _, y in opaque_set(doc, f)), default=None)
 
 
-def grounded(doc, fs):
-    """The frames of one group that stand on its ground: those whose drawn bbox reaches the group's lowest bottom
-    edge. A jump's airborne frames are meant to be high, so check --headroom leaves them out."""
-    lows = {id(f): max((y for _, y in opaque_set(doc, f)), default=None) for f in fs}
-    low = max((v for v in lows.values() if v is not None), default=None)
-    return [f for f in fs if lows[id(f)] is not None and lows[id(f)] == low]
+def ground(doc, f):
+    """Where a frame's feet are, as anim lines frames up: its lowest solid pixel (alpha 128 and up in some variant, so
+    a faint ground shadow doesn't count) less its pivot's row (a frame without a pivot: its bottom row, as anim
+    bottom-aligns it). The frames of a group with the greatest ground stand on it; a jump's airborne frames are
+    higher. None for a frame with no solid pixel."""
+    low = max((y for _, y in opaque_set(doc, f, 128)), default=None)
+    pv = doc.pivot(f)
+    return None if low is None else low - (pv[1] if pv else f.size[1] - 1)
 
 
-def headroom_said(its, path, want, most=None):
-    """check --headroom N's notes, one per group (or top-level frame): the frames that stand on the group's ground
-    (grounded: a jump's airborne frames are left out) drawn fewer than N rows from the canvas top, which leaves a jump
-    nowhere to rise. 'fox.px:stand/0: 2 rows of headroom (want 8); to grow the canvas 6 rows up: pxart crop
-    fox.px:stand/0 0,-6,16,22 -o ...' (the crop for every frame of a group: FILE:GROUP)."""
+def headroom_said(its, path, want):
+    """check --headroom N's notes, one per animation group (or other frame): the selected frames that stand on their
+    group's ground (ground; the whole group's frames decide where that is, whatever was selected) drawn fewer than N
+    rows from the canvas top, which leaves a jump nowhere to rise: 'fox.px:stand/0: 2 rows of headroom (want 8); to
+    grow the canvas 6 rows up: pxart crop fox.px:stand/0 0,-6,16,22 -o fox.px:stand/0' (for a group, the crop of its
+    first such frame, each the same; with a pivot, the anim-set that keeps the feet where they were)."""
     groups = {}
     for it in its:
         if it.frame is not None:
-            groups.setdefault(it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else it.frame.id,
-                              []).append(it)
+            g = it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else None
+            groups.setdefault((g, it.frame.id if g is None else None), []).append(it)
     out = []
-    for g, got in groups.items():
+    for (g, fid), got in groups.items():
         doc = got[0].doc
-        short = [(f, headroom(doc, f)) for f in grounded(doc, [it.frame for it in got])]
+        whole = [f for f in doc.frames if f.group == g] if g else [got[0].frame]
+        grounds = {id(f): ground(doc, f) for f in whole}
+        floor = max((v for v in grounds.values() if v is not None), default=None)
+        short = [(it.frame, headroom(doc, it.frame)) for it in got if grounds.get(id(it.frame)) == floor]
         short = [(f, top) for f, top in short if top is not None and top < want]
         if not short:
             continue
-        top = min(t for _, t in short)
-        w, h = short[0][0].size
-        one = len(got) == 1
-        name = path if len(its) == 1 and not got[0].frame.id else f"{path}:{got[0].label if one else g}"
-        which = "" if one else f" in {listed([f.id for f, _ in short], 4)}"
+        f0, top = min(short, key=lambda x: x[1])
+        w, h = f0.size
+        name = path if f0.id is None else f"{path}:{f0.id if g is None else g}"
+        which = "" if g is None else f" in {listed([f.id for f, _ in short], 4)}"
         grow = want - top
-        sel = shlex.quote(f"{path}:{got[0].frame.id}")
+        sel = shlex.quote(path if f0.id is None else f"{path}:{f0.id}")
+        pv = doc.pivot(f0)
+        fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
+        if pv:
+            fix += f", then pxart anim-set {sel} pivot={pv[0]},{pv[1] + grow} (the feet stay put)"
         out.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want}){which}"
                    + (f"; the frame is only {h} rows tall" if want >= h else "")
-                   + f"; to grow the canvas {grow} row{'s' * (grow != 1)} up: pxart crop {sel} 0,-{grow},{w},{h + grow} "
-                   f"-o {sel}" + ("" if one else f", and the same for each {g} frame"))
-    return out if most is None else out[:most]
+                   + f"; to grow the canvas {grow} row{'s' * (grow != 1)} up: {fix}"
+                   + ("" if g is None else f"; and each other {g} frame {grow} row{'s' * (grow != 1)} up the same way"))
+    return out
 
 
 def said_soft(soft, frames):

@@ -88,18 +88,18 @@ def test_check_headroom_notes_the_frames_that_fill_the_canvas(tmp_path, capsys):
     p = fox(tmp_path)
     assert run("check", f"{p}:stand", "--headroom", 2) == 0  # a note, not a failure
     out = capsys.readouterr().out
-    assert f"note: {p}: 0 rows of headroom (want 2)" in out or f"note: {p}:stand/0: 0 rows of headroom (want 2)" in out
+    assert f"note: {p}:stand: 0 rows of headroom (want 2) in stand/0" in out
 
 
 def test_a_group_a_line_and_only_its_grounded_frames(tmp_path, capsys):
     p = fox(tmp_path)
     run("check", p, "--headroom", 4)
     out = capsys.readouterr().out
-    assert f"{p}:stand/0: 0 rows of headroom (want 4); to grow the canvas 4 rows up: pxart crop {p}:stand/0 " \
-        f"0,-4,6,12 -o {p}:stand/0" in out
+    assert f"{p}:stand: 0 rows of headroom (want 4) in stand/0; to grow the canvas 4 rows up: pxart crop " \
+        f"{p}:stand/0 0,-4,6,12 -o {p}:stand/0" in out
     # jump/1 and jump/2 are airborne (their bottom edge is above jump/0's): a jump is meant to rise, so not noted
     assert f"{p}:jump: 0 rows of headroom (want 4) in jump/0; to grow the canvas 4 rows up: pxart crop {p}:jump/0 " \
-        f"0,-4,6,12 -o {p}:jump/0, and the same for each jump frame" in out
+        f"0,-4,6,12 -o {p}:jump/0; and each other jump frame 4 rows up the same way" in out
     assert "jump/1" not in out.split("unused")[0].split("headroom", 1)[1]
 
 
@@ -150,7 +150,8 @@ def test_anim_says_how_far_the_jump_rises_and_the_room_left(tmp_path, capsys):
     p = fox(tmp_path)
     assert run("anim", f"{p}:jump") == 0
     out = capsys.readouterr().out
-    assert "  vertical travel: 2 rows (the bottom edge from row 7 up to 5); 0 rows of headroom at its highest (jump/0)" \
+    # jump/0 and jump/1 both reach row 0; jump/1 is the airborne one
+    assert "  vertical travel: 2 rows (the bottom edge from row 7 up to 5); 0 rows of headroom at its highest (jump/1)" \
         in out
 
 
@@ -166,3 +167,55 @@ def test_anim_says_nothing_of_travel_when_the_feet_stay(tmp_path, capsys):
     p.write_text("k #000000\n@anim w ms=100\n@frame w/0\n.k\nkk\n@frame w/1\nk.\nkk\n")
     assert run("anim", p) == 0
     assert "vertical travel" not in capsys.readouterr().out
+
+
+def check_out(capsys, *argv):
+    capsys.readouterr()
+    run("check", *argv)
+    return capsys.readouterr().out
+
+
+def test_frames_of_other_sizes_stand_on_one_ground(tmp_path, capsys):
+    # anim bottom-aligns a shorter frame: it stands on the same ground, and filling its canvas is a fault too
+    p = tmp_path / "s.px"
+    p.write_text("k #000000\n@anim a ms=100\n@frame a/0\n....\n.kk.\n.kk.\n@frame a/1\n.kk.\n.kk.\n")
+    assert "in a/0, a/1;" in check_out(capsys, p, "--headroom", 2)
+
+
+def test_a_pivot_says_where_the_ground_is(tmp_path, capsys):
+    # same-size frames lined up by pivot: a/1's pivot is 2 rows lower, so it is airborne (the jump), not grounded
+    p = tmp_path / "p.px"
+    p.write_text("k #000000\n@anim a ms=100\n@frame a/0 pivot=1,3\n....\n....\n.kk.\n.kk.\n"
+                 "@frame a/1 pivot=1,5\n.kk.\n.kk.\n....\n....\n")
+    out = check_out(capsys, p, "--headroom", 3)
+    assert "in a/0;" in out and "a/1" not in out.split("headroom")[1]
+    assert "then pxart anim-set" in out and "pivot=1,4 (the feet stay put)" in out
+
+
+def test_a_faint_shadow_doesnt_ground_an_airborne_frame(tmp_path, capsys):
+    p = tmp_path / "f.px"
+    p.write_text("k #000000\ns #00000055\n@anim a ms=100\n@frame a/0\n..\n..\nkk\nss\n"
+                 "@frame a/1\nkk\n..\n..\nss\n")
+    out = check_out(capsys, p, "--headroom", 1)
+    assert "rows of headroom" not in out  # a/0 has 2 rows; a/1 is airborne over its shadow
+
+
+def test_an_unnamed_grid_gets_a_crop_that_runs(tmp_path, capsys):
+    p = tmp_path / "grid.px"
+    p.write_text("k #000000\nkk\nkk\n")
+    out = check_out(capsys, p, "--headroom", 2)
+    assert f"pxart crop {p} 0,-2,2,4 -o {p}" in out and "None" not in out
+    assert run("crop", p, "0,-2,2,4", "-o", p) == 0
+    assert "rows of headroom" not in check_out(capsys, p, "--headroom", 2)
+
+
+def test_the_verdict_doesnt_hang_on_the_selection(tmp_path, capsys):
+    p = fox(tmp_path)
+    assert "rows of headroom" not in check_out(capsys, f"{p}:jump/1", "--headroom", 4)  # airborne in its group
+
+
+def test_a_top_level_frame_named_like_a_group_is_its_own(tmp_path, capsys):
+    p = tmp_path / "t.px"
+    p.write_text("k #000000\n@anim a ms=100\n@frame a/0\n..\nkk\n@frame a/1\nkk\n..\n@frame a\nkk\nkk\n")
+    out = check_out(capsys, p, "--headroom", 1)
+    assert f"{p}:a: 0 rows of headroom (want 1);" in out
