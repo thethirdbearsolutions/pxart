@@ -12,7 +12,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   where the two files give a key different colors, exited 1 with `E_KEY_CONFLICT` but had already written the sheet,
   its JSON and the frame PNGs, stale files that looked like a success, against the rule that a command that fails
   wrote nothing. `--indexed`'s palette and variant merge, and `--tiled`'s one frame size (`E_TILE_SIZE`), now run
-  before any output is written, so `o/` isn't even made.
+  before any output is written, so `o/` isn't even made; so does each output path (a path under a file, or one that is
+  a directory, is `E_FILE` before the frames are written). The `E_KEY_CONFLICT` hint is a command that pastes into a
+  shell as is (`pxart recolor b.px 'w>K'`; its quotes nested before), and a variant conflict names both files.
 
 - **`check --outline K` says when K draws nothing in a render (PX-43).** It compared keys, not colors, so a sprite
   outlined in a `k` that is `transparent` in the base and visible only in `@variant night` passed, though the base
