@@ -8,6 +8,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **A failed `export` writes nothing (PX-44).** `export a.px b.px --indexed o/k.json --frames o/f --aseprite o/s.json`,
+  where the two files give a key different colors, exited 1 with `E_KEY_CONFLICT` but had already written the sheet,
+  its JSON and the frame PNGs, stale files that looked like a success, against the rule that a command that fails
+  wrote nothing. `--indexed`'s palette and variant merge, and `--tiled`'s one frame size (`E_TILE_SIZE`), now run
+  before any output is written, so `o/` isn't even made.
+
 - **`check --outline K` says when K draws nothing in a render (PX-43).** It compared keys, not colors, so a sprite
   outlined in a `k` that is `transparent` in the base and visible only in `@variant night` passed, though the base
   render shows no outline; and the reverse (opaque by day, alpha 0 at night) passed too. Now a note names the

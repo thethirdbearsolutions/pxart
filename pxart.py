@@ -9870,6 +9870,17 @@ def cmd_export(a):
             its += [Item(export_id(doc, f, name, a.prefix_file), doc.image(f, variant), doc.ms(f), doc, f)
                     for f in picked]
         docs[id(doc)] = name
+    # every check that can fail before anything is written: a failed export writes nothing (README: Errors)
+    if a.tiled and len({it.img.size for it in its}) > 1:
+        odd = entries[0][0].path if len(entries) == 1 else "FILE"
+        fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
+             + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its)
+             + f"; export only same-size frames with FILE:SEL (export {odd}:GROUP ... --tiled X.tsj)")
+    indexed = None
+    if a.indexed:
+        indexed = indexed_data(entries, grouped(its), [(doc, g, fs, f"{docs[id(doc)]}/{g}" if a.prefix_file else g)
+                                                       for doc, picked, _ in entries
+                                                       for g, fs in doc.groups(picked).items()])
     wrote = []
     if a.frames:
         pngs = []
@@ -9915,11 +9926,6 @@ def cmd_export(a):
         jp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(jp)]
     if a.tiled:
-        if len({it.img.size for it in its}) > 1:
-            odd = entries[0][0].path if len(entries) == 1 else "FILE"
-            fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
-                 + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its)
-                 + f"; export only same-size frames with FILE:SEL (export {odd}:GROUP ... --tiled X.tsj)")
         its = grouped(its)
         sheet_img, spots, cols, cw, ch = pack(its)
         tp = outpath(a.tiled)
@@ -9939,14 +9945,17 @@ def cmd_export(a):
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
     if a.indexed:
-        wrote.append(export_indexed(entries, grouped(its), groups(), a.indexed))
+        p = outpath(a.indexed)
+        p.write_text(json.dumps(indexed, indent=1) + "\n")
+        wrote.append(str(p))
     print("wrote", " ".join(wrote))
 
 
-def export_indexed(entries, its, groups, out):
-    """export --indexed X.json: the frames as key grids and the palette that colors them, for a game that recolors
+def indexed_data(entries, its, groups):
+    """export --indexed's JSON: the frames as key grids and the palette that colors them, for a game that recolors
     at runtime (help slots has the shape). One palette for every file: a key two files color differently (base,
-    alternatives or a variant's) is E_KEY_CONFLICT. its: in export's id order; groups: [(doc, group, frames, tag)]."""
+    alternatives or a variant's) is E_KEY_CONFLICT. its: in export's id order; groups: [(doc, group, frames, tag)].
+    Writes nothing, so export can run its checks before any output is written."""
     pal, slots, variants, whose = {}, {}, {}, {}
     for doc, _, _ in entries:
         for k, c in doc.resolved().items():
@@ -9996,9 +10005,7 @@ def export_indexed(entries, its, groups, out):
             "variants": {n: {k: [rgba2hex(x) for x in choices(c)] if getattr(c, "alts", ()) else rgba2hex(c)
                              for k, c in over.items()} for n, over in variants.items()},
             "frames": frames, "animations": anims}
-    p = outpath(out)
-    p.write_text(json.dumps(data, indent=1) + "\n")
-    return str(p)
+    return data
 
 
 # ---------------------------------------------------------------------------- fonts: export --font
