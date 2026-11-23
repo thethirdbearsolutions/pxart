@@ -96,3 +96,37 @@ def test_the_label_says_silhouette(tmp_path):
     src.write_text(SPRITE)
     its = pxart.silhouetted(pxart.all_items([str(src)], "night"), None)
     assert its[0].label == "a%night silhouette"
+
+
+def test_a_bare_silhouette_before_the_files_takes_no_file_as_its_color(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    out = tmp_path / "o.png"
+    assert run("render", "--silhouette", f"{src}:a", "--plain", "-o", out) == 0
+    assert Image.open(out).convert("RGBA").getpixel((1, 0)) == (0x2b, 0x1d, 0x32, 255)
+    assert run("sheet", "--silhouette", src, src, "--plain", "-o", tmp_path / "sh.png") == 0
+    assert run("render", f"{src}:a", "--plain", "--silhouette", "ffffff", "-o", out) == 0  # a color without '#'
+    assert Image.open(out).convert("RGBA").getpixel((1, 0)) == (255, 255, 255, 255)
+
+
+def test_a_color_that_draws_nothing_is_an_error(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    for c in ("transparent", "#ffffff00"):
+        with pytest.raises(SystemExit) as e:
+            pxart.main(["render", str(src), "--silhouette", c, "-o", str(tmp_path / "o.png")])
+        assert "E_BAD_COLOR" in str(e.value.code) and "draws nothing" in str(e.value.code)
+
+
+def test_png_with_silhouette_says_the_png_is_in_color(tmp_path, capsys):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    assert run("render", src, "--silhouette", "--png", tmp_path, "-o", tmp_path / "o.png") == 0
+    assert "--png writes each file's colors at 1x" in capsys.readouterr().out
+    assert Image.open(tmp_path / "s.png").convert("RGBA").getpixel((1, 0)) == (0x3f, 0x26, 0x31, 255)
+
+
+def test_a_bare_silhouette_before_a_directory(tmp_path):
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "s.px").write_text(SPRITE)
+    assert run("sheet", "--silhouette", tmp_path / "d", "-o", tmp_path / "sh.png") == 0

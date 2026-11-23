@@ -14,7 +14,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   draws in one flat color (`#2b1d32`, or `--silhouette '#ffffff'`), at the pixel's own alpha times the color's, so a
   solid sprite is a solid shape and a faint glow stays faint; a transparent pixel stays transparent, on the usual
   checkerboard or `--bg`. It works with `--variant` (a halo lit only at night shows in the night silhouette),
-  `--scale`, `--plain` and the rest; each label says `idle/0 silhouette`. `render --png` still writes the colors.
+  `--scale`, `--plain` and the rest; each label says `idle/0 silhouette`. A bare `--silhouette` before the files
+  (`sheet --silhouette a.px b.px`, or a directory) takes no file as its color; a color that draws nothing
+  (`transparent`) is an error; `render --png` still writes the colors, and says so.
 
 ## 2026-11-22
 

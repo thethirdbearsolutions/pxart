@@ -3404,6 +3404,8 @@ def cmd_render(a):
     its = all_items(a.files, a.variant, a.slots)
     if a.silhouette is not None:
         its = silhouetted(its, a.silhouette)
+        if a.png is not None:
+            print("note: --png writes each file's colors at 1x; --silhouette draws only the preview")
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -4008,6 +4010,8 @@ def silhouetted(its, color):
     pixel's own alpha times the color's, so a solid sprite is a solid shape and a faint glow stays faint; a
     transparent pixel stays transparent. The label says so (idle/0 silhouette), and the color count is then 1."""
     c = parse_color(color or SILHOUETTE, "--silhouette")
+    if not c[3]:
+        fail("E_BAD_COLOR", f"--silhouette {color}: that color draws nothing; give one with alpha (default {SILHOUETTE})")
     for it in its:
         flat = Image.new("RGBA", it.img.size, c[:3] + (255,))
         alpha = it.img.getchannel("A").point(lambda v: v * c[3] // 255)
@@ -12581,7 +12585,8 @@ VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repea
 
 SILHOUETTE_HELP = ("draw every pixel that draws in one flat COLOR (default #2b1d32), at its own alpha, on the "
                    "usual backdrop: the shape alone, to judge it or compare candidates; with --variant, the variant's "
-                   "shape (a halo lit only at night shows)")
+                   "shape (a translucent halo shows as faint as it is drawn); --bg '#f6f1e4' sets it off from the "
+                   "dark gutters")
 SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the base, then others, the same every run), "
               "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
 
@@ -12949,6 +12954,8 @@ def rekey_args(args):
             out[i] = "--rekey="
         if x == "--png" and nxt is not None and SPRITE_ARG_RE.search(nxt):  # render --png hero.px: a file, not DIR
             out[i] = "--png="
+        if x == "--silhouette" and nxt is not None and (SPRITE_ARG_RE.search(nxt) or os.path.isdir(nxt)):
+            out[i] = "--silhouette="  # sheet --silhouette a.px b.px (or a DIR): files, not a COLOR
     return out
 
 
