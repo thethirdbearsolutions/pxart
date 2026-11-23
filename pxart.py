@@ -679,7 +679,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       the lamp lights keys of its own, a hair off the plain wood's (f #6c4a2e by b #6b4a2e:
       alike by day), drawn where the light falls; a ring further out takes another --lamplit;
       dither the zones' edges for a falloff. To change a strength, derive from base again (from
-      a lamplit variant it lights twice).
+      a lamplit variant it lights twice): the derive writes its command right above @variant
+      NAME ('# derived by: pxart palette pal.px --variant night --derive-from base ...'), to
+      run again with one flag changed, and the listing names its keys by role ('kept lit: y;
+      lamplit: f (0.6)'). A later --add isn't in that line: a note says so.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -8399,6 +8402,11 @@ def palette_edit(a):
                                key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
                                match_fit(a.match, a.variant) if a.match else None, a.lift_darks,
                                [(*lamplit_arg(x), x) for x in a.lamplit or []])
+        if a.variant in doc.variants:  # FILE's own @variant line (none when the import's colors every key)
+            set_recipe(doc, a.variant, derive_recipe(a, doc))
+    if a.variant and (a.add or a.keep) and not derive and recipe_of(doc, a.variant):
+        print(f"note: @variant {a.variant}'s '# derived by:' line doesn't include this "
+              f"{'--add' if a.add else '--keep'}; run that line again and it's gone (add it to the line to keep it)")
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -8488,8 +8496,10 @@ def palette_edit(a):
         print("variants:", ", ".join(names))
     for name in names:  # what each recolors (darker, brighter), relists in its base color (a lamp kept lit), leaves
         over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
-        sets = [k for k in pal if k in over and k != "." and over[k] != pal[k]]
-        same = [k for k in pal if k in over and k != "." and over[k] == pal[k]]
+        recipe = recipe_of(doc, name) if name in doc.variants else None
+        roles = {k: r for k, r in (recipe[1] if recipe else {}).items() if k in doc.variants[name]}  # lines it wrote
+        sets = [k for k in pal if k in over and k != "." and over[k] != pal[k] and k not in roles]
+        same = [k for k in pal if k in over and k != "." and over[k] == pal[k] and k not in roles]
         keeps = [k for k in pal if k not in over and k != "."]
         how = {}
         for k in sets:
@@ -8498,6 +8508,9 @@ def palette_edit(a):
         parts = ([f"recolors (darker) {' '.join(how['darker'])}"] if "darker" in how else []) \
             + ([f"recolors (as bright) {' '.join(how['as bright'])}"] if "as bright" in how else []) \
             + ([f"brightens {' '.join(how['brighter'])}"] if "brighter" in how else [])
+        for r in dict.fromkeys(roles.values()):  # by role, as the derive's summary says them: 'lamplit: f g (0.42)'
+            ks = [k for k in pal if roles.get(k) == r]
+            parts.append(f"kept lit: {' '.join(ks)}" if r == "kept lit" else f"lamplit: {' '.join(ks)} {r[8:]}")
         print(f"  {name}: {'; '.join(parts) or 'recolors nothing'}"
               + (f"; relists unchanged: {' '.join(same)}" if same else "")
               + f"; inherits: {' '.join(keeps) or 'nothing'}")
@@ -8641,6 +8654,59 @@ def derive_mark(doc, name, k, how=None):
 def derive_marked(doc, name, k):
     """Whether an imported key's line in @variant NAME is one --lamplit or --keep-lit wrote (see derive_mark)."""
     return any(MARK_RE.fullmatch(l.strip()) for l in doc.lead.get(("vkey", name, k)) or [])
+
+
+DERIVED_RE = re.compile(r"#\s*derived by:\s*(.*?)\s*$")  # a derived variant's recipe, right above its @variant line
+
+
+def derive_recipe(a, doc):
+    """The line palette --derive-from writes right above '@variant NAME': '# derived by: pxart palette FILE.px
+    --variant night --derive-from base --darken 0.55 --tint '#18204880' --keep-lit y,e --lamplit n,N@0.6', the derive's
+    own flags (and an --add or --keep of the same call) as typed, FILE by its name, so the file says how its variant was
+    made and the command can be run again with one flag changed."""
+    argv = ["palette", doc.path.name, "--variant", a.variant, "--derive-from", a.derive_from]
+    argv += ["--match", a.match] if a.match else []
+    argv += ["--darken", f"{a.darken:g}"] if a.darken is not None else []
+    argv += ["--tint", a.tint] if a.tint else []
+    argv += ["--keep-lit", a.keep_lit] if a.keep_lit else []
+    for x in a.lamplit or []:
+        argv += ["--lamplit", x]
+    argv += ["--lift-darks"] if a.lift_darks else []
+    argv += ["--add", *a.add] if a.add else []
+    argv += ["--keep", a.keep] if a.keep else []
+    return "# derived by: pxart " + shlex.join(argv)
+
+
+def set_recipe(doc, name, line):
+    """Put line (derive_recipe's) right above @variant NAME, in place of an earlier derive's; other comments stay."""
+    anchor = ("variant", name)
+    was = doc.lead.get(anchor)
+    lead = list(was) if was is not None else [""] * dict((a, g) for a, g, _ in doc.lines()).get(anchor, 1)
+    doc.lead[anchor] = [l for l in lead if not DERIVED_RE.match(l.strip())] + [line]
+
+
+def recipe_of(doc, name):
+    """The '# derived by:' line above FILE's own @variant NAME, read back: (the line's command, {key: 'kept lit' or
+    'lamplit (S)'}), or None when it has none (or one that doesn't parse)."""
+    line = next((l.strip() for l in doc.lead.get(("variant", name)) or [] if DERIVED_RE.match(l.strip())), None)
+    if line is None:
+        return None
+    cmd = DERIVED_RE.match(line).group(1)
+    try:
+        argv = shlex.split(cmd)
+    except ValueError:
+        return None
+    roles = {}
+    for flag, v in zip(argv, argv[1:] + [""]):
+        try:
+            if flag == "--keep-lit":
+                roles.update({k: "kept lit" for k in key_list(v, "--keep-lit")})
+            elif flag == "--lamplit":
+                keys, st, _ = lamplit_arg(v)
+                roles.update({k: f"lamplit ({st:g})" for k in keys})
+        except PxError:
+            return None
+    return cmd, roles
 
 
 DARK = 64  # derive never brightens a key darker than this (Rec. 709 luma of 255): an outline stays an outline
@@ -8946,7 +9012,8 @@ def set_comments(doc, notes, variant=None, header=None):
         was = doc.lead.get(anchor)
         lead = list(was) if was is not None else [""] * default.get(anchor, 0)
         new = [l for l in lead if not l.strip()] + comment_lines(text) \
-            + [l for l in lead if MARK_RE.fullmatch(l.strip())]  # a derive's mark stays right above its line
+            + [l for l in lead if MARK_RE.fullmatch(l.strip()) or DERIVED_RE.match(l.strip())]  # a derive's mark
+        # and recipe stay right above their line
         if new == lead:
             said.append(f"the comment above {what} is already that; unchanged")
             continue
