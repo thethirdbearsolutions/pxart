@@ -38,7 +38,7 @@ def test_a_day_only_outline_is_named_in_the_variant(tmp_path, capsys):
 
 def test_with_min_alpha_a_faint_outline_counts_as_none(tmp_path, capsys):
     p, out = out_of(tmp_path, capsys, "k #120e2240\ng #43e1b3\n\n", "--min-alpha", 128)
-    assert "draws nothing in base (alpha under 128 there)" in out
+    assert "draws nothing in any render (alpha under 128 there), so no render shows an outline" in out
 
 
 def test_an_outline_solid_everywhere_is_silent(tmp_path, capsys):
@@ -49,3 +49,30 @@ def test_an_outline_solid_everywhere_is_silent(tmp_path, capsys):
 def test_a_faint_but_visible_outline_without_min_alpha_is_silent(tmp_path, capsys):
     p, out = out_of(tmp_path, capsys, "k #120e2240\ng #43e1b3\n\n")
     assert "draws nothing" not in out
+
+
+def test_a_key_drawn_nowhere_is_said_once_without_gaps(tmp_path, capsys):
+    p, out = out_of(tmp_path, capsys, "k transparent\ng #43e1b3\n\n")
+    assert "outline 'k' draws nothing in any render (transparent there), so no render shows an outline" in out
+    assert "gap" not in out
+
+
+def test_one_key_of_several_says_what_the_render_loses(tmp_path, capsys):
+    p = tmp_path / "kl.px"
+    p.write_text("pxart 1\nk #120e22\nL #ffffff\ng #43e1b3\n\n@variant night\nL #ffffff00\n\n"
+                 "@frame a\n.LLL.\nkgggk\nkgggk\n.kkk.\n")
+    capsys.readouterr()
+    run("check", p, "--outline", "kL")
+    out = capsys.readouterr().out
+    assert "outline 'L' draws nothing in night (transparent there), so that render loses the outline's 'L' pixels" \
+        in out
+
+
+def test_an_imported_key_names_its_file_and_a_slot_that_draws(tmp_path, capsys):
+    (tmp_path / "pal.px").write_text("pxart 1\nk transparent | #ff0000\ng #43e1b3\n")
+    p = tmp_path / "s.px"
+    p.write_text("pxart 1\n@palette pal.px\n" + GRID)
+    capsys.readouterr()
+    run("check", p, "--outline", "k")
+    out = capsys.readouterr().out
+    assert "outline 'k' (from pal.px) draws nothing in any render" in out and "a slot color of it draws" in out

@@ -4794,13 +4794,28 @@ def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
     doc = frames[0].doc
     drawn = [k for k in keys if any(k in row for it in frames for row in it.frame.grid)]
     least = min_alpha or 1  # under it, the outline doesn't draw (or, with --min-alpha, isn't solid enough to count)
+    renders = [("base", doc.resolved())] + [(v, doc.resolved(v)) for v in variant_names(doc)]
+    nowhere = set()  # keys that draw in no render: the shape leaves them out, so a gaps note would point inside it
     for k in drawn:  # a key compared as a key passes, though a render where it's see-through shows no outline
-        unseen = [n for n, pal in [("base", doc.resolved())] + [(v, doc.resolved(v)) for v in variant_names(doc)]
-                  if pal[k][3] < least]
-        if unseen:
-            why = "transparent" if least == 1 else f"alpha under {least}"
-            out.append(f"{path}: outline {k!r} draws nothing in {listed(unseen, 6)} ({why} there), so "
-                       f"{'that render shows' if len(unseen) == 1 else 'those renders show'} no outline")
+        unseen = [n for n, pal in renders if pal[k][3] < least]
+        if not unseen:
+            continue
+        why = "transparent" if least == 1 else f"alpha under {least}"
+        where = "any render" if len(unseen) == len(renders) else listed(unseen, 6)
+        nowhere |= {k} if len(unseen) == len(renders) else set()
+        others = [j for j in drawn if j != k]
+        if len(unseen) == len(renders):
+            loses = f"no render has the outline's {k!r} pixels" if others else "no render shows an outline"
+        else:
+            loses = (f"{'that render loses' if len(unseen) == 1 else 'those renders lose'} the outline's {k!r} "
+                     "pixels" if others else
+                     f"{'that render shows' if len(unseen) == 1 else 'those renders show'} no outline")
+        src = "" if k in doc.palette else f" (from {' and '.join(doc.palette_refs)})"
+        slot = [x for x in choices(doc.resolved()[k])[1:] if x[3] >= least]
+        out.append(f"{path}: outline {k!r}{src} draws nothing in {where} ({why} there), so {loses}"
+                   + ("; a slot color of it draws" if slot else ""))
+    if nowhere and nowhere >= set(drawn):
+        return out  # every outline key draws nothing anywhere: no outline to find gaps in
     for it in frames:
         gaps = outline_gaps(it.doc, it.frame, keys, min_alpha)
         if gaps:
