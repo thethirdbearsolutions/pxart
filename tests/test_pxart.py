@@ -23713,9 +23713,9 @@ def test_help_all_does_not_grow(capsys):
     # 71222 with what a re-derive drops for an imported key no longer kept lit or lamplit (PX-30 review2 1).
     # 71480 with when the lamp lifts a key and when it darkens one, and that it can't brighten a dark key much (PX-30 review2 3).
     # 71556 with the mark a re-derive goes by: it drops only the line it wrote for an imported key, not an --add's
-    # (PX-30 review2 1, again).
+    # (PX-30 review2 1, again). 71766 with render/sheet --silhouette (PX-31), the shape alone, in two and a usage flag.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 71556
+    assert len(capsys.readouterr().out.encode()) <= 71766
 
 
 def test_help_says_each_shared_rule_once():

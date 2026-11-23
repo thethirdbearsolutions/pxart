@@ -67,15 +67,17 @@ FORMAT (.px)
 
 LOOKING
   render FILE... [-o preview.png] [--scale 8] [--no-grid] [--variant V] [--png [DIR]] [--plain]
-         [--slots N|K=I] [--dry-run]
+         [--slots N|K=I] [--silhouette [COLOR]] [--dry-run]
       Preview sheet with a pixel grid and x/y rulers every 4px (default --scale 8; sheet,
       anim and onion too). --png also writes each single-frame .px at 1x, FILE.png beside it
       or in DIR, and says so. --plain writes -o as the one frame alone, its exact size
       (--scale 1 by default), no grid, rulers or labels: for diff (--no-grid still pads and
       labels). Its transparent pixels stay transparent, unless --bg COLOR fills them.
+      --silhouette [COLOR] (render, sheet): every drawn pixel in one color (#2b1d32) at its
+      own alpha, the shape alone; with --variant, that variant's shape.
   sheet FILE|DIR... -o sheet.png [--scale 8] [--cols 8] [--grid] [--variant V] [--bg COLOR]
         [--fit] [--align bottom|pivot] [--rows cols|group|file] [--slots N|K=I] [--exclude GLOB]
-        [--plain ...] [--dry-run]
+        [--silhouette [COLOR]] [--plain ...] [--dry-run]
       Compare any mix of .px/.png frames, labeled with id, WxH and color count. A directory
       stands for every .px under it, recursively, sorted by path (PNGs in it are left out, a
       sheet rendered there too). --exclude GLOB (repeatable) leaves files out: one whose
@@ -3400,6 +3402,10 @@ def need_o(a, eg):
 
 def cmd_render(a):
     its = all_items(a.files, a.variant, a.slots)
+    if a.silhouette is not None:
+        its = silhouetted(its, a.silhouette)
+        if a.png is not None:
+            print("note: --png writes each file's colors at 1x; --silhouette draws only the preview")
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -3434,6 +3440,8 @@ def cmd_sheet(a):
     files = frames_only(in_dirs(a.files, exclude=a.exclude or ()), "sheet")
     need_o(a, "sheet.png")
     its = all_items(files, a.variant, a.slots)
+    if a.silhouette is not None:
+        its = silhouetted(its, a.silhouette)
     note = outsized(its, a.fit)
     if note:
         print(note)
@@ -3992,6 +4000,37 @@ def tinted(img, color):
     alpha = img.getchannel("A")
     over.putalpha(alpha)
     return Image.composite(over, img, alpha.point(lambda v: 255 if v else 0))
+
+
+SILHOUETTE = "#2b1d32"  # render/sheet --silhouette draws every pixel that draws in this, by default
+
+
+def silhouetted(its, color):
+    """render's and sheet's --silhouette: each item's every drawn pixel (alpha above 0) in one flat color, at the
+    pixel's own alpha times the color's, so a solid sprite is a solid shape and a faint glow stays faint; a
+    transparent pixel stays transparent. The label says so (idle/0 silhouette); its color count is the alpha levels
+    left (1 for a solid sprite). A PNG whose four corners are one opaque color (a sprite rendered on a flat backdrop)
+    has that color taken as the backdrop, with a note, so it isn't one solid rectangle."""
+    c = parse_color(color or SILHOUETTE, "--silhouette")
+    if not c[3]:
+        fail("E_BAD_COLOR", f"--silhouette {color}: that color draws nothing; give one with alpha (default {SILHOUETTE})")
+    for it in its:
+        img = it.img
+        w, h = img.size
+        corners = {img.getpixel(xy) for xy in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))}
+        if it.doc is None and len(corners) == 1 and next(iter(corners))[3] == 255:
+            bg = next(iter(corners))
+            keep = Image.new("L", img.size, 0)
+            keep.putdata([0 if p == bg else 255 for p in img.getdata()])
+            img = Image.composite(img, Image.new("RGBA", img.size, CLEAR), keep)
+            print(f"note: {it.label}: a PNG on a flat {rgba2hex(bg)}, its four corners' color; --silhouette takes that "
+                  "color as the backdrop")
+        flat = Image.new("RGBA", img.size, c[:3] + (255,))
+        alpha = img.getchannel("A").point(lambda v: v * c[3] // 255)
+        flat.putalpha(alpha)
+        it.img = flat
+        it.label += " silhouette"
+    return its
 
 
 def cmd_tint(a):
@@ -12556,6 +12595,10 @@ REPLACE_HELP = "with -o FILE:NEWGROUP: NEWGROUP's frames go first, and the copy 
 VMAP_HELP = "OUT's variant NAME takes each source's first of NAME, V1, V2 (repeatable)"
 
 
+SILHOUETTE_HELP = ("draw every pixel that draws in one flat COLOR (default #2b1d32), at its own alpha, on the "
+                   "usual backdrop: the shape alone, to judge it or compare candidates; with --variant, the variant's "
+                   "shape (a translucent halo shows as faint as it is drawn); --bg '#f6f1e4' sets it off from the "
+                   "dark gutters")
 SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the base, then others, the same every run), "
               "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
 
@@ -12576,6 +12619,7 @@ def parser(describe=True):
     p.add_argument("--no-grid", action="store_true")
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night)")
     p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
+    p.add_argument("--silhouette", nargs="?", const="", metavar="COLOR", help=SILHOUETTE_HELP)
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
     p = sub.add_parser("sheet"); p.add_argument("files", nargs="+"); p.add_argument("-o")
     p.add_argument("--scale", type=int, default=8); p.add_argument("--cols", type=int, default=8)
@@ -12584,6 +12628,7 @@ def parser(describe=True):
     p.add_argument("--variant", metavar="V", help="draw every frame in V; each label says so (idle/0%%night), as "
                    "FILE%%V's do, and an argument's own %%VARIANT wins")
     p.add_argument("--slots", metavar="N|K=I", help=SLOTS_HELP)
+    p.add_argument("--silhouette", nargs="?", const="", metavar="COLOR", help=SILHOUETTE_HELP)
     p.add_argument("--fit", action="store_true", help="each cell its own frame's size, each row its tallest frame's")
     p.add_argument("--align", choices=["bottom", "pivot"], default="bottom",
                    help="pivot: line up each animation's frames by pivot, as anim does (default: bottom)")
@@ -12921,6 +12966,9 @@ def rekey_args(args):
             out[i] = "--rekey="
         if x == "--png" and nxt is not None and SPRITE_ARG_RE.search(nxt):  # render --png hero.px: a file, not DIR
             out[i] = "--png="
+        if x == "--silhouette" and nxt is not None and (SPRITE_ARG_RE.search(nxt.lower()) or nxt.lower().endswith(".gif")
+                                                        or os.path.exists(split_sel(nxt)[0])):
+            out[i] = "--silhouette="  # sheet --silhouette a.px b.px (or a DIR): files, not a COLOR
     return out
 
 

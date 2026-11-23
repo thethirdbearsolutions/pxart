@@ -159,7 +159,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
 `pxart help compose-rules` and `pxart help palette-rules` print only the rules.
 
 - **Looking:** `render` and `sheet` draw a grey checkerboard behind each frame, so a dark outline and
-  the transparent pixels both show (`--bg COLOR` for a flat backdrop instead). `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
+  the transparent pixels both show (`--bg COLOR` for a flat backdrop instead), and `--silhouette [COLOR]`
+  draws every pixel that draws in one color (`#2b1d32` unless given), at its own alpha, so the shape is all
+  there is to judge, and a sheet of several candidates' silhouettes compares their shapes (with
+  `--variant`, that variant's shape). `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
   or in `--png DIR`, and prints the path; `--plain` writes one frame alone at its exact size, no grid,
   rulers or labels, to `diff` against a scene's PNG), `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
