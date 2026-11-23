@@ -186,11 +186,22 @@ pxart palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
 ```
 
 ```text
+note: @variant dusk's '# derived by:' line doesn't include this --add; run that line again and it's gone (add it to the line to keep it)
 @variant dusk; sets w #f2c6a8; wrote derived/palette.px
 ```
 
 `--add` sets a letter's color. With `--variant dusk` in front, it changes only the
 dusk colors; the day and night stay as they were.
+
+The note is about the line Step 4 wrote above `@variant dusk` in `derived/palette.px`:
+
+```px
+# derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+```
+
+That's the derive's own command, so the file remembers how its dusk was made. To try
+another `--darken`, run that line again from `derived/` with the number changed. It
+rebuilds the whole dusk, so this tweak goes too unless you add `--add 'w=#f2c6a8'` to it.
 
 Render the dusk again (the same command as Step 4, with a new output name):
 
@@ -222,7 +233,8 @@ w #f6f1e4     local  # whitewash, beard
 l #fff4b0     local  # lamp light (stays lit at night)
 g #ffc861     local  # lamp glow (stays lit at night)
 variants: dusk, night
-  dusk: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
+  dusk: recolors (darker) k w s S y Y n N b c a A o O r; kept lit: l g; inherits: nothing
+    # derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
   night: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
     # night: cool moonlight; lamp colors (l, g) stay lit
 ```
@@ -232,6 +244,9 @@ How to read a variant's line:
 - **recolors (darker)**: the letters it gives new colors, all darker than by day.
 - **relists unchanged**: letters it lists in their daytime colors on purpose. Here
   that's the lamp, kept lit.
+- **kept lit**: the same for a derived variant, whose `# derived by:` line says
+  `--keep-lit l,g`. The dusk was derived, so its lamp is named by that role; the
+  night was written by hand.
 - **inherits**: letters it doesn't mention, which just use the day colors. `nothing`
   means every letter is covered.
 

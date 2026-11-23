@@ -19,6 +19,7 @@ r #c4473a     local  # red stripes, scarf
 l #fff4b0     local  # lamp light (stays lit at night)
 g #ffc861     local  # lamp glow (stays lit at night)
 variants: dusk, night
-  dusk: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
+  dusk: recolors (darker) k w s S y Y n N b c a A o O r; kept lit: l g; inherits: nothing
+    # derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
   night: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
     # night: cool moonlight; lamp colors (l, g) stay lit
