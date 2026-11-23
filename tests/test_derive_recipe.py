@@ -96,7 +96,7 @@ def test_a_later_add_is_noted(tmp_path, capsys):
     assert run("palette", p, *DERIVE) == 0
     capsys.readouterr()
     assert run("palette", p, "--variant", "night", "--add", "g=#000000") == 0
-    assert "'# derived by' line doesn't include this --add" in capsys.readouterr().out
+    assert "'# derived by' line doesn't make g so" in capsys.readouterr().out
     assert run("palette", p, "--variant", "night", "--comment", "g", "by hand") == 0
     assert "derived by" not in capsys.readouterr().out
 

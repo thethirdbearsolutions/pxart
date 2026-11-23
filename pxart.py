@@ -8473,6 +8473,14 @@ def palette_edit(a):
     if a.within and not os.path.isdir(a.within):
         fail("E_FILE", f"--in {typed_path(a.within)}: not a directory")
     notes = comment_args(a.comment)
+    if a.add:  # repeated --add values add up (PX-54); one key twice is said once, or refused in two colors
+        seen = {}
+        for m in a.add:
+            k, c = key_color(m)
+            if k in seen and seen[k][1] != c:
+                fail("E_BAD_ARG", f"--add gives {k!r} two colors, {seen[k][0]} and {m}: give it one")
+            seen.setdefault(k, (m, c))
+        a.add = [m for m, _ in seen.values()]
     derive = a.derive_from is not None
     if (a.darken is not None or a.tint or a.keep_lit or a.lamplit or a.match or a.lift_darks) and not derive:
         fail("E_BAD_ARG", "--darken, --tint, --match, --lift-darks, --keep-lit and --lamplit shape a derived variant: "
@@ -8527,8 +8535,13 @@ def palette_edit(a):
         if a.variant in doc.variants:  # FILE's own @variant line (none when the import's colors every key)
             set_recipe(doc, a.variant, derive_recipe(a, doc))
     if a.variant and (a.add or a.keep) and not derive and recipe_of(doc, a.variant):
-        print(f"note: @variant {a.variant}'s '# derived by' line doesn't include this "
-              f"{'--add' if a.add else '--keep'}; run that line again and it's gone (add it to the line to keep it)")
+        mine = doc.variants.get(a.variant, {})
+        new = [k for k, c in (key_color(m) for m in a.add or []) if mine.get(k) != c] \
+            + [k for k in (key_list(a.keep, "--keep") if a.keep else []) if k in mine]
+        if new:
+            print(f"note: @variant {a.variant}'s '# derived by' line doesn't make {' '.join(new)} so; run that line "
+                  f"again and {'they go' if len(new) > 1 else 'it goes'} back (add the --add or --keep to the line to "
+                  "keep it)")
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -8564,6 +8577,16 @@ def palette_edit(a):
             + ([said_already(same)] if same else [])
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
+    if doc.dest and doc.dest.name != doc.path.name:  # an edited copy: its '# derived by' lines run on it, not FILE
+        for name in list(doc.variants):
+            got = recipe_of(doc, name)
+            lead = doc.lead.get(("variant", name)) or []
+            if got and lead and DERIVED_RE.match(lead[-1].strip()):
+                argv = shlex.split(got[0])
+                if argv[2:3] == [doc.path.name]:
+                    argv[2] = doc.dest.name
+                    doc.lead[("variant", name)] = lead[:-1] + ["# derived by (from this file's folder): "
+                                                               + shlex.join(argv)]
     if a.add or a.keep or notes or a.comment_header is not None or derive:
         print("; ".join(said + [write_doc(doc)]))
     if a.hoist:

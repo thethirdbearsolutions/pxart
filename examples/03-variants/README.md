@@ -186,7 +186,7 @@ pxart palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
 ```
 
 ```text
-note: @variant dusk's '# derived by' line doesn't include this --add; run that line again and it's gone (add it to the line to keep it)
+note: @variant dusk's '# derived by' line doesn't make w so; run that line again and it goes back (add the --add or --keep to the line to keep it)
 @variant dusk; sets w #f2c6a8; wrote derived/palette.px
 ```
 

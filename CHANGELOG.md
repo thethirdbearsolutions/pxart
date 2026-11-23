@@ -11,7 +11,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
 - **A second `palette --add` adds to the first (PX-54, PX-25).** `palette p.px --add f=#a07040 --add g=#a07041` set
   only g: `--add` took a run of values, and a second `--add` replaced the first's, with no error or note. Now every
   `--add` adds its values (`action="extend"`), with or without `--variant`, so a `# derived by` line with several
-  `--add=V` values (PX-53 writes them so for a value starting with `-`) makes the same file again.
+  `--add=V` values (PX-53 writes them so for a value starting with `-`) makes the same file again. One key given twice
+  is said once, or, in two colors, refused (`--add gives 'p' two colors, p=#9a5ad0 and p=#6a3a9a: give it one`; it
+  was `E_KEY_CONFLICT` naming the key as already in the file, or the last color silently). The note after an `--add`
+  on a derived variant names the keys its `# derived by` line doesn't make so, and says nothing when there are none;
+  and an edited copy (`-o copy.px`) gets its `# derived by` lines re-pointed at itself, as a derive's `-o` does.
 
 ### Added
 
