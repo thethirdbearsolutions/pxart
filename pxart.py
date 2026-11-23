@@ -232,7 +232,7 @@ LOOKING
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
-        [--outline K [--min-alpha A]]
+        [--outline K [--min-alpha A]] [--headroom N]
       Every format error with a code and location, then size / off-palette colors / color budget /
       unused keys / see-through px. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
       3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames (a file
@@ -252,6 +252,9 @@ CHECKING
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
       (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes (give
       --min-alpha as you gave outline); a file that draws no K is silent; a K no file has, a note.
+      --headroom N notes frames drawn fewer than N rows from the top: 'fox.px:stand/0: 2 rows of
+      headroom (want 8)', a standing frame that leaves a jump nowhere to rise (anim prints a
+      group's vertical travel and headroom when its bottom edge moves).
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -3628,6 +3631,9 @@ def animate(a, its, out):
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
+    travel = said_travel(clear)
+    if travel:
+        print(f"  {travel}")
     if not out and not DRY["run"]:
         return
     # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
@@ -3653,6 +3659,24 @@ def animate(a, its, out):
     save_image(strip, sp, "the strip" if out else "the strip (no -o)", smaller="a lower --scale makes it smaller",
                about=f"{len(cells)} frame{'s' * (len(cells) != 1)} over what changed, at --scale {S}")
     print(wrote(out, sp))
+
+
+def said_travel(clear):
+    """anim's line for a group whose feet leave the ground: 'vertical travel: 3 rows (the bottom edge from row 23 up to
+    20); 2 rows of headroom at its highest', from the frames as placed on one canvas (by pivot, or bottom-centered).
+    The bottom edge is the drawn bbox's lowest row; headroom, the rows above the highest drawn pixel in any frame.
+    None when the bottom edge never moves (a walk, an idle) or there is only one frame."""
+    boxes = [c.getchannel("A").getbbox() for c in clear]
+    boxes = [b for b in boxes if b]
+    if len(boxes) < 2:
+        return None
+    lows = [b[3] - 1 for b in boxes]
+    if max(lows) == min(lows):
+        return None
+    top = min(b[1] for b in boxes)
+    n = max(lows) - min(lows)
+    return (f"vertical travel: {n} row{'s' * (n != 1)} (the bottom edge from row {max(lows)} up to {min(lows)}); "
+            f"{top} row{'s' * (top != 1)} of headroom at its highest")
 
 
 def cmd_onion(a):
@@ -4468,6 +4492,9 @@ def cmd_check(a):
     if a.min_alpha is not None and (keys is None or not 1 <= a.min_alpha <= 255):
         fail("E_BAD_ARG", f"--min-alpha {a.min_alpha}: " + ("give 1 to 255" if keys else
                                                             "it goes with --outline K, as for outline --min-alpha"))
+    if a.headroom is not None and a.headroom < 1:
+        fail("E_BAD_ARG", f"--headroom {a.headroom}: give the rows a frame should leave free above it, 1 or more "
+             "(--headroom 8)")
     for arg in dict.fromkeys(check_args(a.files, a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
@@ -4617,6 +4644,7 @@ def cmd_check(a):
                     if bad:
                         print(f"     {l}")
             gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
+            gaps += headroom_said(its, path, a.headroom, None if a.verbose else 8) if a.headroom else []
             pxed |= any(it.frame is not None for it in its)
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
@@ -4689,6 +4717,30 @@ def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
                                                               if len(gaps) > len(shown) else "")
             out.append(f"{name}: outline {named} has {len(gaps)} gap{'s' * (len(gaps) != 1)} at {at}")
     return out
+
+
+def headroom(doc, f):
+    """The rows above a frame's topmost drawn pixel (opaque_set: a key drawn in any variant counts), or None for a
+    frame that draws nothing."""
+    shape = opaque_set(doc, f)
+    return min((y for _, y in shape), default=None)
+
+
+def headroom_said(its, path, want, most=8):
+    """check --headroom N's notes, a frame each: 'fox.px:stand/0: 2 rows of headroom (want 8)', for the frames drawn
+    fewer than N rows from the canvas top: a standing frame that fills its canvas leaves a jump nowhere to rise. The
+    first `most` (None: all), then how many more."""
+    short = []
+    for it in its:
+        if it.frame is None:
+            continue
+        top = headroom(it.doc, it.frame)
+        if top is not None and top < want:
+            name = path if len(its) == 1 and not it.frame.id else f"{path}:{it.label}"
+            short.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want})")
+    shown = short if most is None else short[:most]
+    return shown + ([f"{path}: and {len(short) - len(shown)} more frames under {want} rows of headroom (-v lists "
+                     "them all)"] if len(short) > len(shown) else [])
 
 
 def said_soft(soft, frames):
@@ -12637,6 +12689,8 @@ def parser(describe=True):
     p.add_argument("--outline", metavar="K", help="note the shape's edge pixels not drawn in outline key K (or keys: kL)")
     p.add_argument("--min-alpha", type=int, metavar="A",
                    help="with --outline: the shape is keys of alpha A+, as for outline --min-alpha")
+    p.add_argument("--headroom", type=int, metavar="N",
+                   help="note frames drawn fewer than N rows from the canvas top (a jump needs room to rise)")
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")

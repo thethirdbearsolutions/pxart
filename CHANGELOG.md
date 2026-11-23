@@ -4,6 +4,19 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-23
+
+### Added
+
+- **`check --headroom N`, and how far an animation rises (PX-13).** A fox's jump rose 6 rows, then 3, on a canvas its
+  standing frame already filled; reviewers named the fault in only 7 of 20 jumps, and it was set when the standing
+  frame was drawn. `check fox.px --headroom 8` notes each frame whose topmost drawn pixel (a key drawn in any variant
+  counts) is fewer than 8 rows from the canvas top: `note: fox.px:stand/0: 2 rows of headroom (want 8)`, eight frames
+  a file and then how many more (`-v`: all). It's a note, not a failure. `anim` adds a line for a group whose bottom
+  edge moves, from the frames as it places them (by pivot, or as drawn on one canvas): `vertical travel: 3 rows (the
+  bottom edge from row 23 up to 20); 1 row of headroom at its highest`, so a 3-row jump is a number. A walk or an
+  idle, whose feet stay, gets no such line.
+
 ## 2026-11-22
 
 ### Added
