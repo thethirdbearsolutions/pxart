@@ -130,3 +130,42 @@ def test_a_bare_silhouette_before_a_directory(tmp_path):
     (tmp_path / "d").mkdir()
     (tmp_path / "d" / "s.px").write_text(SPRITE)
     assert run("sheet", "--silhouette", tmp_path / "d", "-o", tmp_path / "sh.png") == 0
+
+
+def test_the_default_render_draws_the_silhouette_too(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    assert run("render", f"{src}:a", "--silhouette", "-o", a) == 0
+    assert run("render", f"{src}:a", "-o", b) == 0
+    sil, col = set(Image.open(a).convert("RGBA").getdata()), set(Image.open(b).convert("RGBA").getdata())
+    assert (0x43, 0xe1, 0xb3, 255) in col and (0x43, 0xe1, 0xb3, 255) not in sil  # g is gone
+    assert (0x2b, 0x1d, 0x32, 255) in sil and (0x2b, 0x1d, 0x32, 255) not in col
+
+
+def test_a_png_on_a_flat_backdrop_is_not_one_rectangle(tmp_path, capsys):
+    png = tmp_path / "lamp.png"
+    img = Image.new("RGBA", (4, 4), (58, 58, 68, 255))
+    img.putpixel((1, 1), (255, 200, 0, 255))
+    img.save(png)
+    out = tmp_path / "o.png"
+    assert run("render", png, "--plain", "--silhouette", "-o", out) == 0
+    got = Image.open(out).convert("RGBA")
+    assert got.getpixel((1, 1)) == (0x2b, 0x1d, 0x32, 255) and got.getpixel((0, 0))[3] == 0
+    assert "takes that color as the backdrop" in capsys.readouterr().out
+
+
+def test_a_gif_or_upper_case_file_after_a_bare_flag(tmp_path):
+    src = tmp_path / "S.PX"
+    src.write_text(SPRITE)
+    gif = tmp_path / "one.gif"
+    Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(gif)
+    assert run("sheet", "--silhouette", gif, src, "-o", tmp_path / "a.png") == 0
+    assert run("sheet", "--silhouette", src, "-o", tmp_path / "b.png") == 0
+
+
+def test_the_label_counts_alpha_levels(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    its = pxart.silhouetted(pxart.all_items([f"{src}:a"]), None)
+    assert len(pxart.colors(its[0].img)) == 2  # solid and the 50% f: one color, two alphas

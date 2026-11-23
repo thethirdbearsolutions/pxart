@@ -4008,13 +4008,25 @@ SILHOUETTE = "#2b1d32"  # render/sheet --silhouette draws every pixel that draws
 def silhouetted(its, color):
     """render's and sheet's --silhouette: each item's every drawn pixel (alpha above 0) in one flat color, at the
     pixel's own alpha times the color's, so a solid sprite is a solid shape and a faint glow stays faint; a
-    transparent pixel stays transparent. The label says so (idle/0 silhouette), and the color count is then 1."""
+    transparent pixel stays transparent. The label says so (idle/0 silhouette); its color count is the alpha levels
+    left (1 for a solid sprite). A PNG whose four corners are one opaque color (a sprite rendered on a flat backdrop)
+    has that color taken as the backdrop, with a note, so it isn't one solid rectangle."""
     c = parse_color(color or SILHOUETTE, "--silhouette")
     if not c[3]:
         fail("E_BAD_COLOR", f"--silhouette {color}: that color draws nothing; give one with alpha (default {SILHOUETTE})")
     for it in its:
-        flat = Image.new("RGBA", it.img.size, c[:3] + (255,))
-        alpha = it.img.getchannel("A").point(lambda v: v * c[3] // 255)
+        img = it.img
+        w, h = img.size
+        corners = {img.getpixel(xy) for xy in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))}
+        if it.doc is None and len(corners) == 1 and next(iter(corners))[3] == 255:
+            bg = next(iter(corners))
+            keep = Image.new("L", img.size, 0)
+            keep.putdata([0 if p == bg else 255 for p in img.getdata()])
+            img = Image.composite(img, Image.new("RGBA", img.size, CLEAR), keep)
+            print(f"note: {it.label}: a PNG on a flat {rgba2hex(bg)}, its four corners' color; --silhouette takes that "
+                  "color as the backdrop")
+        flat = Image.new("RGBA", img.size, c[:3] + (255,))
+        alpha = img.getchannel("A").point(lambda v: v * c[3] // 255)
         flat.putalpha(alpha)
         it.img = flat
         it.label += " silhouette"
@@ -12954,7 +12966,8 @@ def rekey_args(args):
             out[i] = "--rekey="
         if x == "--png" and nxt is not None and SPRITE_ARG_RE.search(nxt):  # render --png hero.px: a file, not DIR
             out[i] = "--png="
-        if x == "--silhouette" and nxt is not None and (SPRITE_ARG_RE.search(nxt) or os.path.isdir(nxt)):
+        if x == "--silhouette" and nxt is not None and (SPRITE_ARG_RE.search(nxt.lower()) or nxt.lower().endswith(".gif")
+                                                        or os.path.exists(split_sel(nxt)[0])):
             out[i] = "--silhouette="  # sheet --silhouette a.px b.px (or a DIR): files, not a COLOR
     return out
 

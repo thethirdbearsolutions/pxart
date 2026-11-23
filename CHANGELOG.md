@@ -16,7 +16,10 @@ release, entries are grouped by the day they landed on `main`. The file format i
   checkerboard or `--bg`. It works with `--variant` (a halo lit only at night shows in the night silhouette),
   `--scale`, `--plain` and the rest; each label says `idle/0 silhouette`. A bare `--silhouette` before the files
   (`sheet --silhouette a.px b.px`, or a directory) takes no file as its color; a color that draws nothing
-  (`transparent`) is an error; `render --png` still writes the colors, and says so.
+  (`transparent`) is an error; `render --png` still writes the colors, and says so. A PNG input whose four corners
+  are one opaque color (a sprite rendered on a flat backdrop) has that color taken as the backdrop, with a note. The
+  default is always `#2b1d32`: the ticket's "the outline key's color" would need a file to say which key is its
+  outline, and none does.
 
 ## 2026-11-22
 
