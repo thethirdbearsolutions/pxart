@@ -91,13 +91,30 @@ def test_check_headroom_notes_the_frames_that_fill_the_canvas(tmp_path, capsys):
     assert f"note: {p}: 0 rows of headroom (want 2)" in out or f"note: {p}:stand/0: 0 rows of headroom (want 2)" in out
 
 
-def test_each_frame_under_n_rows_gets_a_line(tmp_path, capsys):
+def test_a_group_a_line_and_only_its_grounded_frames(tmp_path, capsys):
     p = fox(tmp_path)
     run("check", p, "--headroom", 4)
     out = capsys.readouterr().out
-    assert f"{p}:stand/0: 0 rows of headroom (want 4)" in out
-    assert f"{p}:jump/1: 0 rows of headroom (want 4)" in out
-    assert f"{p}:roomy: 0 rows of headroom" in out  # its night halo sits in row 0
+    assert f"{p}:stand/0: 0 rows of headroom (want 4); to grow the canvas 4 rows up: pxart crop {p}:stand/0 " \
+        f"0,-4,6,12 -o {p}:stand/0" in out
+    # jump/1 and jump/2 are airborne (their bottom edge is above jump/0's): a jump is meant to rise, so not noted
+    assert f"{p}:jump: 0 rows of headroom (want 4) in jump/0; to grow the canvas 4 rows up: pxart crop {p}:jump/0 " \
+        f"0,-4,6,12 -o {p}:jump/0, and the same for each jump frame" in out
+    assert "jump/1" not in out.split("unused")[0].split("headroom", 1)[1]
+
+
+def test_the_crop_it_prints_gives_the_room(tmp_path, capsys):
+    p = fox(tmp_path)
+    assert run("crop", f"{p}:stand/0", "0,-4,6,12", "-o", f"{p}:stand/0") == 0
+    capsys.readouterr()
+    run("check", f"{p}:stand/0", "--headroom", 4)
+    assert "rows of headroom" not in capsys.readouterr().out
+
+
+def test_a_headroom_past_the_frame_says_so(tmp_path, capsys):
+    p = fox(tmp_path)
+    run("check", f"{p}:stand/0", "--headroom", 9)
+    assert "the frame is only 8 rows tall" in capsys.readouterr().out
 
 
 def test_a_key_drawn_only_in_a_variant_counts(tmp_path, capsys):
@@ -113,15 +130,13 @@ def test_enough_headroom_is_silent(tmp_path, capsys):
     assert "rows of headroom" not in capsys.readouterr().out
 
 
-def test_more_than_eight_frames_are_cut_short_unless_v(tmp_path, capsys):
+def test_one_line_for_a_group_of_many_frames(tmp_path, capsys):
     rows = "kk\n" * 2
     p = tmp_path / "many.px"
     p.write_text("k #000000\n@anim a ms=100\n" + "".join(f"@frame a/{i}\n{rows}" for i in range(10)))
     run("check", p, "--headroom", 1)
     out = capsys.readouterr().out
-    assert out.count("rows of headroom (want 1)") == 8 and "and 2 more frames under 1 rows of headroom" in out
-    run("check", p, "--headroom", 1, "-v")
-    assert capsys.readouterr().out.count("rows of headroom (want 1)") == 10
+    assert out.count("rows of headroom (want 1)") == 1 and "in a/0, a/1, a/2, a/3 and 6 more" in out
 
 
 def test_a_headroom_under_one_is_an_error(tmp_path):
@@ -135,7 +150,15 @@ def test_anim_says_how_far_the_jump_rises_and_the_room_left(tmp_path, capsys):
     p = fox(tmp_path)
     assert run("anim", f"{p}:jump") == 0
     out = capsys.readouterr().out
-    assert "  vertical travel: 2 rows (the bottom edge from row 7 up to 5); 0 rows of headroom at its highest" in out
+    assert "  vertical travel: 2 rows (the bottom edge from row 7 up to 5); 0 rows of headroom at its highest (jump/0)" \
+        in out
+
+
+def test_a_faint_ground_shadow_does_not_pin_the_bottom_edge(tmp_path, capsys):
+    p = tmp_path / "j.px"
+    p.write_text("k #000000\ns #00000055\n@anim j ms=100\n@frame j/0\n..\nkk\nkk\nss\n@frame j/1\nkk\nkk\n..\nss\n")
+    assert run("anim", p) == 0
+    assert "vertical travel: 1 row (the bottom edge from row 2 up to 1)" in capsys.readouterr().out
 
 
 def test_anim_says_nothing_of_travel_when_the_feet_stay(tmp_path, capsys):

@@ -252,9 +252,10 @@ CHECKING
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
       (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes (give
       --min-alpha as you gave outline); a file that draws no K is silent; a K no file has, a note.
-      --headroom N notes frames drawn fewer than N rows from the top: 'fox.px:stand/0: 2 rows of
-      headroom (want 8)', a standing frame that leaves a jump nowhere to rise (anim prints a
-      group's vertical travel and headroom when its bottom edge moves).
+      --headroom N notes frames drawn fewer than N rows from the top, a group a line and only
+      those on its ground (not a jump's airborne frames): 'fox.px:stand/0: 2 rows of headroom
+      (want 8); to grow the canvas 6 rows up: pxart crop ...'. anim prints a group's vertical
+      travel and headroom when its bottom edge (alpha 128+) moves.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -3631,7 +3632,7 @@ def animate(a, its, out):
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
-    travel = said_travel(clear)
+    travel = said_travel(clear, [it.label for it in its])
     if travel:
         print(f"  {travel}")
     if not out and not DRY["run"]:
@@ -3661,22 +3662,23 @@ def animate(a, its, out):
     print(wrote(out, sp))
 
 
-def said_travel(clear):
+def said_travel(clear, labels=None):
     """anim's line for a group whose feet leave the ground: 'vertical travel: 3 rows (the bottom edge from row 23 up to
-    20); 2 rows of headroom at its highest', from the frames as placed on one canvas (by pivot, or bottom-centered).
-    The bottom edge is the drawn bbox's lowest row; headroom, the rows above the highest drawn pixel in any frame.
-    None when the bottom edge never moves (a walk, an idle) or there is only one frame."""
-    boxes = [c.getchannel("A").getbbox() for c in clear]
-    boxes = [b for b in boxes if b]
-    if len(boxes) < 2:
+    20); 2 rows of headroom at its highest (jump/2)', from the frames as placed on one canvas (by pivot, or
+    bottom-centered). The bottom edge is the lowest row of the frame's solid pixels (alpha 128 and up: a faint ground
+    shadow doesn't pin it); headroom, the rows above the highest drawn pixel in any frame. None when the bottom edge
+    never moves (a walk, an idle) or there is only one frame."""
+    solid = [c.getchannel("A").point(lambda v: 255 if v >= 128 else 0).getbbox() for c in clear]
+    drawn = [c.getchannel("A").getbbox() for c in clear]
+    lows = [b[3] - 1 for b in solid if b]
+    if len(lows) < 2 or max(lows) == min(lows):
         return None
-    lows = [b[3] - 1 for b in boxes]
-    if max(lows) == min(lows):
-        return None
-    top = min(b[1] for b in boxes)
+    tops = [b[1] if b else None for b in drawn]
+    top = min(t for t in tops if t is not None)
+    at = f" ({labels[tops.index(top)]})" if labels else ""
     n = max(lows) - min(lows)
     return (f"vertical travel: {n} row{'s' * (n != 1)} (the bottom edge from row {max(lows)} up to {min(lows)}); "
-            f"{top} row{'s' * (top != 1)} of headroom at its highest")
+            f"{top} row{'s' * (top != 1)} of headroom at its highest{at}")
 
 
 def cmd_onion(a):
@@ -4644,7 +4646,7 @@ def cmd_check(a):
                     if bad:
                         print(f"     {l}")
             gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
-            gaps += headroom_said(its, path, a.headroom, None if a.verbose else 8) if a.headroom else []
+            gaps += headroom_said(its, path, a.headroom) if a.headroom else []
             pxed |= any(it.frame is not None for it in its)
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
@@ -4726,21 +4728,43 @@ def headroom(doc, f):
     return min((y for _, y in shape), default=None)
 
 
-def headroom_said(its, path, want, most=8):
-    """check --headroom N's notes, a frame each: 'fox.px:stand/0: 2 rows of headroom (want 8)', for the frames drawn
-    fewer than N rows from the canvas top: a standing frame that fills its canvas leaves a jump nowhere to rise. The
-    first `most` (None: all), then how many more."""
-    short = []
+def grounded(doc, fs):
+    """The frames of one group that stand on its ground: those whose drawn bbox reaches the group's lowest bottom
+    edge. A jump's airborne frames are meant to be high, so check --headroom leaves them out."""
+    lows = {id(f): max((y for _, y in opaque_set(doc, f)), default=None) for f in fs}
+    low = max((v for v in lows.values() if v is not None), default=None)
+    return [f for f in fs if lows[id(f)] is not None and lows[id(f)] == low]
+
+
+def headroom_said(its, path, want, most=None):
+    """check --headroom N's notes, one per group (or top-level frame): the frames that stand on the group's ground
+    (grounded: a jump's airborne frames are left out) drawn fewer than N rows from the canvas top, which leaves a jump
+    nowhere to rise. 'fox.px:stand/0: 2 rows of headroom (want 8); to grow the canvas 6 rows up: pxart crop
+    fox.px:stand/0 0,-6,16,22 -o ...' (the crop for every frame of a group: FILE:GROUP)."""
+    groups = {}
     for it in its:
-        if it.frame is None:
+        if it.frame is not None:
+            groups.setdefault(it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else it.frame.id,
+                              []).append(it)
+    out = []
+    for g, got in groups.items():
+        doc = got[0].doc
+        short = [(f, headroom(doc, f)) for f in grounded(doc, [it.frame for it in got])]
+        short = [(f, top) for f, top in short if top is not None and top < want]
+        if not short:
             continue
-        top = headroom(it.doc, it.frame)
-        if top is not None and top < want:
-            name = path if len(its) == 1 and not it.frame.id else f"{path}:{it.label}"
-            short.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want})")
-    shown = short if most is None else short[:most]
-    return shown + ([f"{path}: and {len(short) - len(shown)} more frames under {want} rows of headroom (-v lists "
-                     "them all)"] if len(short) > len(shown) else [])
+        top = min(t for _, t in short)
+        w, h = short[0][0].size
+        one = len(got) == 1
+        name = path if len(its) == 1 and not got[0].frame.id else f"{path}:{got[0].label if one else g}"
+        which = "" if one else f" in {listed([f.id for f, _ in short], 4)}"
+        grow = want - top
+        sel = shlex.quote(f"{path}:{got[0].frame.id}")
+        out.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want}){which}"
+                   + (f"; the frame is only {h} rows tall" if want >= h else "")
+                   + f"; to grow the canvas {grow} row{'s' * (grow != 1)} up: pxart crop {sel} 0,-{grow},{w},{h + grow} "
+                   f"-o {sel}" + ("" if one else f", and the same for each {g} frame"))
+    return out if most is None else out[:most]
 
 
 def said_soft(soft, frames):
