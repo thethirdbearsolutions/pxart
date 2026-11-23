@@ -11,11 +11,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
 - **`check --outline K` says when K draws nothing in a render (PX-43).** It compared keys, not colors, so a sprite
   outlined in a `k` that is `transparent` in the base and visible only in `@variant night` passed, though the base
   render shows no outline; and the reverse (opaque by day, alpha 0 at night) passed too. Now a note names the
-  renders where K draws nothing: `o.px: outline 'k' draws nothing in base (transparent there), so that render shows
-  no outline`; with `--min-alpha A`, those where K is under A (`alpha under 128 there`). A K that draws in no render
-  is said once, `draws nothing in any render`, without a gaps note pointing inside the shape; of several keys
-  (`--outline kL`), the note says which pixels a render loses; an imported K names its palette file, and a slot color
-  that draws it is said.
+  renders where K draws nothing, each read with its own palette (a variant's own slot list too): `o.px: outline 'k'
+  draws nothing in base (transparent there), so that render shows no outline`; with `--min-alpha A`, those where K is
+  fainter than A. With several keys (`--outline kL`), a render where only some are gone `loses the outline's 'L'
+  pixels`, and one where all are gone shows no outline. A K that draws in no render isn't part of the shape, so the
+  gaps aren't checked, and a line says so instead of pointing gaps inside it. A K whose see-through color comes from
+  an imported palette names that file (`outline 'k' (from pal.px)`), and a slot color that does draw K is named.
 
 - **`anim` plays a group in its `direction` (PX-42).** A `@anim walk direction=pingpong` group of 4 frames gave a GIF
   of 4 frames playing 0 1 2 3 0, and a readout that compared walk/0 with walk/3 as a wrap-around, which a pingpong
