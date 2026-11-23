@@ -23641,7 +23641,8 @@ def test_recipe_overlay_follows_the_bob_and_shows_only_at_night(tmp_path, monkey
 def test_recipe_overlay_bob_is_what_anim_prints_and_not_the_wings(tmp_path, monkeypatch, capsys):
     # the bat's wings stick out past its body: anim's best shifts are the body's bob, and bbox/bottom follow the wings
     ran = run_recipe(tmp_path, monkeypatch, capsys, [["anim", "bat.px:fly"]])
-    assert [re.search(r"shift ([+-]\d+,[+-]\d+)", l).group(1) for l in ran[0][2].splitlines()] == \
+    assert [re.search(r"shift ([+-]\d+,[+-]\d+)", l).group(1) for l in ran[0][2].splitlines()
+            if "vertical travel" not in l] == \
         ["+0,+0", "+0,+1", "+0,+0", "+0,-1"]
     for how, want in [("bbox", "0,5 in fly/1, 0,5 in fly/2, 0,4 in fly/3"), ("bottom", "0,1 in fly/1, 0,2 in fly/2, "
                                                                                        "0,0 in fly/3")]:
@@ -23722,8 +23723,9 @@ def test_help_all_does_not_grow(capsys):
     # 71556 with the mark a re-derive goes by: it drops only the line it wrote for an imported key, not an --add's
     # (PX-30 review2 1, again). 71766 with render/sheet --silhouette (PX-31), the shape alone, in two and a usage flag.
     # 72120 with the '# derived by' line a derive writes and the listing's roles (PX-53), in five.
+    # 72484 with check --headroom N and anim's vertical travel (PX-13), in four and a flag.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 72120
+    assert len(capsys.readouterr().out.encode()) <= 72484
 
 
 def test_help_says_each_shared_rule_once():

@@ -228,7 +228,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   (`E_SAME_FRAMES`); `--outline K` (or `--outline kL` for several keys) notes each frame's
   outline gaps, the shape's edge pixels not drawn in K, with their coordinates
   (`hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)`), and agrees with what
-  `outline --key K` draws (with `--min-alpha` as you gave it), so a frame it just outlined passes; one line per file, the failing frames under it, and a
+  `outline --key K` draws (with `--min-alpha` as you gave it), so a frame it just outlined passes; `--headroom N` notes
+  frames on their group's ground drawn fewer than N rows from the top (`fox.px:stand/0: 2 rows of headroom (want 8);
+  to grow the canvas 6 rows up: pxart crop ...`), a standing frame that leaves a jump nowhere to rise, and `anim`
+  prints a group's `vertical travel` and its headroom when its solid bottom edge moves; one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
   hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;
   a frame drawn only in keys lit at night says `bbox none (96 px drawn, all transparent in the base; visible in

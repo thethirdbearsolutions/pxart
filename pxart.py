@@ -234,7 +234,7 @@ LOOKING
 
 CHECKING
   check FILE|DIR... [--palette P] [--size WxH] [--max-colors N] [--strict] [-v] [--exclude GLOB]
-        [--outline K [--min-alpha A]]
+        [--outline K [--min-alpha A]] [--headroom N]
       Every format error with a code and location, then size / off-palette colors / color budget /
       unused keys / see-through px. One line per file: 'ok   party.px: 40 frames, 32x32, 16x16,
       3-14c', or 'FAIL party.px: 2 of 40 frames fail' and a line for each of those frames (a file
@@ -254,6 +254,10 @@ CHECKING
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
       (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes (give
       --min-alpha as you gave outline); a file that draws no K is silent; a K no file has, a note.
+      --headroom N notes frames drawn fewer than N rows from the top, a group a line and only
+      those on its ground (not a jump's airborne frames): 'fox.px:stand/0: 2 rows of headroom
+      (want 8); to grow the canvas 6 rows up: pxart crop ...'. anim prints a group's vertical
+      travel and headroom when its bottom edge (alpha 128+) moves.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
   stats FILE|DIR... [--colors] [--at x,y] [--exclude GLOB] [--variant V]
@@ -3640,6 +3644,9 @@ def animate(a, its, out):
             alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
+    travel = said_travel(clear, [it.label for it in its])
+    if travel:
+        print(f"  {travel}")
     if not out and not DRY["run"]:
         return
     # the strip: frames over what changed, each cell's labels wrapped to its width in a pixel font that draws the
@@ -3665,6 +3672,23 @@ def animate(a, its, out):
     save_image(strip, sp, "the strip" if out else "the strip (no -o)", smaller="a lower --scale makes it smaller",
                about=f"{len(cells)} frame{'s' * (len(cells) != 1)} over what changed, at --scale {S}")
     print(wrote(out, sp))
+
+
+def said_travel(clear, labels=None):
+    """anim's line for a group whose feet leave the ground: 'vertical travel: 3 rows (the bottom edge from row 23 up to
+    20); 2 rows of headroom at its highest (jump/2)', from the frames as placed on one canvas (by pivot, or
+    bottom-centered). The bottom edge is the lowest row of the frame's solid pixels (alpha 128 and up: a faint ground
+    shadow doesn't pin it); headroom, the rows above the highest solid pixel in any frame (of ties, the most airborne). None when the bottom edge
+    never moves (a walk, an idle) or there is only one frame."""
+    solid = [c.getchannel("A").point(lambda v: 255 if v >= 128 else 0).getbbox() for c in clear]
+    lows = [b[3] - 1 for b in solid if b]
+    if len(lows) < 2 or max(lows) == min(lows):
+        return None
+    top, _, i = min((b[1], b[3], i) for i, b in enumerate(solid) if b)  # the highest frame; of ties, the most airborne
+    at = f" ({labels[i]})" if labels else ""
+    n = max(lows) - min(lows)
+    return (f"vertical travel: {n} row{'s' * (n != 1)} (the bottom edge from row {max(lows)} up to {min(lows)}); "
+            f"{top} row{'s' * (top != 1)} of headroom at its highest{at}")
 
 
 def cmd_onion(a):
@@ -4511,6 +4535,9 @@ def cmd_check(a):
     if a.min_alpha is not None and (keys is None or not 1 <= a.min_alpha <= 255):
         fail("E_BAD_ARG", f"--min-alpha {a.min_alpha}: " + ("give 1 to 255" if keys else
                                                             "it goes with --outline K, as for outline --min-alpha"))
+    if a.headroom is not None and a.headroom < 1:
+        fail("E_BAD_ARG", f"--headroom {a.headroom}: give the rows a frame should leave free above it, 1 or more "
+             "(--headroom 8)")
     for arg in dict.fromkeys(check_args(a.files, a.exclude or ())):
         path, sel = split_sel(arg)
         tally["files"] += 1
@@ -4660,6 +4687,7 @@ def cmd_check(a):
                     if bad:
                         print(f"     {l}")
             gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
+            gaps += headroom_said(its, path, a.headroom) if a.headroom else []
             pxed |= any(it.frame is not None for it in its)
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
@@ -4731,6 +4759,60 @@ def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
             at = " ".join(f"({x},{y})" for x, y in shown) + (f" and {len(gaps) - len(shown)} more (-v lists them all)"
                                                               if len(gaps) > len(shown) else "")
             out.append(f"{name}: outline {named} has {len(gaps)} gap{'s' * (len(gaps) != 1)} at {at}")
+    return out
+
+
+def headroom(doc, f):
+    """The rows above a frame's topmost drawn pixel (opaque_set: a key drawn in any variant counts, at any alpha), or
+    None for a frame that draws nothing."""
+    return min((y for _, y in opaque_set(doc, f)), default=None)
+
+
+def ground(doc, f):
+    """Where a frame's feet are, as anim lines frames up: its lowest solid pixel (alpha 128 and up in some variant, so
+    a faint ground shadow doesn't count) less its pivot's row (a frame without a pivot: its bottom row, as anim
+    bottom-aligns it). The frames of a group with the greatest ground stand on it; a jump's airborne frames are
+    higher. None for a frame with no solid pixel."""
+    low = max((y for _, y in opaque_set(doc, f, 128)), default=None)
+    pv = doc.pivot(f)
+    return None if low is None else low - (pv[1] if pv else f.size[1] - 1)
+
+
+def headroom_said(its, path, want):
+    """check --headroom N's notes, one per animation group (or other frame): the selected frames that stand on their
+    group's ground (ground; the whole group's frames decide where that is, whatever was selected) drawn fewer than N
+    rows from the canvas top, which leaves a jump nowhere to rise: 'fox.px:stand/0: 2 rows of headroom (want 8); to
+    grow the canvas 6 rows up: pxart crop fox.px:stand/0 0,-6,16,22 -o fox.px:stand/0' (for a group, the crop of its
+    first such frame, each the same; with a pivot, the anim-set that keeps the feet where they were)."""
+    groups = {}
+    for it in its:
+        if it.frame is not None:
+            g = it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else None
+            groups.setdefault((g, it.frame.id if g is None else None), []).append(it)
+    out = []
+    for (g, fid), got in groups.items():
+        doc = got[0].doc
+        whole = [f for f in doc.frames if f.group == g] if g else [got[0].frame]
+        grounds = {id(f): ground(doc, f) for f in whole}
+        floor = max((v for v in grounds.values() if v is not None), default=None)
+        short = [(it.frame, headroom(doc, it.frame)) for it in got if grounds.get(id(it.frame)) == floor]
+        short = [(f, top) for f, top in short if top is not None and top < want]
+        if not short:
+            continue
+        f0, top = min(short, key=lambda x: x[1])
+        w, h = f0.size
+        name = path if f0.id is None else f"{path}:{f0.id if g is None else g}"
+        which = "" if g is None else f" in {listed([f.id for f, _ in short], 4)}"
+        grow = want - top
+        sel = shlex.quote(path if f0.id is None else f"{path}:{f0.id}")
+        pv = doc.pivot(f0)
+        fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
+        if pv:
+            fix += f", then pxart anim-set {sel} pivot={pv[0]},{pv[1] + grow} (the feet stay put)"
+        out.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want}){which}"
+                   + (f"; the frame is only {h} rows tall" if want >= h else "")
+                   + f"; to grow the canvas {grow} row{'s' * (grow != 1)} up: {fix}"
+                   + ("" if g is None else f"; and each other {g} frame {grow} row{'s' * (grow != 1)} up the same way"))
     return out
 
 
@@ -12824,6 +12906,8 @@ def parser(describe=True):
     p.add_argument("--outline", metavar="K", help="note the shape's edge pixels not drawn in outline key K (or keys: kL)")
     p.add_argument("--min-alpha", type=int, metavar="A",
                    help="with --outline: the shape is keys of alpha A+, as for outline --min-alpha")
+    p.add_argument("--headroom", type=int, metavar="N",
+                   help="note frames drawn fewer than N rows from the canvas top (a jump needs room to rise)")
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="leave out files whose name or path under DIR matches GLOB, or under a matching directory "
                         "(repeatable)")
