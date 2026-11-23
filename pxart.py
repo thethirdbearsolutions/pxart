@@ -919,7 +919,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, collections, contextlib, copy, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, copy, csv, errno, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont, PngImagePlugin
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -9880,8 +9880,8 @@ def cmd_export(a):
     outs += [p.with_suffix(".png") for p in outs[:2] if p.suffix != ".png"]
     for p in outs + ([pathlib.Path(a.frames) / "x.png"] if a.frames else []):  # a path no output can be written to
         outpath(p, make=False)                                                    # fails before any is written
-        if p.is_dir() and p.name != "x.png":
-            fail("E_FILE", f"can't write {p}: it is a directory")
+        if p.is_dir() and p.name != "x.png":  # as the write itself would fail, before any other output is written
+            raise IsADirectoryError(errno.EISDIR, "Is a directory", str(p))
     indexed = None
     if a.indexed:
         indexed = indexed_data(entries, grouped(its), [(doc, g, fs, f"{docs[id(doc)]}/{g}" if a.prefix_file else g)
