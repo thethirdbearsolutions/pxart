@@ -9876,11 +9876,25 @@ def cmd_export(a):
         fail("E_TILE_SIZE", "a Tiled tileset needs every frame the same size: "
              + ", ".join(f"{it.label} {it.img.width}x{it.img.height}" for it in its)
              + f"; export only same-size frames with FILE:SEL (export {odd}:GROUP ... --tiled X.tsj)")
-    outs = [pathlib.Path(x) for x in (a.aseprite, a.tiled if isinstance(a.tiled, str) else None, a.indexed) if x]
-    outs += [p.with_suffix(".png") for p in outs[:2] if p.suffix != ".png"]
-    for p in outs + ([pathlib.Path(a.frames) / "x.png"] if a.frames else []):  # a path no output can be written to
-        outpath(p, make=False)                                                    # fails before any is written
-        if p.is_dir() and p.name != "x.png":  # as the write itself would fail, before any other output is written
+    outs = []  # [(path, what)]: every file this export writes, checked before any is written
+    if a.frames:
+        outs += [(pathlib.Path(a.frames) / (it.label + ".png"), "--frames") for it in its]
+        if any(it.doc.pivot(it.frame) for it in its):
+            outs.append((pathlib.Path(a.frames) / "pivots.json", "--frames"))
+    for x, what in ((a.aseprite, "--aseprite"), (a.tiled if isinstance(a.tiled, str) else None, "--tiled")):
+        if x:
+            outs += [(pathlib.Path(x), what), (pathlib.Path(x).with_suffix(".png"), f"{what}'s sheet")]
+    if a.indexed:
+        outs.append((pathlib.Path(a.indexed), "--indexed"))
+    seen = {}
+    for p, what in outs:  # two outputs onto one file would leave only the last: refuse, as a clash of ids is
+        key = os.path.normcase(os.path.abspath(p))
+        sheets = {"--aseprite's sheet", "--tiled's sheet"}  # one X.png for both, as documented: allowed
+        if key in seen and seen[key] != what and {seen[key], what} != sheets:
+            fail("E_BAD_ARG", f"{seen[key]} and {what} would both write {p}: give them different names")
+        seen.setdefault(key, what)
+        outpath(p, make=False)  # a file where a directory should be: E_FILE, before any output is written
+        if p.is_dir():  # as the write itself would fail, before any other output is written
             raise IsADirectoryError(errno.EISDIR, "Is a directory", str(p))
     indexed = None
     if a.indexed:
@@ -9970,7 +9984,7 @@ def indexed_data(entries, its, groups):
             if k in pal and not same_key(pal[k], c):
                 fail("E_KEY_CONFLICT", f"--indexed writes one palette, and key {k!r} is {fmt_key(pal[k])} in "
                      f"{whose[k]}, {fmt_key(c)} in {doc.path}; export them to one --indexed JSON each, or give one "
-                     f"of them a free key first: pxart recolor {shlex.quote(str(doc.path))} {shlex.quote(k + '>K')}")
+                     f"of them a free key K first: pxart recolor {shlex.quote(str(doc.path))} {shlex.quote(k + '>K')}")
             pal[k], whose[k] = c, doc.path
         for n in variant_names(doc):
             for k, c in {**doc.shared_variants.get(n, {}), **doc.variants.get(n, {})}.items():
