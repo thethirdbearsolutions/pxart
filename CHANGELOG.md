@@ -11,14 +11,17 @@ release, entries are grouped by the day they landed on `main`. The file format i
 - **A derived variant says how it was made (PX-53).** After `palette --variant night --derive-from base --darken
   0.55 --tint '#18204880' --keep-lit y --lamplit f@0.6`, the file kept only the colors, so changing one strength
   meant remembering the whole command. The derive now writes that command, as a comment, right above `@variant
-  night`: `# derived by: pxart palette pal.px --variant night --derive-from base --darken 0.55 --tint '#18204880'
-  --keep-lit y --lamplit f@0.6` (with `--match`, `--lift-darks`, and an `--add` or `--keep` of the same call, as
-  typed; FILE by its name). Run from the file's folder, the line gives the same file again; a re-derive replaces it,
-  and `--comment @variant night` keeps it under the new comment. A later `--add` or `--keep` on that variant prints a
-  note that the line doesn't include it. The `palette` listing names the keys the line kept lit or lamplit by role,
-  as the derive's summary does, instead of under "recolors (darker)" and "relists unchanged": `night: recolors
-  (darker) k b g; kept lit: y; lamplit: f (0.6); inherits: nothing`. The file format is unchanged: the line is an
-  ordinary comment.
+  night`: `# derived by (from this file's folder): pxart palette pal.px --variant night --derive-from base --darken
+  0.55 --tint '#18204880' --keep-lit y --lamplit f@0.6`, with `--match`, `--lift-darks`, and an `--add` or `--keep`
+  of the same call, as typed. FILE is named as the file the line lives in (`-o OUT`'s name, for an edited copy), so
+  run from that folder the line gives the same file again. A re-derive replaces it, and `--comment @variant night`
+  keeps it under the new comment. A later `--add` or `--keep` on that variant prints a note that the line doesn't
+  include it. The `palette` listing names the keys the line kept lit or lamplit by role, as the derive's summary
+  does, instead of under "recolors (darker)" and "relists unchanged": `night: recolors (darker) k b g; kept lit: y;
+  lamplit: f (0.6); inherits: nothing`, but only while a key's color is still what the line makes. It runs the line
+  on a copy to check, and lists any key set since (by `--add`, or by hand) apart: `not as its '# derived by:' line
+  makes it: f`. An imported key's `# lamplit` mark is no longer repeated as its comment in the listing. The file
+  format is unchanged: the line is an ordinary comment.
 
 ## 2026-11-22
 

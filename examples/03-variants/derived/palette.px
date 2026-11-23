@@ -55,7 +55,7 @@ r #83344e
 l #fff4b0
 g #ffc861
 
-# derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+# derived by (from this file's folder): pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
 @variant dusk
 k #381c1e
 w #f2c6a8

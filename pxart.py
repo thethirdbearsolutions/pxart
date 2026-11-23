@@ -680,9 +680,10 @@ EDITING (writes .px; -o defaults to editing the input in place)
       alike by day), drawn where the light falls; a ring further out takes another --lamplit;
       dither the zones' edges for a falloff. To change a strength, derive from base again (from
       a lamplit variant it lights twice): the derive writes its command right above @variant
-      NAME ('# derived by: pxart palette pal.px --variant night --derive-from base ...'), to
-      run again with one flag changed, and the listing names its keys by role ('kept lit: y;
-      lamplit: f (0.6)'). A later --add isn't in that line: a note says so.
+      NAME ('# derived by (from this file's folder): pxart palette pal.px --variant night
+      ...'), to run again there with one flag changed, and the listing names its keys by role
+      ('kept lit: y; lamplit: f (0.6)'), and any key set since (--add, by hand) apart: a
+      re-run would change it.
 
       --match FILE%dusk (or FILE:dusk; FILE alone means the variant being made) first maps
       each channel the way FILE's own base -> dusk does, a gain and an offset per channel
@@ -908,7 +909,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, copy, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont, PngImagePlugin
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -8497,7 +8498,10 @@ def palette_edit(a):
     for name in names:  # what each recolors (darker, brighter), relists in its base color (a lamp kept lit), leaves
         over = {**doc.shared_variants.get(name, {}), **doc.variants.get(name, {})}
         recipe = recipe_of(doc, name) if name in doc.variants else None
-        roles = {k: r for k, r in (recipe[1] if recipe else {}).items() if k in doc.variants[name]}  # lines it wrote
+        again = rederived(doc, name, recipe[0]) if recipe else None
+        mine = doc.variants.get(name, {})
+        drift = [] if again is None else [k for k in pal if k != "." and again.get(k) != mine.get(k)]
+        roles = {k: r for k, r in (recipe[1] if recipe else {}).items() if k in mine and k not in drift}
         sets = [k for k in pal if k in over and k != "." and over[k] != pal[k] and k not in roles]
         same = [k for k in pal if k in over and k != "." and over[k] == pal[k] and k not in roles]
         keeps = [k for k in pal if k not in over and k != "."]
@@ -8516,10 +8520,13 @@ def palette_edit(a):
               + f"; inherits: {' '.join(keeps) or 'nothing'}")
         for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
             print(f"    {l.strip()}")
+        if drift:
+            print(f"    not as its '# derived by:' line makes {'them' if len(drift) > 1 else 'it'}: {' '.join(drift)} "
+                  f"(set since, by hand or --add; running the line again changes {'them' if len(drift) > 1 else 'it'})")
         for _, ks in half_variants(doc, name):
             print(f"    WARNING: {said_half(doc, name, ks)}")
         for k in pal:
-            said = comment_text(cmts.get(("vkey", name, k)))
+            said = comment_text([l for l in cmts.get(("vkey", name, k)) or [] if not MARK_RE.fullmatch(l.strip())])
             if said:
                 print(f"    {k}: {said}")
 
@@ -8656,7 +8663,7 @@ def derive_marked(doc, name, k):
     return any(MARK_RE.fullmatch(l.strip()) for l in doc.lead.get(("vkey", name, k)) or [])
 
 
-DERIVED_RE = re.compile(r"#\s*derived by:\s*(.*?)\s*$")  # a derived variant's recipe, right above its @variant line
+DERIVED_RE = re.compile(r"#\s*derived by(?: \([^)]*\))?:\s*(.*?)\s*$")  # a derived variant's recipe, right above its @variant line
 
 
 def derive_recipe(a, doc):
@@ -8664,7 +8671,7 @@ def derive_recipe(a, doc):
     --variant night --derive-from base --darken 0.55 --tint '#18204880' --keep-lit y,e --lamplit n,N@0.6', the derive's
     own flags (and an --add or --keep of the same call) as typed, FILE by its name, so the file says how its variant was
     made and the command can be run again with one flag changed."""
-    argv = ["palette", doc.path.name, "--variant", a.variant, "--derive-from", a.derive_from]
+    argv = ["palette", (doc.dest or doc.path).name, "--variant", a.variant, "--derive-from", a.derive_from]
     argv += ["--match", a.match] if a.match else []
     argv += ["--darken", f"{a.darken:g}"] if a.darken is not None else []
     argv += ["--tint", a.tint] if a.tint else []
@@ -8674,7 +8681,7 @@ def derive_recipe(a, doc):
     argv += ["--lift-darks"] if a.lift_darks else []
     argv += ["--add", *a.add] if a.add else []
     argv += ["--keep", a.keep] if a.keep else []
-    return "# derived by: pxart " + shlex.join(argv)
+    return "# derived by (from this file's folder): pxart " + shlex.join(argv)
 
 
 def set_recipe(doc, name, line):
@@ -8707,6 +8714,37 @@ def recipe_of(doc, name):
         except PxError:
             return None
     return cmd, roles
+
+
+def rederived(doc, name, cmd):
+    """What running a '# derived by:' line (cmd) again would make @variant NAME: its {key: color}, from a copy of doc,
+    in doc's folder (where the line runs); None when the line isn't a derive of NAME or can't run (a --match file
+    gone, a bad flag). The listing compares it with the variant's lines, so it names a key by role only while its
+    color is still the line's."""
+    try:
+        argv = shlex.split(cmd)
+        with contextlib.redirect_stderr(io.StringIO()):
+            a = parser(describe=False)[0].parse_args(argv[1:] if argv[:1] == ["pxart"] else argv)
+    except (SystemExit, ValueError):
+        return None
+    if a.cmd != "palette" or a.variant != name or a.derive_from is None:
+        return None
+    d = copy.deepcopy(doc)
+    here = os.getcwd()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            os.chdir(doc.path.parent)
+            derive_variant(d, name, a.derive_from, a.darken or 0.0, a.tint,
+                           key_list(a.keep_lit, "--keep-lit") if a.keep_lit else [],
+                           match_fit(a.match, name) if a.match else None, a.lift_darks,
+                           [(*lamplit_arg(x), x) for x in a.lamplit or []])
+            if a.add or a.keep:
+                variant_edit(d, name, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep") if a.keep else [])
+    except (PxError, OSError, SystemExit):
+        return None
+    finally:
+        os.chdir(here)
+    return d.variants.get(name, {})
 
 
 DARK = 64  # derive never brightens a key darker than this (Rec. 709 luma of 255): an outline stays an outline

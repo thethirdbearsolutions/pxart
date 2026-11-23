@@ -196,11 +196,12 @@ dusk colors; the day and night stay as they were.
 The note is about the line Step 4 wrote above `@variant dusk` in `derived/palette.px`:
 
 ```px
-# derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+# derived by (from this file's folder): pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
 ```
 
 That's the derive's own command, so the file remembers how its dusk was made. To try
-another `--darken`, run that line again from `derived/` with the number changed. It
+another `--darken`, run that line again from `derived/` with the number changed.
+The listing (Step 6) names `w` apart from the line's keys while this tweak is in place. It
 rebuilds the whole dusk, so this tweak goes too unless you add `--add 'w=#f2c6a8'` to it.
 
 Render the dusk again (the same command as Step 4, with a new output name):
@@ -234,7 +235,8 @@ l #fff4b0     local  # lamp light (stays lit at night)
 g #ffc861     local  # lamp glow (stays lit at night)
 variants: dusk, night
   dusk: recolors (darker) k w s S y Y n N b c a A o O r; kept lit: l g; inherits: nothing
-    # derived by: pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+    # derived by (from this file's folder): pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
+    not as its '# derived by:' line makes it: w (set since, by hand or --add; running the line again changes it)
   night: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
     # night: cool moonlight; lamp colors (l, g) stay lit
 ```

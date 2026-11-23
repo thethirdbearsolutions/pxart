@@ -15984,7 +15984,7 @@ def test_lamplit_leaves_keep_lit_keys_unchanged(tmp_path, capsys):
 def undrawn(text):
     """A file's text without the '# derived by:' line a derive writes above its variant (PX-53): what these tests
     compare was written before it, and test_derive_recipe.py has the line's own tests."""
-    return "".join(l for l in text.splitlines(True) if not l.startswith("# derived by:"))
+    return "".join(l for l in text.splitlines(True) if not l.startswith("# derived by"))
 
 
 def test_lamplit_strength_zero_is_the_plain_derive(tmp_path):
@@ -23720,9 +23720,9 @@ def test_help_all_does_not_grow(capsys):
     # 71222 with what a re-derive drops for an imported key no longer kept lit or lamplit (PX-30 review2 1).
     # 71480 with when the lamp lifts a key and when it darkens one, and that it can't brighten a dark key much (PX-30 review2 3).
     # 71556 with the mark a re-derive goes by: it drops only the line it wrote for an imported key, not an --add's
-    # (PX-30 review2 1, again). 71869 with the '# derived by:' line a derive writes and the listing's roles (PX-53).
+    # (PX-30 review2 1, again). 71910 with the '# derived by:' line a derive writes and the listing's roles (PX-53).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 71869
+    assert len(capsys.readouterr().out.encode()) <= 71910
 
 
 def test_help_says_each_shared_rule_once():
@@ -26722,7 +26722,8 @@ def test_palette_o_writes_what_in_place_would(tmp_path, capsys, name):
     assert run("palette", pa, *po_argv(name, a)) == 0
     assert run("palette", pb, *po_argv(name, b), "-o", b / "out.px") == 0
     assert pb.read_text() == PO_SPRITE  # FILE stays as it is
-    assert (b / "out.px").read_text() == pa.read_text()
+    # a derive's '# derived by:' line names the file it lives in (PX-53): out.px there, h.px in place
+    assert (b / "out.px").read_text().replace(": pxart palette out.px ", ": pxart palette h.px ") == pa.read_text()
     assert f"wrote {b / 'out.px'}" in capsys.readouterr().out
 
 
