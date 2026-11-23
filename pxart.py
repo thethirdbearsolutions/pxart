@@ -8406,7 +8406,7 @@ def palette_edit(a):
         if a.variant in doc.variants:  # FILE's own @variant line (none when the import's colors every key)
             set_recipe(doc, a.variant, derive_recipe(a, doc))
     if a.variant and (a.add or a.keep) and not derive and recipe_of(doc, a.variant):
-        print(f"note: @variant {a.variant}'s '# derived by:' line doesn't include this "
+        print(f"note: @variant {a.variant}'s '# derived by' line doesn't include this "
               f"{'--add' if a.add else '--keep'}; run that line again and it's gone (add it to the line to keep it)")
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
@@ -8501,7 +8501,7 @@ def palette_edit(a):
         again = rederived(doc, name, recipe[0]) if recipe else None
         mine = doc.variants.get(name, {})
         drift = [] if again is None else [k for k in pal if k != "." and again.get(k) != mine.get(k)]
-        roles = {k: r for k, r in (recipe[1] if recipe else {}).items() if k in mine and k not in drift}
+        roles = {k: r for k, r in (recipe[1] if again is not None else {}).items() if k in mine and k not in drift}
         sets = [k for k in pal if k in over and k != "." and over[k] != pal[k] and k not in roles]
         same = [k for k in pal if k in over and k != "." and over[k] == pal[k] and k not in roles]
         keeps = [k for k in pal if k not in over and k != "."]
@@ -8521,8 +8521,11 @@ def palette_edit(a):
         for l in [l for l in cmts.get(("variant", name), []) if l.strip()]:
             print(f"    {l.strip()}")
         if drift:
-            print(f"    not as its '# derived by:' line makes {'them' if len(drift) > 1 else 'it'}: {' '.join(drift)} "
-                  f"(set since, by hand or --add; running the line again changes {'them' if len(drift) > 1 else 'it'})")
+            print(f"    not what its '# derived by' line makes now: {' '.join(drift)} (running the line again changes "
+                  f"{'them' if len(drift) > 1 else 'it'})")
+        elif recipe and again is None:
+            print("    its '# derived by' line can't be run here (another file's, or a --match file it can't read): "
+                  "its keys aren't named by role")
         for _, ks in half_variants(doc, name):
             print(f"    WARNING: {said_half(doc, name, ks)}")
         for k in pal:
@@ -8663,24 +8666,40 @@ def derive_marked(doc, name, k):
     return any(MARK_RE.fullmatch(l.strip()) for l in doc.lead.get(("vkey", name, k)) or [])
 
 
-DERIVED_RE = re.compile(r"#\s*derived by(?: \([^)]*\))?:\s*(.*?)\s*$")  # a derived variant's recipe, right above its @variant line
+DERIVE_MARK = "# derived by (from this file's folder): pxart palette "
+DERIVED_RE = re.compile(r"#\s*derived by \(from this file's folder\):\s*(pxart palette .*?)\s*$")  # a derived
+# variant's recipe, the last comment line right above its @variant line (a comment of the author's that only starts
+# '# derived by:' is a comment)
+
+
+def typed_opt(flag, v):
+    """One option of the recipe as argparse reads it back: '--keep-lit=-,k' for a value starting with '-'."""
+    return [f"{flag}={v}"] if v.startswith("-") else [flag, v]
 
 
 def derive_recipe(a, doc):
-    """The line palette --derive-from writes right above '@variant NAME': '# derived by: pxart palette FILE.px
-    --variant night --derive-from base --darken 0.55 --tint '#18204880' --keep-lit y,e --lamplit n,N@0.6', the derive's
-    own flags (and an --add or --keep of the same call) as typed, FILE by its name, so the file says how its variant was
-    made and the command can be run again with one flag changed."""
+    """The line palette --derive-from writes right above '@variant NAME': "# derived by (from this file's folder): pxart
+    palette FILE.px --variant night --derive-from base --darken 0.55 --tint '#18204880' --keep-lit y,e --lamplit
+    n,N@0.6", the derive's own flags (and an --add or --keep of the same call) as given, FILE the file the line lives in
+    (-o OUT's name) and --match's path from its folder, so the file says how its variant was made and the line, run
+    there, makes it again, or with one flag changed another."""
+    home = (doc.dest or doc.path).resolve().parent
     argv = ["palette", (doc.dest or doc.path).name, "--variant", a.variant, "--derive-from", a.derive_from]
-    argv += ["--match", a.match] if a.match else []
-    argv += ["--darken", f"{a.darken:g}"] if a.darken is not None else []
-    argv += ["--tint", a.tint] if a.tint else []
-    argv += ["--keep-lit", a.keep_lit] if a.keep_lit else []
+    if a.match:
+        path, sep, var = a.match.rpartition("%") if "%" in a.match else (a.match, "", "")
+        argv += typed_opt("--match", pathlib.Path(os.path.relpath(pathlib.Path(path).resolve(), home)).as_posix()
+                          + sep + var)
+    argv += ["--darken", repr(a.darken)] if a.darken is not None else []  # repr: the float back exactly
+    argv += typed_opt("--tint", a.tint) if a.tint else []
+    argv += typed_opt("--keep-lit", a.keep_lit) if a.keep_lit else []
     for x in a.lamplit or []:
-        argv += ["--lamplit", x]
+        argv += typed_opt("--lamplit", x)
     argv += ["--lift-darks"] if a.lift_darks else []
-    argv += ["--add", *a.add] if a.add else []
-    argv += ["--keep", a.keep] if a.keep else []
+    if a.add and any(m.startswith("-") for m in a.add):
+        argv += [f"--add={m}" for m in a.add]
+    else:
+        argv += ["--add", *a.add] if a.add else []
+    argv += typed_opt("--keep", a.keep) if a.keep else []
     return "# derived by (from this file's folder): pxart " + shlex.join(argv)
 
 
@@ -8689,31 +8708,49 @@ def set_recipe(doc, name, line):
     anchor = ("variant", name)
     was = doc.lead.get(anchor)
     lead = list(was) if was is not None else [""] * dict((a, g) for a, g, _ in doc.lines()).get(anchor, 1)
-    doc.lead[anchor] = [l for l in lead if not DERIVED_RE.match(l.strip())] + [line]
+    if lead and DERIVED_RE.match(lead[-1].strip()):
+        lead = lead[:-1]
+    doc.lead[anchor] = lead + [line]
 
 
 def recipe_of(doc, name):
-    """The '# derived by:' line above FILE's own @variant NAME, read back: (the line's command, {key: 'kept lit' or
-    'lamplit (S)'}), or None when it has none (or one that doesn't parse)."""
-    line = next((l.strip() for l in doc.lead.get(("variant", name)) or [] if DERIVED_RE.match(l.strip())), None)
-    if line is None:
+    """The '# derived by' line right above FILE's own @variant NAME (its last comment line), read back: (the line's
+    command, {key: 'kept lit' or 'lamplit (S)'}, with an --add or --keep of the line's own call left out), or None
+    when it has none (or one that doesn't parse)."""
+    lead = [l.strip() for l in doc.lead.get(("variant", name)) or [] if l.strip()]
+    m = DERIVED_RE.match(lead[-1]) if lead else None
+    if m is None:
         return None
-    cmd = DERIVED_RE.match(line).group(1)
+    cmd = m.group(1)
     try:
         argv = shlex.split(cmd)
     except ValueError:
         return None
-    roles = {}
-    for flag, v in zip(argv, argv[1:] + [""]):
+    pairs = []
+    for n, x in enumerate(argv):
+        if x.startswith("--") and "=" in x:
+            pairs.append(tuple(x.split("=", 1)))
+        elif x.startswith("--"):
+            pairs.append((x, argv[n + 1] if n + 1 < len(argv) else ""))
+    roles, hand = {}, set()
+    for flag, v in pairs:
         try:
             if flag == "--keep-lit":
                 roles.update({k: "kept lit" for k in key_list(v, "--keep-lit")})
             elif flag == "--lamplit":
-                keys, st, _ = lamplit_arg(v)
-                roles.update({k: f"lamplit ({st:g})" for k in keys})
+                keys, st, c = lamplit_arg(v)
+                roles.update({k: f"lamplit ({st:g}" + (f", toward {fmt_color(c)}" if c != LAMP else "") + ")"
+                              for k in keys})
+            elif flag == "--keep":
+                hand |= set(key_list(v, "--keep"))
         except PxError:
             return None
-    return cmd, roles
+    for n, x in enumerate(argv):  # --add's values run to the next option; --add=V is one
+        if x == "--add":
+            hand |= {m[:1] for m in itertools.takewhile(lambda m: not m.startswith("--"), argv[n + 1:])}
+        elif x.startswith("--add="):
+            hand.add(x[len("--add="):][:1])
+    return cmd, {k: r for k, r in roles.items() if k not in hand}
 
 
 def rederived(doc, name, cmd):
@@ -8727,8 +8764,8 @@ def rederived(doc, name, cmd):
             a = parser(describe=False)[0].parse_args(argv[1:] if argv[:1] == ["pxart"] else argv)
     except (SystemExit, ValueError):
         return None
-    if a.cmd != "palette" or a.variant != name or a.derive_from is None:
-        return None
+    if a.cmd != "palette" or a.variant != name or a.derive_from is None or a.file != doc.path.name:
+        return None  # another file's line (--extract-to copied it), or not a derive of NAME
     d = copy.deepcopy(doc)
     here = os.getcwd()
     try:

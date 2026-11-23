@@ -186,7 +186,7 @@ pxart palette derived/palette.px --variant dusk --add 'w=#f2c6a8'
 ```
 
 ```text
-note: @variant dusk's '# derived by:' line doesn't include this --add; run that line again and it's gone (add it to the line to keep it)
+note: @variant dusk's '# derived by' line doesn't include this --add; run that line again and it's gone (add it to the line to keep it)
 @variant dusk; sets w #f2c6a8; wrote derived/palette.px
 ```
 
@@ -236,7 +236,7 @@ g #ffc861     local  # lamp glow (stays lit at night)
 variants: dusk, night
   dusk: recolors (darker) k w s S y Y n N b c a A o O r; kept lit: l g; inherits: nothing
     # derived by (from this file's folder): pxart palette palette.px --variant dusk --derive-from base --darken 0.2 --tint '#ff6a3a38' --keep-lit l,g
-    not as its '# derived by:' line makes it: w (set since, by hand or --add; running the line again changes it)
+    not what its '# derived by' line makes now: w (running the line again changes it)
   night: recolors (darker) k w s S y Y n N b c a A o O r; relists unchanged: l g; inherits: nothing
     # night: cool moonlight; lamp colors (l, g) stay lit
 ```

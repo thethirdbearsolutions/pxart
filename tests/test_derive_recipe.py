@@ -96,7 +96,7 @@ def test_a_later_add_is_noted(tmp_path, capsys):
     assert run("palette", p, *DERIVE) == 0
     capsys.readouterr()
     assert run("palette", p, "--variant", "night", "--add", "g=#000000") == 0
-    assert "'# derived by:' line doesn't include this --add" in capsys.readouterr().out
+    assert "'# derived by' line doesn't include this --add" in capsys.readouterr().out
     assert run("palette", p, "--variant", "night", "--comment", "g", "by hand") == 0
     assert "derived by" not in capsys.readouterr().out
 
@@ -124,7 +124,7 @@ def test_the_listing_names_a_key_set_since_apart(tmp_path, capsys):
     assert run("palette", p) == 0
     out = capsys.readouterr().out
     assert "lamplit: f" not in out and "kept lit: y" in out
-    assert "not as its '# derived by:' line makes it: f" in out
+    assert "not what its '# derived by' line makes now: f (running the line again changes it)" in out
 
 
 def test_o_names_the_file_the_line_lives_in(tmp_path):
@@ -145,3 +145,88 @@ def test_a_derived_sprites_marks_are_not_listed_as_comments(tmp_path, capsys):
     assert run("palette", s) == 0
     out = capsys.readouterr().out
     assert "lamplit: f (0.5)" in out and "f: # lamplit" not in out
+
+
+def rerun(p):
+    """Run p's '# derived by' line from p's folder, as the line says."""
+    line = recipe_lines(p)[0]
+    cmd = shlex.split(line.split(": pxart ", 1)[1])
+    here = pathlib.Path.cwd()
+    import os
+    os.chdir(p.parent)
+    try:
+        return run(*cmd)
+    finally:
+        os.chdir(here)
+
+
+def test_match_is_written_from_the_files_folder(tmp_path, monkeypatch):
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "ref" / "moss.px").write_text("pxart 1\na #808080\nb #404040\n\n@variant night\na #202040\nb #101030\n")
+    (tmp_path / "art").mkdir()
+    p = tmp_path / "art" / "pal.px"
+    p.write_text(PAL)
+    monkeypatch.chdir(tmp_path)
+    assert run("palette", "art/pal.px", "--variant", "night", "--derive-from", "base", "--match", "ref/moss.px%night") == 0
+    assert "--match ../ref/moss.px%night" in recipe_lines(p)[0]
+    first = p.read_text()
+    assert rerun(p) == 0 and p.read_text() == first
+
+
+def test_a_darken_is_written_exactly(tmp_path):
+    p = pal(tmp_path)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5000004") == 0
+    assert "--darken 0.5000004" in recipe_lines(p)[0]
+    first = p.read_text()
+    assert rerun(p) == 0 and p.read_text() == first
+
+
+def test_dash_values_are_written_as_argparse_reads_them(tmp_path):
+    p = tmp_path / "pal.px"
+    p.write_text(PAL + "- #808080\n")
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--keep-lit=-,k") == 0
+    assert "--keep-lit=-,k" in recipe_lines(p)[0]
+    first = p.read_text()
+    assert rerun(p) == 0 and p.read_text() == first
+
+
+def test_a_line_that_cant_run_names_no_roles(tmp_path, capsys):
+    p = pal(tmp_path)
+    assert run("palette", p, *DERIVE) == 0
+    p.rename(tmp_path / "other.px")  # the line names pal.px, not this file
+    p = tmp_path / "other.px"
+    p.write_text(p.read_text().replace("y #fee761\n", "y #ff00ff\n", 2).replace("@variant night\n", "@variant night\n"))
+    capsys.readouterr()
+    assert run("palette", p) == 0
+    out = capsys.readouterr().out
+    assert "kept lit" not in out and "lamplit:" not in out and "can't be run here" in out
+
+
+def test_an_authors_comment_is_not_a_recipe(tmp_path, capsys):
+    p = pal(tmp_path)
+    assert run("palette", p, *DERIVE) == 0
+    text = p.read_text().replace("@variant night\n", "# derived by: hand, at dusk\n@variant night\n")
+    p.write_text(text)
+    capsys.readouterr()
+    assert run("palette", p) == 0
+    assert "kept lit" not in capsys.readouterr().out  # the recipe isn't the last comment line any more
+    assert run("palette", p, *DERIVE) == 0
+    assert "# derived by: hand, at dusk" in p.read_text()  # kept: not the line the derive writes
+
+
+def test_an_add_in_the_derive_takes_its_key_out_of_the_role(tmp_path, capsys):
+    p = pal(tmp_path)
+    assert run("palette", p, *DERIVE, "--add", "f=#ff00ff") == 0
+    capsys.readouterr()
+    assert run("palette", p) == 0
+    out = capsys.readouterr().out
+    assert "lamplit: f" not in out and "kept lit: y" in out
+
+
+def test_lamps_of_other_colors_list_apart(tmp_path, capsys):
+    p = pal(tmp_path)
+    assert run("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5", "--lamplit", "f@0.4",
+               "--lamplit", "b@0.4:#80a0ff") == 0
+    capsys.readouterr()
+    assert run("palette", p) == 0
+    assert "lamplit: f (0.4); lamplit: b (0.4, toward #80a0ff)" in capsys.readouterr().out
