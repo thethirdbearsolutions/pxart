@@ -8,6 +8,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`check --outline K` says when K draws nothing in a render (PX-43).** It compared keys, not colors, so a sprite
+  outlined in a `k` that is `transparent` in the base and visible only in `@variant night` passed, though the base
+  render shows no outline; and the reverse (opaque by day, alpha 0 at night) passed too. Now a note names the
+  renders where K draws nothing: `o.px: outline 'k' draws nothing in base (transparent there), so that render shows
+  no outline`; with `--min-alpha A`, those where K is under A (`alpha under 128 there`).
+
 - **`anim` plays a group in its `direction` (PX-42).** A `@anim walk direction=pingpong` group of 4 frames gave a GIF
   of 4 frames playing 0 1 2 3 0, and a readout that compared walk/0 with walk/3 as a wrap-around, which a pingpong
   never plays; so `anim` couldn't preview the turnaround that `check`'s E_SAME_FRAMES reasons about. Now the GIF and

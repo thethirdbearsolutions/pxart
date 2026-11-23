@@ -254,8 +254,10 @@ CHECKING
       entry loads as one frame; .world, .tmj: help worlds.
       --outline K (keys: kL) notes each frame's edge pixels (shape pixels with an empty side; the
       frame's border isn't empty) not drawn in K: "hero.px:idle/0: outline 'k' has 3 gaps at (4,2)
-      (11,7) (11,8)" (-v: every one). A frame just outlined by outline --key K passes (give
-      --min-alpha as you gave outline); a file that draws no K is silent; a K no file has, a note.
+      (11,7) (11,8)" (-v: every one), and a K see-through in the base or a variant ("outline
+      'k' draws nothing in base (transparent there)"). A frame just outlined by outline --key K
+      passes (give --min-alpha as you gave outline); a file that draws no K is silent; a K no
+      file has, a note.
       --headroom N notes frames drawn fewer than N rows from the top, a group a line and only
       those on its ground (not a jump's airborne frames): 'fox.px:stand/0: 2 rows of headroom
       (want 8); to grow the canvas 6 rows up: pxart crop ...'. anim prints a group's vertical
@@ -4789,6 +4791,16 @@ def outline_gaps_said(its, path, keys, most=8, seen=None, min_alpha=None):
         return []
     named = " or ".join(repr(k) for k in keys)
     out = []
+    doc = frames[0].doc
+    drawn = [k for k in keys if any(k in row for it in frames for row in it.frame.grid)]
+    least = min_alpha or 1  # under it, the outline doesn't draw (or, with --min-alpha, isn't solid enough to count)
+    for k in drawn:  # a key compared as a key passes, though a render where it's see-through shows no outline
+        unseen = [n for n, pal in [("base", doc.resolved())] + [(v, doc.resolved(v)) for v in variant_names(doc)]
+                  if pal[k][3] < least]
+        if unseen:
+            why = "transparent" if least == 1 else f"alpha under {least}"
+            out.append(f"{path}: outline {k!r} draws nothing in {listed(unseen, 6)} ({why} there), so "
+                       f"{'that render shows' if len(unseen) == 1 else 'those renders show'} no outline")
     for it in frames:
         gaps = outline_gaps(it.doc, it.frame, keys, min_alpha)
         if gaps:
