@@ -8552,6 +8552,14 @@ def palette_edit(a):
                  f"{', '.join(given)}")
         print(remove_keys(doc, key_list(a.remove, "--remove"), a.to, a.within))
         return
+    if a.add:  # repeated --add values add up (PX-54); one key twice is said once, or refused in two colors
+        seen = {}
+        for m in a.add:
+            k, c = key_color(m)
+            if k in seen and seen[k][1] != c:
+                fail("E_BAD_ARG", f"--add gives {k!r} two colors, {seen[k][0]} and {m}: give it one")
+            seen.setdefault(k, (m, c))
+        a.add = [m for m, _ in seen.values()]
     if a.hoist and (a.add or a.variant or a.extract_to or notes or a.comment_header is not None):
         fail("E_BAD_ARG", "--hoist moves keys into the imported palette file: give it alone")
     if (notes or a.comment_header is not None) and (a.extract_to or a.export):
@@ -8565,8 +8573,16 @@ def palette_edit(a):
         if a.variant in doc.variants:  # FILE's own @variant line (none when the import's colors every key)
             set_recipe(doc, a.variant, derive_recipe(a, doc))
     if a.variant and (a.add or a.keep) and not derive and recipe_of(doc, a.variant):
-        print(f"note: @variant {a.variant}'s '# derived by' line doesn't include this "
-              f"{'--add' if a.add else '--keep'}; run that line again and it's gone (add it to the line to keep it)")
+        made = rederived(doc, a.variant, recipe_of(doc, a.variant)[0])  # what running the line makes
+        if made is not None:
+            base = doc.resolved()
+            new = [k for k, c in (key_color(m) for m in a.add or []) if made.get(k, base.get(k)) != c] \
+                + [k for k in (key_list(a.keep, "--keep") if a.keep else []) if k in made]
+            if new:
+                many = len(new) > 1
+                print(f"note: @variant {a.variant}'s '# derived by' line doesn't make {' '.join(new)} so; run that "
+                      f"line again and {'they go' if many else 'it goes'} back (add the --add or --keep to the line "
+                      f"to keep {'them' if many else 'it'})")
     if a.variant and (a.add or a.keep):
         said += variant_edit(doc, a.variant, [key_color(m) for m in a.add or []], key_list(a.keep, "--keep")
                              if a.keep else [])
@@ -8602,6 +8618,9 @@ def palette_edit(a):
             + ([said_already(same)] if same else [])
     if notes or a.comment_header is not None:
         said += set_comments(doc, notes, a.variant, a.comment_header)
+    if doc.dest and doc.dest.resolve() != doc.path.resolve():  # an edited copy: its '# derived by' lines run on it
+        for name in [n for n in doc.variants if not (derive and n == a.variant)]:  # a derive's own is written so
+            repoint_recipe(doc, name)
     if a.add or a.keep or notes or a.comment_header is not None or derive:
         print("; ".join(said + [write_doc(doc)]))
     if a.hoist:
@@ -8910,6 +8929,33 @@ def recipe_of(doc, name):
         elif x.startswith("--add="):
             hand.add(x[len("--add="):][:1])
     return cmd, {k: r for k, r in roles.items() if k not in hand}
+
+
+def repoint_recipe(doc, name):
+    """palette -o OUT: @variant NAME's '# derived by' line made to run on OUT from OUT's folder: FILE becomes OUT's
+    name, and a --match path is written from OUT's folder. Lines that aren't FILE's own are left as they are."""
+    got = recipe_of(doc, name)
+    lead = doc.lead.get(("variant", name)) or []
+    at = max((i for i, l in enumerate(lead) if l.strip()), default=None)
+    if not got or at is None:
+        return
+    argv = shlex.split(got[0])
+    if argv[2:3] != [doc.path.name]:
+        return
+    argv[2] = doc.dest.name
+    home, there = doc.path.resolve().parent, doc.dest.resolve().parent
+    for i, x in enumerate(argv):
+        flag, eq, v = x.partition("=") if x.startswith("--match=") else (x, "", None)
+        if x == "--match" and i + 1 < len(argv):
+            i, v = i + 1, argv[i + 1]
+        elif not eq:
+            continue
+        path, sep, var = v.rpartition("%") if "%" in v else (v, "", "")
+        moved = pathlib.Path(os.path.relpath(home / path, there)).as_posix() + sep + var
+        argv[i] = f"--match={moved}" if eq else moved
+    lead = list(lead)
+    lead[at] = "# derived by (from this file's folder): " + shlex.join(argv)
+    doc.lead[("variant", name)] = lead
 
 
 def rederived(doc, name, cmd):
@@ -13128,7 +13174,7 @@ def parser(describe=True):
     g.add_argument("--in", dest="within", metavar="DIR",
                    help="for a palette file: how many .px files under DIR import it, and draw with each key")
     g = p.add_argument_group("add / remove / order base keys", "Edit FILE's own palette lines.")
-    g.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
+    g.add_argument("--add", nargs="+", action="extend", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant); repeats add up")
     g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
     g.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
     g.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
