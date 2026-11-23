@@ -1,0 +1,98 @@
+"""render and sheet --silhouette (PX-31): every pixel that draws in one flat color, at its own alpha; a transparent
+pixel stays transparent; with --variant, that variant's shape."""
+import pathlib
+import sys
+
+import pytest
+from PIL import Image
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import pxart  # noqa: E402
+
+SPRITE = """pxart 1
+k #3f2631
+g #43e1b3
+h transparent
+f #ff000080
+
+@variant night
+h #f6e45a
+
+@frame a
+.kk.
+kggk
+.ff.
+h..h
+"""
+
+
+def run(*argv):
+    try:
+        pxart.main([str(a) for a in argv])
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
+    return 0
+
+
+def plain(tmp_path, *extra):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    out = tmp_path / "o.png"
+    assert run("render", f"{src}:a", "--plain", "-o", out, *extra) == 0
+    return Image.open(out).convert("RGBA")
+
+
+def test_opaque_pixels_take_the_default_color_and_transparent_ones_stay(tmp_path):
+    img = plain(tmp_path, "--silhouette")
+    assert img.getpixel((1, 0)) == (0x2b, 0x1d, 0x32, 255)   # k
+    assert img.getpixel((1, 1)) == (0x2b, 0x1d, 0x32, 255)   # g: another color, the same silhouette
+    assert img.getpixel((0, 0))[3] == 0                      # '.'
+    assert img.getpixel((0, 3))[3] == 0                      # h, transparent in the base
+
+
+def test_a_pixel_keeps_its_own_alpha(tmp_path):
+    assert plain(tmp_path, "--silhouette").getpixel((1, 2)) == (0x2b, 0x1d, 0x32, 0x80)
+
+
+def test_a_color_of_its_own_and_one_with_alpha(tmp_path):
+    assert plain(tmp_path, "--silhouette", "#ffffff").getpixel((1, 0)) == (255, 255, 255, 255)
+    assert plain(tmp_path, "--silhouette", "#ffffff80").getpixel((1, 0)) == (255, 255, 255, 0x80)
+
+
+def test_with_a_variant_its_shape(tmp_path):
+    img = plain(tmp_path, "--silhouette", "--variant", "night")
+    assert img.getpixel((0, 3)) == (0x2b, 0x1d, 0x32, 255)   # h is lit at night
+
+
+def test_a_bad_color_is_an_error(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["render", str(src), "--silhouette", "nope", "-o", str(tmp_path / "o.png")])
+    assert "E_BAD_COLOR" in str(e.value.code) and "--silhouette" in str(e.value.code)
+
+
+def test_sheet_draws_silhouettes_and_says_so(tmp_path, capsys):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    plain_out, color_out = tmp_path / "p.png", tmp_path / "c.png"
+    assert run("sheet", src, "--plain", "--bg", "transparent", "--silhouette", "-o", plain_out) == 0
+    assert run("sheet", src, "--plain", "--bg", "transparent", "-o", color_out) == 0
+    sil, col = Image.open(plain_out).convert("RGBA"), Image.open(color_out).convert("RGBA")
+    assert sil.size == col.size
+    changed = [(s, c) for s, c in zip(sil.getdata(), col.getdata()) if s != c]
+    assert changed  # the frame's pixels, and nothing else of the sheet (its gutter is the same)
+    assert {s[:3] for s, _ in changed} == {(0x2b, 0x1d, 0x32)}
+    assert all(s[3] == c[3] for s, c in changed)  # drawn where the colored sheet draws, at its alpha
+    capsys.readouterr()
+    assert run("sheet", src, "--silhouette", "-o", tmp_path / "l.png", "--dry-run") == 0
+    assert not (tmp_path / "l.png").exists()
+    assert run("render", src, "--silhouette", "-o", tmp_path / "r.png") == 0  # a real run after: DRY is reset
+
+
+def test_the_label_says_silhouette(tmp_path):
+    src = tmp_path / "s.px"
+    src.write_text(SPRITE)
+    its = pxart.silhouetted(pxart.all_items([str(src)], "night"), None)
+    assert its[0].label == "a%night silhouette"
