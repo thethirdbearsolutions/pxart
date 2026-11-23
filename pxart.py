@@ -908,7 +908,7 @@ ERROR CODES
   A command that fails prints none of its notes or WARNINGs: they describe the write it was
   about to make (a grid renamed, keys rekeyed), and nothing was written.
 """
-import argparse, collections, contextlib, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
+import argparse, collections, contextlib, copy, csv, difflib, fnmatch, io, itertools, json, math, os, pathlib, posixpath, random, re, shlex, string, sys, textwrap, unicodedata
 from PIL import Image, ImageChops, ImageDraw, ImageFont, PngImagePlugin
 
 WORLDS = """WORLDS (pxart help worlds)
@@ -3583,10 +3583,22 @@ def animate(a, its, out):
     forward plays in that order (play_order), and a note says so."""
     order = play_order(its)
     if order is not its:
-        way = its[0].doc.anims[its[0].frame.group]["direction"]
-        print(f"note: {its[0].frame.group} plays {way}: {' '.join(it.frame.id.rsplit('/', 1)[-1] for it in order)}, "
-              "then again; the GIF and the numbers follow it")
-        its = order
+        a_ = its[0].doc.anims[its[0].frame.group]
+        reps = a_.get("repeat") or 0
+        ms = sum(1000 // a.fps if a.fps else it.ms for it in order)
+        print(f"note: {its[0].frame.group} plays {a_['direction']}: "
+              f"{' '.join(it.frame.id.rsplit('/', 1)[-1] for it in order)} ({len(order)} frames, {ms} ms), "
+              + ("once" if reps == 1 else f"{reps} times" if reps else "then again")
+              + "; the GIF and the numbers follow it, the way back marked 'back'")
+        seen = set()
+        marked = []
+        for it in order:  # the way back plays frames already shown: their copies say so, on the strip and the numbers
+            if id(it) in seen:
+                it = copy.copy(it)
+                it.label += " back"
+            seen.add(id(it))
+            marked.append(it)
+        its = marked
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered

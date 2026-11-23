@@ -13,8 +13,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
   never plays; so `anim` couldn't preview the turnaround that `check`'s E_SAME_FRAMES reasons about. Now the GIF and
   the numbers follow the direction, one cycle: `pingpong` 0 1 2 3 2 1, `reverse` 3 2 1 0, `pingpong_reverse` 3 2 1 0
   1 2, each compared with the frame played before it (the cycle's wrap is the 1 -> 0 that really plays), with a
-  note: `note: walk plays pingpong: 0 1 2 3 2 1, then again; the GIF and the numbers follow it`. `forward` and a
-  selection across several groups or files are as before.
+  note that gives the cycle's frames and time and how often it plays (`repeat`): `note: walk plays pingpong: 0 1 2 3
+  2 1 (6 frames, 780 ms), then again; the GIF and the numbers follow it, the way back marked 'back'`. The frames of the
+  way back are labeled `walk/2 back` on the strip and in the numbers. `forward`, a 2-frame pingpong (it plays 0 1)
+  and a selection across several groups or files are as before. The GIF still loops forever whatever `repeat` says
+  (PX-50).
 
 ### Added
 
