@@ -15823,7 +15823,7 @@ def test_derive_keep_lit_relists_at_base(tmp_path, capsys):
     capsys.readouterr()
     run("palette", p)
     night = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("  night:"))
-    assert "relists unchanged: y" in night
+    assert "kept lit: y" in night  # the derive's '# derived by:' line names it by role (PX-53)
 
 
 def test_derive_from_a_variant(tmp_path, capsys):
@@ -15981,12 +15981,18 @@ def test_lamplit_leaves_keep_lit_keys_unchanged(tmp_path, capsys):
     assert pxart.parse(p, palette_only=True).variants["night"]["y"] == pxart.hex2rgba("#ffd040")  # still a relist
 
 
+def undrawn(text):
+    """A file's text without the '# derived by:' line a derive writes above its variant (PX-53): what these tests
+    compare was written before it, and test_derive_recipe.py has the line's own tests."""
+    return "".join(l for l in text.splitlines(True) if not l.startswith("# derived by"))
+
+
 def test_lamplit_strength_zero_is_the_plain_derive(tmp_path):
     a, b = write(tmp_path, "a.px", LPAL), write(tmp_path, "b.px", LPAL)
     assert run("palette", a, "--variant", "night", "--derive-from", "base", "--darken", "0.35") == 0
     assert run("palette", b, "--variant", "night", "--derive-from", "base", "--darken", "0.35", "--lamplit",
                "f,g@0") == 0
-    assert a.read_text() == b.read_text()
+    assert undrawn(a.read_text()) == undrawn(b.read_text())
 
 
 WOOD = "pxart 1\nd #5a3c22\nw #8b6440\nl #b08a5e\n"  # a wood ramp: dark, mid, light
@@ -16173,7 +16179,7 @@ def test_plain_rederive_keeps_an_add_line_for_an_imported_key(tmp_path, capsys):
     assert run(*shape) == 0
     out = capsys.readouterr().out
     assert "dropped" not in out and "no change: " in out
-    assert p.read_text() == "pxart 1\n@palette pal.px\nf #6c4a2e\n\n@variant night\nf #362517\nw #543620\n"
+    assert undrawn(p.read_text()) == "pxart 1\n@palette pal.px\nf #6c4a2e\n\n@variant night\nf #362517\nw #543620\n"
     assert dv(p, "night", "w") == pxart.hex2rgba("#543620")
 
 
@@ -16184,19 +16190,19 @@ def test_add_over_a_lamplit_imported_key_survives_a_rederive(tmp_path, capsys):
     p = write(tmp_path, "s.px", "pxart 1\n@palette pal.px\nf #6c4a2e\n")
     shape = ("palette", p, "--variant", "night", "--derive-from", "base", "--darken", "0.5")
     assert run(*shape, "--lamplit", "w", "--keep-lit", "y") == 0
-    assert p.read_text() == "pxart 1\n@palette pal.px\nf #6c4a2e\n\n@variant night\n# lamplit (palette --derive-from)\n" \
+    assert undrawn(p.read_text()) == "pxart 1\n@palette pal.px\nf #6c4a2e\n\n@variant night\n# lamplit (palette --derive-from)\n" \
         "w #543620\n# kept lit (palette --derive-from)\ny #ffd040\nf #362517\n"
     assert run("palette", p, "--add", "g=#112233") == 0  # another rewrite of the file keeps the marks
     assert run("palette", p, "--variant", "night", "--comment", "w", "by the door") == 0
-    assert "# by the door\n# lamplit (palette --derive-from)\nw #543620\n" in p.read_text()
+    assert "# by the door\n# lamplit (palette --derive-from)\nw #543620\n" in undrawn(p.read_text())
     capsys.readouterr()
     assert run("palette", p, "--variant", "night", "--add", "w=#543620") == 0  # the color it has: now set by hand
     assert "sets w #543620" in capsys.readouterr().out
-    assert "# by the door\nw #543620\n# kept lit (palette --derive-from)\ny #ffd040\n" in p.read_text()
+    assert "# by the door\nw #543620\n# kept lit (palette --derive-from)\ny #ffd040\n" in undrawn(p.read_text())
     assert run(*shape) == 0
     out = capsys.readouterr().out
     assert "y back to pal.px's night: dropped its line of s.px's own" in out and "w back" not in out
-    assert p.read_text().endswith("@variant night\n# by the door\nw #543620\nf #362517\ng #08111a\n")
+    assert undrawn(p.read_text()).endswith("@variant night\n# by the door\nw #543620\nf #362517\ng #08111a\n")
     assert dv(p, "night", "w") == pxart.hex2rgba("#543620")
     assert run(*shape, "--lamplit", "w") == 0 and run(*shape) == 0  # lamplit again: marked again, so dropped again
     assert "w back to pal.px's night" in capsys.readouterr().out and dv(p, "night", "w") == pxart.hex2rgba("#302820")
@@ -16212,12 +16218,12 @@ def test_keep_lit_imported_key_the_import_already_lights_gets_no_line(tmp_path, 
     out = capsys.readouterr().out
     assert "recolors 1 key(s) of its own (pal2.px's night colors the imported ones); y kept lit (in its base color)" \
         in out and "over it" not in out
-    assert p.read_text() == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
+    assert undrawn(p.read_text()) == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
     assert dv(p, "night", "y") == pxart.hex2rgba("#ffd040")
     p.write_text("pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\ny #ffd040\nf #362517\n")  # this branch's
     assert run(*argv) == 0
     assert "y back to pal2.px's night: dropped its line of s.px's own" in capsys.readouterr().out
-    assert p.read_text() == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
+    assert undrawn(p.read_text()) == "pxart 1\n@palette pal2.px\nf #6c4a2e\n\n@variant night\nf #362517\n"
 
 
 def test_lamplit_imported_key_at_zero_adds_no_line(tmp_path, capsys):
@@ -16332,7 +16338,8 @@ def test_help_documents_lamplit(capsys):
     assert "Set up: give what the lamp lights keys of its own, a hair off the plain wood's (f #6c4a2e by b #6b4a2e: " \
         "alike by day), drawn where the light falls; a ring further out takes another --lamplit; dither the zones' " \
         "edges for a falloff." in out
-    assert "To change a strength, derive from base again (from a lamplit variant it lights twice)." in out
+    assert "To change a strength, derive from base again (from a lamplit variant it lights twice): the derive writes " \
+        "its command right above @variant NAME" in out  # PX-53
     assert "Run again, it rewrites the line of every key it derives, an earlier --add's too, and drops the line it " \
         "wrote (marked '# lamplit' or '# kept lit') for an imported key no longer --keep-lit or --lamplit; an --add's " \
         "line for one stays." in out
@@ -23580,7 +23587,7 @@ def test_recipe_night_keeps_the_lamp_lit(tmp_path, monkeypatch, capsys):
     ran = run_recipe(tmp_path, monkeypatch, capsys, dict(recipes())["Build a dusk or a night"])
     stats = next(out for argv, _, out in ran if argv[0] == "stats")
     assert "at 7,2: key y; base #f3cf6b, night #f3cf6b, dusk #" in stats
-    assert "relists unchanged: y" in next(out for argv, _, out in ran if argv == ["palette", "pal.px"])
+    assert "kept lit: y" in next(out for argv, _, out in ran if argv == ["palette", "pal.px"])  # by role (PX-53)
 
 
 def test_recipe_slice_makes_a_group_per_column(tmp_path, monkeypatch, capsys):
@@ -23714,8 +23721,9 @@ def test_help_all_does_not_grow(capsys):
     # 71480 with when the lamp lifts a key and when it darkens one, and that it can't brighten a dark key much (PX-30 review2 3).
     # 71556 with the mark a re-derive goes by: it drops only the line it wrote for an imported key, not an --add's
     # (PX-30 review2 1, again). 71766 with render/sheet --silhouette (PX-31), the shape alone, in two and a usage flag.
+    # 72120 with the '# derived by' line a derive writes and the listing's roles (PX-53), in five.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 71766
+    assert len(capsys.readouterr().out.encode()) <= 72120
 
 
 def test_help_says_each_shared_rule_once():
@@ -26715,7 +26723,8 @@ def test_palette_o_writes_what_in_place_would(tmp_path, capsys, name):
     assert run("palette", pa, *po_argv(name, a)) == 0
     assert run("palette", pb, *po_argv(name, b), "-o", b / "out.px") == 0
     assert pb.read_text() == PO_SPRITE  # FILE stays as it is
-    assert (b / "out.px").read_text() == pa.read_text()
+    # a derive's '# derived by:' line names the file it lives in (PX-53): out.px there, h.px in place
+    assert (b / "out.px").read_text().replace(": pxart palette out.px ", ": pxart palette h.px ") == pa.read_text()
     assert f"wrote {b / 'out.px'}" in capsys.readouterr().out
 
 

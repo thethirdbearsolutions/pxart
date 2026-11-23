@@ -321,7 +321,11 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   --lamplit m,n@0.2` then mixes those keys' derived colors toward their base colors under a warm
   lamp (base times `#ffc080`, or `:COLOR`), near ring and far, for the wood a lamp lights (it
   lifts a key only where the lamp beats what the darken and tint left: after a light darken a
-  dim lamp darkens, and the summary names those keys); `--match
+  dim lamp darkens, and the summary names those keys); a derive writes its own command right above
+  `@variant NAME`, `# derived by (from this file's folder): pxart palette pal.px --variant night
+  --derive-from base --darken 0.55 ...`, so the file says how its variant was made and the line runs
+  again from there with one flag changed, and the listing then names its keys by role (`kept lit: y;
+  lamplit: f (0.6)`) while their colors are still the line's, and names those set since; `--match
   mossback.px%dusk` first maps each channel as another palette's base to dusk does (a fitted
   gain and offset: warm lights, blue shadows), and a key darker than a quarter is never
   brightened, by Rec. 709 luma (hue kept), unless `--lift-darks`; `--hoist l,g`
