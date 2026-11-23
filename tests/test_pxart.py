@@ -23724,8 +23724,9 @@ def test_help_all_does_not_grow(capsys):
     # (PX-30 review2 1, again). 71766 with render/sheet --silhouette (PX-31), the shape alone, in two and a usage flag.
     # 72120 with the '# derived by' line a derive writes and the listing's roles (PX-53), in five.
     # 72484 with check --headroom N and anim's vertical travel (PX-13), in four and a flag.
+    # 72666 with anim playing a whole group in its direction (PX-42), in three.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 72484
+    assert len(capsys.readouterr().out.encode()) <= 72666
 
 
 def test_help_says_each_shared_rule_once():
