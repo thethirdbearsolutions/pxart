@@ -229,7 +229,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   (`E_SAME_FRAMES`); `--outline K` (or `--outline kL` for several keys) notes each frame's
   outline gaps, the shape's edge pixels not drawn in K, with their coordinates
   (`hero.px:idle/0: outline 'k' has 3 gaps at (4,2) (11,7) (11,8)`), and agrees with what
-  `outline --key K` draws (with `--min-alpha` as you gave it), so a frame it just outlined passes; `--headroom N` notes
+  `outline --key K` draws (with `--min-alpha` as you gave it), so a frame it just outlined passes, and says when K
+  is see-through in the base or a variant (`outline 'k' draws nothing in base (transparent there)`), whose render
+  then shows no outline; `--headroom N` notes
   frames on their group's ground drawn fewer than N rows from the top (`fox.px:stand/0: 2 rows of headroom (want 8);
   to grow the canvas 6 rows up: pxart crop ...`), a standing frame that leaves a jump nowhere to rise, and `anim`
   prints a group's `vertical travel` and its headroom when its solid bottom edge moves; one line per file, the failing frames under it, and a
