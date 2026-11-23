@@ -6,6 +6,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ## 2026-11-23
 
+### Fixed
+
+- **`anim` plays a group in its `direction` (PX-42).** A `@anim walk direction=pingpong` group of 4 frames gave a GIF
+  of 4 frames playing 0 1 2 3 0, and a readout that compared walk/0 with walk/3 as a wrap-around, which a pingpong
+  never plays; so `anim` couldn't preview the turnaround that `check`'s E_SAME_FRAMES reasons about. Now the GIF and
+  the numbers follow the direction, one cycle: `pingpong` 0 1 2 3 2 1, `reverse` 3 2 1 0, `pingpong_reverse` 3 2 1 0
+  1 2, each compared with the frame played before it (the cycle's wrap is the 1 -> 0 that really plays), with a
+  note: `note: walk plays pingpong: 0 1 2 3 2 1, then again; the GIF and the numbers follow it`. `forward` and a
+  selection across several groups or files are as before.
+
 ### Added
 
 - **`render` and `sheet --silhouette [COLOR]`: the shape alone (PX-31).** The first look at any sprite, and what a

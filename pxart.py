@@ -109,7 +109,8 @@ LOOKING
       groups: a block each, top-level and @still frames skipped; -o a DIR);
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
-      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. One
+      unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. A
+      direction=pingpong group plays 0 1 2 3 2 1 (reverse 3 2 1 0), GIF and numbers both. One
       frame alone gets 'note: mushroom: 1 frame (100ms), nothing to compare' (GIF still written).
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
       An idle: when the bottom stays exactly put (rows Y down identical, 0 px changed) and
@@ -3563,8 +3564,29 @@ def anim_path(d, its):
     return str(pathlib.Path(d) / f"{stem}.gif")
 
 
+def play_order(its):
+    """The frames of one group in the order its @anim direction plays them, one cycle: forward 0 1 2 3; reverse 3 2 1
+    0; pingpong 0 1 2 3 2 1 (it turns at its ends, each played once a cycle); pingpong_reverse 3 2 1 0 1 2. The
+    cycle loops back to its first frame, so the wrap-around anim compares is a pair that really plays. its as given
+    for one frame, for frames of several groups or files, or for forward."""
+    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
+    if len(its) < 2 or len(keys) != 1 or None in keys:
+        return its
+    way = its[0].doc.anims.get(its[0].frame.group, {}).get("direction") or "forward"
+    back = its[::-1]
+    order = {"reverse": back, "pingpong": its + its[-2:0:-1], "pingpong_reverse": back + back[-2:0:-1]}.get(way, its)
+    return its if [id(it) for it in order] == [id(it) for it in its] else order  # a 2-frame pingpong plays 0 1
+
+
 def animate(a, its, out):
-    """One animation: its numbers, and with out (a .gif) its GIF and strip."""
+    """One animation: its numbers, and with out (a .gif) its GIF and strip. A group whose @anim direction isn't
+    forward plays in that order (play_order), and a note says so."""
+    order = play_order(its)
+    if order is not its:
+        way = its[0].doc.anims[its[0].frame.group]["direction"]
+        print(f"note: {its[0].frame.group} plays {way}: {' '.join(it.frame.id.rsplit('/', 1)[-1] for it in order)}, "
+              "then again; the GIF and the numbers follow it")
+        its = order
     frames = [it.img for it in its]
     durs = [1000 // a.fps if a.fps else it.ms for it in its]
     lay = pivot_layout(its)  # pivots, when the file has them, line up; else frames are bottom-centered

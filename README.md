@@ -176,7 +176,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `--cells cells.json` a sidecar of every image's rect, file and frame id, and `--ticks N` ticks
   in the gutter: a contact sheet for a visual test or a blind review), `anim` (one GIF, each
   frame at `--scale` with its 1x and 2x copies beside it in the same picture, plus a
-  motion strip; without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
+  motion strip, frames in the order the group's `direction` plays them (a pingpong `0 1 2 3 2 1`, with a
+  note); without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
   72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
   100%), and writes nothing; a file of several groups animates each on its own, a block of numbers per group (its
   top-level frames and `@still` groups left out, with a note), and
