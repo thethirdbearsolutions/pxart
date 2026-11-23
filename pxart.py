@@ -13090,7 +13090,7 @@ def parser(describe=True):
     g.add_argument("--in", dest="within", metavar="DIR",
                    help="for a palette file: how many .px files under DIR import it, and draw with each key")
     g = p.add_argument_group("add / remove / order base keys", "Edit FILE's own palette lines.")
-    g.add_argument("--add", nargs="+", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant)")
+    g.add_argument("--add", nargs="+", action="extend", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant); repeats add up")
     g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
     g.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
     g.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")

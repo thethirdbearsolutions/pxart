@@ -6,6 +6,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ## 2026-11-23
 
+### Fixed
+
+- **A second `palette --add` adds to the first (PX-54, PX-25).** `palette p.px --add f=#a07040 --add g=#a07041` set
+  only g: `--add` took a run of values, and a second `--add` replaced the first's, with no error or note. Now every
+  `--add` adds its values (`action="extend"`), with or without `--variant`, so a `# derived by` line with several
+  `--add=V` values (PX-53 writes them so for a value starting with `-`) makes the same file again.
+
 ### Added
 
 - **`render` and `sheet --silhouette [COLOR]`: the shape alone (PX-31).** The first look at any sprite, and what a
