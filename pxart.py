@@ -4467,7 +4467,7 @@ def cmd_scene(a):
     shows = cover.histogram()[0] if cover is not None else 0
     if shows:
         print(f"note: --variant {a.variant} doesn't recolor the backdrop: {shows} px show the default --bg {SCENE_BG}, a "
-              f"day color; give --bg a {a.variant} color (or --bg transparent)")
+              f"day color" + (" under the --tint" if tint else "") + f"; give --bg a {a.variant} color (or --bg transparent)")
     if cut and why == "the default":
         print(f"note: {W}x{H} (six 16x16 tiles by four) is scene's size when nothing sizes it (no --size, no "
               f"--map); --size {reach[0]}x{reach[1]} holds every item")

@@ -64,3 +64,10 @@ def test_still_with_a_list_says_a_line_per_group(tmp_path, capsys):
 def test_help_says_bg_and_still():
     text = " ".join(pxart.__doc__.split())
     assert "--variant doesn't recolor --bg" in text and "top-level frames need none" in text
+
+
+def test_under_tint_the_note_says_so(tmp_path, capsys):
+    lamp = write(tmp_path, "lamp.px", LAMP)
+    assert run("scene", "--size", "4x2", "--variant", "night", "--tint", "#10183080", "-o", tmp_path / "s.png",
+               f"{lamp}@0,0") == 0
+    assert "the default --bg #472d3c, a day color under the --tint; give --bg a night color" in capsys.readouterr().out
