@@ -104,7 +104,8 @@ pxart 1
   keys.json` writes the frames as key grids with the palette and its slots. A `@variant`
   gives a slot one color or a list, one per slot color. `pxart help slots` has the rules
   and the JSON shape.
-- **`@still ui/life`:** a frame group that isn't an animation; `@still *` marks every
+- **`@still ui/life`:** a frame group that isn't an animation, one group a line (`@still grass` and `@still path`,
+  not `@still grass,path`); top-level frames are no animation and need none. `@still *` marks every
   frame, top-level ids included (a parts file). `anim-set ui.px:ui/life --still` writes it
   (`--no-still` removes it, and a plain `ui.px` means `*`); `new ui.px:ui/life/0 --still`
   starts a still group.
@@ -195,8 +196,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`
   says otherwise, pixels past its edge cropped with a note; a `--size` smaller than the map keeps its
   top-left, and `--anchor center` (or `top`, `bottom-right`, ...) keeps that part instead, `--anchor
-  176,80` centres on that point (a camera on the hero), with a note saying which pixels; items are mirrored with a `+h`/`+v` suffix as in
-  `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room; `--tint '#10183080'` lays
+  176,80` centres on that point (a camera on the hero), with a note saying which pixels in place of the crop counts (an item wholly outside the window is named); items are mirrored with a `+h`/`+v` suffix as in
+  `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room but not the `--bg` backdrop, and on the default
+  (`#472d3c`, a day color) a note says how many pixels of it show; a crop count counts each pixel once, however
+  many layers cover it; `--tint '#10183080'` lays
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
   does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.
