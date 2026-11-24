@@ -163,7 +163,7 @@ LOOKING
       the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
       bottom-right) places the size in effect on that part of what the map and items fill
       (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
-      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows (and
+      camera on the hero; --anchor -8,4 works too), and a note says what it shows (and
       names an item it misses) in place of crop counts. --variant doesn't recolor --bg.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
@@ -4441,7 +4441,7 @@ def cmd_scene(a):
             placed, msize = read_map(a.map, tile, notes)
         for n in notes:
             print("note:", n)
-    W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else SCENE_SIZE)
+    W, H = parse_size(a.size) if a.size else (msize if a.map else SCENE_SIZE)
     sc = Image.new("RGBA", (W, H), bg)
     with reading(f"--map ({a.map})"):
         tiles = load_legend(a.map, a.variant) if a.map else {}
@@ -4611,7 +4611,7 @@ def check_args(files, exclude):
 def cmd_check(a):
     with reading(f"--palette ({a.palette})"):
         allowed = load_palette(a.palette) if a.palette else None
-    want = tuple(map(int, a.size.split("x"))) if a.size else None
+    want = parse_size(a.size) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
     outlined, pxed = set(), False  # --outline's keys some checked file has; whether any .px frame was checked
@@ -5932,6 +5932,8 @@ def cmd_shift(a):
     for f in frames:
         x0, y0, w, h = parse_rect(a.region, f.size)
         W, H = f.size
+        w, h = w + min(0, x0), h + min(0, y0)  # a region off the frame's top-left: only its part on the frame
+        x0, y0 = max(0, x0), max(0, y0)  # (a negative x was a Python index from the far edge)
         g = [list(r) for r in f.grid]
         block = [[g[y][x] for x in range(x0, min(x0 + w, W))] for y in range(y0, min(y0 + h, H))]
         if a.wrap:
@@ -5985,6 +5987,9 @@ def cmd_mask(a):
                 nums = ()
             if len(nums) != len(want.split(",")):
                 fail("E_BAD_ARG", f"{flag} wants {want}, got {v!r}")
+            if (kind == "circle" and nums[2] < 0) or (kind == "rect" and min(nums[2:]) < 1):
+                fail("E_BAD_ARG", f"{flag} {v!r}: " + ("r can't be negative" if kind == "circle"
+                                                        else "w and h must be 1 or more"))
             shapes.append((kind,) + nums)
 
     def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither bands included
@@ -6269,6 +6274,8 @@ def cmd_crop(a):
             fail("E_BAD_ARG", f"crop cuts a .px frame, got {a.src}; for a PNG, 'mask --keep x,y,w,h' erases outside "
                  "the rectangle, or from-png it first")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
+    if w < 1 or h < 1:  # x and y may be negative (the rect runs off the frame); w and h may not
+        fail("E_BAD_ARG", f"crop's x,y,w,h wants w and h of 1 or more, got {a.rect!r}")
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     cmd_compose(a)
@@ -8001,7 +8008,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
                                         erase=getattr(a, "erase", None))
         whose = {k: w[0] for k, w in seeded.items()}
     if a.size:
-        size, why = tuple(map(int, a.size.split("x"))), "--size"
+        size, why = parse_size(a.size), "--size"
     elif getattr(a, "map_size", None):
         size, why = a.map_size, "--map"
     elif target.grid:
@@ -13029,10 +13036,42 @@ SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the bas
               "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
 
 
+class PxParser(argparse.ArgumentParser):
+    """argparse, whose "expected one argument" for an option given a value that starts with '-' says how to give it:
+    '--keep-lit -,k' is read as two options."""
+    argv = []  # the words the top-level parser was last given (rederived() parses its own)
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self._negative_number_matcher = NEGATIVE_RE  # '-10,-8,34' is a value: no option of pxart's looks like it
+
+    def parse_known_args(self, args=None, namespace=None):
+        if self.prog == "pxart" and args is not None:
+            PxParser.argv = list(args)
+        return super().parse_known_args(args, namespace)
+
+    def error(self, message):
+        m = re.match(r"argument (-[\w-]+)(?:/(-[\w-]+))?: expected (one argument|at least one argument)$", message)
+        words = PxParser.argv
+        for opt in (m.groups()[:2] if m else ()):
+            act = self._option_string_actions.get(opt)
+            many = isinstance(act, argparse._ExtendAction)  # --add a b, or --add=a --add=b: the same
+            if not opt or not (act and (act.nargs in (None, "?") or many)):
+                continue  # a pair or a run of values (--comment KEY TEXT): '=' gives only the first
+            # the next word starts with '-' and isn't an option ('--dith' is --dither's short form, '--dihter' a typo)
+            at = [i for i, w in enumerate(words[:-1]) if w == opt and words[i + 1].startswith("-")
+                  and not words[i + 1].startswith("--")]
+            if at:
+                message += (f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]}"
+                            + (", one value to each" if many and act.nargs not in (None, "?") else "") + ")")
+                break
+        super().error(message)
+
+
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
-    ap = argparse.ArgumentParser(prog="pxart", description=overview() if describe else None,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = PxParser(prog="pxart", description=overview() if describe else None,
+                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
     p.add_argument("--png", nargs="?", const="", metavar="DIR",
@@ -13222,8 +13261,6 @@ def parser(describe=True):
     p.add_argument("--erase", metavar="KEY", help="with --at: KEY pixels in the patch clear the frame to '.'")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
-    coord = re.compile(r"^-\d+(\.\d+)?(,-?\d+(\.\d+)?)*$")  # a negative x,y is an argument, not an option
-    ap._negative_number_matcher = coord
     p = sub.add_parser("line"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("p0"); p.add_argument("p1")
     p.add_argument("--width", type=int, default=1); p.add_argument("-o")
     p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("rect")
@@ -13262,8 +13299,6 @@ def parser(describe=True):
     p.add_argument("--light", choices=list(LIGHTS), default="nw"); p.add_argument("--strength", type=float, default=2)
     p.add_argument("--region"); p.add_argument("--dither", action="store_true"); p.add_argument("--preview")
     p.add_argument("-o")
-    for name in ("line", "rect", "poly", "ellipse", "arc", "flood", "crop"):  # crop -2,-2,20,20: a rectangle
-        sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p.add_argument("--replace", action="store_true", help="overwrite an OUT that exists (its frames are lost)")
@@ -13382,6 +13417,14 @@ def parser(describe=True):
     return ap, sub
 
 
+# argparse reads a word starting with '-' as an option unless it is a plain negative number ('-3'), so
+# '--keep-circle -10,-8,34', '--anchor -8,4' or 'rect F k -2,-2,5,5' failed with "expected one argument". No
+# option of pxart's starts with '-' and a digit, so a word that does is a value: a number, a coordinate list, a
+# size or a rect (each part may carry its own sign, a '.5', an 'x').
+NUM = r"-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?"  # 3, -.5, 1e-1: what argparse's own matcher takes, and more
+NEGATIVE_RE = re.compile(rf"^-(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?([,x:]{NUM})*$")
+
+
 SPRITE_ARG_RE = re.compile(r"\.(px|png)([:%+].*)?$")  # 'hero.px', 'hero.px:walk/0', 'x.png': a file, not a DIR
 
 
@@ -13403,7 +13446,7 @@ def rekey_args(args):
 
 
 SHIFT_VALUE_OPTS = {"-o", "--region", "--fill"}
-SHIFT_NUM_RE = re.compile(r"-?\d+(,-?\d+)?")
+SHIFT_NUM_RE = re.compile(r"-?\d*\.?\d+(,-?\d*\.?\d+)?")  # a '-.5' too, kept in order for the error
 
 
 def shift_args(args):
@@ -13427,7 +13470,7 @@ def shift_args(args):
             rest.append(x)
         i += 1
     parts = [n for x in nums for n in x.split(",")]
-    if len(parts) == 2:
+    if len(parts) == 2 and all(re.fullmatch(r"-?\d+", n) for n in parts):  # else cmd_shift says what's wrong
         return ["shift", *rest, "--dx", parts[0], "--dy", parts[1]]
     if nums and file_at is not None:
         return ["shift", *rest[:file_at + 1], *nums, *rest[file_at + 1:]]

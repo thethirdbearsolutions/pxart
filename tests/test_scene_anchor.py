@@ -120,4 +120,6 @@ def test_review_3_a_point_with_spaces_or_negative(box, capsys):
     assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "--anchor", "1, 1") == 0
     assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "--anchor=-1,-1") == 0
     assert "shows -3,-3 to 0,0" in capsys.readouterr().out
-    assert "--anchor=-8,4" in pxart.__doc__
+    assert "--anchor -8,4 works too" in " ".join(pxart.__doc__.split())  # as typed since PX-52; '=' still works
+    assert run("scene", "--size", "4x4", "--scale", "1", "-o", "a.png", "box.px@0,0", "--anchor", "-1,-1") == 0
+    assert "shows -3,-3 to 0,0" in capsys.readouterr().out
