@@ -13900,7 +13900,9 @@ def test_variant_clash_existing_out_note_without_rekey(tmp_path, capsys):
     assert run("compose", "-o", f"{out}:b", f"{b}:s@0,0") == 0
     got = capsys.readouterr().out.splitlines()
     assert got == [f"WARNING: layer 1 ({b}:s) draws 'r' #c4473a in {out}'s variant colors, not scarf.px's: dusk "
-                   "#a33a4c (scarf.px: #c4473a); compose --rekey r gives it a key of its own", f"wrote {out} frame b"]
+                   "#a33a4c (scarf.px: #c4473a); compose --rekey r gives it a key of its own",
+                   f"note: compose --rekey r would give those pixels new letters in {out}; left off, the keys stay (a "
+                   f"key-for-key copy) and take {out}'s variant colors", f"wrote {out} frame b"]  # PX-49
     assert pxart.parse(out).get("b").grid == ["r."]
 
 
@@ -23727,8 +23729,9 @@ def test_help_all_does_not_grow(capsys):
     # 72666 with anim playing a whole group in its direction (PX-42), in three.
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
+    # 72986 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 72955
+    assert len(capsys.readouterr().out.encode()) <= 72986
 
 
 def test_help_says_each_shared_rule_once():
