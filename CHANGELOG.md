@@ -14,9 +14,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
   through the shared edit path) now says `-o w.px:walk/9 names a frame (walk/9), but this edit writes a whole file,
   so -o takes a file`, and for a frame or group of the same file, the route: `copy it first: pxart dup w.px:walk/0
   walk/9, then edit w.px:walk/9` (`--replace` when that frame exists; a note when the copy would join an
-  animation). `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame walk/9 (several
-  PNGs: `walk/9` is their prefix, as `--id`). No write anywhere makes a file named with a `:FRAME` (compose, crop,
-  flip, rotate, transpose, dup and extract already took `OUT:FRAME` as a frame).
+  animation; when the id is the one being edited, `leave -o off`; when it is a group for a frame or a frame for a
+  group, `give a new id`). `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame walk/9 (several
+  PNGs or `--grid`: `walk/9` is their prefix, as `--id`; with `--id`, `--names`, `--labels` or `--prefix-dir` too, an
+  error). No `.px` write makes a file named with a `:FRAME`: any other command handed one (put, anim-set, extract)
+  says `-o takes a file`. compose and crop still take `OUT:FRAME` as a frame, flip, rotate and transpose
+  `OUT:NEWGROUP`; a folder whose name has a `:` still works as a folder, and a `%variant` on `-o` is an error, not
+  dropped.
 
 - **Two argument errors say what to do (PX-21).** `pxart from-png in.png face.px` read face.px as a second PNG and
   failed with `E_FILE: No such file or directory`; now `face.px is a .px, and from-png reads PNGs: the output goes

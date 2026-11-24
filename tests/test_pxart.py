@@ -23747,9 +23747,9 @@ def test_help_all_does_not_grow(capsys):
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
-    # 73030 with from-png -o OUT:ID (PX-23), in a clause.
+    # 73046 with from-png -o OUT:ID (PX-23), in a clause.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73030
+    assert len(capsys.readouterr().out.encode()) <= 73046
 
 
 def test_help_says_each_shared_rule_once():

@@ -876,8 +876,9 @@ CONVERTING
            [--colors N] [--hard-edges]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid. Several PNGs,
       --id, or an existing OUT: frames named PREFIX/<png stem>, added to OUT (replacing same-id
-      frames, which the 'wrote' line names); -o OUT:ID names one PNG's frame ID. Two PNGs of one run that would get one id (two packs'
-      tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM by its
+      frames, which the 'wrote' line names); -o OUT:ID ids one PNG ID (several: a prefix). Two
+      PNGs of one run that would get one id (two packs' tile_0002.png) are E_DUP_FRAME, naming
+      both: --prefix-dir ids each one FOLDER/STEM by its
       directory's name (dungeon/tile_0002, creatures/tile_0002). Colors already in OUT keep their
       keys, so separate runs share one palette. --palette P.px starts a new OUT that imports P and
       reuses its keys.
@@ -2034,6 +2035,15 @@ def split_sel(arg):
     return arg, None
 
 
+def out_frame(out):
+    """The frame an -o names ('w.px:walk/9' -> 'walk/9'), or None: a plain path, or one inside a real folder whose name
+    has a ':' ('v.px:2/out.px' when v.px:2 is a folder)."""
+    p = pathlib.Path(str(out))
+    if p.parent != pathlib.Path(".") and ":" in str(p.parent) and p.parent.is_dir():
+        return None
+    return split_sel(str(out))[1]
+
+
 POINT_RE = re.compile(r"-?\d+,-?\d+")
 FLIP_RE = re.compile(r"^(.+)\+([hvb]{1,3})(%[A-Za-z0-9_\-]+)?$")
 
@@ -2993,9 +3003,10 @@ def write_doc(doc, path=None):
     @palette lines are re-pointed from there (repoint). doc.dest (palette -o) stands in for doc.path. A dry run
     (palette --dry-run) prints the diff it would make and writes nothing."""
     path = pathlib.Path(path or doc.dest or doc.path)
-    if split_sel(str(path))[1] is not None:  # 'w.px:walk/9': a frame, never a file named so to make
-        fail("E_BAD_ARG", f"{path} names a frame ({split_sel(str(path))[1]}) of {split_sel(str(path))[0]}; this "
-             "writes a whole file there, so give the file alone")
+    if out_frame(path) is not None:  # 'w.px:walk/9': a frame, never a file named so to make
+        opath, osel = split_sel(str(path))
+        fail("E_BAD_ARG", f"-o {path} names a frame ({osel}), but this writes a whole file, so -o takes a file: -o "
+             f"{opath}, or name the frame in the input ({opath}:{osel}) where the command takes one")
     repoint(doc, path)
     if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
         touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
@@ -3035,14 +3046,25 @@ def edit_target(arg, out, label="FILE", coords=None):
                  + (f", {path}:{group} (a group)" if group else "") + f", or '{path}:*' (every frame; quoted, "
                  "or the shell expands the *)", path=path)
         frames = doc.select(sel)
-    if out and split_sel(str(out))[1] is not None:  # '-o w.px:walk/9': a frame, where this edit writes a whole file
+    if out and split_variant(str(out))[1]:
+        fail("E_BAD_ARG", f"-o {out}: an output is a file, not a variant ({split_variant(str(out))[1]} is drawn with "
+             "--variant or FILE%V, not written)")
+    if out and out_frame(out) is not None:  # '-o w.px:walk/9': a frame, where this edit writes a whole file
         opath, osel = split_sel(str(out))
         head = (f"-o {out} names a frame ({osel}), but this edit writes a whole file, so -o takes a file (or leave it "
                 f"off to edit {path} in place)")
-        if sel and pathlib.Path(opath).resolve() == doc.path.resolve():  # a copy in another frame or group of FILE
-            there = any(f.id == osel or (f.id or "").startswith(osel + "/") for f in doc.frames)
-            dup = ["pxart", "dup", f"{path}:{sel}", osel] + (["--replace"] if there else [])
-            joins = Frame(osel).group if len(frames) == 1 and not there else None
+        same = pathlib.Path(opath).resolve() == doc.path.resolve()
+        exact, group = doc.get(osel), any((f.id or "").startswith(osel + "/") for f in doc.frames)
+        one = sel and sel != "*" and "," not in sel
+        src_group = one and doc.get(sel) is None
+        if same and one and osel == sel:
+            head = f"-o {out} is what is being edited: leave -o off to edit {path}:{sel} in place"
+        elif same and one and ((group and not src_group) or (exact and src_group)):
+            head += (f"; {osel} is a {'group' if group else 'frame'} of {opath} already, so a copy of the "
+                     f"{'group' if src_group else 'frame'} {sel} can't go there: give a new id")
+        elif same and one:
+            dup = ["pxart", "dup", f"{path}:{sel}", osel] + (["--replace"] if exact or group else [])
+            joins = Frame(osel).group if not src_group and not exact else None
             head += (f"; to edit a copy there, copy it first: {shlex.join(dup)}, then edit {opath}:{osel}"
                      + (f" ({osel} joins the {joins} animation; another group or a top-level id keeps it out)"
                         if joins and doc.animated(joins) else ""))
@@ -12389,11 +12411,18 @@ def cmd_from_png(a):
 
 def import_pngs(a):
     """from-png's work: the doc, written to -o OUT (and its notes printed), or returned to print."""
-    if a.o and split_sel(a.o)[1] is not None:  # '-o into.px:new': one PNG's frame id (--names), else a prefix (--id)
+    if a.o and split_variant(a.o)[1]:
+        fail("E_BAD_ARG", f"-o {a.o}: from-png writes a file (and a frame); a variant ({split_variant(a.o)[1]}) isn't "
+             "written")
+    if a.o and out_frame(a.o) is not None:  # '-o into.px:new': one PNG's frame id (--names), else a prefix (--id)
         a.o, sel = split_sel(a.o)
-        one = len(a.pngs) == 1 and not a.grid and not pathlib.Path(a.pngs[0]).is_dir()
-        if a.id or a.names:
-            fail("E_BAD_ARG", f"-o {a.o}:{sel} and --{'id' if a.id else 'names'} both name the frames; give one")
+        one = len(a.pngs) == 1 and not a.grid
+        given = next((f for f, v in (("--id", a.id), ("--names", a.names), ("--labels", a.labels),
+                                     ("--prefix-dir", a.prefix_dir)) if v), None)
+        if given:
+            fail("E_BAD_ARG", f"-o {a.o}:{sel} and {given} both name the frames; give one")
+        if not ID_RE.match(sel):
+            fail("E_BAD_ID", f"-o {a.o}:{sel}: {sel!r} can't be a frame id (letters, digits, _ - . and /)")
         if one:
             a.names = sel
         else:

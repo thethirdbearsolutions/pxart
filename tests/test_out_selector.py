@@ -65,8 +65,9 @@ def test_from_png_a_frame_and_id_both_is_an_error(tmp_path):
 
 def test_write_doc_never_makes_a_file_named_with_a_selector(tmp_path):
     doc = pxart.parse(write(tmp_path, "w.px", W))
-    with pytest.raises(pxart.PxError):
+    with pytest.raises(pxart.PxError) as e:
         pxart.write_doc(doc, tmp_path / "w.px:walk/9")
+    assert e.value.issues[0].code == "E_BAD_ARG" and "-o takes a file" in str(e.value)
     assert nothing_named_with_a_colon(tmp_path)
 
 
@@ -95,3 +96,63 @@ def test_a_group_gets_the_group_dup(tmp_path):
     err = run_err("shift", f"{f}:walk", "0", "-1", "-o", f"{f}:up")
     assert f"copy it first: pxart dup {f}:walk up, then edit {f}:up" in err
     assert run("dup", f"{f}:walk", "up") == 0 and run("shift", f"{f}:up", "0", "-1") == 0
+
+
+# ---------------------------------------------------------------- the PR #33 review's findings
+
+R = ANIM + "@frame idle\n....\n.gg.\n.gg.\n....\n"
+
+
+@pytest.mark.parametrize("argv,want", [
+    (["outline", "{f}:walk/0", "--key", "k", "-o", "{f}:walk"], "walk is a group of"),  # 1
+    (["shift", "{f}:walk", "0", "-1", "-o", "{f}:idle"], "idle is a frame of"),  # 1
+    (["outline", "{f}:walk/0", "--key", "k", "-o", "{f}:walk/0"], "is what is being edited: leave -o off"),  # 2
+    (["shift", "{f}:walk", "0", "-1", "-o", "{f}:walk"], "is what is being edited: leave -o off"),  # 2
+    (["outline", "{f}:*", "--key", "k", "-o", "{f}:x"], "so -o takes a file (or leave it off"),  # 3
+    (["outline", "{f}:walk/0", "--key", "k", "-o", "{f}:x%night"], "an output is a file, not a variant")])  # 6
+def test_review_routes_never_suggest_a_dup_that_fails(tmp_path, argv, want):
+    f = write(tmp_path, "r.px", R)
+    err = run_err(*[x.format(f=f) for x in argv])
+    assert want in err and "pxart dup" not in err
+
+
+def test_review_the_printed_dup_route_runs(tmp_path):
+    import shlex
+    f = write(tmp_path, "r.px", R)
+    err = run_err("outline", f"{f}:walk/0", "--key", "k", "-o", f"{f}:walk/1")
+    dup = shlex.split(err.split("copy it first: ")[1].split(", then edit")[0])
+    assert dup[-1] == "--replace" and run(*dup[1:]) == 0
+
+
+@pytest.mark.parametrize("extra,want", [(["--prefix-dir"], "and --prefix-dir both name the frames"),
+                                        (["--labels", "l.csv"], "and --labels both name the frames")])
+def test_review_from_png_frame_with_another_namer_is_an_error(tmp_path, extra, want):
+    f = write(tmp_path, "g.px", W)
+    assert want in run_err("from-png", png(tmp_path), *extra, "-o", f"{f}:x")
+
+
+@pytest.mark.parametrize("bad,want", [("a,b", "E_BAD_ID"), ("x%night", "a variant")])
+def test_review_from_png_bad_ids(tmp_path, bad, want):
+    f = write(tmp_path, "g.px", W)
+    assert want in run_err("from-png", png(tmp_path), "-o", f"{f}:{bad}")
+
+
+def test_review_from_png_grid_into_a_frame_is_a_prefix(tmp_path):
+    f = write(tmp_path, "g.px", W)
+    p = tmp_path / "s.png"
+    Image.new("RGBA", (4, 2), (255, 0, 0, 255)).save(p)
+    assert run("from-png", p, "--grid", "2x2", "-o", f"{f}:cell") == 0
+    assert [fr.id for fr in pxart.parse(f).frames][1].startswith("cell/")
+
+
+def test_review_a_folder_with_a_colon_is_a_folder(tmp_path):
+    f = write(tmp_path, "w.px", W)
+    (tmp_path / "v.px:2").mkdir()
+    assert run("outline", f, "--key", "k", "-o", tmp_path / "v.px:2" / "out.px") == 0
+    assert (tmp_path / "v.px:2" / "out.px").exists()
+
+
+def test_review_an_existing_file_with_a_colon_edits_in_place(tmp_path):
+    f = tmp_path / "c.px:walk"
+    f.write_text(W)
+    assert run("outline", f, "--key", "k") == 0 and "k" in "".join(pxart.parse(f).frames[0].grid)
