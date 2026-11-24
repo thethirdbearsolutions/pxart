@@ -2375,6 +2375,10 @@ def fit_lines(d, text, width, font):
     return lines
 
 
+LABEL_GAP = 5  # px between a cell label's size and its color count
+THUMB_H = 30  # the tallest frame whose 1x copy sits beside its label: the label row (26) and the pad under it, less 6
+
+
 def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
@@ -2543,9 +2547,10 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
                 shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
     tiles = [(it, upscale(shown[id(it)], scale, grid, rulers)) for it in its]
     ruled = 16 if grid and rulers and scale >= 4 else 0  # where upscale's rulers put the frame in its tile
-    lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
+    lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height}") + LABEL_GAP
+               + text_w(probe, "99c")) for it in its]
     lw = max(lws)
-    iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
+    iw = max((it.img.width for it in its if it.img.height <= THUMB_H), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
@@ -2554,7 +2559,7 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
     order = [n for line in lines for n in line]  # the items in the order they're drawn
     spots = {}
     if fit:
-        cws = [max(t.width, l + (it.img.width if it.img.height <= 22 else 0) + 8) for (it, t), l in zip(tiles, lws)]
+        cws = [max(t.width, l + (it.img.width if it.img.height <= THUMB_H else 0) + 8) for (it, t), l in zip(tiles, lws)]
         y = pad
         for line in lines:
             h, x = max(tiles[n][1].height for n in line), pad
@@ -2587,10 +2592,12 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
             fw, fh = shown[id(it)].width * scale, shown[id(it)].height * scale
             s.alpha_composite(checker(fw, fh, scale * max(1, -(-4 // scale))), (at[0] + ruled, at[1] + ruled))
         s.alpha_composite(big, at)
-        if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
-            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
+        if it.img.height <= THUMB_H and it.img.width <= cw - lw - 6:
+            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label, into the pad
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
-        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
+        size_text = f"{it.img.width}x{it.img.height}"  # the font's space is a pixel wide: '16x24 9c' read '16x249c'
+        d.text((x, y + ch + 13), size_text, fill=(150, 150, 160, 255))
+        d.text((x + text_w(d, size_text) + LABEL_GAP, y + ch + 13), f"{n_colors(it, bg)}c", fill=(150, 150, 160, 255))
     save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
                smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
     return out
@@ -3562,13 +3569,25 @@ def cmd_anim(a):
         animate(a, got, out)
 
 
+def group_repeat(its):
+    """The repeat of the one group all of its frames are in (0, forever, when absent), or 0 when they aren't one
+    group's: a selection across groups or files plays on a loop."""
+    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
+    if len(keys) != 1 or None in keys:
+        return 0
+    return its[0].doc.anims.get(its[0].frame.group, {}).get("repeat") or 0
+
+
 def plays_once(its):
     """Whether the one group all of its frames are in has repeat=1: it plays through once, so the last frame never
     loops back to the first. repeat=0 loops; repeat=2 and up play the wrap-around between passes."""
-    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
-    if len(keys) != 1 or None in keys:
-        return False
-    return its[0].doc.anims.get(its[0].frame.group, {}).get("repeat") == 1
+    return group_repeat(its) == 1
+
+
+def gif_loop(reps):
+    """save()'s loop for a group's repeat: 0 (forever) for 0; none at all for 1, since a GIF with no loop extension
+    plays once; N-1 for N (the GIF's loop counts the plays after the first)."""
+    return {"loop": 0} if not reps else {} if reps == 1 else {"loop": reps - 1}
 
 
 def anim_path(d, its):
@@ -3626,6 +3645,7 @@ def animate(a, its, out):
         return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
     framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
+    reps = group_repeat(its)
     if out or DRY["run"]:  # a dry run with no -o still tells the GIF's size
         gif = []
         for f in framed:
@@ -3635,9 +3655,11 @@ def animate(a, its, out):
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
         save_image(gif[0], out, "-o" if out else "the GIF (no -o)", save_all=True, append_images=gif[1:],
-                   duration=durs, loop=0, disposal=2, smaller="a lower --scale makes it smaller",
+                   duration=durs, disposal=2, smaller="a lower --scale makes it smaller", **gif_loop(reps),
                    about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
-                         f"copies beside it, {sum(durs)} ms a loop")
+                         f"copies beside it, " + (f"{sum(durs)} ms a loop" if not reps else
+                                                  f"{sum(durs)} ms, played once (repeat=1)" if reps == 1 else
+                                                  f"{sum(durs)} ms a pass, {reps} passes (repeat={reps})"))
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
