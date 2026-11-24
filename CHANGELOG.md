@@ -31,7 +31,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
   (`--keep`, `--keep-circle`, `--anchor`, `--at`, `--region`, `rect`/`line`/`poly`/`ellipse` points, ...): no option
   of pxart's starts with `-` and a digit. Another value starting with `-` (the key `-` in `--keep-lit -,k`) still
   needs `=`, and the error now says so: `argument --keep-lit: expected one argument (a value starting with '-' goes
-  after '=': --keep-lit=-,k)`.
+  after '=': --keep-lit=-,k)` (`--add=-=#102030` for a list option, one value to each). With negatives now easy to
+  type, the coordinate flags were audited: `shift --region -2,0,3,2` read a negative x or y as a Python index from
+  the far edge (a zero shift erased columns 2-3, a hero lost its legs) and now clips to the frame as `fill` and
+  `recolor` do; `scene --size -3x-2` or `0x5` was a traceback and `check`/`compose --size` took them, now `--size
+  wants WxH`; `crop F 0,0,-3,4` wrote an empty frame and `mask --keep-circle 5,5,-3` erased everything, now a
+  negative w, h or r is `E_BAD_ARG`.
 
 ## 2026-11-23
 

@@ -2909,6 +2909,8 @@ def parse_rect(s, size):
         x, y, w, h = (int(v) for v in s.split(","))
     except ValueError:
         fail("E_BAD_ARG", f"--region wants x,y,w,h, got {s!r}")
+    if w < 1 or h < 1:  # x and y may be negative (the rect runs off the frame); w and h may not
+        fail("E_BAD_ARG", f"x,y,w,h wants w and h of 1 or more, got {s!r}")
     return x, y, w, h
 
 
@@ -4415,7 +4417,7 @@ def cmd_scene(a):
             placed, msize = read_map(a.map, tile, notes)
         for n in notes:
             print("note:", n)
-    W, H = map(int, a.size.split("x")) if a.size else (msize if a.map else SCENE_SIZE)
+    W, H = parse_size(a.size) if a.size else (msize if a.map else SCENE_SIZE)
     sc = Image.new("RGBA", (W, H), bg)
     with reading(f"--map ({a.map})"):
         tiles = load_legend(a.map, a.variant) if a.map else {}
@@ -4567,7 +4569,7 @@ def check_args(files, exclude):
 def cmd_check(a):
     with reading(f"--palette ({a.palette})"):
         allowed = load_palette(a.palette) if a.palette else None
-    want = tuple(map(int, a.size.split("x"))) if a.size else None
+    want = parse_size(a.size) if a.size else None
     failed = False
     tally = {"files": 0, "frames": 0, "warnings": 0, "failed": 0}
     outlined, pxed = set(), False  # --outline's keys some checked file has; whether any .px frame was checked
@@ -5888,6 +5890,8 @@ def cmd_shift(a):
     for f in frames:
         x0, y0, w, h = parse_rect(a.region, f.size)
         W, H = f.size
+        w, h = w + min(0, x0), h + min(0, y0)  # a region off the frame's top-left: only its part on the frame
+        x0, y0 = max(0, x0), max(0, y0)  # (a negative x was a Python index from the far edge)
         g = [list(r) for r in f.grid]
         block = [[g[y][x] for x in range(x0, min(x0 + w, W))] for y in range(y0, min(y0 + h, H))]
         if a.wrap:
@@ -5941,6 +5945,9 @@ def cmd_mask(a):
                 nums = ()
             if len(nums) != len(want.split(",")):
                 fail("E_BAD_ARG", f"{flag} wants {want}, got {v!r}")
+            if (kind == "circle" and nums[2] < 0) or (kind == "rect" and min(nums[2:]) < 1):
+                fail("E_BAD_ARG", f"{flag} {v!r}: " + ("r can't be negative" if kind == "circle"
+                                                        else "w and h must be 1 or more"))
             shapes.append((kind,) + nums)
 
     def keep(x, y):  # --invert keeps exactly what the plain mask erases, dither bands included
@@ -7957,7 +7964,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
                                         erase=getattr(a, "erase", None))
         whose = {k: w[0] for k, w in seeded.items()}
     if a.size:
-        size, why = tuple(map(int, a.size.split("x"))), "--size"
+        size, why = parse_size(a.size), "--size"
     elif getattr(a, "map_size", None):
         size, why = a.map_size, "--map"
     elif target.grid:
@@ -12991,12 +12998,15 @@ class PxParser(argparse.ArgumentParser):
     argv = []  # the words main is parsing
 
     def error(self, message):
-        m = re.match(r"argument (-[\w-]+)(?:/(-[\w-]+))?: expected one argument$", message)
+        m = re.match(r"argument (-[\w-]+)(?:/(-[\w-]+))?: expected (one argument|at least one argument)$", message)
         words = PxParser.argv
-        for opt in (m.groups() if m else ()):
-            at = [i for i, w in enumerate(words[:-1]) if w == opt and words[i + 1].startswith("-")]
+        for opt in (m.groups()[:2] if m else ()):  # the next word starts with '-' but isn't an option of this command
+            at = [i for i, w in enumerate(words[:-1]) if w == opt and words[i + 1].startswith("-")
+                  and words[i + 1].split("=")[0] not in self._option_string_actions]
             if opt and at:
-                message += f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]})"
+                message += f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]}"
+                message += ", one value to each" if m.group(3).startswith("at least") else ""
+                message += ")"
                 break
         super().error(message)
 
@@ -13383,7 +13393,7 @@ def rekey_args(args):
 
 
 SHIFT_VALUE_OPTS = {"-o", "--region", "--fill"}
-SHIFT_NUM_RE = re.compile(r"-?\d+(,-?\d+)?")
+SHIFT_NUM_RE = re.compile(r"-?\d*\.?\d+(,-?\d*\.?\d+)?")  # a '-.5' too, kept in order for the error
 
 
 def shift_args(args):
