@@ -8,6 +8,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`repeat=N` on a pingpong means what it means in Aseprite: N one-way passes (PX-56).** pxart counted whole round
+  trips, so `repeat=1` played 0 1 2 3 2 1 and stopped on frame 1. Aseprite's own playback (its `playback.cpp`, and
+  tests like `SimplePingPong3Repeats`, where a 0..2 pingpong with repeat 3 plays 0 1 2 1 0 1 2) counts each one-way
+  pass, turning at an end frame it doesn't play twice; `@anim` uses Aseprite's words and `export --aseprite` writes
+  the tag's repeat for Aseprite to read, so pxart now means the same. `anim` writes a pingpong with a repeat out pass
+  by pass and plays it through once (`repeat=1`: 0 1 2 3; `repeat=2`: 0 1 2 3 2 1 0; `pingpong_reverse` starts from
+  the last frame), the way back marked `back` and a pass forward again `again`, up to 64 passes; 0 or none still
+  loops one cycle, 0 1 2 3 2 1. `check`'s hold advice for identical frames at a pingpong's end counts each frame once
+  when `repeat=1` (one pass, no turn). FORMAT and the README say so.
+
 - **`anim`'s GIF plays as often as `repeat` says (PX-50).** An `@anim idle ... repeat=1` group read `plays once
   (repeat=1); no wrap-around`, but `anim -o idle.gif` wrote `loop=0`, forever, and `--dry-run` said `300 ms a loop`.
   Now the GIF has no loop extension for `repeat=1` (it plays once), `loop=N-1` for `repeat=N`, and loops forever

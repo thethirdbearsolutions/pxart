@@ -75,7 +75,9 @@ pxart 1
 ```
 
 - **`@anim`:** sets a group's `direction` (`forward`, `reverse`, `pingpong`,
-  `pingpong_reverse`, the same words Aseprite uses), `repeat` and default `ms`.
+  `pingpong_reverse`, the same words Aseprite uses), `repeat` and default `ms`. `repeat` means what it does in
+  Aseprite: N plays, and for a pingpong N one-way passes (`repeat=1` plays 0 1 2 3 and stops, `repeat=2` 0 1 2 3 2 1
+  0); 0 or none loops forever.
 - **`@frame … ms=`:** overrides the duration for that frame.
 - **`pivot=x,y`** on `@frame` or `@anim` (optional; a frame's own wins): the frame's anchor
   pixel from its top-left, say the feet. `anim` and `onion` line frames up by pivot instead

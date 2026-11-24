@@ -72,8 +72,9 @@ def test_pingpong_played_once_has_no_wrap(tmp_path, capsys):
     assert run("anim", walk(tmp_path, "pingpong", " repeat=1")) == 0
     out = capsys.readouterr().out
     assert "walk/0" in out and "plays once (repeat=1); no wrap-around" in out
-    assert "plays pingpong: 0 1 2 3 2 1 (6 frames, 780 ms), once;" in out
-    assert len(pairs(out)) == 5
+    # repeat=1 is one one-way pass, as Aseprite counts it (PX-56): 0 1 2 3, then it stops
+    assert "plays pingpong, repeat=1: 1 one-way pass, as Aseprite counts them: 0 1 2 3 (4 frames, 520 ms)" in out
+    assert len(pairs(out)) == 3
 
 
 def test_a_two_frame_pingpong_plays_as_forward_and_says_nothing(tmp_path, capsys):
@@ -85,7 +86,9 @@ def test_a_two_frame_pingpong_plays_as_forward_and_says_nothing(tmp_path, capsys
 
 def test_repeat_n_says_how_many_times_and_fps_sets_the_total(tmp_path, capsys):
     assert run("anim", walk(tmp_path, "pingpong", " repeat=3"), "--fps", 10) == 0
-    assert "(6 frames, 600 ms), 3 times;" in capsys.readouterr().out
+    # 3 one-way passes, as Aseprite counts them (PX-56): 0 1 2 3, 2 1 0, 1 2 3
+    assert "repeat=3: 3 one-way passes, as Aseprite counts them: 0 1 2 3 2 1 0 1 2 3 (10 frames, 1000 ms)" in \
+        capsys.readouterr().out
 
 
 def test_a_part_of_a_group_plays_as_selected(tmp_path, capsys):
