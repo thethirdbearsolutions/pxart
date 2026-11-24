@@ -65,3 +65,10 @@ def test_the_restore_note_says_to_add_the_key_again(tmp_path, capsys):
     f = write(tmp_path, "e.px", "k #000000\ng #43e1b3\n\ngg\ngg\n")
     assert run("outline", f, "--key", "k") == 0
     assert "a palette --add of k since then goes with it, so add it again" in capsys.readouterr().out
+
+
+def test_strict_fails_an_empty_px(tmp_path, capsys):  # PX-24 loop: 'ok' and exit 0 read as fine
+    f = tmp_path / "portrait.px"
+    f.write_text("")
+    assert run("check", f, "--strict") == 1
+    assert "--strict fails it" in capsys.readouterr().out

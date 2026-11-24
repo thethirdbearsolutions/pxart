@@ -9,7 +9,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
 ### Fixed
 
 - **Four small traps (PX-24).** An empty `.px` (a failed `from-png X.png > X.px` leaves one) passed `check` as `ok
-  X.px: palette file, 0 key(s)`; now a warning line says `empty: no keys, no frames, nothing in it`. `dup
+  X.px: palette file, 0 key(s)`; now a warning line says `empty: no keys, no frames, nothing in it` (run the command
+  again, or remove the file), and `--strict` fails it. `dup
   walker.px:walker idle/0` on a file of one unnamed grid said `dup needs FILE:frame-id ...; frames: walker`, listing the
   frame it refused, and `frames --rename walker ...` was `E_MIXED_FRAMES`; both now turn the grid into `@frame walker`
   first (with a note, as from-png and compose do), and a rename of another name says what the grid goes by. `outline

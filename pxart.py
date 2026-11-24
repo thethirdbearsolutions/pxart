@@ -4786,8 +4786,10 @@ def cmd_check(a):
                           + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
                     if not pdoc.palette and not pdoc.variants and not pdoc.shared:  # a failed 'from-png X > X.px'
                         print(f"     {path}: empty: no keys, no frames, nothing in it (a command whose output was "
-                              "redirected there and failed leaves one)")
+                              f"redirected there and failed leaves one; run it again, or remove {path})"
+                              + ("; --strict fails it" if a.strict else ""))
                         tally["warnings"] += 1
+                        failed |= bool(a.strict)
                     for name, ks in half_variants(pdoc):
                         print(f"     {path}: {said_half(pdoc, name, ks)}")
                         tally["warnings"] += 1
