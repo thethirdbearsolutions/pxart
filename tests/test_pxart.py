@@ -12389,14 +12389,20 @@ def test_help_documents_onion_bands_fade_and_edges():
 
 # ---------------------------------------------------------------- sheet --fit: cells at their own size
 
+def size_label_w(probe, size):
+    """A cell label's second line: its size, LABEL_GAP, then the widest color count (PX-50)."""
+    return pxart.text_w(probe, size) + pxart.LABEL_GAP + pxart.text_w(probe, "99c")
+
+
 def old_sheet(its, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
-    """sheet as it was before --fit, for the byte-identical default."""
+    """sheet's grid layout written out apart from sheet() (as it was before --fit, with PX-50's labels: size and color
+    count apart, the 1x copy up to THUMB_H), so a change to sheet()'s default layout shows here."""
     from PIL import ImageDraw
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     tiles = [(it, pxart.upscale(it.img, scale, grid, rulers)) for it in its]
-    lw = max(max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c"))
+    lw = max(max(pxart.text_w(probe, it.label), size_label_w(probe, f"{it.img.width}x{it.img.height}"))
              for it in its)
-    iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
+    iw = max((it.img.width for it in its if it.img.height <= pxart.THUMB_H), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
@@ -12408,10 +12414,13 @@ def old_sheet(its, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
         x, y = pad + (n % cols) * (cw + pad), pad + (n // cols) * (ch + lab + pad)
         d.rectangle([x, y, x + cw - 1, y + ch - 1], fill=pxart.rgba(bg))
         s.alpha_composite(big, (x + (cw - big.width) // 2, y + ch - big.height))
-        if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
+        if it.img.height <= pxart.THUMB_H and it.img.width <= cw - lw - 6:  # PX-50: up to 30 px, into the pad
             s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
-        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {pxart.n_colors(it, bg)}c", fill=(150, 150, 160, 255))
+        size = f"{it.img.width}x{it.img.height}"  # PX-50: size and color count drawn apart
+        d.text((x, y + ch + 13), size, fill=(150, 150, 160, 255))
+        d.text((x + pxart.text_w(d, size) + pxart.LABEL_GAP, y + ch + 13), f"{pxart.n_colors(it, bg)}c",
+               fill=(150, 150, 160, 255))
     return s
 
 
@@ -12447,8 +12456,8 @@ def test_sheet_fit_cells_are_their_own_width(tmp_path):
     img = fit_sheet(tmp_path, "--scale", "4", "--cols", "4")
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     its = pxart.all_items([str(tmp_path / "m.px")])
-    lws = [max(pxart.text_w(probe, it.label), pxart.text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
-    cws = [max(it.img.width * 4, l + (it.img.width if it.img.height <= 22 else 0) + 8) for it, l in zip(its, lws)]
+    lws = [max(pxart.text_w(probe, it.label), size_label_w(probe, f"{it.img.width}x{it.img.height}")) for it in its]
+    cws = [max(it.img.width * 4, l + (it.img.width if it.img.height <= pxart.THUMB_H else 0) + 8) for it, l in zip(its, lws)]
     assert img.width == 10 + sum(w + 10 for w in cws)
     assert img.height == 10 + 40 + 26 + 10  # the beast is 10 tall at scale 4
 
@@ -12465,7 +12474,7 @@ def test_sheet_fit_frames_bottom_aligned_in_their_row(tmp_path):
     # tile is 4x4 in a 10-tall row: rows 0-5 of its cell are backdrop, its top row (all g) is at y 10+6.
     from PIL import ImageDraw
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    cw = max(4, max(pxart.text_w(probe, "tile"), pxart.text_w(probe, "4x4 99c")) + 4 + 8)
+    cw = max(4, max(pxart.text_w(probe, "tile"), size_label_w(probe, "4x4")) + 4 + 8)
     x0 = 10 + (cw - 4) // 2  # centered across its cell
     assert img.getpixel((10, 10)) == bg
     col = [img.getpixel((x0, 10 + y)) for y in range(10)]
@@ -12490,7 +12499,7 @@ def test_sheet_fit_keeps_labels_and_1x_copy(tmp_path):
     x_tile = 10
     from PIL import ImageDraw
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    lw = max(pxart.text_w(probe, "tile"), pxart.text_w(probe, "4x4 99c"))
+    lw = max(pxart.text_w(probe, "tile"), size_label_w(probe, "4x4"))
     cw = max(16, lw + 4 + 8)
     y = 10 + 40 + 4
     assert img.getpixel((x_tile + cw - 4 - 2, y)) == (0, 255, 0, 255)
@@ -15344,10 +15353,10 @@ def test_help_documents_palette_add_already():
 
 # ---------------------------------------------------------------- sheet --align pivot
 
-# walk/1's art is 1px higher in its grid, and its pivot says so: its feet are on row 23, not 24. (25 rows tall: a
-# sheet draws no 1x copy beside the label of a frame that tall, so the only red is the cells'.)
-PIVOT_WALK = ("r #ff0000\n@anim walk pivot=1,24\n@frame walk/0\n" + "...\n" * 22 + ".r.\n.r.\n.r.\n"
-              "@frame walk/1 pivot=1,23\n" + "...\n" * 22 + ".r.\n.r.\n...\n@frame lone\n" + "r\n" * 25)
+# walk/1's art is 1px higher in its grid, and its pivot says so: its feet are on row 29, not 30. (31 rows tall: a
+# sheet draws no 1x copy beside the label of a frame taller than THUMB_H, 30, so the only red is the cells'.)
+PIVOT_WALK = ("r #ff0000\n@anim walk pivot=1,30\n@frame walk/0\n" + "...\n" * 28 + ".r.\n.r.\n.r.\n"
+              "@frame walk/1 pivot=1,29\n" + "...\n" * 28 + ".r.\n.r.\n...\n@frame lone\n" + "r\n" * 31)
 
 
 def red_rows(png, scale=1):
@@ -15418,7 +15427,7 @@ def test_sheet_align_pivot_leaves_top_level_frames_alone(tmp_path):
 def test_sheet_align_pivot_groups_are_per_file(tmp_path):
     # The same group in two files: each file's frames line up among themselves only.
     p = write(tmp_path, "w.px", PIVOT_WALK)
-    q = write(tmp_path, "v.px", "r #ff0000\n@frame walk/0\n" + "..\n" * 24 + "rr\n")
+    q = write(tmp_path, "v.px", "r #ff0000\n@frame walk/0\n" + "..\n" * 30 + "rr\n")
     out = tmp_path / "s.png"
     assert run("sheet", f"{p}:walk", f"{q}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
     low = red_rows(out)
@@ -15426,8 +15435,9 @@ def test_sheet_align_pivot_groups_are_per_file(tmp_path):
 
 
 def test_sheet_align_pivot_frame_without_pivot_uses_bottom_centre(tmp_path):
-    # walk/0 has none (bottom-centre 1,24); walk/1's pivot 1,23: the same feet row as walk/0's bottom.
-    p = write(tmp_path, "w.px", PIVOT_WALK.replace("@anim walk pivot=1,24\n", ""))
+    # walk/0 has none (bottom-centre 1,30); walk/1's pivot 1,29: the same feet row as walk/0's bottom.
+    p = write(tmp_path, "w.px", PIVOT_WALK.replace("@anim walk pivot=1,30\n", ""))
+    assert "pivot=1,30" not in p.read_text()  # the replace took
     out = tmp_path / "s.png"
     assert run("sheet", f"{p}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
     low = red_rows(out)
@@ -25813,17 +25823,18 @@ def test_dry_run_prints_the_same_readout(tmp_path, monkeypatch, capsys):
 
 SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 700x174 px, 5 frames in ...'
 
+# PX-50: the size and color count are drawn LABEL_GAP apart, so labels (and cells widened to fit them) are wider
 
 @pytest.mark.parametrize("argv,said", [
     (["render", "a.px", "--dry-run"],
-     "preview.png: 124x78 px, 2 frames in one row, every cell 47x32: the largest frame 24x16 at x8, 40x32 with its "
+     "preview.png: 130x78 px, 2 frames in one row, every cell 50x32: the largest frame 24x16 at x8, 40x32 with its "
      "rulers, widened to fit the widest label"),
     (["render", "a.px:w/0", "--plain", "--scale", "3", "--dry-run"], "preview.png: 9x6 px, w/0 alone, 3x2 at --scale 3"),
     (["sheet", "a.px", "--cols", "1", "--dry-run", "-o", "s.png"],
-     "s.png: 67x114 px, 2 frames in 2 rows of up to 1, every cell 47x16: the largest frame 24x16 at x8, widened to fit "
+     "s.png: 70x114 px, 2 frames in 2 rows of up to 1, every cell 50x16: the largest frame 24x16 at x8, widened to fit "
      "the widest label"),
     (["sheet", "a.px", "--fit", "--rows", "group", "--dry-run"],
-     "the sheet (no -o): 124x62 px, 2 frames in one row (--fit: each cell its own frame's size), at --scale 8 "
+     "the sheet (no -o): 130x62 px, 2 frames in one row (--fit: each cell its own frame's size), at --scale 8 "
      "(--rows group: a row per animation group)"),
     (["anim", "a.px:w", "--dry-run"],
      "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),

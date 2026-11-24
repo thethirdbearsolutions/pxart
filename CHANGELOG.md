@@ -8,6 +8,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`anim`'s GIF plays as often as `repeat` says (PX-50).** An `@anim idle ... repeat=1` group read `plays once
+  (repeat=1); no wrap-around`, but `anim -o idle.gif` wrote `loop=0`, forever, and `--dry-run` said `300 ms a loop`.
+  Now the GIF has no loop extension for `repeat=1` (it plays once), `loop=N-1` for `repeat=N`, and loops forever
+  for 0 or none, as before (a GIF can say at most 65536 plays; a bigger repeat is written as that, with a note); the
+  repeat is a whole group's: a part of a group, or frames of several groups, loop, as they play as selected; the dry run says `300 ms, played once (repeat=1)` or `300 ms a pass, 3 passes
+  (repeat=3)`. A selection across groups or files loops, as before. Render and sheet labels on a 16x24 frame read
+  `16x249c`: the font's space is narrow (2 px), so the size and color count are now drawn apart (`16x24  9c`), and a
+  frame up to 30 px tall (was 22) gets its 1x copy beside the label, in the pad under it. The example images with
+  labels are rebuilt.
+
 - **The cast encoder says which key breaks the one-palette rule (PX-46).** `bench/cast/pxc.py` needs one palette
   for a whole cast, which neither its README nor its docstring said, and it failed with a raw `KeyError` when the
   first file (by name) didn't list a key another drew, or with `characters differ` naming nothing. Now a file

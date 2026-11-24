@@ -2376,6 +2376,10 @@ def fit_lines(d, text, width, font):
     return lines
 
 
+LABEL_GAP = 5  # px between a cell label's size and its color count
+THUMB_H = 30  # the tallest frame whose 1x copy sits beside its label: the label row (26) and the pad under it, less 6
+
+
 def text_w(d, s):
     return int(d.textlength(s)) if hasattr(d, "textlength") else 6 * len(s)
 
@@ -2544,9 +2548,10 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
                 shown[id(it)] = placed(it.img, lay[0], lay[1], at, CLEAR)
     tiles = [(it, upscale(shown[id(it)], scale, grid, rulers)) for it in its]
     ruled = 16 if grid and rulers and scale >= 4 else 0  # where upscale's rulers put the frame in its tile
-    lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height} 99c")) for it in its]
+    lws = [max(text_w(probe, it.label), text_w(probe, f"{it.img.width}x{it.img.height}") + LABEL_GAP
+               + max(text_w(probe, "99c"), text_w(probe, f"{n_colors(it, bg)}c"))) for it in its]  # 240c is wider
     lw = max(lws)
-    iw = max((it.img.width for it in its if it.img.height <= 22), default=0)
+    iw = max((it.img.width for it in its if it.img.height <= THUMB_H), default=0)
     cw = max(max(t.width for _, t in tiles), lw + iw + 8)
     ch = max(t.height for _, t in tiles)
     pad, lab = 10, 26
@@ -2555,7 +2560,7 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
     order = [n for line in lines for n in line]  # the items in the order they're drawn
     spots = {}
     if fit:
-        cws = [max(t.width, l + (it.img.width if it.img.height <= 22 else 0) + 8) for (it, t), l in zip(tiles, lws)]
+        cws = [max(t.width, l + (it.img.width if it.img.height <= THUMB_H else 0) + 8) for (it, t), l in zip(tiles, lws)]
         y = pad
         for line in lines:
             h, x = max(tiles[n][1].height for n in line), pad
@@ -2588,10 +2593,12 @@ def sheet(its, out, scale=8, cols=8, bg=None, grid=False, rulers=False, fit=Fals
             fw, fh = shown[id(it)].width * scale, shown[id(it)].height * scale
             s.alpha_composite(checker(fw, fh, scale * max(1, -(-4 // scale))), (at[0] + ruled, at[1] + ruled))
         s.alpha_composite(big, at)
-        if it.img.height <= lab - 4 and it.img.width <= cw - lw - 6:
-            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label
+        if it.img.height <= THUMB_H and it.img.width <= cw - lw - 6:
+            s.alpha_composite(it.img, (x + cw - it.img.width - 2, y + ch + 4))  # 1x beside the label, into the pad
         d.text((x, y + ch + 2), it.label, fill=(220, 220, 220, 255))
-        d.text((x, y + ch + 13), f"{it.img.width}x{it.img.height} {n_colors(it, bg)}c", fill=(150, 150, 160, 255))
+        size_text = f"{it.img.width}x{it.img.height}"  # the font's space is narrow: '16x24 9c' read '16x249c'
+        d.text((x, y + ch + 13), size_text, fill=(150, 150, 160, 255))
+        d.text((x + text_w(d, size_text) + LABEL_GAP, y + ch + 13), f"{n_colors(it, bg)}c", fill=(150, 150, 160, 255))
     save_image(s, out, what if out is not None else "the sheet (no -o)", about=about,
                smaller="a lower --scale, fewer frames, or other --cols makes it smaller")
     return out
@@ -3566,13 +3573,33 @@ def cmd_anim(a):
         animate(a, got, out)
 
 
-def plays_once(its):
-    """Whether the one group all of its frames are in has repeat=1: it plays through once, so the last frame never
-    loops back to the first. repeat=0 loops; repeat=2 and up play the wrap-around between passes."""
-    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
-    if len(keys) != 1 or None in keys:
-        return False
-    return its[0].doc.anims.get(its[0].frame.group, {}).get("repeat") == 1
+def whole_group(its):
+    """(doc, group) when its are exactly one animated group's frames, all of them, in file order, else None: a part of
+    a group, frames of several groups or files, or a @still group play as selected. One file named in several
+    arguments (m.px:idle/0 m.px:idle/1) is one file: it goes by path, not by the parse."""
+    if not its or any(it.doc is None or it.frame is None for it in its):
+        return None
+    where = {(str(getattr(it.doc, "path", None) or id(it.doc)), it.frame.group) for it in its}
+    doc, g = its[0].doc, its[0].frame.group
+    if len(where) != 1 or not g or not doc.animated(g):
+        return None
+    return (doc, g) if [it.frame.id for it in its] == [f.id for f in doc.frames if f.group == g] else None
+
+
+GIF_LOOP_MAX = 65535  # a GIF's loop count is 16 bits
+
+
+def group_repeat(its):
+    """The repeat of the one whole group its are (0, forever, when absent), or 0 when they aren't one whole group's
+    (whole_group): a part of a group, or frames across groups or files, play on a loop, as selected."""
+    one = whole_group(its)
+    return (one[0].anims.get(one[1], {}).get("repeat") or 0) if one else 0
+
+
+def gif_loop(reps):
+    """save()'s loop for a group's repeat: 0 (forever) for 0; none at all for 1, since a GIF with no loop extension
+    plays once; N-1 for N (the GIF's loop counts the plays after the first)."""
+    return {"loop": 0} if not reps else {} if reps == 1 else {"loop": min(reps - 1, GIF_LOOP_MAX)}
 
 
 def anim_path(d, its):
@@ -3588,12 +3615,10 @@ def play_order(its):
     0; pingpong 0 1 2 3 2 1 (it turns at its ends, each played once a cycle); pingpong_reverse 3 2 1 0 1 2. The
     cycle loops back to its first frame, so the wrap-around anim compares is a pair that really plays. its as given
     for one frame, for frames of several groups or files, or for forward."""
-    keys = {(id(it.doc), it.frame.group) if it.doc is not None and it.frame is not None else None for it in its}
-    if len(its) < 2 or len(keys) != 1 or None in keys:
-        return its
-    doc, g = its[0].doc, its[0].frame.group
-    if not doc.animated(g) or [it.frame for it in its] != [f for f in doc.frames if f.group == g]:
+    one = whole_group(its) if len(its) > 1 else None
+    if not one:
         return its  # a @still group, or a part of a group or another order: played as selected
+    doc, g = one
     way = doc.anims.get(g, {}).get("direction") or "forward"
     back = its[::-1]
     order = {"reverse": back, "pingpong": its + its[-2:0:-1], "pingpong_reverse": back + back[-2:0:-1]}.get(way, its)
@@ -3603,6 +3628,7 @@ def play_order(its):
 def animate(a, its, out):
     """One animation: its numbers, and with out (a .gif) its GIF and strip. A group whose @anim direction isn't
     forward plays in that order (play_order), and a note says so."""
+    reps = group_repeat(its)  # before the play order: a pingpong's way back isn't the group in file order
     order = play_order(its)
     if order is not its:
         a_ = its[0].doc.anims[its[0].frame.group]
@@ -3630,6 +3656,8 @@ def animate(a, its, out):
         return placed(frames[i], w, h, lay[2][i], bg) if lay else on_bg(frames[i], w, h, bg)
     framed = [fit(i) for i in range(len(frames))]
     S, gap = a.scale, 8
+    if reps - 1 > GIF_LOOP_MAX:
+        print(f"note: a GIF plays at most {GIF_LOOP_MAX + 1} times; repeat={reps} is written as that many")
     if out or DRY["run"]:  # a dry run with no -o still tells the GIF's size
         gif = []
         for f in framed:
@@ -3639,14 +3667,16 @@ def animate(a, its, out):
             canvas.alpha_composite(f.resize((w * 2, h * 2), Image.NEAREST), (w * S + gap * 2 + w, 0))  # 2x
             gif.append(canvas.convert("P", palette=Image.ADAPTIVE))
         save_image(gif[0], out, "-o" if out else "the GIF (no -o)", save_all=True, append_images=gif[1:],
-                   duration=durs, loop=0, disposal=2, smaller="a lower --scale makes it smaller",
+                   duration=durs, disposal=2, smaller="a lower --scale makes it smaller", **gif_loop(reps),
                    about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
-                         f"copies beside it, {sum(durs)} ms a loop")
+                         f"copies beside it, " + (f"{sum(durs)} ms a loop" if not reps else
+                                                  f"{sum(durs)} ms, played once (repeat=1)" if reps == 1 else
+                                                  f"{sum(durs)} ms a pass, {reps} passes (repeat={reps})"))
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
     clear = [fit(i, "#00000000") for i in range(len(frames))]
     pairs = [(clear[i - 1], clear[i], frames[i - 1].size == frames[i].size == (w, h) and may_wrap(clear[i - 1], clear[i]))
              for i in range(len(frames))]
-    once = plays_once(its)  # repeat=1: the last frame never loops back to the first, so frame 0 has nothing to diff
+    once = reps == 1  # repeat=1: the last frame never loops back to the first, so frame 0 has nothing to diff
     moves = [None if once and i == 0 else motion(p, c, wrap=t) for i, (p, c, t) in enumerate(pairs)]
     legs = still_rows(clear)
     if still_rows(clear, shape=True) is None:  # the legs move somewhere in the animation (a walk): a frame whose legs
@@ -3659,7 +3689,7 @@ def animate(a, its, out):
     for i, fr in enumerate(framed):
         prev, cur = pairs[i][:2]
         if len(framed) == 1:  # a frame against itself would read like a measurement of nothing
-            once = plays_once(its)
+            once = reps == 1
             it = its[i]
             g = it.frame.group if it.frame is not None else None
             whole = g and sum(f.group == g for f in it.doc.frames) == 1  # a group of one frame, not one of several picked
