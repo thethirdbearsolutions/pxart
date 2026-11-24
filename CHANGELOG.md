@@ -8,6 +8,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`-o FILE.px:FRAME` no longer makes a file named `FILE.px:FRAME` (PX-23).** `outline w.px --key k -o w.px:walk/9`
+  made a folder `w.px:walk` holding a file `9`, and left w.px alone; `from-png x.png -o into.px:new` wrote a file
+  literally named `into.px:new`. An edit that writes a whole file (`outline`, `shade`, `fill` and the rest that go
+  through the shared edit path) now says `-o w.px:walk/9: walk/9 is a frame of w.px, but this edit writes a whole
+  file, so -o takes a file`, and for one frame of the same file, the route: `copy it first: pxart dup w.px:walk/0
+  walk/9, then edit w.px:walk/9`. `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame walk/9 (several
+  PNGs: `walk/9` is their prefix, as `--id`). No write anywhere makes a file named with a `:FRAME` (compose, crop,
+  flip, rotate, transpose, dup and extract already took `OUT:FRAME` as a frame).
+
 - **Two argument errors say what to do (PX-21).** `pxart from-png in.png face.px` read face.px as a second PNG and
   failed with `E_FILE: No such file or directory`; now `face.px is a .px, and from-png reads PNGs: the output goes
   after -o: pxart from-png in.png -o face.px`: the command as typed with the .px moved after `-o`, so `--grid` and

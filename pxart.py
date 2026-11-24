@@ -876,7 +876,7 @@ CONVERTING
            [--colors N] [--hard-edges]
       PNG -> .px with exact pixels. One PNG and no --id: a single unnamed grid. Several PNGs,
       --id, or an existing OUT: frames named PREFIX/<png stem>, added to OUT (replacing same-id
-      frames, which the 'wrote' line names). Two PNGs of one run that would get one id (two packs'
+      frames, which the 'wrote' line names); -o OUT:ID names one PNG's frame ID. Two PNGs of one run that would get one id (two packs'
       tile_0002.png) are E_DUP_FRAME, naming both: --prefix-dir ids each one FOLDER/STEM by its
       directory's name (dungeon/tile_0002, creatures/tile_0002). Colors already in OUT keep their
       keys, so separate runs share one palette. --palette P.px starts a new OUT that imports P and
@@ -2993,6 +2993,9 @@ def write_doc(doc, path=None):
     @palette lines are re-pointed from there (repoint). doc.dest (palette -o) stands in for doc.path. A dry run
     (palette --dry-run) prints the diff it would make and writes nothing."""
     path = pathlib.Path(path or doc.dest or doc.path)
+    if split_sel(str(path))[1] is not None:  # 'w.px:walk/9': a frame, never a file named so to make
+        fail("E_BAD_ARG", f"{path} names a frame ({split_sel(str(path))[1]}) of {split_sel(str(path))[0]}; this "
+             "writes a whole file there, so give the file alone")
     repoint(doc, path)
     if doc.before is not None:  # an edit of several frames says which: FILE with no :SEL is every frame
         touched = [doc.label(f) for f in doc.frames if id(f) in doc.before and f.grid != doc.before[id(f)]]
@@ -3032,6 +3035,15 @@ def edit_target(arg, out, label="FILE", coords=None):
                  + (f", {path}:{group} (a group)" if group else "") + f", or '{path}:*' (every frame; quoted, "
                  "or the shell expands the *)", path=path)
         frames = doc.select(sel)
+    if out and split_sel(str(out))[1] is not None:  # '-o w.px:walk/9': a frame, where this edit writes a whole file
+        opath, osel = split_sel(str(out))
+        src = f"{path}:{sel}" if sel else path
+        fail("E_BAD_ARG", f"-o {out}: {osel} is a frame of {opath}, but this edit writes a whole file, so -o takes a "
+             f"file (or leave it off to edit {path} in place); to edit a copy in a new frame, copy it first: "
+             + shlex.join(["pxart", "dup", src, osel]) + f", then edit {opath}:{osel}"
+             if sel and len(frames) == 1 and pathlib.Path(opath).resolve() == doc.path.resolve() else
+             f"-o {out}: {osel} is a frame of {opath}, but this edit writes a whole file, so -o takes a file (or leave "
+             f"it off to edit {path} in place)")
     out = pathlib.Path(out) if out else doc.path
     if sel and sel != "*" and out.resolve() != doc.path.resolve():
         print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
@@ -12374,6 +12386,15 @@ def cmd_from_png(a):
 
 def import_pngs(a):
     """from-png's work: the doc, written to -o OUT (and its notes printed), or returned to print."""
+    if a.o and split_sel(a.o)[1] is not None:  # '-o into.px:new': one PNG's frame id (--names), else a prefix (--id)
+        a.o, sel = split_sel(a.o)
+        one = len(a.pngs) == 1 and not a.grid and not pathlib.Path(a.pngs[0]).is_dir()
+        if a.id or a.names:
+            fail("E_BAD_ARG", f"-o {a.o}:{sel} and --{'id' if a.id else 'names'} both name the frames; give one")
+        if one:
+            a.names = sel
+        else:
+            a.id = sel
     pxs = [p for p in a.pngs if str(p).lower().endswith(".px") and not pathlib.Path(p).is_dir()]
     if pxs:  # 'from-png in.png face.px': face.px is the output, not another input
         given = list(getattr(a, "argv", None) or ["from-png", *a.pngs])  # the whole command, --grid and all,
