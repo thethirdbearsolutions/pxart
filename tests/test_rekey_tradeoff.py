@@ -92,3 +92,84 @@ def test_review_3_after_a_partial_rekey_the_note_says_add(tmp_path, monkeypatch,
     out = capsys.readouterr().out
     assert ("note: adding E,L to --rekey would give those pixels new letters too in tiles.px; left off, the keys stay "
             "(a key-for-key copy) and take tiles.px's variant colors") in out
+
+
+# ---------------------------------------------------------------- compose and crop into an existing file (PX-49)
+
+
+def test_compose_into_an_existing_file_says_what_rekey_would_change(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0") == 0
+    lines = capsys.readouterr().out.splitlines()
+    warns = [l for l in lines if l.startswith("WARNING")]
+    assert len(warns) == 4 and all(" compose --rekey " in w and w.endswith("gives it a key of its own") for w in warns)
+    note = ("note: compose --rekey D,E,F,L would give those pixels new letters in tiles.px; left off, the keys stay (a "
+            "key-for-key copy) and take tiles.px's variant colors")
+    assert note in lines and lines.index(note) == lines.index(warns[-1]) + 1
+    assert pxart.parse(tmp_path / "tiles.px").get("c").grid[:2] == ["LE..", "FD.."]  # keys kept
+
+
+def test_crop_into_an_existing_file_says_it_too(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("crop", "quarter.px", "0,0,2,1", "-o", "tiles.px:d") == 0
+    lines = capsys.readouterr().out.splitlines()
+    warns = [l for l in lines if l.startswith("WARNING")]
+    note = next(l for l in lines if l.startswith("note: crop --rekey "))
+    assert lines.index(note) == lines.index(warns[-1]) + 1
+    assert note.endswith(" would give those pixels new letters in tiles.px; left off, the keys stay (a key-for-key "
+                         "copy) and take tiles.px's variant colors")
+    assert {"E", "L"} <= set(note.split()[3].split(","))  # the cropped LE (crop's WARNINGs name D and F too: PX-58)
+
+
+def test_compose_after_a_partial_rekey_says_add(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "--rekey", "D,F") == 0
+    assert ("note: adding E,L to --rekey would give those pixels new letters too in tiles.px"
+            in capsys.readouterr().out)
+
+
+def test_compose_with_rekey_or_into_a_new_file_has_no_note(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "--rekey") == 0
+    assert "would give those pixels new letters" not in capsys.readouterr().out
+    assert run("compose", "-o", "fresh.px", "quarter.px@0,0", "tiles.px:a@0,0") == 0
+    assert "would give those pixels new letters" not in capsys.readouterr().out
+
+
+def test_several_layers_of_one_file_draw(tmp_path, monkeypatch, capsys):  # PX-49 loop: "layers 1-2 (...) draws"
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "quarter.px@2,2") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: layers 1-2 (quarter.px) draw 'D'" in out and "draws 'D'" not in out
+
+
+# ---------------------------------------------------------------- the PR #28 review's findings
+
+
+def test_review_1_two_files_list_each_key_once(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "q2.px").write_text(PAL + "\nEL\n")
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "q2.px@0,2") == 0
+    note = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("note: compose --rekey"))
+    assert note.startswith("note: compose --rekey D,E,F,L would give")  # not D,E,F,L,E,L
+    ks = note.split()[3]
+    assert run("compose", "-o", "tiles.px:e", "quarter.px@0,0", "q2.px@0,2", "--rekey", ks, "--dry-run") == 0  # runs
+
+
+def test_review_2_a_file_scoped_rekey_says_the_keys_are_every_files(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "q2.px").write_text(PAL + "\nEL\n")
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "q2.px@0,2", "--rekey", "q2.px:E") == 0
+    assert "to --rekey (for every file) would give those pixels new letters too" in capsys.readouterr().out
+
+
+def test_review_9_a_dry_run_keeps_the_note(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "--dry-run") == 0
+    assert "note: compose --rekey D,E,F,L would give those pixels new letters" in capsys.readouterr().out
+
+
+def test_review_9_crop_after_a_partial_rekey_says_add(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("crop", "quarter.px", "0,0,2,2", "-o", "tiles.px:d", "--rekey", "D,F") == 0
+    assert "note: adding E,L to --rekey would give those pixels new letters too in tiles.px" in capsys.readouterr().out

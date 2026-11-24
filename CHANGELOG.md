@@ -32,10 +32,6 @@ release, entries are grouped by the day they landed on `main`. The file format i
   twice. The help says `@still` takes one group a line and that top-level frames need none, and `@still
   grass,path`'s `E_BAD_ID` adds `(a @still line per group)`.
 
-## 2026-11-24
-
-### Fixed
-
 - **Negative coordinates after a flag work as typed (PX-52).** `mask lamp.px --keep-circle -10,-8,34` failed with
   argparse's `expected one argument` and no hint, because a word starting with `-` that isn't a plain number
   (`-10,-8,34`, `-8,4`) was read as an option; a chained command then went on with an uncut copy. Every command now
@@ -49,6 +45,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
   lost its legs) and now clips to the frame as `fill` and `recolor` do; a `--size` of `0x5`, or a negative one, was
   a traceback in `scene` and taken by `check` and `compose`, and is now `--size wants WxH`; `crop F 0,0,-3,4` wrote
   an empty frame and `mask --keep-circle 5,5,-3` erased everything, and a negative w, h or r is now `E_BAD_ARG`.
+
+- **`compose` and `crop` into an existing file say what the `--rekey` they offer changes (PX-49).** PX-35 put a
+  note after paste's and `frames --copy-to`'s variant WARNINGs; `compose -o tiles.px:c quarter.px@0,0` and `crop
+  quarter.px 0,0,2,1 -o tiles.px:d` printed the same WARNINGs, `... compose --rekey E gives it a key of its own`,
+  with no note, so their advice would still rename stand-in keys a game reads by letter. Now the same note follows
+  them: `note: compose --rekey D,E,F,L would give those pixels new letters in tiles.px; left off, the keys stay (a
+  key-for-key copy) and take tiles.px's variant colors`; after a partial `--rekey D,F` it says `adding E,L to
+  --rekey ...`, and more than six keys, or a list a shell can't take as written, gives a bare `--rekey`; each key
+  is listed once, however many source files warn about it.
 
 ## 2026-11-23
 

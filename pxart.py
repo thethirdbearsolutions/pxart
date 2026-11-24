@@ -542,8 +542,9 @@ EDITING (writes .px; -o defaults to editing the input in place)
       named), the colors a new OUT left out, which of the file's frames draw with a key it
       lost, and one WARNING per key OUT's variants color otherwise ('WARNING: layer 2
       (keeper.px:idle) draws 'r' #c4473a in party.px's variant colors, not keeper.px's: dusk
-      #a33a4c (keeper.px: #83344e); compose --rekey r gives it a key of its own'). An
-      E_KEY_CONFLICT line offers the same moves --rekey makes, with the same reasons.
+      #a33a4c (keeper.px: #83344e); compose --rekey r gives it a key of its own'), and a
+      note on what that --rekey changes. An E_KEY_CONFLICT line offers the same moves
+      --rekey makes, with the same reasons.
 
       Variants (rule 3) come along for the keys OUT has, in the colors of the layer whose
       key OUT has. Layers from files with different variants (a market's dusk, a keeper's
@@ -3172,22 +3173,25 @@ def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
                          f"{k!r}, which {opath}'s variants color otherwise: {each}; those pixels take {opath}'s colors "
                          "there")
         else:
-            lines.append(f"WARNING: {label} draws {k!r} {fmt_color(base)} in {opath}'s variant colors, not "
+            lines.append(f"WARNING: {label} draw{'' if label.startswith('layers ') else 's'} {k!r} {fmt_color(base)} "
+                         f"in {opath}'s variant colors, not "
                          f"{d.path.name}'s: {each}; {rekey_said} {k} gives it a key of its own")
     return lines
 
 
 def rekey_tradeoff(warn, dst_name, rekey_said, given=None):
-    """After said_vclash's WARNINGs for a copy into an existing file (paste, frames --copy-to): one note on what the
-    --rekey they offer changes, since a copy made key for key (stand-in keys a game's code reads by letter) wants the
-    keys kept and DST's colors taken. None when no WARNING offers it."""
+    """After said_vclash's WARNINGs for a copy into an existing file (paste, frames --copy-to, compose, crop): one note
+    on what the --rekey they offer changes, since a copy made key for key (stand-in keys a game's code reads by letter)
+    wants the keys kept and DST's colors taken. None when no WARNING offers it."""
     offered = [l for l in warn if l.endswith("gives it a key of its own")]
     if not offered:
         return None
-    ks = [re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered]
+    ks = list(dict.fromkeys(re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered))
+    # (once each: compose warns per source file, and '--rekey E,L,E,L' names E twice, an E_BAD_ARG)
     listable = len(ks) <= 6 and all(k.isalnum() for k in ks)  # a list a shell and --rekey both read as written
     if given is not None:  # --rekey was given for other keys: these would join its list
         which = f"adding {','.join(ks)} to --rekey" if listable else "adding those keys to --rekey"
+        which += " (for every file)" if ":" in given else ""  # --rekey a.px:S: a bare key is every file's
         head = f"note: {which} would give those pixels new letters too"
     else:
         head = f"note: {rekey_said}" + (f" {','.join(ks)}" if listable else "") + " would give those pixels new letters"
@@ -8099,6 +8103,11 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
                 warn_half(d, src)
     said = said_by_file(opath, layers, doc, left_out, renamed or {}, moved or {}, vclashed, added, vmap, rekey_said,
                         fresh) + said_variants(opath, layers, doc, vmap, fresh)
+    trade = None if fresh else rekey_tradeoff([l for l in said if not isinstance(l, Note)], opath, rekey_said,
+                                              getattr(a, "rekey", None))
+    if trade:  # right after the last WARNING that offers --rekey, as paste and frames --copy-to say it
+        last = max(i for i, l in enumerate(said) if not isinstance(l, Note) and l.endswith("gives it a key of its own"))
+        said.insert(last + 1, trade)
     cuts = []  # the cropping notes, said after these (the drawing decides whether there is an undrawn-keys note)
     map_cut = 0  # a map's cells are one thing to crop, as scene says it
     for lay, x, y, label in layers:
