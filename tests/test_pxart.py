@@ -28467,12 +28467,11 @@ def test_anim_frames_of_two_files_joined_still_wrap(tmp_path, capsys):
     assert "plays once" not in capsys.readouterr().out
 
 
-def test_plays_once_helper(tmp_path):
+def test_group_repeat_helper(tmp_path):  # plays_once's job, now group_repeat == 1 (PX-50)
     p = write(tmp_path, "b.px", ONCE)
-    its = pxart.items(f"{p}:land")
-    assert pxart.plays_once(its) is True
-    assert pxart.plays_once(pxart.items(f"{p}:fly")) is False
-    assert pxart.plays_once(pxart.items(str(p))) is False
+    assert pxart.group_repeat(pxart.items(f"{p}:land")) == 1
+    assert pxart.group_repeat(pxart.items(f"{p}:fly")) != 1
+    assert pxart.group_repeat(pxart.items(str(p))) == 0  # several groups: a loop
 
 
 def test_anim_help_says_repeat_plays_once():
