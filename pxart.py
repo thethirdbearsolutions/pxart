@@ -12374,6 +12374,19 @@ def cmd_from_png(a):
 
 def import_pngs(a):
     """from-png's work: the doc, written to -o OUT (and its notes printed), or returned to print."""
+    pxs = [p for p in a.pngs if str(p).lower().endswith(".px") and not pathlib.Path(p).is_dir()]
+    if pxs:  # 'from-png in.png face.px': face.px is the output, not another input
+        given = list(getattr(a, "argv", None) or ["from-png", *a.pngs])  # the whole command, --grid and all,
+        typed = [w for n, w in enumerate(given) if w not in pxs or (n and given[n - 1] in ("-o", "--palette"))]
+        what = f"{pxs[0]} is a .px" if len(pxs) == 1 else f"{', '.join(pxs)} are .px files"
+        if not a.o:
+            more = f" (it writes one; {', '.join(pxs[1:])} left out)" if len(pxs) > 1 else ""
+            fail("E_BAD_ARG", f"{what}, and from-png reads PNGs: the output goes after -o{more}: "
+                 + shlex.join(["pxart", *typed, "-o", pxs[0]]))
+        if a.palette or a.o in pxs:  # nothing to reuse a palette from, or it's the output again: drop it
+            fail("E_BAD_ARG", f"{what}, and from-png reads PNGs; -o {a.o} is the output: {shlex.join(['pxart', *typed])}")
+        fail("E_BAD_ARG", f"{what}, and from-png reads PNGs: -o {a.o} is the output; to reuse a .px's palette, "
+             + shlex.join(["pxart", *typed, "--palette", pxs[0]]))
     if a.by and not a.grid:
         fail("E_BAD_ARG", "--by goes with --grid WxH (the sheet's cells)")
     if a.grid and len(a.pngs) > 1:
@@ -13417,7 +13430,8 @@ def parser(describe=True):
                    help="for a palette file: how many .px files under DIR import it, and draw with each key")
     g = p.add_argument_group("add / remove / order base keys", "Edit FILE's own palette lines.")
     g.add_argument("--add", nargs="+", action="extend", metavar="k=#rrggbb", help="add keys (with --variant: set them in that variant); repeats add up")
-    g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines)")
+    g.add_argument("--remove", metavar="KEYS", help="take these keys out of FILE (with their variant lines); the keys "
+                   "are one word, hj or h,j")
     g.add_argument("--to", metavar="KEY", help="with --remove: repaint the removed keys' pixels as KEY first")
     g.add_argument("--order", metavar="KEYS", help="put these keys first in FILE's palette, in this order")
     g = p.add_argument_group("variants", "Set or inherit keys in one variant, by hand: --variant NAME --add k=#hex.")
@@ -13576,8 +13590,15 @@ def main(argv=None):
     a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
+    elif extra and a.cmd == "from-png" and not any(x.startswith("-") for x in extra):
+        a.pngs += extra  # inputs after an option ('from-png a.png --id x b.png'), or a .px there: import_pngs says
+        # the output goes after -o
     elif extra:  # argparse's own error, with the command's usage (the top level's names no option of it)
-        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}")
+        hint = ""
+        if a.cmd == "palette" and a.remove and all(not x.startswith("-") and not set(x) & set("./\\") for x in extra):
+            # '--remove h j' (or 'h jk', or a stray word before it): the keys are one word
+            hint = remove_hint(a, extra)
+        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}{hint}")
     WARNED.clear()
     CREATED.clear()
     DRY["run"] = bool(getattr(a, "dry_run", False))
@@ -13597,6 +13618,42 @@ def main(argv=None):
     if DRY["run"] and a.cmd in EDIT_DRY and "(dry run; nothing written)" not in told.getvalue():
         print("(dry run; nothing written)", file=told)
     said_first(told.getvalue())
+
+
+def remove_hint(a, extra):
+    """For 'palette F --remove h j': the command again with the keys as one word ('--remove hj', or 'h,j'; a ',' key
+    only in the comma form, ',,x', since 'hj,' isn't a run; '--remove=-h' when the word starts with '-'), every
+    --remove's keys and the stray words in one, everything else as typed. --remove=K and an abbreviation (--rem) count."""
+    typed = list(a.argv)
+
+    def is_remove(w):
+        name = w.split("=", 1)[0]
+        return len(name) >= 5 and "--remove".startswith(name)
+    keys, out, i, at = [], [], 0, None
+    while i < len(typed):
+        w = typed[i]
+        if is_remove(w):
+            val = w.split("=", 1)[1] if "=" in w else (typed[i + 1] if i + 1 < len(typed) else "")
+            i += 1 if "=" in w else 2
+            first = val[:-1] if len(val) > 1 and val.endswith(",") else val  # '--remove a, b'
+            keys += key_list(first, "--remove") if "," in first and len(first) > 1 else list(first)
+            at = len(out) if at is None else at
+            continue
+        out.append(w)
+        i += 1
+    for x in extra:  # the stray key words: into the keys, out of the command (the last of each, not the file)
+        keys += list(x)
+        idx = max((n for n, w in enumerate(out) if w == x and w != a.file), default=None)
+        if idx is not None:
+            del out[idx]
+            at = at - 1 if at is not None and idx < at else at
+    keys = list(dict.fromkeys(keys))
+    forms = [",".join(keys)] if "," in keys else ["".join(keys), ",".join(keys)]
+    words = [[f"--remove={f}"] if f.startswith("-") else ["--remove", f] for f in forms]
+    if at is None:
+        return f" (--remove takes its keys as one word: {' or '.join(' '.join(w) for w in words)})"
+    run = [shlex.join(["pxart", *out[:at], *w, *out[at:]]) for w in words]
+    return f" (--remove takes its keys as one word: {' or '.join(run)})"
 
 
 def said_first(text):
