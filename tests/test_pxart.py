@@ -23750,8 +23750,9 @@ def test_help_all_does_not_grow(capsys):
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
     # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
+    # 73168 with from-png -o OUT:ID (PX-23), in a clause.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73116
+    assert len(capsys.readouterr().out.encode()) <= 73168
 
 
 def test_help_says_each_shared_rule_once():

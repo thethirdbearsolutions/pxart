@@ -419,7 +419,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
     hero.px import it.
   - `from-png` converts a PNG to a sprite; `from-png Walk.png --grid 16x16 --by cols --names
     walk/down,walk/up,walk/left,walk/right -o boy.px` slices a sheet into frames, a group per
-    column (or row), skipping empty cells. Two PNGs one run would give one id (two packs'
+    column (or row), skipping empty cells. `from-png x.png -o boy.px:walk/9` adds
+    one frame to boy.px under that id. Two PNGs one run would give one id (two packs'
     `tile_0002.png`) are an error rather than one replacing the other; `--prefix-dir` ids them
     `dungeon/tile_0002` and `creatures/tile_0002`. Loose PNGs take names from `--names a,b,...` (one per
     PNG) or from the CSV a pack ships: `--labels dungeon/labels.csv` names each PNG by its row's
