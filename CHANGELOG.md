@@ -9,15 +9,16 @@ release, entries are grouped by the day they landed on `main`. The file format i
 ### Fixed
 
 - **Four small traps (PX-24).** An empty `.px` (a failed `from-png X.png > X.px` leaves one) passed `check` as `ok
-  X.px: palette file, 0 key(s)`; now a warning line says `empty: no keys, no frames, nothing in it` (run the command
-  again, or remove the file), and `--strict` fails it. `dup
+  X.px: palette file, 0 key(s)`; now a warning line says `empty: nothing in it` (run the command again, or remove the
+  file), and `--strict` fails it. `dup
   walker.px:walker idle/0` on a file of one unnamed grid said `dup needs FILE:frame-id ...; frames: walker`, listing the
   frame it refused, and `frames --rename walker ...` was `E_MIXED_FRAMES`; both now turn the grid into `@frame walker`
-  first (with a note, as from-png and compose do), and a rename of another name says what the grid goes by. `outline
+  first (with a note naming the id; a file name that can't be an id is an error), and a rename of another name says what the grid goes by. `outline
   --key k` on art with its own dark line now notes `12 of the shape's 12 edge px are already as dark as k (d): the art
-  has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws on that edge instead`. Its
-  advice to restore the file from git and re-outline with `--pad` now adds that a `palette --add` of the key since
-  goes with it, so add it again.
+  has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws on that edge instead`. The note
+  counts the key's own pixels, needs a dark, mostly opaque key, and names only the frames that have the line. Its
+  advice to restore the file from git and re-outline with `--pad` now adds: if you added the key with `palette --add`
+  since your last commit, add it again.
 
 - **Two argument errors say what to do (PX-21).** `pxart from-png in.png face.px` read face.px as a second PNG and
   failed with `E_FILE: No such file or directory`; now `face.px is a .px, and from-png reads PNGs: the output goes

@@ -4782,14 +4782,19 @@ def cmd_check(a):
             if path.endswith(".px") and not sel and not _has_grid(path):
                 try:
                     pdoc = parse(path, a.strict, palette_only=True)
+                    empty = not pathlib.Path(path).read_text().strip()  # a failed 'from-png X > X.px' leaves one
+                    if empty and a.strict:
+                        print(f"FAIL {path}: empty: nothing in it (a command whose output was redirected there and "
+                              f"failed leaves one; run it again, or remove {path})")
+                        failed = True
+                        tally["warnings"] += 1
+                        continue
                     print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
                           + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
-                    if not pdoc.palette and not pdoc.variants and not pdoc.shared:  # a failed 'from-png X > X.px'
-                        print(f"     {path}: empty: no keys, no frames, nothing in it (a command whose output was "
-                              f"redirected there and failed leaves one; run it again, or remove {path})"
-                              + ("; --strict fails it" if a.strict else ""))
+                    if empty:
+                        print(f"     {path}: empty: nothing in it (a command whose output was redirected there and "
+                              f"failed leaves one; run it again, or remove {path}; --strict fails it)")
                         tally["warnings"] += 1
-                        failed |= bool(a.strict)
                     for name, ks in half_variants(pdoc):
                         print(f"     {path}: {said_half(pdoc, name, ks)}")
                         tally["warnings"] += 1
@@ -5705,8 +5710,10 @@ def rename_frames(doc, renames):
         if not any(old == doc.stem for old, _ in renames):
             fail("E_MIXED_FRAMES", f"{doc.path} has one unnamed grid, which goes by {doc.stem!r}; rename that: "
                  + shlex.join(["pxart", "frames", str(doc.path), "--rename", doc.stem, renames[0][1]]))
+        if not ID_RE.match(doc.stem):
+            fail("E_MIXED_FRAMES", f"{doc.path} has one unnamed grid, and its name {doc.stem!r} can't be a frame id; "
+                 f"name it in the file first (an '@frame ID' line above the grid)")
         doc.promote()  # the unnamed grid, by the name it goes by: '@frame <stem>', then renamed
-        print(f"note: {doc.path}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
         ids = [doc.stem]
     check_renames(renames, ids, doc.path)
     moving = {i for i in ids if renamed_id(i, renames) != i}
@@ -7220,26 +7227,34 @@ def pad_frames(doc, frames, sides):
 
 
 def dark_rim(doc, frames, shapes, key):
-    """When most of the shapes' edge pixels (a side on an empty pixel or the frame's edge) are about as dark as key, by
-    Rec. 709 luma (within 0.1): (dark px, edge px, the keys they are), else None. The art's own line, which an outside
-    outline doubles."""
+    """The frames where most of the shape's edge pixels (a side on an empty pixel or the frame's edge) are already a
+    dark line like key: a dark key (Rec. 709 luma under 0.5), and edge pixels of keys drawn mostly opaque (alpha 128+)
+    within 0.1 of its luma, key's own pixels too. That is the art's own line, which an outside outline doubles. Base
+    colors only. [(frame label, dark px, edge px)], the keys they are."""
     pal = doc.resolved()
-    if key not in pal or not pal[key][3]:
-        return None
+    if key not in pal or pal[key][3] < 128:
+        return [], []
 
     def luma(c):
         return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255
-    line, n, m, ks = luma(pal[key]), 0, 0, {}
+    line = luma(pal[key])
+    if line >= 0.5:  # a light outline key: 'as dark as' says nothing
+        return [], []
+    hits, ks = [], collections.Counter()
     for f, shape in zip(frames, shapes):
+        m, dark = 0, collections.Counter()
         for x, y in shape:
             if all((x + dx, y + dy) in shape for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
                 continue
             m += 1
-            k = f.grid[y][x]
-            if k != key and luma(pal[k]) <= line + 0.1:
-                n += 1
-                ks[k] = ks.get(k, 0) + 1
-    return (n, m, sorted(ks, key=ks.get, reverse=True)) if m and 2 * n > m else None
+            c = pal[f.grid[y][x]]
+            if c[3] >= 128 and abs(luma(c) - line) <= 0.1:
+                dark[f.grid[y][x]] += 1
+        n = sum(dark.values())
+        if m and 2 * n > m:  # only the frames that have the line name its keys
+            hits.append((doc.label(f), n, m))
+            ks += dark
+    return hits, [k for k, _ in ks.most_common()]
 
 
 def outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed=False):
@@ -7287,12 +7302,13 @@ def outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed=Fals
         notes.append(f"the shape has {keys}, the outline's key, on the frame's edge: outlined already? outlining an "
                      "outline rings it again")
     else:
-        dark = dark_rim(doc, frames, shapes, a.key)
-        if dark:
-            n, m, ks = dark
-            notes.append(f"{n} of the shape's {m} edge px are already as dark as {a.key} ({' '.join(ks)}): the art "
-                         f"has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws on "
-                         "that edge instead (it can wipe detail on thin art)")
+        hits, ks = dark_rim(doc, frames, shapes, a.key)
+        if hits:
+            n, m = sum(h[1] for h in hits), sum(h[2] for h in hits)
+            where = "" if len(hits) == len(frames) else f" in {listed([h[0] for h in hits], 5)}"
+            notes.append(f"{n} of the shape's {m} edge px{where} are already as dark as {a.key} ({' '.join(ks)}): the "
+                         f"art has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws "
+                         f"on that edge instead (it can wipe detail on thin art)")
     if padded:
         grown, sides, anchored, pivoted = padded
         notes.append(f"--pad grew {listed(grown, 5)} 1px at the {said_sides(sides)}"
@@ -7307,7 +7323,7 @@ def outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed=Fals
              f"{listed([n for n, ss in touch if ss], 5)}), so the outline is open there")
     if not (a.preview or a.dry_run) and out.resolve() == doc.path.resolve():
         notes.append(f"{where}; outlining the art from before this run with --pad closes it (restore {doc.path} "
-                     f"first, from git; a palette --add of {a.key} since then goes with it, so add it again)")
+                     f"first, from git; if you added {a.key} with palette --add since your last commit, add it again)")
     else:
         argv = getattr(a, "argv", None) or ["outline", a.file, "--key", a.key]
         notes.append(f"{where}; --pad grows the frame 1px there first: {shlex.join(['pxart', *argv, '--pad'])}")
@@ -8547,8 +8563,13 @@ def cmd_dup(a):
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
     if doc.implicit and sel == doc.stem:  # the unnamed grid, by the name it goes by: it becomes '@frame <stem>'
+        if not ID_RE.match(doc.stem):
+            fail("E_MIXED_FRAMES", f"{doc.path} has one unnamed grid, and its name {doc.stem!r} can't be a frame id; "
+                 f"name it in the file first (an '@frame ID' line above the grid)")
         doc.promote()
-        print(f"note: {doc.path}'s unnamed grid is now '@frame {doc.stem}' (the id it went by)")
+        where = a.o or doc.path
+        print(f"note: {doc.stem}, {doc.path}'s unnamed grid, {'would be' if DRY['run'] else 'is'} '@frame {doc.stem}' "
+              f"in {where} (the id it went by)")
     src = doc.get(sel) if sel else None
     if not src and sel and any((f.id or "").startswith(sel + "/") for f in doc.frames):  # a group: dup GROUP NEWGROUP
         note_suffix(a.o or doc.path)
