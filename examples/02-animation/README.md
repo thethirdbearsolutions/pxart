@@ -136,7 +136,7 @@ Two of its lines:
 
 ```text
   idle/right/0               400ms  vs idle/right/3: shift +0,+0 then 14px (2%)
-  idle/right/1               240ms  vs idle/right/0: no shift then 237px (41%) (rows 34+ still; shift +0,+1: 52px)
+  idle/right/1               240ms  vs idle/right/0: no shift then 237px (41%) (rows 34+ still; shift +0,+1: 52px, 4 past the edge)
 ```
 
 Frame 0 shows its own 400 ms from Step 1. For frame 1, shifting the whole hero would
@@ -163,7 +163,7 @@ first frame is A (the silhouette), the second is B.
 ```text
 A (frame walk/down/0) covers x 4..19, y 0..31 (on the 24x32 canvas, lined up by pivot)
 B (frame walk/down/1) covers x 4..19, y 1..31
-B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 30px changed (no shift: 205px)
+B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 30px changed (4 past the edge) (no shift: 205px)
 wrote onion.png
 ```
 

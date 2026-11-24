@@ -2594,7 +2594,7 @@ def test_breathing_idle_stdout_shows_both_numbers(tmp_path, capsys):
     assert lines[1].endswith(f"vs idle/0: no shift then {pc(n_none, BREATHE_1)} (rows 9+ still; shift +0,-1: {n_shift}px)")
     _, _, n_shift, n_none, still = motion_of(tmp_path, BREATHE_1, BREATHE_0)  # chest back down
     assert lines[0].endswith(f"vs idle/1: no shift then {pc(n_none, BREATHE_0)} (rows {still}+ still; "
-                             f"shift +0,+1: {n_shift}px)")
+                             f"shift +0,+1: {n_shift}px, 6 past the edge)")  # the feet pushed off the floor (PX-55)
     assert n_shift < n_none
 
 
@@ -7549,7 +7549,7 @@ def test_may_wrap_rules(tmp_path):
     assert not pxart.may_wrap(img(4, 8, 8), img(4, 8, 9))
 
 
-def test_best_shift_without_wrap_is_unchanged(tmp_path):
+def test_best_shift_without_wrap_out_of_reach(tmp_path):
     a, b = Image.new("RGBA", (4, 4)), Image.new("RGBA", (4, 4))
     a.putpixel((0, 0), (1, 1, 1, 255)); b.putpixel((3, 3), (1, 1, 1, 255))
     # out of reach: pushing the pixel off the edge changes as many pixels as no shift once the pixel pushed off counts
@@ -7933,11 +7933,11 @@ def test_percent_rounds_half_up(tmp_path, capsys):
     assert lines[1].endswith("shift +0,+0 then 1px (13%)")
 
 
-def test_percent_of_an_empty_frame_is_left_out(tmp_path, capsys):
+def test_percent_of_an_emptied_frame_is_of_both(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, ["k."], [".."])
     # pushing k off the edge no longer reads as 0px (PX-55: the pixel pushed off counts), so no shift is as good; the
-    # frame is empty, so no percent of it
-    assert "shift +0,+0 then 1px" in lines[1]
+    # frame is empty, so the percent is of the pixels opaque in either: the one k
+    assert "shift +0,+0 then 1px (100%)" in lines[1]
 
 
 def test_percent_on_the_strip_label(tmp_path, capsys):
@@ -8774,7 +8774,7 @@ def onion_lines(tmp_path, capsys, a, b, *more):
     return capsys.readouterr().out.splitlines()
 
 
-def test_onion_readout_head_drops_feet_stay(tmp_path, capsys):
+def test_onion_readout_head_drops_feet_stay_is_no_bob(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     assert onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1") == [
         "A (frame w/0) covers x 0..2, y 0..3 (on the 3x4 canvas, bottom-centered)",
@@ -9725,7 +9725,7 @@ def test_breath_rise_and_fall_name_the_same_row(tmp_path, capsys):
 def test_breath_fall_exact_line(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, *IDLE_4)
     _, _, n_shift, n_none, _ = motion_of(tmp_path, IDLE_4[2], IDLE_4[3])
-    assert lines[3].endswith(f"vs idle/2: no shift then {pc(n_none, IDLE_4[3])} (rows 9+ still; shift +0,+1: {n_shift}px)")
+    assert lines[3].endswith(f"vs idle/2: no shift then {pc(n_none, IDLE_4[3])} (rows 9+ still; shift +0,+1: {n_shift}px, 6 past the edge)")
 
 
 def test_breath_rise_exact_line_unchanged(tmp_path, capsys):

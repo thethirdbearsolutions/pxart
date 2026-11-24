@@ -13,10 +13,14 @@ release, entries are grouped by the day they landed on `main`. The file format i
   a slime's `breathe/3 vs breathe/2` read `shift +0,-1 then 12px` and the way back `shift +0,+1 then 0px`, a "just a
   bob" on one leg of a pingpong and 12px on the other. Now a pixel pushed past the edge counts as changed, on a
   canvas padded by the shift, both when the best shift is chosen and in the number; `anim`, the strip and `onion`'s
-  readout agree in both directions, with opposite shifts. Counts grow where a bob pushes the feet off the canvas (the
+  whole-canvas readout give a pair the same count in both directions (a tie between two shifts of the same count,
+  a mirror-image pair, can name the same shift both ways). Counts grow where a bob pushes the feet off the canvas (the
   example walk's `shift +0,+1 then 26px` is 30px), and a shift that only pushed pixels off no longer beats no shift.
   `onion --rows`/`--feet` bands still count only their own rows. No pixel of the strip can show a pixel that went
-  past the edge, so the number says how many it counts: `then 30px (8%; 4 past the edge)`.
+  past the edge, so the number says how many it counts: `then 30px (8%; 4 past the edge)`, in a `rows N+ still`
+  reading and in `onion` too. `paste --align shift` follows the same best shift, so a sprite whose feet stay on the
+  canvas floor while its head drops no longer reads as a whole-body bob. The comparison runs in Pillow, not Python:
+  `anim` on a 256x256 animation takes about half the time it did.
 
 - **The cast encoder says which key breaks the one-palette rule (PX-46).** `bench/cast/pxc.py` needs one palette
   for a whole cast, which neither its README nor its docstring said, and it failed with a raw `KeyError` when the
