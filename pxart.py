@@ -112,7 +112,8 @@ LOOKING
       without -o, anim prints only those lines and writes nothing. Read the strip: the Read
       tool shows only a GIF's first frame. Durations come from the file (@anim/@frame ms)
       unless --fps. A group with repeat=1 plays once: frame 0 gets no wrap-around diff. A whole
-      group plays in its direction: pingpong 0 1 2 3 2 1 (the way back labeled 'back'), reverse
+      group plays in its direction: pingpong 0 1 2 3 2 1 (the way back labeled 'back'; with a
+      repeat, its passes in turn, once, up to 64), reverse
       3 2 1 0, pingpong_reverse 3 2 1 0 1 2; a part of one plays as selected. One
       frame alone gets 'note: mushroom: 1 frame (100ms), nothing to compare' (GIF still written).
       --variant V counts V's render: a halo transparent in the base counts, at any alpha.
@@ -1223,7 +1224,8 @@ SLOTS = """SLOTS (pxart help slots)
       "variants" and "animations" are there when empty too; "pivot" is left out for a
       frame without one, and "ms" for a @still frame (a tile, an icon: nothing to play).
       Frames are in export's id order (help CONVERTING), which "from" and "to" index; a
-      @still group is no animation. repeat 0 is forever. --prefix-file ids frames and
+      @still group is no animation. repeat 0 is forever; a pingpong's N is N one-way passes,
+      as Aseprite counts. --prefix-file ids frames and
       names animations FILE/ID. Every file shares one palette and one set of
       variants: a key two files color differently, in the base or in a variant (a file
       without that variant draws its base colors there), is E_KEY_CONFLICT. --indexed goes
@@ -3669,6 +3671,17 @@ def play_order(its):
 
 
 PASSES_MAX = 64  # anim writes at most this many one-way passes of a pingpong out into its GIF
+PASS_FRAMES_MAX = 256  # and at most about this many frames of them
+
+
+def passes_written(n, reps):
+    """How many of a pingpong's reps passes anim writes out for n frames: all of them, or as many as PASSES_MAX and
+    PASS_FRAMES_MAX allow, less one when that would end at the other end than reps does (an odd number of passes ends
+    at the far end, an even one back at the start)."""
+    most = min(PASSES_MAX, 1 + max(0, PASS_FRAMES_MAX - n) // max(1, n - 1))
+    if reps <= most:
+        return reps
+    return most - (reps - most) % 2 if most > 1 else 1
 
 
 def pingpong_passes(its, way, reps):
@@ -3677,7 +3690,7 @@ def pingpong_passes(its, way, reps):
     2 1 0 (pingpong_reverse starts from the last frame). Returns [(item, pass number)], at most PASSES_MAX passes."""
     cur = list(its) if way == "pingpong" else list(its)[::-1]
     out = [(it, 1) for it in cur]
-    for n in range(2, min(reps, PASSES_MAX) + 1):
+    for n in range(2, passes_written(len(its), reps) + 1):
         cur = cur[::-1]
         out += [(it, n) for it in cur[1:]]
     return out
@@ -3692,6 +3705,7 @@ def animate(a, its, out):
     passes = reps if way.startswith("pingpong") and reps and len(its) > 1 else 0
     if passes:  # a pingpong with a repeat: its passes written out, played through once (PX-56)
         played = pingpong_passes(its, way, passes)
+        written = passes_written(len(its), passes)
         marked = []
         for it, n in played:
             if n > 1:  # a later pass plays frames already shown: their copies say which way it goes
@@ -3702,8 +3716,10 @@ def animate(a, its, out):
         print(f"note: {one[1]} plays {way}, repeat={passes}: {passes} one-way pass{'es' * (passes != 1)}, as Aseprite "
               f"counts them: {' '.join(it.frame.id.rsplit('/', 1)[-1] for it, _ in played)} ({len(played)} frames, "
               f"{ms} ms), then it stops; the GIF and the numbers follow it"
-              + (", the way back marked 'back', a pass forward again 'again'" if passes > 1 else "")
-              + (f" (the GIF writes the first {PASSES_MAX} passes)" if passes > PASSES_MAX else ""))
+              + (", the way back marked 'back'" if passes > 1 else "")
+              + (", a pass forward again 'again'" if passes > 2 else "")
+              + (f" (the GIF and the numbers write {written} of them, ending where the {passes} do)"
+                 if written < passes else ""))
         its, reps = marked, 1
     order = its if passes else play_order(its)
     if order is not its:
@@ -3747,7 +3763,8 @@ def animate(a, its, out):
                    about=f"{len(gif)} frame{'s' * (len(gif) != 1)} of a {w}x{h} canvas at --scale {S}, its 1x and 2x "
                          f"copies beside it, " + (f"{sum(durs)} ms a loop" if not reps else
                                                   (f"{sum(durs)} ms, played once (repeat={passes}: "
-                                                   f"{passes} pass{'es' * (passes != 1)})" if passes else
+                                                   + (f"{written} of its {passes} passes" if written < passes else
+                                                      f"{passes} pass{'es' * (passes != 1)}") + ")" if passes else
                                                    f"{sum(durs)} ms, played once (repeat=1)") if reps == 1 else
                                                   f"{sum(durs)} ms a pass, {reps} passes (repeat={reps})"))
     # Compare on a shared canvas, placed as drawn, so frames of different sizes diff too.
@@ -3777,7 +3794,7 @@ def animate(a, its, out):
             cells.append((fr, diff_frame(cur, cur), f"{it.label} {durs[i]}ms", head, ""))
             continue
         if moves[i] is None:
-            head = (f"the first of {passes} pass{'es' * (passes != 1)}, played through once; no wrap-around" if passes
+            head = (f"the first of {passes} passes, played through once; no wrap-around" if passes > 1
                     else "plays once (repeat=1); no wrap-around")
             print(f"  {its[i].label:24} {durs[i]:5}ms  {head}")
             cells.append((fr, diff_frame(cur, cur), f"{its[i].label} {durs[i]}ms", head, ""))
@@ -5781,11 +5798,13 @@ def said_repeat(doc, path, g, run, wrap):
     """check's words for a run of identical neighbour frames, with the hold that says the same thing on purpose:
     'walk/1 and walk/2 are identical (0 px differ, in every variant too): a repeated frame, a stutter in an engine that
     draws every frame; for a hold, remove walk/2 and give walk/1 ms=250 (pxart frames F --rm walk/2; pxart anim-set
-    F:walk/1 ms=250)'. The hold is the run's time on screen: at a pingpong's turn the end frame plays once a cycle and
-    the others twice, so a run there holds the end frame's ms plus twice the rest's. A group with no @anim line may be
-    icons or parts: the note offers @still first."""
+    F:walk/1 ms=250)'. The hold is the run's time on screen: where a pingpong's pass turns, the end frame plays once and
+    the others twice, so a run there holds the end frame's ms plus twice the rest's; where a visit has no turn (the
+    first pass's start, a last pass's end) it holds their sum, and when an end has both, the note says one hold can't
+    match every visit. A group with no @anim line may be icons or parts: the note offers @still first."""
     keep, drop = run[0], run[1:]
-    hold = sum(doc.ms(f) for f in run)
+    hold = plain = sum(doc.ms(f) for f in run)
+    mixed = ""
     fs = doc.groups()[g]
     way = doc.anims.get(g, {}).get("direction", "forward")
     if way.startswith("pingpong"):
@@ -5797,6 +5816,9 @@ def said_repeat(doc, path, g, run, wrap):
         end = next((f for f in run if any(f is t for t in turns)), None)
         if end is not None and len(fs) > len(run):
             hold = doc.ms(end) + 2 * sum(doc.ms(f) for f in run if f is not end)
+            if reps >= 3 and (end is start or reps % 2):  # this end also has a visit with no turn
+                mixed = (f"; its {'first' if end is start else 'last'} visit has no turn and holds {plain} ms, so one "
+                         f"hold can't match every visit")
     every = ", in every variant too" if variant_names(doc) else ""
 
     def both(xs):
@@ -5813,7 +5835,7 @@ def said_repeat(doc, path, g, run, wrap):
             + f" are identical (0 px differ{every}): a repeated frame, a stutter in an engine that draws every frame; "
             + (still or "") + f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
             + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]) + "; "
-            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")")
+            + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")" + mixed)
 
 
 def orphans(doc):

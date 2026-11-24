@@ -23749,9 +23749,9 @@ def test_help_all_does_not_grow(capsys):
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
-    # 73059 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in one.
+    # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73059
+    assert len(capsys.readouterr().out.encode()) <= 73116
 
 
 def test_help_says_each_shared_rule_once():
@@ -28446,7 +28446,7 @@ def test_anim_repeat_three_plays_the_wrap_around_between_passes(tmp_path, capsys
 def test_anim_pingpong_repeat_one_plays_once_too(tmp_path, capsys):
     p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "direction=pingpong repeat=1"))
     assert run("anim", f"{p}:land") == 0
-    assert "the first of 1 pass, played through once; no wrap-around" in capsys.readouterr().out  # PX-56
+    assert "plays once (repeat=1); no wrap-around" in capsys.readouterr().out  # PX-56
 
 
 def test_anim_whole_file_says_plays_once_per_group(tmp_path, capsys):

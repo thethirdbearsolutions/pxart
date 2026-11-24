@@ -42,11 +42,29 @@ def test_forever_still_loops_one_cycle(tmp_path, capsys):
     assert gif.n_frames == 4 and gif.info.get("loop") == 0
 
 
-def test_many_passes_are_capped_with_a_note(tmp_path, capsys):
-    f = group(tmp_path, 3, "pingpong", 500)
+@pytest.mark.parametrize("repeat,written,last", [(500, 64, "p/0"), (65, 63, "p/2")])
+def test_many_passes_are_capped_ending_where_repeat_ends(tmp_path, capsys, repeat, written, last):
+    f = group(tmp_path, 3, "pingpong", repeat)
     assert run("anim", f"{f}:p", "-o", tmp_path / "p.gif") == 0
-    assert f"(the GIF writes the first {pxart.PASSES_MAX} passes)" in capsys.readouterr().out
-    assert Image.open(tmp_path / "p.gif").n_frames == 3 + (pxart.PASSES_MAX - 1) * 2
+    out = capsys.readouterr().out
+    assert f"(the GIF and the numbers write {written} of them, ending where the {repeat} do)" in out
+    played = [l.split()[0] for l in out.splitlines() if " vs " in l]
+    assert played[-1] == last  # an odd repeat ends at the far end, an even one at 0
+    assert Image.open(tmp_path / "p.gif").n_frames == 3 + (written - 1) * 2
+
+
+def test_a_long_group_caps_by_frames(tmp_path, capsys):
+    f = group(tmp_path, 40, "pingpong", 64)
+    assert run("anim", f"{f}:p", "--dry-run") == 0
+    out = capsys.readouterr().out
+    n = pxart.passes_written(40, 64)
+    assert n < 64 and n % 2 == 0 and f"write {n} of them" in out
+
+
+def test_one_frame_pingpong_with_a_repeat(tmp_path, capsys):
+    f = write(tmp_path, "o.px", "k #000000\n@anim o ms=100 direction=pingpong repeat=3\n@frame o/0\nk\n")
+    assert run("anim", f"{f}:o") == 0
+    assert "1 frame" in capsys.readouterr().out
 
 
 def test_export_aseprite_writes_the_repeat_aseprite_reads(tmp_path):
@@ -72,3 +90,10 @@ def test_check_hold_at_the_start_doubles_only_where_a_pass_turns(tmp_path, capsy
               "@frame d/0\nk.\n@frame d/1\nk.\n@frame d/2\n.k\n@frame d/3\nkk\n")
     run("check", f, "-v")
     assert f"give d/0 ms={hold}" in capsys.readouterr().out
+
+
+def test_check_hold_says_when_one_hold_cannot_match_every_visit(tmp_path, capsys):
+    f = write(tmp_path, "d.px", "k #000000\n@anim d ms=300 direction=pingpong repeat=3\n"
+              "@frame d/0\nk.\n@frame d/1\nk.\n@frame d/2\n.k\n@frame d/3\nkk\n")
+    run("check", f, "-v")
+    assert "its first visit has no turn and holds 600 ms, so one hold can't match every visit" in capsys.readouterr().out
