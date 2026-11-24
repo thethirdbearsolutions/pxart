@@ -140,7 +140,8 @@ def cast_palette(docs: dict, keys: list[str], variant: str | None) -> dict:
     if variant:
         lacking = [f"{stem}.px" for stem, d in docs.items() if variant not in pxart.variant_names(d)]
         if lacking:
-            raise SystemExit(f"PXC1 needs one palette for the whole cast: {', '.join(lacking)} has no @variant "
+            raise SystemExit(f"PXC1 needs one palette for the whole cast: {', '.join(lacking)} "
+                             f"{'has' if len(lacking) == 1 else 'have'} no @variant "
                              f"{variant}, which other files have; every file needs every variant (give it one, or "
                              f"import a palette file that has it)")
     pal = {}
@@ -157,8 +158,18 @@ def cast_palette(docs: dict, keys: list[str], variant: str | None) -> dict:
 
 
 def encode(cast: Path, layers: dict | None, cols: bool = True, coding: str = "raw") -> tuple[bytes, dict]:
-    names = sorted(p.name for p in cast.glob("*.px") if pxart._has_grid(p))
-    docs = {n[:-3]: pxart.parse(cast / n) for n in names}
+    if not cast.is_dir():
+        raise SystemExit(f"PXC1: {cast} isn't a folder; give the folder that holds the cast's .px files")
+    try:
+        names = sorted(p.name for p in cast.glob("*.px") if pxart._has_grid(p))
+        docs = {n[:-3]: pxart.parse(cast / n) for n in names}
+    except pxart.PxError as e:
+        raise SystemExit(f"PXC1: a file of the cast doesn't read (run pxart check on it):\n{e}")
+    if not docs:
+        deeper = sorted(str(p.relative_to(cast)) for p in cast.glob("*/**/*.px"))
+        raise SystemExit(f"PXC1: {cast} has no character .px files (a file with frames, directly in it)"
+                         + (f"; subfolders aren't read, and hold {', '.join(deeper[:4])}" + (" ..." if len(deeper) > 4 else "")
+                            if deeper else ""))
     variants = sorted({v for d in docs.values() for v in pxart.variant_names(d)})
     head = bytearray(b"PXC1" + bytes([(1 if layers else 0) | (2 if cols else 0) | (4 if coding == "ops" else 0)]))
     head += varint(1 + len(variants)) + string("") + b"".join(string(v) for v in variants)

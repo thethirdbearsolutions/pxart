@@ -70,3 +70,27 @@ def test_palette_only_files_and_subfolders_are_skipped(tmp_path):
     (c / "wip" / "owl.px").write_text("k #ffffff\n\nkk\n")
     data, _ = pxc.encode(c, None)
     assert b"fox" in data and b"owl" not in data and b"palette" not in data
+
+
+def test_an_empty_missing_or_nested_cast_is_an_error(tmp_path):
+    with pytest.raises(SystemExit, match="has no character .px files"):
+        pxc.encode(tmp_path, None)
+    with pytest.raises(SystemExit, match="isn't a folder"):
+        pxc.encode(tmp_path / "nope", None)
+    (tmp_path / "chars").mkdir()
+    (tmp_path / "chars" / "fox.px").write_text("k #1b1420\n\nkk\n")
+    with pytest.raises(SystemExit, match=r"subfolders aren't read, and hold chars/fox.px"):
+        pxc.encode(tmp_path, None)
+
+
+def test_two_files_lacking_a_variant_have(tmp_path):
+    c = cast(tmp_path, {"fox.px": "k #1b1420\n@variant dusk\nk #000010\n\nkk\n", "owl.px": "k #1b1420\n\nkk\n",
+                        "rat.px": "k #1b1420\n\nkk\n"})
+    with pytest.raises(SystemExit, match="owl.px, rat.px have no @variant dusk"):
+        pxc.encode(c, None)
+
+
+def test_a_malformed_file_is_a_message_not_a_traceback(tmp_path):
+    c = cast(tmp_path, {"fox.px": "k #1b1420\n\nkk\nk\n"})
+    with pytest.raises(SystemExit, match="E_ROW_WIDTH"):
+        pxc.encode(c, None)

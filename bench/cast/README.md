@@ -26,7 +26,14 @@ The browser build is plain ES modules, nothing to compile:
 
 To make a cast, put one `.px` file per character in a flat folder, each named after its character
 (`fox.px` is the character `fox`; subfolders aren't read, and a palette-only file, such as a shared
-`palette.px` the characters import, is skipped), then `python3 bench/cast/pxc.py CAST_DIR cast.pxc`.
+`palette.px` the characters import, is skipped), then:
+
+```
+python3 bench/cast/pxc.py CAST_DIR cast.pxc
+```
+
+A folder with no character files directly in it (empty, or the files one level down) is an error, not an
+empty cast.
 A cast has one palette:
 - every key the cast draws has one color in every file that has it, in the base and in each variant;
 - every file has every variant, its own or through `@palette`.

@@ -16,7 +16,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   (fox.px #1b1420, owl.px #2b1d32)`; a variant one file lacks names that file. A file of one unnamed grid goes by
   its file's name instead of an `AttributeError`. The README and docstring say how `CAST_DIR` is laid out (a flat
   folder of `.px` files, one per character, named after it; palette-only files skipped) and that `cast.bytes` is
-  the decoded size, not the bytes on the wire. Casts that encoded before encode to the same bytes.
+  the decoded size, not the bytes on the wire. An empty or missing cast folder, or one whose files sit in a subfolder,
+  is an error instead of a 9-byte cast, and a file that doesn't parse gives its pxart error instead of a traceback.
+  Casts that encoded before encode to the same bytes.
 
 ## 2026-11-23
 
