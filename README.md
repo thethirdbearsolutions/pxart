@@ -120,7 +120,8 @@ and a `--region` of `shift`, `recolor` or `shade` want one of these, and the `E_
 the frames. An edit that changes several frames names them before `wrote` (all of them, up to 8): `edited 16 frames:
 walk/down/0, walk/down/1, walk/down/2 and 13 more`. A file with one unnamed grid calls it by the file's
 name (`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o
-ant.px:ant`) first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`:
+ant.px:ant`), `dup ant.px:ant idle/0` or `frames ant.px --rename ant ...` first turns the grid into `@frame ant`
+(with a note; a file name that can't be an id is an error). In zsh write `"${F}:walk/down"`:
 `"$F:walk/down"` applies a modifier, and a missing input like `hero.pxalk/down` is
 reported as that mistake. Negative numbers and coordinates are typed as they are, after a flag too:
 `mask lamp.px --keep-circle -10,-8,34`, `rect hero.px:idle/0 k -2,-2,5,5`, `scene --anchor -8,4`. Any other
@@ -229,7 +230,7 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   pxart compose --map room.map -o room.px`, paths from its folder), so a variant `WARNING` about
   it can offer composing it again once the map's sprites have that variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
+  keys; an empty `.px` is a warning, which `--strict` fails; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII, `@anim`/`@still` lines with
   no frames, and neighbour frames of an animation that draw the same in every variant
   (`idle/1 and idle/2 are identical`, the wrap from last to first too when it loops: a
@@ -390,6 +391,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   - `outline beast.px:idle --key o --lit m`: an outline around the shape (or `--inside` on
     its edge), pixel-perfect by default (`--corners` keeps square corners), and selective:
     the edges facing the light get the lighter `--lit` key (`--preview p.png` as for shade).
+    It notes when most of a frame's edge is already as dark as a dark K (the art's own line, which an outline
+    outside doubles into a 2px rim; `--inside` draws on it instead).
   - Both print only the pixels they changed, by the key they got: `changed 41 px: 29->C, 12->X`.
   - `rotate FILE 90|180|270` and `transpose` turn path tiles into their edges and corners
     (then re-light with `shade` and `outline --lit`, since the light turned too).

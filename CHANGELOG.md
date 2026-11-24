@@ -8,6 +8,18 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **Four small traps (PX-24).** An empty `.px` (a failed `from-png X.png > X.px` leaves one) passed `check` as `ok
+  X.px: palette file, 0 key(s)`; now a warning line says `empty: nothing in it` (run the command again, or remove the
+  file), and `--strict` fails it. `dup
+  walker.px:walker idle/0` on a file of one unnamed grid said `dup needs FILE:frame-id ...; frames: walker`, listing the
+  frame it refused, and `frames --rename walker ...` was `E_MIXED_FRAMES`; both now turn the grid into `@frame walker`
+  first (with a note naming the id; a file name that can't be an id is an error), and a rename of another name says what the grid goes by. `outline
+  --key k` on art with its own dark line now notes `12 of the shape's 12 edge px are already as dark as k (d): the art
+  has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws on that edge instead`. The note
+  counts the key's own pixels, needs a dark, mostly opaque key, and names only the frames that have the line. Its
+  advice to restore the file from git and re-outline with `--pad` now adds: if you added the key with `palette --add`
+  since your last commit, add it again.
+
 - **`-o FILE.px:FRAME` no longer makes a file named `FILE.px:FRAME` (PX-23).** `outline w.px --key k -o w.px:walk/9`
   made a folder `w.px:walk` holding a file `9`, and left w.px alone; `from-png x.png -o into.px:new` wrote a file
   literally named `into.px:new`. An edit that writes a whole file (`outline`, `shade`, `fill` and the rest that go
