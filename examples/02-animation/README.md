@@ -101,7 +101,7 @@ Two of the lines `anim` printed:
 
 ```text
   walk/down/0                110ms  vs walk/down/7: shift -1,+1 then 72px (20%) (no shift: 260px)
-  walk/down/1                110ms  vs walk/down/0: shift +0,+1 then 30px (8%) (no shift: 205px)
+  walk/down/1                110ms  vs walk/down/0: shift +0,+1 then 30px (8%; 4 past the edge) (no shift: 205px)
 ```
 
 Each line compares a frame with the one before it (frame 0 with frame 7, since the walk
@@ -109,8 +109,10 @@ loops). When you walk, your whole body bobs up and down, and pxart first finds t
 
 - `shift +0,+1` means the whole hero moved 0 pixels sideways and 1 pixel down (+1 is
   down, because y grows down).
-- `then 30px (8%)` is what still changed after taking that move out: 30 pixels, 8% of
-  the hero. That's the arms and legs, the part you actually drew.
+- `then 30px (8%; 4 past the edge)` is what still changed after taking that move out: 30
+  pixels, 8% of the hero. That's the arms and legs, the part you actually drew. 4 of them
+  are feet the move pushed past the bottom of the canvas: the feet stayed where they were,
+  so they count, though no pink pixel can show them.
 - `(no shift: 205px)` is how many pixels changed without taking the bob out. Most of
   those are just the bob.
 

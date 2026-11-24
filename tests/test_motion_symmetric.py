@@ -35,5 +35,5 @@ def test_anim_prints_the_same_count_on_both_legs(tmp_path, capsys):
               + "".join(f"@frame b/{i}\n" + "\n".join(rows) + "\n" for i, rows in enumerate([a, b, a])))
     assert run("anim", f"{f}:b") == 0
     out = capsys.readouterr().out
-    assert "b/1                        100ms  vs b/0: shift +0,+1 then 4px" in out
+    assert "b/1                        100ms  vs b/0: shift +0,+1 then 4px (40%; 4 past the edge)" in out
     assert "b/2                        100ms  vs b/1: shift +0,-1 then 4px" in out

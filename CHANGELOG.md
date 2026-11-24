@@ -15,7 +15,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
   canvas padded by the shift, both when the best shift is chosen and in the number; `anim`, the strip and `onion`'s
   readout agree in both directions, with opposite shifts. Counts grow where a bob pushes the feet off the canvas (the
   example walk's `shift +0,+1 then 26px` is 30px), and a shift that only pushed pixels off no longer beats no shift.
-  `onion --rows`/`--feet` bands still count only their own rows.
+  `onion --rows`/`--feet` bands still count only their own rows. No pixel of the strip can show a pixel that went
+  past the edge, so the number says how many it counts: `then 30px (8%; 4 past the edge)`.
 
 - **The cast encoder says which key breaks the one-palette rule (PX-46).** `bench/cast/pxc.py` needs one palette
   for a whole cast, which neither its README nor its docstring said, and it failed with a raw `KeyError` when the

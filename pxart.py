@@ -3705,6 +3705,9 @@ def animate(a, its, out):
             alt = f"(no shift: {n_none}px)"
         elif still is None:
             base = shifted(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} then {px(n_shift, base)}"
+            past = n_shift - n_changed(base, cur)  # pushed past the canvas edge: counted, but no pixel shows it
+            if past:
+                head = head[:-1] + f"; {past} past the edge)" if head.endswith(")") else head + f" ({past} past the edge)"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:
             base, head = prev, f"no shift then {px(n_none, prev)}"

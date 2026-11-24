@@ -9811,8 +9811,8 @@ def test_shadow_walk_every_frame_keeps_its_shift(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, *shadow_walk())
     assert [l.split(": ", 1)[1] for l in lines] == [
         # the same pair both ways reads the same count (PX-55; down read 25px, the shadow pushed off uncounted)
-        "shift +0,+1 then 31px (34%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)",
-        "shift +0,+1 then 31px (34%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)"]
+        "shift +0,+1 then 31px (34%; 6 past the edge) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)",
+        "shift +0,+1 then 31px (34%; 6 past the edge) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)"]
 
 
 def test_shadow_walk_shadow_is_identical_in_every_frame(tmp_path):
