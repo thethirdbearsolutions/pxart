@@ -68,3 +68,30 @@ def test_write_doc_never_makes_a_file_named_with_a_selector(tmp_path):
     with pytest.raises(pxart.PxError):
         pxart.write_doc(doc, tmp_path / "w.px:walk/9")
     assert nothing_named_with_a_colon(tmp_path)
+
+
+# ---------------------------------------------------------------- the private loop's cases
+
+
+ANIM = ("k #000000\ng #43e1b3\n@anim walk ms=100\n@frame walk/0\n....\n.gg.\n.gg.\n....\n"
+        "@frame walk/1\n....\n.gg.\n.g..\n....\n")
+
+
+def test_a_new_frame_in_an_animation_says_it_joins_it(tmp_path):
+    f = write(tmp_path, "w.px", ANIM)
+    err = run_err("outline", f"{f}:walk/0", "--key", "k", "-o", f"{f}:walk/9")
+    assert "(walk/9 joins the walk animation; another group or a top-level id keeps it out)" in err
+
+
+def test_an_existing_frame_gets_replace(tmp_path):
+    f = write(tmp_path, "w.px", ANIM)
+    err = run_err("outline", f"{f}:walk/0", "--key", "k", "-o", f"{f}:walk/1")
+    assert f"pxart dup {f}:walk/0 walk/1 --replace, then edit {f}:walk/1" in err and "joins" not in err
+    assert run("dup", f"{f}:walk/0", "walk/1", "--replace") == 0
+
+
+def test_a_group_gets_the_group_dup(tmp_path):
+    f = write(tmp_path, "w.px", ANIM)
+    err = run_err("shift", f"{f}:walk", "0", "-1", "-o", f"{f}:up")
+    assert f"copy it first: pxart dup {f}:walk up, then edit {f}:up" in err
+    assert run("dup", f"{f}:walk", "up") == 0 and run("shift", f"{f}:up", "0", "-1") == 0

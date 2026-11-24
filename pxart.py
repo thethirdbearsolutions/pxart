@@ -3037,13 +3037,16 @@ def edit_target(arg, out, label="FILE", coords=None):
         frames = doc.select(sel)
     if out and split_sel(str(out))[1] is not None:  # '-o w.px:walk/9': a frame, where this edit writes a whole file
         opath, osel = split_sel(str(out))
-        src = f"{path}:{sel}" if sel else path
-        fail("E_BAD_ARG", f"-o {out}: {osel} is a frame of {opath}, but this edit writes a whole file, so -o takes a "
-             f"file (or leave it off to edit {path} in place); to edit a copy in a new frame, copy it first: "
-             + shlex.join(["pxart", "dup", src, osel]) + f", then edit {opath}:{osel}"
-             if sel and len(frames) == 1 and pathlib.Path(opath).resolve() == doc.path.resolve() else
-             f"-o {out}: {osel} is a frame of {opath}, but this edit writes a whole file, so -o takes a file (or leave "
-             f"it off to edit {path} in place)")
+        head = (f"-o {out} names a frame ({osel}), but this edit writes a whole file, so -o takes a file (or leave it "
+                f"off to edit {path} in place)")
+        if sel and pathlib.Path(opath).resolve() == doc.path.resolve():  # a copy in another frame or group of FILE
+            there = any(f.id == osel or (f.id or "").startswith(osel + "/") for f in doc.frames)
+            dup = ["pxart", "dup", f"{path}:{sel}", osel] + (["--replace"] if there else [])
+            joins = Frame(osel).group if len(frames) == 1 and not there else None
+            head += (f"; to edit a copy there, copy it first: {shlex.join(dup)}, then edit {opath}:{osel}"
+                     + (f" ({osel} joins the {joins} animation; another group or a top-level id keeps it out)"
+                        if joins and doc.animated(joins) else ""))
+        fail("E_BAD_ARG", head)
     out = pathlib.Path(out) if out else doc.path
     if sel and sel != "*" and out.resolve() != doc.path.resolve():
         print(f"note: {out} gets all of {doc.path} with {sel} edited; for only those frames use "
