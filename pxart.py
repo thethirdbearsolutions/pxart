@@ -158,13 +158,13 @@ LOOKING
         [--variant V] [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
-      edge are cropped, with a note per item (and one for the map, layers added up) saying how many; at the
+      edge are cropped, with a note per item (and one for the map) saying how many; at the
       default size a note also names the --size that holds every item. A smaller size keeps
       the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
       bottom-right) places the size in effect on that part of what the map and items fill
       (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
-      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows (no
-      crop notes then). --variant doesn't recolor --bg; on the default, a note says so.
+      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows (and
+      names an item it misses) in place of crop counts. --variant doesn't recolor --bg.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -1835,7 +1835,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
             elif word == "@still":
                 if len(pos) != 1 or not (ID_RE.match(pos[0]) or pos[0] == "*") or kw:
                     err("E_BAD_ID", f"@still needs one group path like ui/life, or * for every group: {s!r}"
-                        + (" (a @still line per group)" if len(pos) > 1 or "," in s else ""), n)
+                        + (" (a @still line per group)" if not kw and (len(pos) > 1 or "," in pos[0])
+                           and all(ID_RE.match(g) for p in pos for g in p.split(",") if g) else ""), n)
                     continue
                 doc.stills.append(pos[0])
                 keep(("still", pos[0]))
@@ -4383,6 +4384,27 @@ def outside_px(img, x, y, w, h):
     return total - inside
 
 
+def inside_px(img, x, y, w, h):
+    """Whether any of img's opaque pixels land inside a w x h canvas when img is drawn at x,y."""
+    box = (max(0, -x), max(0, -y), min(img.width, w - x), min(img.height, h - y))
+    return box[0] < box[2] and box[1] < box[3] and img.getchannel("A").crop(box).getbbox() is not None
+
+
+def map_outside_px(placed, w, h):
+    """How many scene pixels outside a w x h canvas the map's tiles draw (opaque), each pixel once: layers and tiles
+    bigger than their cell overlap, and counting each image's pixels would count a pixel once per image."""
+    if not placed:
+        return 0
+    x0, y0 = min(x for _, x, _ in placed), min(y for _, _, y in placed)
+    x1, y1 = max(x + i.width for i, x, _ in placed), max(y + i.height for i, _, y in placed)
+    seen = Image.new("L", (x1 - x0, y1 - y0), 0)
+    for img, x, y in placed:
+        seen.paste(255, (x - x0, y - y0), img.getchannel("A").point(lambda v: 255 if v else 0))
+    box = (max(0, -x0), max(0, -y0), min(seen.width, w - x0), min(seen.height, h - y0))
+    inside = seen.crop(box).histogram()[255] if box[0] < box[2] and box[1] < box[3] else 0
+    return seen.histogram()[255] - inside
+
+
 SCENE_SIZE = (96, 64)  # scene without --size or --map: a small room of 16x16 tiles, 6 by 4
 SCENE_BG = "#472d3c"  # scene's backdrop without --bg: a day color, which --variant doesn't recolor
 
@@ -4410,7 +4432,7 @@ ANCHORS = {"top-left": (0, 0), "top": (1, 0), "top-right": (2, 0), "left": (0, 1
 def cmd_scene(a):
     need_o(a, "s.png")
     tint = parse_tint(a.tint) if a.tint else None
-    bg = parse_color(a.bg or SCENE_BG, "--bg")
+    bg = parse_color(SCENE_BG if a.bg is None else a.bg, "--bg")
     placed = []
     tile = parse_tile(a.tile)
     if a.map:
@@ -4449,25 +4471,32 @@ def cmd_scene(a):
         print(f"note: --anchor {a.anchor}: the {W}x{H} scene shows {ox},{oy} to {ox + W - 1},{oy + H - 1} of the "
               f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill")
               + (f" (from {x0},{y0})" if (x0, y0) != (0, 0) else ""))
-    cover = Image.new("L", (W, H), 0) if a.variant and a.bg is None else None  # where the backdrop shows
+    # where the default backdrop shows (a pixel not drawn fully opaque lets it through), unless an opaque --tint hides it
+    cover = Image.new("L", (W, H), 0) if a.variant and a.bg is None and not (tint and tint[3] == 255) else None
     for what, img, x, y in todo:
         draw_at(sc, img, x - ox, y - oy)
         if cover is not None:
             cover.paste(255, (x - ox, y - oy), img.getchannel("A").point(lambda v: 255 if v == 255 else 0))
+        if what == "the map":
+            continue  # counted below, each pixel once however many layers or tiles cover it
         n = outside_px(img, x - ox, y - oy, W, H)
         if n:
-            cut.append((what, n))
+            cut.append((what, n, not inside_px(img, x - ox, y - oy, W, H)))
+    if placed:
+        n = map_outside_px([(img, x - ox, y - oy) for what, img, x, y in todo if what == "the map"], W, H)
+        if n:
+            cut.insert(0, ("the map", n, False))
     why = "--size" if a.size else "--map" if a.map else "the default"
-    layered = len(placed) > len({(x, y) for _, x, y in placed})  # a cell drawn by several layers: counted in each
-    for what, n in [(w, sum(n for x, n in cut if x == w)) for w in dict.fromkeys(w for w, _ in cut)]:
-        if a.anchor is not None:
-            break  # the window is the point: the --anchor note says what the scene shows
-        print(f"note: {n} px of {what}" + (" (its layers' pixels added up)" if what == "the map" and layered else "")
-              + f" fall outside the {W}x{H} scene (size from {why}) and were cropped")
+    for what, n, gone in cut:
+        if a.anchor is None:
+            print(f"note: {n} px of {what} fall outside the {W}x{H} scene (size from {why}) and were cropped")
+        elif gone:  # the window is the point, and the --anchor note says what it shows; an item it misses is said
+            print(f"note: {what} is wholly outside the window, so the scene doesn't show it")
     shows = cover.histogram()[0] if cover is not None else 0
     if shows:
         print(f"note: --variant {a.variant} doesn't recolor the backdrop: {shows} px show the default --bg {SCENE_BG}, a "
-              f"day color" + (" under the --tint" if tint else "") + f"; give --bg a {a.variant} color (or --bg transparent)")
+              f"day color" + (" under the --tint" if tint and tint[3] else "")
+              + f"; give --bg a {a.variant} color (or --bg transparent)")
     if cut and why == "the default":
         print(f"note: {W}x{H} (six 16x16 tiles by four) is scene's size when nothing sizes it (no --size, no "
               f"--map); --size {reach[0]}x{reach[1]} holds every item")

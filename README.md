@@ -196,9 +196,10 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`
   says otherwise, pixels past its edge cropped with a note; a `--size` smaller than the map keeps its
   top-left, and `--anchor center` (or `top`, `bottom-right`, ...) keeps that part instead, `--anchor
-  176,80` centres on that point (a camera on the hero), with a note saying which pixels (and no crop notes); items are mirrored with a `+h`/`+v` suffix as in
+  176,80` centres on that point (a camera on the hero), with a note saying which pixels in place of the crop counts (an item wholly outside the window is named); items are mirrored with a `+h`/`+v` suffix as in
   `hero.px:walk/0+h@3,4`; `--variant V` recolors the whole room but not the `--bg` backdrop, and on the default
-  (`#472d3c`, a day color) a note says how many pixels of it show; `--tint '#10183080'` lays
+  (`#472d3c`, a day color) a note says how many pixels of it show; a crop count counts each pixel once, however
+  many layers cover it; `--tint '#10183080'` lays
   a translucent color over the finished scene for night; an item or legend entry ending in
   `%base` keeps its base palette, a lamp in a night room; `--bg transparent` works, as
   does `transparent` anywhere a color is typed), and `tint`, which does the same to a PNG.

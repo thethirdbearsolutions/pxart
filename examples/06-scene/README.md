@@ -133,7 +133,7 @@ pxart scene --map rooms/glade.map --scale 2 -o glade.x2.png \
   corner in pixels: a small shadow, then the hero standing on it.
 
 ```text
-note: 308 px of the map (its layers' pixels added up) fall outside the 256x224 scene (size from --map) and were cropped
+note: 308 px of the map fall outside the 256x224 scene (size from --map) and were cropped
 ```
 
 That note is expected: the trees in the edge columns hang past the sides of the map,
