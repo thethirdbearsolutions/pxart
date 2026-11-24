@@ -7042,7 +7042,7 @@ def test_anim_without_output_prints_numbers_and_writes_nothing(tmp_path, capsys,
     assert sorted(x.name for x in tmp_path.iterdir()) == before
     lines = out.splitlines()  # a pingpong with repeat=2: a note, then 0 1 0 (PX-56)
     assert "wrote" not in out and len(lines) == 4 and lines[0].startswith("note: walk/down plays pingpong, repeat=2")
-    assert all(" vs " in l or "plays once" in l for l in lines[1:])
+    assert all(" vs " in l or "played through once" in l for l in lines[1:])
 
 
 @pytest.mark.parametrize("frames", [(BOB_0, BOB_1), (BREATHE_0, BREATHE_1), (WALK_0, WALK_1), (WALK_0, WALK_0)])
@@ -28446,7 +28446,7 @@ def test_anim_repeat_three_plays_the_wrap_around_between_passes(tmp_path, capsys
 def test_anim_pingpong_repeat_one_plays_once_too(tmp_path, capsys):
     p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "direction=pingpong repeat=1"))
     assert run("anim", f"{p}:land") == 0
-    assert "plays once (repeat=1); no wrap-around" in capsys.readouterr().out
+    assert "the first of 1 pass, played through once; no wrap-around" in capsys.readouterr().out  # PX-56
 
 
 def test_anim_whole_file_says_plays_once_per_group(tmp_path, capsys):

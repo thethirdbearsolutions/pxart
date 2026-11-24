@@ -15,8 +15,9 @@ release, entries are grouped by the day they landed on `main`. The file format i
   the tag's repeat for Aseprite to read, so pxart now means the same. `anim` writes a pingpong with a repeat out pass
   by pass and plays it through once (`repeat=1`: 0 1 2 3; `repeat=2`: 0 1 2 3 2 1 0; `pingpong_reverse` starts from
   the last frame), the way back marked `back` and a pass forward again `again`, up to 64 passes; 0 or none still
-  loops one cycle, 0 1 2 3 2 1. `check`'s hold advice for identical frames at a pingpong's end counts each frame once
-  when `repeat=1` (one pass, no turn). FORMAT and the README say so.
+  loops one cycle, 0 1 2 3 2 1. `check`'s hold advice for identical frames at a pingpong's end doubles the neighbours only
+  at an end where a pass turns: the far end from 2 passes, the starting end from 3, both when it loops (`repeat=2`
+  with frames 0 and 1 alike holds 600 ms, not 900). FORMAT and the README say so.
 
 - **`anim`'s GIF plays as often as `repeat` says (PX-50).** An `@anim idle ... repeat=1` group read `plays once
   (repeat=1); no wrap-around`, but `anim -o idle.gif` wrote `loop=0`, forever, and `--dry-run` said `300 ms a loop`.

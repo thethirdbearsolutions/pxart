@@ -3777,7 +3777,8 @@ def animate(a, its, out):
             cells.append((fr, diff_frame(cur, cur), f"{it.label} {durs[i]}ms", head, ""))
             continue
         if moves[i] is None:
-            head = f"plays once (repeat={passes or 1}); no wrap-around"
+            head = (f"the first of {passes} pass{'es' * (passes != 1)}, played through once; no wrap-around" if passes
+                    else "plays once (repeat=1); no wrap-around")
             print(f"  {its[i].label:24} {durs[i]:5}ms  {head}")
             cells.append((fr, diff_frame(cur, cur), f"{its[i].label} {durs[i]}ms", head, ""))
             continue
@@ -5786,9 +5787,14 @@ def said_repeat(doc, path, g, run, wrap):
     keep, drop = run[0], run[1:]
     hold = sum(doc.ms(f) for f in run)
     fs = doc.groups()[g]
-    if doc.anims.get(g, {}).get("direction", "forward").startswith("pingpong") and doc.anims[g].get("repeat") != 1:
-        # (repeat=1 is one pass, as Aseprite counts it: no turn, each frame plays once)
-        end = next((f for f in run if f is fs[0] or f is fs[-1]), None)
+    way = doc.anims.get(g, {}).get("direction", "forward")
+    if way.startswith("pingpong"):
+        # a pass turns at an end frame (played once there, its neighbours twice): with repeat=N one-way passes, as
+        # Aseprite counts them, at the far end from N=2 and at the starting end from N=3; forever, at both
+        reps = doc.anims[g].get("repeat") or 0
+        start = fs[0] if way == "pingpong" else fs[-1]
+        turns = [f for f, n in ((start, 3), (fs[-1] if start is fs[0] else fs[0], 2)) if not reps or reps >= n]
+        end = next((f for f in run if any(f is t for t in turns)), None)
         if end is not None and len(fs) > len(run):
             hold = doc.ms(end) + 2 * sum(doc.ms(f) for f in run if f is not end)
     every = ", in every variant too" if variant_names(doc) else ""

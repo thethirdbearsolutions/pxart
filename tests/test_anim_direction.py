@@ -71,7 +71,7 @@ def test_forward_says_nothing_new(tmp_path, capsys):
 def test_pingpong_played_once_has_no_wrap(tmp_path, capsys):
     assert run("anim", walk(tmp_path, "pingpong", " repeat=1")) == 0
     out = capsys.readouterr().out
-    assert "walk/0" in out and "plays once (repeat=1); no wrap-around" in out
+    assert "walk/0" in out and "the first of 1 pass, played through once; no wrap-around" in out
     # repeat=1 is one one-way pass, as Aseprite counts it (PX-56): 0 1 2 3, then it stops
     assert "plays pingpong, repeat=1: 1 one-way pass, as Aseprite counts them: 0 1 2 3 (4 frames, 520 ms)" in out
     assert len(pairs(out)) == 3

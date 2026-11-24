@@ -62,3 +62,13 @@ def test_check_hold_on_a_one_pass_pingpong_counts_each_frame_once(tmp_path, caps
     run("check", f)
     out = capsys.readouterr().out
     assert "ms=200" in out  # 100 + 100: one pass plays the end frame once, no turn to double the rest
+
+
+@pytest.mark.parametrize("repeat,hold", [(1, 600), (2, 600), (3, 900), (0, 900)])
+def test_check_hold_at_the_start_doubles_only_where_a_pass_turns(tmp_path, capsys, repeat, hold):
+    # 0 and 1 identical at the starting end: no pass turns there under repeat 1 or 2 (0 1 2 3 2 1 0 stops on 0), so
+    # each shows once a visit; from 3 passes, or forever, the turn there plays 1 0 1 (PX-56 loop)
+    f = write(tmp_path, "d.px", f"k #000000\n@anim d ms=300 direction=pingpong repeat={repeat}\n"
+              "@frame d/0\nk.\n@frame d/1\nk.\n@frame d/2\n.k\n@frame d/3\nkk\n")
+    run("check", f, "-v")
+    assert f"give d/0 ms={hold}" in capsys.readouterr().out
