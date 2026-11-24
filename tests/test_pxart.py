@@ -17066,8 +17066,8 @@ def test_rename_in_place_not_with_rm(tmp_path):
 
 
 def test_rename_in_place_unnamed_grid(tmp_path):
-    s = write(tmp_path, "ant.px", "k #000000\nk\n")
-    assert "E_MIXED_FRAMES" in run_err("frames", s, "--rename", "ant", "x")
+    s = write(tmp_path, "ant.px", "k #000000\nk\n")  # PX-24: the grid goes by 'ant', and the rename promotes it
+    assert run("frames", s, "--rename", "ant", "x") == 0 and [f.id for f in pxart.parse(s).frames] == ["x"]
 
 
 def test_rename_in_place_renders_the_same(tmp_path, capsys):
@@ -28019,7 +28019,8 @@ def test_outline_edge_note_after_an_in_place_write_gives_no_command(tmp_path, ca
     assert run("outline", "s.px:a", "--key", "o") == 0
     out = capsys.readouterr().out
     assert "note: the shape touches the frame's right and bottom edges (in a), so the outline is open there; outlining " \
-           "the art from before this run with --pad closes it (restore s.px first, from git)\n" in out
+           "the art from before this run with --pad closes it (restore s.px first, from git; a palette --add of o " \
+           "since then goes with it, so add it again)\n" in out
     assert "pxart" not in out
 
 
