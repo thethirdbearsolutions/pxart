@@ -35,8 +35,8 @@ def test_palette_remove_with_spaced_keys_says_one_word(tmp_path, capsys):
     f = write(tmp_path, "f.px", "k #000000\nh #ff0000\nj #00ff00\n\nk\n")
     with pytest.raises(SystemExit):
         pxart.main(["palette", str(f), "--remove", "h", "j"])
-    assert "unrecognized arguments: j (--remove takes its keys as one word: --remove hj, or h,j)" in \
-        capsys.readouterr().err
+    assert (f"unrecognized arguments: j (--remove takes its keys as one word: pxart palette {f} --remove hj or "
+            f"pxart palette {f} --remove h,j)") in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("given", ["hj", "h,j"])
@@ -51,3 +51,31 @@ def test_palette_remove_a_real_comma_key(tmp_path):
     f = write(tmp_path, "f.px", "k #000000\nh #ff0000\n, #0000ff\n\nk\n")
     assert run("palette", f, "--remove", ",") == 0
     assert "," not in pxart.parse(f).palette and "h" in pxart.parse(f).palette
+
+
+# ---------------------------------------------------------------- the private loop's cases
+
+
+def test_from_png_hint_keeps_grid_and_the_other_options(tmp_path):
+    p = png(tmp_path)
+    for argv in (["from-png", p, "--grid", "1x1", "--id", "face", tmp_path / "g.px"],
+                 ["from-png", "--grid", "1x1", tmp_path / "g.px", p]):
+        err = run_err(*argv)
+        assert "--grid 1x1" in err and err.endswith(f"-o {tmp_path / 'g.px'}")
+
+
+@pytest.mark.parametrize("words,want", [(["h", "j", "--to", "k"], ["--remove hj --to k", "--remove h,j --to k"]),
+                                        ([",", "x"], ["--remove ,,x"]), (["x", ","], ["--remove x,,"]),
+                                        (["h,", "j"], ["--remove hj", "--remove h,j"])])
+def test_remove_hint_is_a_whole_command_that_runs(tmp_path, capsys, words, want):
+    f = write(tmp_path, "f.px", "k #000000\nh #ff0000\nj #00ff00\nx #0000ff\n, #0000f0\n\nk\n")
+    with pytest.raises(SystemExit):
+        pxart.main(["palette", str(f), "--remove", *words, "--dry-run"])
+    err = capsys.readouterr().err
+    for w in want:
+        assert w in err
+    import shlex
+    cmd = err.split("one word: ")[1].split(" or ")[0].rstrip(")\n")
+    assert run(*shlex.split(cmd)[1:]) == 0  # the first suggestion runs as printed
+    if "," in words:
+        assert " or " not in err  # one form only: 'x,' isn't a run of keys
