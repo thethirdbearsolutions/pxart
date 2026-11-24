@@ -543,7 +543,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       lost, and one WARNING per key OUT's variants color otherwise ('WARNING: layer 2
       (keeper.px:idle) draws 'r' #c4473a in party.px's variant colors, not keeper.px's: dusk
       #a33a4c (keeper.px: #83344e); compose --rekey r gives it a key of its own'), and a
-      note on what it changes. An E_KEY_CONFLICT line offers the same moves --rekey makes, with the same reasons.
+      note on what that --rekey changes. An E_KEY_CONFLICT line offers the same moves
+      --rekey makes, with the same reasons.
 
       Variants (rule 3) come along for the keys OUT has, in the colors of the layer whose
       key OUT has. Layers from files with different variants (a market's dusk, a keeper's
@@ -3185,10 +3186,12 @@ def rekey_tradeoff(warn, dst_name, rekey_said, given=None):
     offered = [l for l in warn if l.endswith("gives it a key of its own")]
     if not offered:
         return None
-    ks = [re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered]
+    ks = list(dict.fromkeys(re.search(r"--rekey (\S+) gives it a key of its own$", l).group(1) for l in offered))
+    # (once each: compose warns per source file, and '--rekey E,L,E,L' names E twice, an E_BAD_ARG)
     listable = len(ks) <= 6 and all(k.isalnum() for k in ks)  # a list a shell and --rekey both read as written
     if given is not None:  # --rekey was given for other keys: these would join its list
         which = f"adding {','.join(ks)} to --rekey" if listable else "adding those keys to --rekey"
+        which += " (for every file)" if ":" in given else ""  # --rekey a.px:S: a bare key is every file's
         head = f"note: {which} would give those pixels new letters too"
     else:
         head = f"note: {rekey_said}" + (f" {','.join(ks)}" if listable else "") + " would give those pixels new letters"

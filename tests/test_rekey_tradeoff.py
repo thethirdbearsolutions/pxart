@@ -141,3 +141,35 @@ def test_several_layers_of_one_file_draw(tmp_path, monkeypatch, capsys):  # PX-4
     assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "quarter.px@2,2") == 0
     out = capsys.readouterr().out
     assert "WARNING: layers 1-2 (quarter.px) draw 'D'" in out and "draws 'D'" not in out
+
+
+# ---------------------------------------------------------------- the PR #28 review's findings
+
+
+def test_review_1_two_files_list_each_key_once(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "q2.px").write_text(PAL + "\nEL\n")
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "q2.px@0,2") == 0
+    note = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("note: compose --rekey"))
+    assert note.startswith("note: compose --rekey D,E,F,L would give")  # not D,E,F,L,E,L
+    ks = note.split()[3]
+    assert run("compose", "-o", "tiles.px:e", "quarter.px@0,0", "q2.px@0,2", "--rekey", ks, "--dry-run") == 0  # runs
+
+
+def test_review_2_a_file_scoped_rekey_says_the_keys_are_every_files(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "q2.px").write_text(PAL + "\nEL\n")
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "q2.px@0,2", "--rekey", "q2.px:E") == 0
+    assert "to --rekey (for every file) would give those pixels new letters too" in capsys.readouterr().out
+
+
+def test_review_9_a_dry_run_keeps_the_note(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "--dry-run") == 0
+    assert "note: compose --rekey D,E,F,L would give those pixels new letters" in capsys.readouterr().out
+
+
+def test_review_9_crop_after_a_partial_rekey_says_add(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("crop", "quarter.px", "0,0,2,2", "-o", "tiles.px:d", "--rekey", "D,F") == 0
+    assert "note: adding E,L to --rekey would give those pixels new letters too in tiles.px" in capsys.readouterr().out

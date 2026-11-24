@@ -23729,9 +23729,9 @@ def test_help_all_does_not_grow(capsys):
     # 72666 with anim playing a whole group in its direction (PX-42), in three.
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
-    # 72986 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one.
+    # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 72986
+    assert len(capsys.readouterr().out.encode()) <= 73002
 
 
 def test_help_says_each_shared_rule_once():

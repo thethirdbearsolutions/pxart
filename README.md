@@ -315,8 +315,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   an existing one (`frames keeper.px:walk --copy-to party.px --rekey --variant-map
   dusk=night` reads the keeper's night as party.px's dusk), and in a new OUT to a needed key
   it would leave out; a key OUT's variants would recolor is a `WARNING` of its own (for
-  `paste`, `frames --copy-to`, and `compose` and `crop` into an existing file, a note after those WARNINGs says the `--rekey` they offer would
-  give the pixels new letters, which a key-for-key copy of stand-in keys leaves off);
+  `paste`, `frames --copy-to`, and `compose` and `crop` into an existing file, a note after
+  those WARNINGs says the `--rekey` they offer would give the pixels new letters, which a
+  key-for-key copy of stand-in keys leaves off);
   `--rekey o,r` moves only those keys, and `--rekey k=j,n=q` puts k and n on OUT's own j and
   q, with a `WARNING` where their variant colors differ; `--rekey girl.px:T=V` is for one
   source file's T only; a color two files share, alike in every variant, keeps the one key

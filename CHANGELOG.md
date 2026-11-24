@@ -42,7 +42,8 @@ release, entries are grouped by the day they landed on `main`. The file format i
   with no note, so their advice would still rename stand-in keys a game reads by letter. Now the same note follows
   them: `note: compose --rekey D,E,F,L would give those pixels new letters in tiles.px; left off, the keys stay (a
   key-for-key copy) and take tiles.px's variant colors`; after a partial `--rekey D,F` it says `adding E,L to
-  --rekey ...`, and a key list a shell can't take as written gives a bare `--rekey`.
+  --rekey ...`, and more than six keys, or a list a shell can't take as written, gives a bare `--rekey`; each key
+  is listed once, however many source files warn about it.
 
 ## 2026-11-23
 
