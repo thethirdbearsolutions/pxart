@@ -4,6 +4,15 @@ anchors instead of baked combinations. Decoded by web/pxc.js, in a Web Worker (w
 
     python3 bench/cast/pxc.py CAST_DIR OUT.pxc [--layers layers.json] [--orient cols|rows] [--coding raw|ops]
 
+CAST_DIR is a flat folder of .px files, one per character, each named after its character (fox.px is
+"fox"); subfolders aren't read, and a palette-only file (no grid, like a shared palette.px the others
+@palette-import) is skipped; a file of one unnamed grid names its frame after the file. A cast has one
+palette: every key the cast draws has one color (slot alternatives included) in every file that has it,
+in the base and in each variant, and every file has every variant (its own, or through @palette). A file
+needn't list keys it doesn't draw, so `pxart check`'s unused-key advice is safe to follow. A key colored
+two ways, or a variant one file lacks, is an error naming the key and the files. With --layers only the
+base palette is encoded (the axes make the rest), so only the base is held to that rule.
+
 The file is meant to be served brotli-compressed, like .px. Brotli finds what repeats between rows,
 frames and characters by itself; the format only makes those repeats long and aligned: one byte per
 pixel, one index space for the whole cast, headers apart from pixels, frames stored column by
@@ -125,9 +134,48 @@ def plane(g: list[list[int]], cols: bool) -> bytes:
     return bytes(v for line in (transpose(g) if cols else g) for v in line)
 
 
+def cast_palette(docs: dict, keys: list[str], variant: str | None) -> dict:
+    """The cast's one palette in variant (None the base): each key's color, the same in every file that has the key.
+    A file needn't list keys it doesn't draw. A key two files color differently, a variant a file lacks, or a key no
+    file has is a SystemExit naming the key, the variant and the files."""
+    where = f" in @variant {variant}" if variant else " in the base"
+    if variant:
+        lacking = [f"{stem}.px" for stem, d in docs.items() if variant not in pxart.variant_names(d)]
+        if lacking:
+            raise SystemExit(f"PXC1 needs one palette for the whole cast: {', '.join(lacking)} "
+                             f"{'has' if len(lacking) == 1 else 'have'} no @variant "
+                             f"{variant}, which other files have; every file needs every variant (give it one, or "
+                             f"import a palette file that has it)")
+    pal = {}
+    for k in keys:
+        seen = {f"{stem}.px" + ("" if k in d.palette else " (from its @palette)"): d.resolved(variant)[k]
+                for stem, d in docs.items() if k in d.resolved(variant)}
+        if not seen:
+            raise SystemExit(f"PXC1: key {k!r} is drawn (by a frame, or by an overlay in layers.json) but no file of "
+                             "the cast has it in its palette")
+        if len(set(seen.values())) > 1:  # a Slot hashes with its alternatives, so slots that differ there differ
+            said = ", ".join(f"{f} {pxart.fmt_color(c)}" for f, c in seen.items())
+            raise SystemExit(f"PXC1 needs one palette for the whole cast: key {k!r}{where} differs between files "
+                             f"({said}); give it one color in every file that has it")
+        pal[k] = next(iter(seen.values()))
+    return pal
+
+
 def encode(cast: Path, layers: dict | None, cols: bool = True, coding: str = "raw") -> tuple[bytes, dict]:
-    names = sorted(p.name for p in cast.glob("*.px") if pxart._has_grid(p))
-    docs = {n[:-3]: pxart.parse(cast / n) for n in names}
+    if not cast.is_dir():
+        raise SystemExit(f"PXC1: {cast} isn't a folder; give the folder that holds the cast's .px files")
+    try:
+        names = sorted(p.name for p in cast.glob("*.px") if p.is_file() and pxart._has_grid(p))
+        docs = {n[:-3]: pxart.parse(cast / n) for n in names}
+    except pxart.PxError as e:
+        raise SystemExit(f"PXC1: a file of the cast doesn't read (run pxart check on it):\n{e}")
+    except (OSError, UnicodeDecodeError) as e:
+        raise SystemExit(f"PXC1: a file of the cast doesn't read: {e}")
+    if not docs:
+        deeper = sorted(str(p.relative_to(cast)) for p in cast.glob("*/**/*.px"))
+        more = " ..." if len(deeper) > 4 else ""
+        raise SystemExit(f"PXC1: {cast} has no character .px files (a file with frames, directly in it)"
+                         + (f"; subfolders aren't read, and hold {', '.join(deeper[:4])}{more}" if deeper else ""))
     variants = sorted({v for d in docs.values() for v in pxart.variant_names(d)})
     head = bytearray(b"PXC1" + bytes([(1 if layers else 0) | (2 if cols else 0) | (4 if coding == "ops" else 0)]))
     head += varint(1 + len(variants)) + string("") + b"".join(string(v) for v in variants)
@@ -145,16 +193,14 @@ def encode(cast: Path, layers: dict | None, cols: bool = True, coding: str = "ra
     index = {".": 0, **{k: i + 1 for i, k in enumerate(keys)}}
     head += varint(len(keys))
     for v in ([None] if layers else [None, *variants]):
-        pal = next(iter(docs.values())).resolved(v)
-        if any(d.resolved(v).get(k, pal[k]) != pal[k] for d in docs.values() for k in keys):
-            raise SystemExit("PXC1 needs one palette for the whole cast; characters differ")
-        head += rgba_table(pal, keys)
+        head += rgba_table(cast_palette(docs, keys, v), keys)
     pix = bytearray()
     prefix = f"{layers['damage'][0]}-{layers['expression'][0]}/" if layers else ""
     head += varint(len(docs))
     overlays_pix = bytearray()
     for stem, doc in docs.items():
-        frames = [(f.id[len(prefix):], grid_indices(f.grid, index)) for f in doc.frames if f.id.startswith(prefix)]
+        ids = [(f.id or stem, f) for f in doc.frames]  # one unnamed grid goes by the file's name, as in pxart
+        frames = [(fid[len(prefix):], grid_indices(f.grid, index)) for fid, f in ids if fid.startswith(prefix)]
         head += string(stem) + varint(len(frames))
         prev = None
         for fid, g in frames:
@@ -165,8 +211,17 @@ def encode(cast: Path, layers: dict | None, cols: bool = True, coding: str = "ra
             else:
                 pix += plane(g, cols)
             prev = g
+        if layers and not frames:
+            raise SystemExit(f"PXC1 --layers: {stem}.px has no frame under {prefix} (a layered cast's frames are "
+                             f"DAMAGE-EXPRESSION/ID, the first damage and expression's)")
         if layers:
+            if stem not in layers["characters"]:
+                raise SystemExit(f"PXC1 --layers: {stem}.px has no entry under \"characters\" in the layers file")
             info = layers["characters"][stem]
+            lost = [fid for fid, _ in frames if fid not in info["anchors"]]
+            if lost:
+                raise SystemExit(f"PXC1 --layers: {stem}'s frames {', '.join(lost[:4])} have no anchors in the layers "
+                                 "file")
             ovs = [(k, v) for k, v in info["overlays"].items() if v is not None]
             head += varint(len(ovs))
             for name, ov in ovs:
