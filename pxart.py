@@ -2780,6 +2780,44 @@ def shifted(img, dx, dy):
     return out
 
 
+def shift_mask(prev, cur, dx, dy):
+    """prev moved by dx, dy against cur, on a canvas padded by the shift so pixels moved past the edge still count
+    (PX-55: a pair read A->B and B->A then gives the same count, with opposite shifts): (an 'L' mask, 255 where the two
+    differ, and the pad p)."""
+    w, h = cur.size
+    p = max(abs(dx), abs(dy))
+    a, b = Image.new("RGBA", (w + 2 * p, h + 2 * p), CLEAR), Image.new("RGBA", (w + 2 * p, h + 2 * p), CLEAR)
+    a.paste(prev, (p + dx, p + dy))
+    b.paste(cur, (p, p))
+    d = ImageChops.difference(a, b).split()
+    m = ImageChops.lighter(ImageChops.lighter(d[0], d[1]), ImageChops.lighter(d[2], d[3]))
+    return m.point(lambda v: 255 if v else 0), p
+
+
+def past_edge(prev, cur, dx, dy, n):
+    """How many of n, the pixels changed after shifting prev by dx, dy, went past the canvas edge: counted (PX-55),
+    but no pixel of a picture can show them."""
+    return n - n_changed(shifted(prev, dx, dy), cur)
+
+
+def shift_count(prev, cur, dx, dy):
+    """How many pixels differ when prev moves by dx, dy, those moved past the canvas edge included (shift_mask)."""
+    return shift_mask(prev, cur, dx, dy)[0].histogram()[255]
+
+
+def shift_diff(prev, cur, dx, dy):
+    """shift_count row by row: [px changed in each of cur's rows], those moved past the left or right edge in their
+    row, those moved past the top in row 0 and past the bottom in the last row, so the rows add up to the count and a
+    'rows N+ still' reading weighs them as the shift does."""
+    m, p = shift_mask(prev, cur, dx, dy)
+    W, H = m.size
+    rows = [m.crop((0, y, W, y + 1)).histogram()[255] for y in range(H)]
+    inside = rows[p:H - p]
+    inside[0] += sum(rows[:p])
+    inside[-1] += sum(rows[H - p:])
+    return inside
+
+
 def rolled(img, dx, dy):
     """img scrolled by dx, dy with wrap-around, as 'shift --wrap' scrolls a tile."""
     return ImageChops.offset(img, dx, dy)
@@ -2808,10 +2846,10 @@ def best_shift(prev, cur, reach=2, wrap=False):
     """The whole-sprite (dx, dy) that best explains cur as a moved prev: the body bob. With wrap (a tile that fills
     its frame, like falling snow), every scroll of prev around the edges is tried too, and one wins only when it
     leaves strictly fewer pixels changed than the best plain shift: (dx, dy, wrapped)."""
-    best, cd = None, pixels(cur)
+    best = None
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
-            n = sum(1 for a, b in zip(pixels(shifted(prev, dx, dy)), cd) if a != b)
+            n = shift_count(prev, cur, dx, dy)  # a pixel pushed past the edge counts (PX-55)
             key = (n, abs(dx) + abs(dy))
             if best is None or key < best[0]:
                 best = (key, dx, dy)
@@ -2835,8 +2873,12 @@ def motion(prev, cur, wrap=False, legs=None):
     here too, so the fall of a breath reads like its rise even when an arm moves on the way down."""
     dx, dy, wrapped = best_shift(prev, cur, wrap=wrap)
     w, h = cur.size
-    C, P, M = pixels(cur), pixels(prev), pixels((rolled if wrapped else shifted)(prev, dx, dy))
-    moved = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
+    C, P = pixels(cur), pixels(prev)
+    if wrapped:
+        M = pixels(rolled(prev, dx, dy))
+        moved = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
+    else:
+        moved = shift_diff(prev, cur, dx, dy)
     kept = [sum(P[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
     n_shift, n_none, still = sum(moved), sum(kept), None
     if (dx, dy) != (0, 0) and not wrapped:
@@ -3716,10 +3758,14 @@ def animate(a, its, out):
             alt = f"(no shift: {n_none}px)"
         elif still is None:
             base = shifted(prev, dx, dy); head = f"shift {dx:+d},{dy:+d} then {px(n_shift, base)}"
+            past = past_edge(prev, cur, dx, dy, n_shift)  # pushed past the canvas edge: counted, but no pixel shows it
+            if past:
+                head = head[:-1] + f"; {past} past the edge)" if head.endswith(")") else head + f" ({past} past the edge)"
             alt = f"(no shift: {n_none}px)" if (dx, dy) != (0, 0) else ""
         else:
             base, head = prev, f"no shift then {px(n_none, prev)}"
-            alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px)"
+            past = past_edge(prev, cur, dx, dy, n_shift)
+            alt = f"(rows {still}+ still; shift {dx:+d},{dy:+d}: {n_shift}px" + (f", {past} past the edge)" if past else ")")
         print(f"  {its[i].label:24} {durs[i]:5}ms  vs {its[i - 1].label}: {head}" + (f" {alt}" if alt else ""))
         cells.append((fr, diff_frame(base, cur), f"{its[i].label} {durs[i]}ms", head, alt))
     travel = said_travel(clear, [it.label for it in its])
@@ -3898,7 +3944,9 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
             lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
                          f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
         else:
-            lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed (no shift: {n_none}px)")
+            past = past_edge(*clear, dx, dy, n_shift) if not band else 0
+            lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed"
+                         + (f" ({past} past the edge)" if past else "") + f" (no shift: {n_none}px)")
     return lines
 
 
