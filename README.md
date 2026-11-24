@@ -182,7 +182,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   motion strip, frames in the order the group's `direction` plays them (a pingpong `0 1 2 3 2 1`, with a
   note); without `-o` it prints only the per-frame numbers, like `shift +0,-1 then
   72px (20%)` (the percent is of the frame's opaque pixels, or of both frames' when more changed, so never over
-  100%), and writes nothing; a file of several groups animates each on its own, a block of numbers per group (its
+  100%; a pixel the shift pushes past the canvas edge counts as changed, so a pair reads the same both ways), and
+  writes nothing; a file of several groups animates each on its own, a block of numbers per group (its
   top-level frames and `@still` groups left out, with a note), and
   `-o DIR` writes one GIF per group (`DIR/walk/down.gif`); "rows Y+ still" only when those rows are
   pixel-identical and the legs keep their shape in every frame (an idle; a walk frame

@@ -8,6 +8,15 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **`anim` reads a pair of frames the same both ways (PX-55).** Its shifted comparison counted only the pixels left
+  on the canvas, so a shift that pushed a sprite's bottom row (its feet, a shadow) past the edge didn't count them:
+  a slime's `breathe/3 vs breathe/2` read `shift +0,-1 then 12px` and the way back `shift +0,+1 then 0px`, a "just a
+  bob" on one leg of a pingpong and 12px on the other. Now a pixel pushed past the edge counts as changed, on a
+  canvas padded by the shift, both when the best shift is chosen and in the number; `anim`, the strip and `onion`'s
+  readout agree in both directions, with opposite shifts. Counts grow where a bob pushes the feet off the canvas (the
+  example walk's `shift +0,+1 then 26px` is 30px), and a shift that only pushed pixels off no longer beats no shift.
+  `onion --rows`/`--feet` bands still count only their own rows.
+
 - **The cast encoder says which key breaks the one-palette rule (PX-46).** `bench/cast/pxc.py` needs one palette
   for a whole cast, which neither its README nor its docstring said, and it failed with a raw `KeyError` when the
   first file (by name) didn't list a key another drew, or with `characters differ` naming nothing. Now a file

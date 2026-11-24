@@ -7552,7 +7552,9 @@ def test_may_wrap_rules(tmp_path):
 def test_best_shift_without_wrap_is_unchanged(tmp_path):
     a, b = Image.new("RGBA", (4, 4)), Image.new("RGBA", (4, 4))
     a.putpixel((0, 0), (1, 1, 1, 255)); b.putpixel((3, 3), (1, 1, 1, 255))
-    assert pxart.best_shift(a, b) == (0, -1, False)  # as before: out of reach, it pushes the pixel off the edge
+    # out of reach: pushing the pixel off the edge changes as many pixels as no shift once the pixel pushed off counts
+    # (PX-55), so no shift wins the tie
+    assert pxart.best_shift(a, b) == (0, 0, False)
     assert pxart.best_shift(a, b, wrap=True) == (-1, -1, True)  # 0,0 scrolled -1,-1 lands on 3,3
 
 
@@ -7933,7 +7935,9 @@ def test_percent_rounds_half_up(tmp_path, capsys):
 
 def test_percent_of_an_empty_frame_is_left_out(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, ["k."], [".."])
-    assert "then 0px (no shift: 1px)" in lines[1] and "%" not in lines[1]  # pushing k off the edge empties it
+    # pushing k off the edge no longer reads as 0px (PX-55: the pixel pushed off counts), so no shift is as good; the
+    # frame is empty, so no percent of it
+    assert "shift +0,+0 then 1px" in lines[1]
 
 
 def test_percent_on_the_strip_label(tmp_path, capsys):
@@ -8775,7 +8779,8 @@ def test_onion_readout_head_drops_feet_stay(tmp_path, capsys):
     assert onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1") == [
         "A (frame w/0) covers x 0..2, y 0..3 (on the 3x4 canvas, bottom-centered)",
         "B (frame w/1) covers x 0..2, y 1..3",
-        "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 3px changed (no shift: 5px)",
+        # the feet stay: the +0,+1 that drops the head pushes them off the canvas, which counts (PX-55)
+        "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+0 then 5px changed (no shift: 5px)",
         f"wrote {tmp_path / 'o.png'}",
     ]
 
@@ -9805,8 +9810,9 @@ def test_shadow_walk_fixture_is_14_rows():
 def test_shadow_walk_every_frame_keeps_its_shift(tmp_path, capsys):
     lines = anim_lines(tmp_path, capsys, *shadow_walk())
     assert [l.split(": ", 1)[1] for l in lines] == [
-        "shift +0,+1 then 25px (27%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)",
-        "shift +0,+1 then 25px (27%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)"]
+        # the same pair both ways reads the same count (PX-55; down read 25px, the shadow pushed off uncounted)
+        "shift +0,+1 then 31px (34%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)",
+        "shift +0,+1 then 31px (34%) (no shift: 54px)", "shift +0,-1 then 31px (31%) (no shift: 54px)"]
 
 
 def test_shadow_walk_shadow_is_identical_in_every_frame(tmp_path):
@@ -12248,7 +12254,8 @@ def test_onion_band_same_as_whole_when_it_is_the_whole_canvas(tmp_path, capsys):
     whole = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
     band = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1", "--rows", "0-3")
     # the same edges; the bob's shift is above the band's agreeing bottom edges, so the band says no shift
-    assert whole[2] == "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 3px changed (no shift: 5px)"
+    # the whole canvas counts the feet a shift pushes off it (PX-55); the band counts only its own rows
+    assert whole[2] == "B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+0 then 5px changed (no shift: 5px)"
     assert band[2] == ("B vs A (canvas rows 0-3; A opaque in 0-3, B in 1-3): left +0, right +0, top +1, bottom +0; "
                        "bottom edges agree, so no shift: 5px changed (the band's best shift +0,+1 then 3px only lines "
                        "up what moved above its bottom edge)")
@@ -12859,7 +12866,7 @@ def test_onion_different_sizes_other_group_of_one_file_edges_only(tmp_path, caps
 def test_onion_same_size_similar_frames_keep_the_best_shift(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     lines = onion_lines(tmp_path, capsys, f"{p}:w/0", f"{p}:w/1")
-    assert lines[2].endswith("; best shift +0,+1 then 3px changed (no shift: 5px)")
+    assert lines[2].endswith("; best shift +0,+0 then 5px changed (no shift: 5px)")  # feet off the edge count (PX-55)
 
 
 def test_onion_exactly_half_changed_is_still_one_sprite(tmp_path, capsys):
@@ -25827,7 +25834,7 @@ SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 
      "(--rows group: a row per animation group)"),
     (["anim", "a.px:w", "--dry-run"],
      "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),
-    (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x286 px, 2 frames over what changed, at --scale 8"),
+    (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x190 px, 2 frames over what changed, at --scale 8"),
     (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"],
      "the onion (no -o): 40x32 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers"),
     (["scene", "a.px:w/0@0,0", "a.px:w/1@4,0", "--dry-run", "-o", "s.png"],

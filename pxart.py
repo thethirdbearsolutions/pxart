@@ -2773,6 +2773,20 @@ def shifted(img, dx, dy):
     return out
 
 
+def shift_diff(prev, cur, dx, dy):
+    """prev moved by dx, dy against cur, on a canvas padded by the shift so pixels moved past the edge still count
+    (PX-55: a pair read A->B and B->A then gives the same count, with opposite shifts): ([px changed in each of cur's
+    rows, those moved past its left or right edge included], px changed above or below the canvas)."""
+    w, h = cur.size
+    p = max(abs(dx), abs(dy))
+    a, b = Image.new("RGBA", (w + 2 * p, h + 2 * p), CLEAR), Image.new("RGBA", (w + 2 * p, h + 2 * p), CLEAR)
+    a.paste(prev, (p + dx, p + dy))
+    b.paste(cur, (p, p))
+    A, B, W = pixels(a), pixels(b), w + 2 * p
+    rows = [sum(A[i] != B[i] for i in range(y * W, y * W + W)) for y in range(h + 2 * p)]
+    return rows[p:p + h], sum(rows[:p]) + sum(rows[p + h:])
+
+
 def rolled(img, dx, dy):
     """img scrolled by dx, dy with wrap-around, as 'shift --wrap' scrolls a tile."""
     return ImageChops.offset(img, dx, dy)
@@ -2801,10 +2815,11 @@ def best_shift(prev, cur, reach=2, wrap=False):
     """The whole-sprite (dx, dy) that best explains cur as a moved prev: the body bob. With wrap (a tile that fills
     its frame, like falling snow), every scroll of prev around the edges is tried too, and one wins only when it
     leaves strictly fewer pixels changed than the best plain shift: (dx, dy, wrapped)."""
-    best, cd = None, pixels(cur)
+    best = None
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
-            n = sum(1 for a, b in zip(pixels(shifted(prev, dx, dy)), cd) if a != b)
+            rows, off = shift_diff(prev, cur, dx, dy)  # a pixel pushed past the edge counts (PX-55)
+            n = sum(rows) + off
             key = (n, abs(dx) + abs(dy))
             if best is None or key < best[0]:
                 best = (key, dx, dy)
@@ -2828,10 +2843,14 @@ def motion(prev, cur, wrap=False, legs=None):
     here too, so the fall of a breath reads like its rise even when an arm moves on the way down."""
     dx, dy, wrapped = best_shift(prev, cur, wrap=wrap)
     w, h = cur.size
-    C, P, M = pixels(cur), pixels(prev), pixels((rolled if wrapped else shifted)(prev, dx, dy))
-    moved = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
+    C, P = pixels(cur), pixels(prev)
+    if wrapped:
+        M = pixels(rolled(prev, dx, dy))
+        moved, off = [sum(M[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)], 0
+    else:
+        moved, off = shift_diff(prev, cur, dx, dy)
     kept = [sum(P[i] != C[i] for i in range(y * w, y * w + w)) for y in range(h)]
-    n_shift, n_none, still = sum(moved), sum(kept), None
+    n_shift, n_none, still = sum(moved) + off, sum(kept), None
     if (dx, dy) != (0, 0) and not wrapped:
         # Rows above y moved by (dx, dy), rows from y down are identical to prev (not one pixel changed there, so
         # a leg that moved 1px rules y out): the best such y, and what it leaves changed.

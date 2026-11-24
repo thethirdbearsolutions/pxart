@@ -101,7 +101,7 @@ Two of the lines `anim` printed:
 
 ```text
   walk/down/0                110ms  vs walk/down/7: shift -1,+1 then 72px (20%) (no shift: 260px)
-  walk/down/1                110ms  vs walk/down/0: shift +0,+1 then 26px (7%) (no shift: 205px)
+  walk/down/1                110ms  vs walk/down/0: shift +0,+1 then 30px (8%) (no shift: 205px)
 ```
 
 Each line compares a frame with the one before it (frame 0 with frame 7, since the walk
@@ -109,7 +109,7 @@ loops). When you walk, your whole body bobs up and down, and pxart first finds t
 
 - `shift +0,+1` means the whole hero moved 0 pixels sideways and 1 pixel down (+1 is
   down, because y grows down).
-- `then 26px (7%)` is what still changed after taking that move out: 26 pixels, 7% of
+- `then 30px (8%)` is what still changed after taking that move out: 30 pixels, 8% of
   the hero. That's the arms and legs, the part you actually drew.
 - `(no shift: 205px)` is how many pixels changed without taking the bob out. Most of
   those are just the bob.
@@ -134,7 +134,7 @@ Two of its lines:
 
 ```text
   idle/right/0               400ms  vs idle/right/3: shift +0,+0 then 14px (2%)
-  idle/right/1               240ms  vs idle/right/0: no shift then 237px (41%) (rows 34+ still; shift +0,+1: 48px)
+  idle/right/1               240ms  vs idle/right/0: no shift then 237px (41%) (rows 34+ still; shift +0,+1: 52px)
 ```
 
 Frame 0 shows its own 400 ms from Step 1. For frame 1, shifting the whole hero would
@@ -161,7 +161,7 @@ first frame is A (the silhouette), the second is B.
 ```text
 A (frame walk/down/0) covers x 4..19, y 0..31 (on the 24x32 canvas, lined up by pivot)
 B (frame walk/down/1) covers x 4..19, y 1..31
-B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 26px changed (no shift: 205px)
+B vs A: left +0, right +0, top +1, bottom +0; best shift +0,+1 then 30px changed (no shift: 205px)
 wrote onion.png
 ```
 
