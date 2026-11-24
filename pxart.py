@@ -2909,8 +2909,6 @@ def parse_rect(s, size):
         x, y, w, h = (int(v) for v in s.split(","))
     except ValueError:
         fail("E_BAD_ARG", f"--region wants x,y,w,h, got {s!r}")
-    if w < 1 or h < 1:  # x and y may be negative (the rect runs off the frame); w and h may not
-        fail("E_BAD_ARG", f"x,y,w,h wants w and h of 1 or more, got {s!r}")
     return x, y, w, h
 
 
@@ -6232,6 +6230,8 @@ def cmd_crop(a):
             fail("E_BAD_ARG", f"crop cuts a .px frame, got {a.src}; for a PNG, 'mask --keep x,y,w,h' erases outside "
                  "the rectangle, or from-png it first")
     x, y, w, h = parse_rect(a.rect, src.frame.size)
+    if w < 1 or h < 1:  # x and y may be negative (the rect runs off the frame); w and h may not
+        fail("E_BAD_ARG", f"crop's x,y,w,h wants w and h of 1 or more, got {a.rect!r}")
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     cmd_compose(a)
@@ -12995,18 +12995,31 @@ SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the bas
 class PxParser(argparse.ArgumentParser):
     """argparse, whose "expected one argument" for an option given a value that starts with '-' says how to give it:
     '--keep-lit -,k' is read as two options."""
-    argv = []  # the words main is parsing
+    argv = []  # the words the top-level parser was last given (rederived() parses its own)
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self._negative_number_matcher = NEGATIVE_RE  # '-10,-8,34' is a value: no option of pxart's looks like it
+
+    def parse_known_args(self, args=None, namespace=None):
+        if self.prog == "pxart" and args is not None:
+            PxParser.argv = list(args)
+        return super().parse_known_args(args, namespace)
 
     def error(self, message):
         m = re.match(r"argument (-[\w-]+)(?:/(-[\w-]+))?: expected (one argument|at least one argument)$", message)
         words = PxParser.argv
-        for opt in (m.groups()[:2] if m else ()):  # the next word starts with '-' but isn't an option of this command
+        for opt in (m.groups()[:2] if m else ()):
+            act = self._option_string_actions.get(opt)
+            many = isinstance(act, argparse._ExtendAction)  # --add a b, or --add=a --add=b: the same
+            if not opt or not (act and (act.nargs in (None, "?") or many)):
+                continue  # a pair or a run of values (--comment KEY TEXT): '=' gives only the first
+            # the next word starts with '-' and isn't an option ('--dith' is --dither's short form, '--dihter' a typo)
             at = [i for i, w in enumerate(words[:-1]) if w == opt and words[i + 1].startswith("-")
-                  and words[i + 1].split("=")[0] not in self._option_string_actions]
-            if opt and at:
-                message += f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]}"
-                message += ", one value to each" if m.group(3).startswith("at least") else ""
-                message += ")"
+                  and not words[i + 1].startswith("--")]
+            if at:
+                message += (f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]}"
+                            + (", one value to each" if many and act.nargs not in (None, "?") else "") + ")")
                 break
         super().error(message)
 
@@ -13203,8 +13216,6 @@ def parser(describe=True):
     p.add_argument("--erase", metavar="KEY", help="with --at: KEY pixels in the patch clear the frame to '.'")
     p = sub.add_parser("fill"); p.add_argument("file"); p.add_argument("key"); p.add_argument("--region")
     p.add_argument("-o")
-    coord = re.compile(r"^-\d+(\.\d+)?(,-?\d+(\.\d+)?)*$")  # a negative x,y is an argument, not an option
-    ap._negative_number_matcher = coord
     p = sub.add_parser("line"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("p0"); p.add_argument("p1")
     p.add_argument("--width", type=int, default=1); p.add_argument("-o")
     p = sub.add_parser("rect"); p.add_argument("file"); p.add_argument("key", help=KEY_HELP); p.add_argument("rect")
@@ -13243,8 +13254,6 @@ def parser(describe=True):
     p.add_argument("--light", choices=list(LIGHTS), default="nw"); p.add_argument("--strength", type=float, default=2)
     p.add_argument("--region"); p.add_argument("--dither", action="store_true"); p.add_argument("--preview")
     p.add_argument("-o")
-    for name in ("line", "rect", "poly", "ellipse", "arc", "flood", "crop"):  # crop -2,-2,20,20: a rectangle
-        sub.choices[name]._negative_number_matcher = coord
     p = sub.add_parser("extract"); p.add_argument("file"); p.add_argument("-o", required=True)
     p.add_argument("--inline-palette", action="store_true", help="copy the imported keys in; drop @palette")
     p.add_argument("--replace", action="store_true", help="overwrite an OUT that exists (its frames are lost)")
@@ -13360,8 +13369,6 @@ def parser(describe=True):
         sub.choices[name].add_argument("--dry-run", action="store_true", help=EDIT_DRY_HELP)
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': usage, summary, options, details
         (p.description, p.epilog), p.formatter_class = command_help(name), OneLine
-    for q in (ap, *sub.choices.values()):  # '-10,-8,34' is a value, not an option: see NEGATIVE_RE
-        q._negative_number_matcher = NEGATIVE_RE
     return ap, sub
 
 
@@ -13369,7 +13376,8 @@ def parser(describe=True):
 # '--keep-circle -10,-8,34', '--anchor -8,4' or 'rect F k -2,-2,5,5' failed with "expected one argument". No
 # option of pxart's starts with '-' and a digit, so a word that does is a value: a number, a coordinate list, a
 # size or a rect (each part may carry its own sign, a '.5', an 'x').
-NEGATIVE_RE = re.compile(r"^-\d*\.?\d+([,x:]-?\d*\.?\d+)*$")
+NUM = r"-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?"  # 3, -.5, 1e-1: what argparse's own matcher takes, and more
+NEGATIVE_RE = re.compile(rf"^-(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?([,x:]{NUM})*$")
 
 
 SPRITE_ARG_RE = re.compile(r"\.(px|png)([:%+].*)?$")  # 'hero.px', 'hero.px:walk/0', 'x.png': a file, not a DIR
@@ -13417,7 +13425,7 @@ def shift_args(args):
             rest.append(x)
         i += 1
     parts = [n for x in nums for n in x.split(",")]
-    if len(parts) == 2:
+    if len(parts) == 2 and all(re.fullmatch(r"-?\d+", n) for n in parts):  # else cmd_shift says what's wrong
         return ["shift", *rest, "--dx", parts[0], "--dy", parts[1]]
     if nums and file_at is not None:
         return ["shift", *rest[:file_at + 1], *nums, *rest[file_at + 1:]]
@@ -13432,7 +13440,6 @@ def main(argv=None):
     if args[:1] == ["rename"]:
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
     ap, sub = parser(describe="-h" in args or "--help" in args)
-    PxParser.argv = args
     a, extra = ap.parse_known_args(args)
     a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):

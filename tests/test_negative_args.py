@@ -24,7 +24,12 @@ def test_mask_takes_a_negative_value_after_the_flag(tmp_path, typed, eq):
     assert rows(a) == rows(b) and rows(a) != rows(write(tmp_path, "c.px", GRID))
 
 
-def test_rect_and_line_take_negative_points(tmp_path):
+def test_set_takes_negative_points(tmp_path):  # "unrecognized arguments: -1,0" before PX-52
+    f = write(tmp_path, "s.px", GRID)
+    assert "-1,0 is outside" in run_err("set", f, "k", "-1,0", "2,0")  # set's own check, not argparse's
+
+
+def test_rect_and_line_take_negative_points(tmp_path):  # these took them already (a matcher of their own)
     f = write(tmp_path, "a.px", GRID)
     assert run("rect", f, "k", "-2,-2,5,5", "--fill") == 0
     assert rows(f)[0] == "kkkggggg"  # x -2..2 clipped to 0..2
@@ -76,7 +81,7 @@ def test_shift_region_off_the_top_left_is_clipped_not_wrapped(tmp_path):
 @pytest.mark.parametrize("argv,want", [
     (["scene", "--size", "-3x-2", "-o", "s.png"], "--size wants WxH like 16x16, got '-3x-2'"),
     (["scene", "--size", "0x5", "-o", "s.png"], "--size wants WxH like 16x16, got '0x5'"),
-    (["crop", "A", "0,0,-3,4", "-o", "c.px"], "x,y,w,h wants w and h of 1 or more, got '0,0,-3,4'"),
+    (["crop", "A", "0,0,-3,4", "-o", "c.px"], "crop's x,y,w,h wants w and h of 1 or more, got '0,0,-3,4'"),
     (["mask", "A", "--keep-circle", "5,5,-3"], "--keep-circle '5,5,-3': r can't be negative"),
     (["mask", "A:*", "--keep", "0,0,-2,2"], "--keep '0,0,-2,2': w and h must be 1 or more"),
     (["check", "A", "--size", "-4x4"], "--size wants WxH like 16x16, got '-4x4'")])
@@ -102,8 +107,34 @@ def test_the_equals_hint_for_a_list_option(tmp_path, capsys):
            "to each)" in capsys.readouterr().err
 
 
-def test_shift_keeps_a_bad_number_in_order(tmp_path, capsys):
+def test_shift_keeps_a_bad_number_in_order(tmp_path):
+    f = write(tmp_path, "a.px", GRID)
+    assert "shift FILE DX DY takes two whole numbers, got '-.5 1'" in run_err("shift", f, "-.5", "1")
+    assert "takes two whole numbers, got '1.5 0'" in run_err("shift", f, "1.5", "0")
+
+
+@pytest.mark.parametrize("nxt", ["--dith", "--dith=3", "--dihter"])
+def test_no_equals_hint_before_an_abbreviated_or_misspelled_option(tmp_path, capsys, nxt):
     f = write(tmp_path, "a.px", GRID)
     with pytest.raises(SystemExit):
-        pxart.main(["shift", str(f), "-.5", "1"])
-    assert "--dx: invalid int value: '-.5'" in capsys.readouterr().err
+        pxart.main(["mask", str(f), "--keep-circle", nxt, "3"])
+    assert "goes after '='" not in capsys.readouterr().err
+
+
+def test_no_equals_hint_for_a_pair(tmp_path, capsys):
+    f = write(tmp_path, "a.px", GRID)
+    with pytest.raises(SystemExit):
+        pxart.main(["palette", str(f), "--comment", "-x", "text"])
+    assert "goes after '='" not in capsys.readouterr().err
+
+
+def test_an_exponent_is_a_number_too():
+    assert pxart.NEGATIVE_RE.match("-1e-1") and pxart.NEGATIVE_RE.match("-.5") and pxart.NEGATIVE_RE.match("-3")
+    assert not pxart.NEGATIVE_RE.match("-x") and not pxart.NEGATIVE_RE.match("--dx")
+
+
+def test_a_zero_region_still_does_nothing_harmlessly(tmp_path):
+    f = write(tmp_path, "a.px", GRID)
+    assert run("fill", f, "k", "--region", "0,0,0,2") == 0
+    assert run("shift", f, "1", "0", "--region", "0,0,0,2") == 0
+    assert rows(f) == ["gggggggg"] * 4

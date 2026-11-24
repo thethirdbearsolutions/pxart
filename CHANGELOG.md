@@ -26,17 +26,17 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 - **Negative coordinates after a flag work as typed (PX-52).** `mask lamp.px --keep-circle -10,-8,34` failed with
   argparse's `expected one argument` and no hint, because a word starting with `-` that isn't a plain number
-  (`-10,-8,34`, `-8,4`, `-2,-2,5,5`) was read as an option; a chained command then went on with an uncut copy.
-  Every flag and positional that takes coordinates, a rect, a size or a number now takes a negative one as typed
-  (`--keep`, `--keep-circle`, `--anchor`, `--at`, `--region`, `rect`/`line`/`poly`/`ellipse` points, ...): no option
-  of pxart's starts with `-` and a digit. Another value starting with `-` (the key `-` in `--keep-lit -,k`) still
-  needs `=`, and the error now says so: `argument --keep-lit: expected one argument (a value starting with '-' goes
-  after '=': --keep-lit=-,k)` (`--add=-=#102030` for a list option, one value to each). With negatives now easy to
-  type, the coordinate flags were audited: `shift --region -2,0,3,2` read a negative x or y as a Python index from
-  the far edge (a zero shift erased columns 2-3, a hero lost its legs) and now clips to the frame as `fill` and
-  `recolor` do; `scene --size -3x-2` or `0x5` was a traceback and `check`/`compose --size` took them, now `--size
-  wants WxH`; `crop F 0,0,-3,4` wrote an empty frame and `mask --keep-circle 5,5,-3` erased everything, now a
-  negative w, h or r is `E_BAD_ARG`.
+  (`-10,-8,34`, `-8,4`) was read as an option; a chained command then went on with an uncut copy. Every command now
+  reads a word of `-` and a digit as a value, a number, coordinates, a size or a rect, exponents too (`--keep`,
+  `--keep-circle`, `--anchor`, `--at`, `--region`, `set`'s points, ...; `rect`, `line`, `poly`, `ellipse`, `arc`,
+  `flood` and `crop` already took negative points): no option of pxart's starts with `-` and a digit. Another value
+  starting with `-` (the key `-` in `--keep-lit -,k`) still needs `=`, and the error now says so: `argument
+  --keep-lit: expected one argument (a value starting with '-' goes after '=': --keep-lit=-,k)`; for `--add`,
+  `one value to each`. With negatives now easy to type, the coordinate flags were audited: `shift --region
+  -2,0,3,2` read a negative x or y as a Python index from the far edge (a zero shift erased columns 2-3, a hero
+  lost its legs) and now clips to the frame as `fill` and `recolor` do; a `--size` of `0x5`, or a negative one, was
+  a traceback in `scene` and taken by `check` and `compose`, and is now `--size wants WxH`; `crop F 0,0,-3,4` wrote
+  an empty frame and `mask --keep-circle 5,5,-3` erased everything, and a negative w, h or r is now `E_BAD_ARG`.
 
 ## 2026-11-23
 
