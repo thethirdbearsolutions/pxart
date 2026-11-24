@@ -119,7 +119,9 @@ walk/down/0, walk/down/1, walk/down/2 and 13 more`. A file with one unnamed grid
 name (`ant.px:ant`, as `frames` lists it); writing a named frame into it (`compose -o
 ant.px:ant`) first turns the grid into `@frame ant`. In zsh write `"${F}:walk/down"`:
 `"$F:walk/down"` applies a modifier, and a missing input like `hero.pxalk/down` is
-reported as that mistake.
+reported as that mistake. Negative numbers and coordinates are typed as they are, after a flag too:
+`mask lamp.px --keep-circle -10,-8,34`, `rect hero.px:idle/0 k -2,-2,5,5`, `scene --anchor -8,4`. Any other
+value starting with `-` (the key `-`) goes after `=`, `--keep-lit=-,k`, and the error says so.
 
 ### Errors
 

@@ -162,7 +162,7 @@ LOOKING
       the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
       bottom-right) places the size in effect on that part of what the map and items fill
       (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
-      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows.
+      camera on the hero; --anchor -8,4 works too), and a note says what it shows.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -12985,10 +12985,26 @@ SLOTS_HELP = ("draw the frames in N combinations of their slots' colors (the bas
               "or with K=I,... those slots' colors by index, 0 the base: 'N,f=2' mixes both (help slots)")
 
 
+class PxParser(argparse.ArgumentParser):
+    """argparse, whose "expected one argument" for an option given a value that starts with '-' says how to give it:
+    '--keep-lit -,k' is read as two options."""
+    argv = []  # the words main is parsing
+
+    def error(self, message):
+        m = re.match(r"argument (-[\w-]+)(?:/(-[\w-]+))?: expected one argument$", message)
+        words = PxParser.argv
+        for opt in (m.groups() if m else ()):
+            at = [i for i, w in enumerate(words[:-1]) if w == opt and words[i + 1].startswith("-")]
+            if opt and at:
+                message += f" (a value starting with '-' goes after '=': {opt}={words[at[0] + 1]})"
+                break
+        super().error(message)
+
+
 def parser(describe=True):
     """The command line: (the parser, its subcommands' action). describe: give each subcommand its -h text."""
-    ap = argparse.ArgumentParser(prog="pxart", description=overview() if describe else None,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = PxParser(prog="pxart", description=overview() if describe else None,
+                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("render"); p.add_argument("files", nargs="+"); p.add_argument("-o", default="preview.png")
     p.add_argument("--png", nargs="?", const="", metavar="DIR",
@@ -13334,7 +13350,16 @@ def parser(describe=True):
         sub.choices[name].add_argument("--dry-run", action="store_true", help=EDIT_DRY_HELP)
     for name, p in sub.choices.items() if describe else ():  # 'pxart CMD -h': usage, summary, options, details
         (p.description, p.epilog), p.formatter_class = command_help(name), OneLine
+    for q in (ap, *sub.choices.values()):  # '-10,-8,34' is a value, not an option: see NEGATIVE_RE
+        q._negative_number_matcher = NEGATIVE_RE
     return ap, sub
+
+
+# argparse reads a word starting with '-' as an option unless it is a plain negative number ('-3'), so
+# '--keep-circle -10,-8,34', '--anchor -8,4' or 'rect F k -2,-2,5,5' failed with "expected one argument". No
+# option of pxart's starts with '-' and a digit, so a word that does is a value: a number, a coordinate list, a
+# size or a rect (each part may carry its own sign, a '.5', an 'x').
+NEGATIVE_RE = re.compile(r"^-\d*\.?\d+([,x:]-?\d*\.?\d+)*$")
 
 
 SPRITE_ARG_RE = re.compile(r"\.(px|png)([:%+].*)?$")  # 'hero.px', 'hero.px:walk/0', 'x.png': a file, not a DIR
@@ -13397,6 +13422,7 @@ def main(argv=None):
     if args[:1] == ["rename"]:
         sys.exit(f"rename: E_BAD_ARG: {RENAME_HINT}")
     ap, sub = parser(describe="-h" in args or "--help" in args)
+    PxParser.argv = args
     a, extra = ap.parse_known_args(args)
     a.argv = list(sys.argv[1:] if argv is None else argv)  # as typed: compose's '# composed by:' header
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):

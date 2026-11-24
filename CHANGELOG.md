@@ -20,6 +20,19 @@ release, entries are grouped by the day they landed on `main`. The file format i
   is an error instead of a 9-byte cast, and a file that doesn't parse gives its pxart error instead of a traceback.
   Casts that encoded before encode to the same bytes.
 
+## 2026-11-24
+
+### Fixed
+
+- **Negative coordinates after a flag work as typed (PX-52).** `mask lamp.px --keep-circle -10,-8,34` failed with
+  argparse's `expected one argument` and no hint, because a word starting with `-` that isn't a plain number
+  (`-10,-8,34`, `-8,4`, `-2,-2,5,5`) was read as an option; a chained command then went on with an uncut copy.
+  Every flag and positional that takes coordinates, a rect, a size or a number now takes a negative one as typed
+  (`--keep`, `--keep-circle`, `--anchor`, `--at`, `--region`, `rect`/`line`/`poly`/`ellipse` points, ...): no option
+  of pxart's starts with `-` and a digit. Another value starting with `-` (the key `-` in `--keep-lit -,k`) still
+  needs `=`, and the error now says so: `argument --keep-lit: expected one argument (a value starting with '-' goes
+  after '=': --keep-lit=-,k)`.
+
 ## 2026-11-23
 
 ### Fixed
