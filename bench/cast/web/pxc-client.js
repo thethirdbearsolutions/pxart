@@ -5,6 +5,7 @@
 //   c.sheets: Map<"<palette>/<character>" ("<character>" for the base), ImageBitmap | canvas>
 //   c.rects:  Map<"<character>:<frame id>", [x, y, w, h]>
 //   await c.paint({ palette } | { blend: { from, to, amount } }, combo): repaint every sheet
+//   c.bytes:  the decoded PXC1's size (after any gunzip), not the bytes on the wire
 // workerUrl defaults to pxc-worker.js beside this file. throttle is a bench setting (see the worker).
 import { blend, decode, fetchCast, palette, renderAtlas } from './pxc.js';
 

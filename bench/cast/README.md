@@ -24,6 +24,19 @@ The browser build is plain ES modules, nothing to compile:
 | `build_axes.py`, `bench_axes.py`, `web/axes.*` | that cast built four ways, its bytes, and a page that loads and switches combinations |
 | `build_pxc.py` | the `pxc`, `pxc.gzip` and `pxc.main` options for the load bench |
 
+To make a cast, put one `.px` file per character in a flat folder, each named after its character
+(`fox.px` is the character `fox`; subfolders aren't read, and a palette-only file, such as a shared
+`palette.px` the characters import, is skipped), then `python3 bench/cast/pxc.py CAST_DIR cast.pxc`.
+A cast has one palette:
+- every key the cast draws has one color in every file that has it, in the base and in each variant;
+- every file has every variant, its own or through `@palette`.
+
+The simplest way is one shared palette file that every character imports. A file needn't list keys it
+doesn't draw, so `pxart check`'s unused-key advice (`palette --remove`) is safe to follow. A key colored
+two ways, or a variant one file lacks, stops the encoder with a message naming the key and the files:
+`PXC1 needs one palette for the whole cast: key 'k' in the base differs between files (fox.px #1b1420,
+owl.px #2b1d32); give it one color in every file that has it`.
+
 To load a cast in a page, put the three `web/pxc*.js` files beside it:
 
 ```js
@@ -39,7 +52,8 @@ await cast.paint({ blend: { from: '', to: 'dusk', amount: 0.3 } });  // any blen
 Serve the `.pxc` brotli-compressed, as you would `.px`: the format leaves the byte-level
 compression to brotli. Hosts compress only the types they know. Where a host won't compress
 `.pxc`, gzip it yourself (`gzip -9 -k cast.pxc`) and load `cast.pxc.gz`: the worker gunzips it
-with DecompressionStream. It goes by the bytes, not the URL: what arrives still gzipped (it starts
+with DecompressionStream. `cast.bytes` is the size of the decoded PXC1 (after any gunzip), not the bytes
+on the wire; for those, read the response size (the load bench records it per run). It goes by the bytes, not the URL: what arrives still gzipped (it starts
 `1f 8b`) is gunzipped, so `cast.pxc.gz?r=2` works, and a `.gz` a server has already decoded isn't
 gunzipped twice. Chromium's DecompressionStream has no brotli. The gzip file is about 3×
 the brotli size.

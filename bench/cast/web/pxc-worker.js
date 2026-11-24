@@ -6,6 +6,7 @@
 //     -> { id, type: 'painted', sheets, timings }
 // On start it posts { type: 'ready' }, so a page can start the worker before it needs it.
 // timings are the worker's own clock: fetch (bytes in hand), decode (headers), paint, total.
+// bytes is the decoded PXC1's size (after any gunzip), not the bytes on the wire.
 //
 // throttle (a bench setting, 1 by default): Chromium can't CPU-throttle a worker from DevTools, so
 // to emulate a slower core the worker spins for (throttle - 1) x the time each of its own
