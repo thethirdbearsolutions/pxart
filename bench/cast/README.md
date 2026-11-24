@@ -34,9 +34,14 @@ python3 bench/cast/pxc.py CAST_DIR cast.pxc
 
 A folder with no character files directly in it (empty, or the files one level down) is an error, not an
 empty cast.
+
 A cast has one palette:
-- every key the cast draws has one color in every file that has it, in the base and in each variant;
+- every key the cast draws has one color (slot alternatives included) in every file that has it, in the
+  base and in each variant;
 - every file has every variant, its own or through `@palette`.
+
+A layered cast (`--layers layers.json`) encodes only the base palette, since its axes make the rest, so
+only the base is held to these rules there.
 
 The simplest way is one shared palette file that every character imports. A file needn't list keys it
 doesn't draw, so `pxart check`'s unused-key advice (`palette --remove`) is safe to follow. A key colored
@@ -59,11 +64,15 @@ await cast.paint({ blend: { from: '', to: 'dusk', amount: 0.3 } });  // any blen
 Serve the `.pxc` brotli-compressed, as you would `.px`: the format leaves the byte-level
 compression to brotli. Hosts compress only the types they know. Where a host won't compress
 `.pxc`, gzip it yourself (`gzip -9 -k cast.pxc`) and load `cast.pxc.gz`: the worker gunzips it
-with DecompressionStream. `cast.bytes` is the size of the decoded PXC1 (after any gunzip), not the bytes
-on the wire; for those, read the response size (the load bench records it per run). It goes by the bytes, not the URL: what arrives still gzipped (it starts
+with DecompressionStream. The worker goes by the bytes, not the URL: what arrives still gzipped (it starts
 `1f 8b`) is gunzipped, so `cast.pxc.gz?r=2` works, and a `.gz` a server has already decoded isn't
 gunzipped twice. Chromium's DecompressionStream has no brotli. The gzip file is about 3×
 the brotli size.
+
+`cast.bytes` is the size of the decoded PXC1, after any gunzip, not the bytes on the wire. For those, read
+the resource's `encodedBodySize` or `transferSize` from Resource Timing
+(`performance.getEntriesByName(url)`); a response body is already decoded from brotli or gzip
+content-encoding.
 
 ## PXC1
 
