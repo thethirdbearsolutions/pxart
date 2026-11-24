@@ -8,6 +8,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 ### Fixed
 
+- **Two argument errors say what to do (PX-21).** `pxart from-png in.png face.px` read face.px as a second PNG and
+  failed with `E_FILE: No such file or directory`; now `face.px is a .px, and from-png reads PNGs: the output goes
+  after -o: pxart from-png in.png -o face.px` (beside an `-o`, it points at `--palette` instead). `palette f.px
+  --remove h j` failed with argparse's bare `unrecognized arguments: j`; now it adds `(--remove takes its keys as one
+  word: --remove hj, or h,j)`. A comma list `--remove h,j` was already read as h and j, and leaves a real `,` key
+  alone; `--remove ,` removes that one.
+
 - **`anim`'s GIF plays as often as `repeat` says (PX-50).** An `@anim idle ... repeat=1` group read `plays once
   (repeat=1); no wrap-around`, but `anim -o idle.gif` wrote `loop=0`, forever, and `--dry-run` said `300 ms a loop`.
   Now the GIF has no loop extension for `repeat=1` (it plays once), `loop=N-1` for `repeat=N`, and loops forever

@@ -12326,6 +12326,12 @@ def cmd_from_png(a):
 
 def import_pngs(a):
     """from-png's work: the doc, written to -o OUT (and its notes printed), or returned to print."""
+    pxs = [p for p in a.pngs if str(p).lower().endswith(".px")]
+    if pxs:  # 'from-png in.png face.px': face.px is the output, not another input
+        pngs = [p for p in a.pngs if p not in pxs]
+        fail("E_BAD_ARG", f"{pxs[0]} is a .px, and from-png reads PNGs: "
+             + (f"the output goes after -o: {shlex.join(['pxart', 'from-png', *pngs, '-o', pxs[0]])}" if not a.o
+                else f"-o {a.o} is the output; to reuse a .px's palette, --palette {pxs[0]}"))
     if a.by and not a.grid:
         fail("E_BAD_ARG", "--by goes with --grid WxH (the sheet's cells)")
     if a.grid and len(a.pngs) > 1:
@@ -13529,7 +13535,11 @@ def main(argv=None):
     if extra and a.cmd == "anim-set" and not any(x.startswith("-") for x in extra):
         a.settings += extra  # 'anim-set F:G --still ms=50': argparse spends a '*' positional before the option
     elif extra:  # argparse's own error, with the command's usage (the top level's names no option of it)
-        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}")
+        hint = ""
+        if a.cmd == "palette" and a.remove and all(len(x) == 1 for x in extra):  # '--remove h j': keys are one word
+            hint = (f" (--remove takes its keys as one word: --remove {a.remove + ''.join(extra)}, or "
+                    f"{','.join([*a.remove, *extra])})")
+        sub.choices[a.cmd].error(f"unrecognized arguments: {' '.join(extra)}{hint}")
     WARNED.clear()
     CREATED.clear()
     DRY["run"] = bool(getattr(a, "dry_run", False))
