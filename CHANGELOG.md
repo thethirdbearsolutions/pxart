@@ -4,6 +4,20 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-24
+
+### Fixed
+
+- **`scene --variant` says the default backdrop stays a day color (PX-48).** `scene --map island.map --size
+  320x240 --anchor center --variant night` drew the room at night on the day `#472d3c` border, and nothing said
+  `--bg` isn't recolored. Now, with `--variant` and no `--bg`, a note counts the backdrop pixels that show: `note:
+  --variant night doesn't recolor the backdrop: 3 px show the default --bg #472d3c, a day color; give --bg a night
+  color (or --bg transparent)`; a scene the room covers says nothing. With `--anchor`, the per-item and per-map crop
+  notes are left out, since the window is the point and the `--anchor` note says what it shows (`40854 px of the
+  map ... were cropped` varied by corner); without it, a map whose layers overlap says `308 px of the map (its
+  layers' pixels added up) fall outside`. The help says `@still` takes one group a line and that top-level frames
+  need none, and `@still grass,path`'s `E_BAD_ID` adds `(a @still line per group)`.
+
 ## 2026-11-23
 
 ### Fixed

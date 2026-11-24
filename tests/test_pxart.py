@@ -18843,7 +18843,7 @@ def test_scene_crop_render_unchanged(tmp_path, capsys):
 def test_help_documents_scene_default_size():
     text = " ".join(pxart.__doc__.split())
     assert "Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the edge are cropped, " \
-        "with a note per item (and one for the map) saying how many; at the default size a note also names the " \
+        "with a note per item (and one for the map, layers added up) saying how many; at the default size a note also names the " \
         "--size that holds every item." in text
 
 
@@ -23726,8 +23726,9 @@ def test_help_all_does_not_grow(capsys):
     # 72484 with check --headroom N and anim's vertical travel (PX-13), in four and a flag.
     # 72666 with anim playing a whole group in its direction (PX-42), in three.
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
+    # 72971 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 72782
+    assert len(capsys.readouterr().out.encode()) <= 72971
 
 
 def test_help_says_each_shared_rule_once():

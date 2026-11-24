@@ -33,7 +33,8 @@ FORMAT (.px)
   'anim-set hero.px:walk/down ms=125' writes these, pivot=8,23 too (FILE:GROUP/ID: a frame's).
   Frame groups that aren't animations (UI icons, a parts file): '@still ui/life' keeps them
   out of animation exports and checks; '@still *' marks every frame in the file, top-level
-  ids with no '/' included (a parts file; frames then lists them as 'still'). A frame copied
+  ids with no '/' included (a parts file; frames then lists them as 'still'). One group a
+  line ('@still grass,path' is no list); top-level frames need none. A frame copied
   as a still (a top-level id, or a @still group) drops its ms and keeps its pivot, with a note.
   Palette variants (recolors): keys listed after '@variant night' override the base
   palette. Variants in a @palette file are inherited; local keys (and local variant keys)
@@ -157,12 +158,13 @@ LOOKING
         [--variant V] [--tint #rrggbbaa] [--dry-run] ITEM@x,y ...
       Default --scale 4 (render's: 8).
       Size: --size, else the map's, else 96x64 (six 16x16 tiles by four). Pixels past the
-      edge are cropped, with a note per item (and one for the map) saying how many; at the
+      edge are cropped, with a note per item (and one for the map, layers added up) saying how many; at the
       default size a note also names the --size that holds every item. A smaller size keeps
       the top-left; --anchor center (top, bottom, left, right, top-right, bottom-left,
       bottom-right) places the size in effect on that part of what the map and items fill
       (a bigger size: the scene in that part of it), --anchor X,Y centres it on that point (a
-      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows.
+      camera on the hero; a negative one as --anchor=-8,4), and a note says what it shows (no
+      crop notes then). --variant doesn't recolor --bg; on the default, a note says so.
       ITEM is FILE[:frame][%variant][+h|+v|+hv]: +h mirrors it left-right, +v top-bottom
       (hero.px:walk/0+h@3,4; '+' needs no quoting, where '!' would be history expansion). Map legend entries (which also take +b, see
       Placement) and compose layers take +h/+v too. --map draws a text tilemap first:
@@ -1832,7 +1834,8 @@ def parse(path, strict=False, text=None, palette_only=False, allow_empty=False, 
                 state = "header" if not doc.frames else state
             elif word == "@still":
                 if len(pos) != 1 or not (ID_RE.match(pos[0]) or pos[0] == "*") or kw:
-                    err("E_BAD_ID", f"@still needs one group path like ui/life, or * for every group: {s!r}", n)
+                    err("E_BAD_ID", f"@still needs one group path like ui/life, or * for every group: {s!r}"
+                        + (" (a @still line per group)" if len(pos) > 1 or "," in s else ""), n)
                     continue
                 doc.stills.append(pos[0])
                 keep(("still", pos[0]))
@@ -4381,6 +4384,7 @@ def outside_px(img, x, y, w, h):
 
 
 SCENE_SIZE = (96, 64)  # scene without --size or --map: a small room of 16x16 tiles, 6 by 4
+SCENE_BG = "#472d3c"  # scene's backdrop without --bg: a day color, which --variant doesn't recolor
 
 
 def parse_tile(s):
@@ -4406,7 +4410,7 @@ ANCHORS = {"top-left": (0, 0), "top": (1, 0), "top-right": (2, 0), "left": (0, 1
 def cmd_scene(a):
     need_o(a, "s.png")
     tint = parse_tint(a.tint) if a.tint else None
-    bg = parse_color(a.bg, "--bg")
+    bg = parse_color(a.bg or SCENE_BG, "--bg")
     placed = []
     tile = parse_tile(a.tile)
     if a.map:
@@ -4445,14 +4449,25 @@ def cmd_scene(a):
         print(f"note: --anchor {a.anchor}: the {W}x{H} scene shows {ox},{oy} to {ox + W - 1},{oy + H - 1} of the "
               f"{ew}x{eh} " + ("the map and items fill" if a.map else "the items fill")
               + (f" (from {x0},{y0})" if (x0, y0) != (0, 0) else ""))
+    cover = Image.new("L", (W, H), 0) if a.variant and a.bg is None else None  # where the backdrop shows
     for what, img, x, y in todo:
         draw_at(sc, img, x - ox, y - oy)
+        if cover is not None:
+            cover.paste(255, (x - ox, y - oy), img.getchannel("A").point(lambda v: 255 if v == 255 else 0))
         n = outside_px(img, x - ox, y - oy, W, H)
         if n:
             cut.append((what, n))
     why = "--size" if a.size else "--map" if a.map else "the default"
+    layered = len(placed) > len({(x, y) for _, x, y in placed})  # a cell drawn by several layers: counted in each
     for what, n in [(w, sum(n for x, n in cut if x == w)) for w in dict.fromkeys(w for w, _ in cut)]:
-        print(f"note: {n} px of {what} fall outside the {W}x{H} scene (size from {why}) and were cropped")
+        if a.anchor is not None:
+            break  # the window is the point: the --anchor note says what the scene shows
+        print(f"note: {n} px of {what}" + (" (its layers' pixels added up)" if what == "the map" and layered else "")
+              + f" fall outside the {W}x{H} scene (size from {why}) and were cropped")
+    shows = cover.histogram()[0] if cover is not None else 0
+    if shows:
+        print(f"note: --variant {a.variant} doesn't recolor the backdrop: {shows} px show the default --bg {SCENE_BG}, a "
+              f"day color; give --bg a {a.variant} color (or --bg transparent)")
     if cut and why == "the default":
         print(f"note: {W}x{H} (six 16x16 tiles by four) is scene's size when nothing sizes it (no --size, no "
               f"--map); --size {reach[0]}x{reach[1]} holds every item")
@@ -13047,7 +13062,8 @@ def parser(describe=True):
                    "own %%V wins")
     p = sub.add_parser("scene"); p.add_argument("specs", nargs="*"); p.add_argument("-o")
     p.add_argument("--dry-run", action="store_true", help=DRY_HELP)
-    p.add_argument("--scale", type=int, default=4); p.add_argument("--bg", default="#472d3c")
+    p.add_argument("--scale", type=int, default=4)
+    p.add_argument("--bg", help=f"the backdrop where nothing draws (default {SCENE_BG}); --variant doesn't recolor it")
     p.add_argument("--size", help="WxH; default 96x64, or the map's size with --map")
     p.add_argument("--map", help="tilemap file: legend lines '<char> <FILE[:frame]>' (rest of line = path), blank line, rows")
     p.add_argument("--tile", default="16x16", help="tile size for --map")
