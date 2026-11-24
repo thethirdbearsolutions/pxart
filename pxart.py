@@ -250,9 +250,9 @@ CHECKING
       a warning is a note line). A directory checks every .px and .map under it, recursively,
       sorted by path; a palette file (no frames) is checked as one: 'ok   palette.px: palette file,
       17 key(s), variants night'. P is a .px, .gpl, .hex, or text of #rrggbb. --strict also
-      fails unknown @sections, @anim/@still lines with no frames, and E_SAME_FRAMES: neighbour
-      frames of an animation that draw alike in every variant, the loop's last and first too (a
-      hold is one frame with a longer ms=). Without --strict each is a note.
+      fails an empty file, unknown @sections, @anim/@still lines with no frames, and E_SAME_FRAMES: neighbour
+      frames of an animation that draw alike in every variant, the loop's wrap too (a
+      hold is one frame with a longer ms=). Else each is a note.
       Exit 1 on any failure. --exclude GLOB leaves files out, as for sheet.
       A .map (scene --map) is checked too: every row char has a legend line and every legend
       entry loads as one frame; .world, .tmj: help worlds.

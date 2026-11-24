@@ -107,3 +107,24 @@ def test_dark_line_note_names_only_the_frames_with_it(tmp_path, capsys):
     f = write(tmp_path, "m.px", "k #000000\nd #101010\ng #43e1b3\n@frame a\n" + lined + "\n@frame b\n" + plain + "\n")
     assert run("outline", f, "--key", "k", "--dry-run") == 0
     assert "12 of the shape's 12 edge px in a are already as dark as k (d)" in capsys.readouterr().out
+
+
+def test_a_comment_only_px_is_not_called_empty(tmp_path, capsys):
+    f = write(tmp_path, "c.px", "# just a comment\n")
+    assert run("check", f) == 0
+    assert "empty" not in capsys.readouterr().out
+
+
+def test_dup_note_names_the_file_written_and_dry_run_says_would(tmp_path, capsys):
+    f = write(tmp_path, "walker.px", GRID)
+    o = tmp_path / "other.px"
+    assert run("dup", f"{f}:walker", "idle", "-o", o) == 0
+    assert f"is '@frame walker' in {o}" in capsys.readouterr().out and f.read_text() == GRID
+    assert run("dup", f"{f}:walker", "idle", "--dry-run") == 0
+    assert "would be '@frame walker'" in capsys.readouterr().out and f.read_text() == GRID
+
+
+def test_inside_says_nothing_of_a_dark_rim(tmp_path, capsys):
+    f = write(tmp_path, "m.px", DARK)
+    assert run("outline", f, "--key", "k", "--inside", "--dry-run") == 0
+    assert "as dark as" not in capsys.readouterr().out
