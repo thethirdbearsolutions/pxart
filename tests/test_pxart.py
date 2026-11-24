@@ -744,7 +744,7 @@ def test_anim_writes_gif_and_strip_with_file_durations(tmp_path):
     for i in range(gif.n_frames):
         gif.seek(i)
         durs.append(gif.info["duration"])
-    assert durs == [120, 200]
+    assert durs == [120, 200, 120]  # a 2-frame pingpong, repeat=2: 0 1 0, two passes as Aseprite counts (PX-56)
     assert (tmp_path / "w.strip.png").exists()
 
 
@@ -7040,7 +7040,9 @@ def test_anim_without_output_prints_numbers_and_writes_nothing(tmp_path, capsys,
     assert run("anim", f"{p}:walk/down") == 0
     out = capsys.readouterr().out
     assert sorted(x.name for x in tmp_path.iterdir()) == before
-    assert "wrote" not in out and len(out.splitlines()) == 2 and all(" vs " in l for l in out.splitlines())
+    lines = out.splitlines()  # a pingpong with repeat=2: a note, then 0 1 0 (PX-56)
+    assert "wrote" not in out and len(lines) == 4 and lines[0].startswith("note: walk/down plays pingpong, repeat=2")
+    assert all(" vs " in l or "played through once" in l for l in lines[1:])
 
 
 @pytest.mark.parametrize("frames", [(BOB_0, BOB_1), (BREATHE_0, BREATHE_1), (WALK_0, WALK_1), (WALK_0, WALK_0)])
@@ -7057,7 +7059,7 @@ def test_anim_without_output_fps_and_variant(tmp_path, capsys):
     p = write(tmp_path, "m.px", MULTI)
     assert run("anim", f"{p}:walk/down", "--fps", "5", "--variant", "night") == 0
     out = capsys.readouterr().out
-    assert out.count("  200ms") == 2 and not list(tmp_path.glob("*.gif"))
+    assert out.count("  200ms") == 3 and not list(tmp_path.glob("*.gif"))  # 0 1 0 (PX-56)
 
 
 def test_anim_without_output_still_reports_errors(tmp_path):
@@ -23747,8 +23749,9 @@ def test_help_all_does_not_grow(capsys):
     # 72782 with check --outline naming a K see-through in the base or a variant (PX-43), in two.
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
+    # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73002
+    assert len(capsys.readouterr().out.encode()) <= 73116
 
 
 def test_help_says_each_shared_rule_once():
@@ -28443,7 +28446,7 @@ def test_anim_repeat_three_plays_the_wrap_around_between_passes(tmp_path, capsys
 def test_anim_pingpong_repeat_one_plays_once_too(tmp_path, capsys):
     p = write(tmp_path, "b.px", ONCE.replace("repeat=1", "direction=pingpong repeat=1"))
     assert run("anim", f"{p}:land") == 0
-    assert "plays once (repeat=1); no wrap-around" in capsys.readouterr().out
+    assert "plays once (repeat=1); no wrap-around" in capsys.readouterr().out  # PX-56
 
 
 def test_anim_whole_file_says_plays_once_per_group(tmp_path, capsys):
