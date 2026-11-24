@@ -134,3 +134,10 @@ def test_compose_with_rekey_or_into_a_new_file_has_no_note(tmp_path, monkeypatch
     assert "would give those pixels new letters" not in capsys.readouterr().out
     assert run("compose", "-o", "fresh.px", "quarter.px@0,0", "tiles.px:a@0,0") == 0
     assert "would give those pixels new letters" not in capsys.readouterr().out
+
+
+def test_several_layers_of_one_file_draw(tmp_path, monkeypatch, capsys):  # PX-49 loop: "layers 1-2 (...) draws"
+    setup(tmp_path, monkeypatch)
+    assert run("compose", "-o", "tiles.px:c", "quarter.px@0,0", "quarter.px@2,2") == 0
+    out = capsys.readouterr().out
+    assert "WARNING: layers 1-2 (quarter.px) draw 'D'" in out and "draws 'D'" not in out

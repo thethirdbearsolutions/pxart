@@ -3172,7 +3172,8 @@ def said_vclash(label, d, ks, dst, opath, vmap, rekey_said, asked=None):
                          f"{k!r}, which {opath}'s variants color otherwise: {each}; those pixels take {opath}'s colors "
                          "there")
         else:
-            lines.append(f"WARNING: {label} draws {k!r} {fmt_color(base)} in {opath}'s variant colors, not "
+            lines.append(f"WARNING: {label} draw{'' if label.startswith('layers ') else 's'} {k!r} {fmt_color(base)} "
+                         f"in {opath}'s variant colors, not "
                          f"{d.path.name}'s: {each}; {rekey_said} {k} gives it a key of its own")
     return lines
 
