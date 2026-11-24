@@ -63,3 +63,45 @@ def test_the_1x_copy_sits_beside_the_label(monkeypatch, tmp_path, w, h):
     rows = [[sheet.getpixel((x, y)) for x in range(sheet.width)] for y in range(sheet.height)]
     found = any(r[x:x + w] == want for r in rows for x in range(sheet.width - w))
     assert found
+
+
+# ---------------------------------------------------------------- the PR #29 review's findings
+
+
+def test_review_1_a_repeat_past_a_gifs_reach_is_capped_with_a_note(tmp_path, capsys):
+    f = write(tmp_path, "a.px", idle(70000))
+    assert run("anim", f"{f}:idle", "-o", tmp_path / "a.gif") == 0
+    assert Image.open(tmp_path / "a.gif").info.get("loop") == 65535
+    assert "note: a GIF plays at most 65536 times; repeat=70000 is written as that many" in capsys.readouterr().out
+
+
+def test_review_3_one_file_named_in_pieces_is_one_group(tmp_path):
+    f = write(tmp_path, "a.px", idle(1))
+    assert run("anim", f"{f}:idle/0", f"{f}:idle/1", f"{f}:idle/2", "-o", tmp_path / "a.gif") == 0
+    assert Image.open(tmp_path / "a.gif").info.get("loop") is None  # the whole group, so it plays once
+
+
+def test_review_4_a_part_of_a_group_loops_as_selected(tmp_path):
+    f = write(tmp_path, "a.px", idle(3))
+    assert run("anim", f"{f}:idle/1", f"{f}:idle/2", "-o", tmp_path / "a.gif") == 0
+    assert Image.open(tmp_path / "a.gif").info.get("loop") == 0
+
+
+def test_review_11_dir_of_groups_each_with_its_own_repeat(tmp_path):
+    f = write(tmp_path, "a.px", "k #3f2631\ng #43e1b3\n@anim a ms=100 repeat=1\n@anim b ms=100 repeat=3\n"
+              "@frame a/0\nkg\n@frame a/1\ngk\n@frame b/0\nkk\n@frame b/1\ngg\n@frame c/0\nkg\n@frame c/1\ngk\n")
+    assert run("anim", f, "-o", tmp_path / "out") == 0
+    loops = {n: Image.open(tmp_path / "out" / f"{n}.gif").info.get("loop") for n in "abc"}
+    assert loops == {"a": None, "b": 2, "c": 0}
+
+
+def test_review_8_a_three_digit_count_widens_the_label(tmp_path):
+    from PIL import ImageDraw
+    big = Image.new("RGBA", (8, 30))
+    big.putdata([(i, 255 - i, (i * 7) % 256, 255) for i in range(240)])
+    png = tmp_path / "many.png"
+    big.save(png)
+    assert run("sheet", png, "-o", tmp_path / "s.png") == 0
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    want = pxart.text_w(probe, "8x30") + pxart.LABEL_GAP + pxart.text_w(probe, "240c") + 8 + 8 + 2 * 10
+    assert Image.open(tmp_path / "s.png").width >= want  # the label, a gap and the 1x copy all fit

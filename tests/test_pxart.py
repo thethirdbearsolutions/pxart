@@ -12395,7 +12395,8 @@ def size_label_w(probe, size):
 
 
 def old_sheet(its, scale=8, cols=8, bg="#3a3a44", grid=False, rulers=False):
-    """sheet as it was before --fit, for the byte-identical default."""
+    """sheet's grid layout written out apart from sheet() (as it was before --fit, with PX-50's labels: size and color
+    count apart, the 1x copy up to THUMB_H), so a change to sheet()'s default layout shows here."""
     from PIL import ImageDraw
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     tiles = [(it, pxart.upscale(it.img, scale, grid, rulers)) for it in its]
@@ -15350,25 +15351,19 @@ def test_help_documents_palette_add_already():
 
 # ---------------------------------------------------------------- sheet --align pivot
 
-# walk/1's art is 1px higher in its grid, and its pivot says so: its feet are on row 23, not 24. (25 rows tall: a
-# sheet draws no 1x copy beside the label of a frame that tall, so the only red is the cells'.)
-PIVOT_WALK = ("r #ff0000\n@anim walk pivot=1,24\n@frame walk/0\n" + "...\n" * 22 + ".r.\n.r.\n.r.\n"
-              "@frame walk/1 pivot=1,23\n" + "...\n" * 22 + ".r.\n.r.\n...\n@frame lone\n" + "r\n" * 25)
+# walk/1's art is 1px higher in its grid, and its pivot says so: its feet are on row 29, not 30. (31 rows tall: a
+# sheet draws no 1x copy beside the label of a frame taller than THUMB_H, 30, so the only red is the cells'.)
+PIVOT_WALK = ("r #ff0000\n@anim walk pivot=1,30\n@frame walk/0\n" + "...\n" * 28 + ".r.\n.r.\n.r.\n"
+              "@frame walk/1 pivot=1,29\n" + "...\n" * 28 + ".r.\n.r.\n...\n@frame lone\n" + "r\n" * 31)
 
 
 def red_rows(png, scale=1):
-    """For each run of columns holding red pixels (one per cell), the lowest row that has red. The 1x copies beside the
-    labels (PX-50: frames up to 30 px tall get one) are left out: they sit on the sheet's own dark color, where a
-    cell's frame sits on the cell's backdrop."""
+    """For each run of columns holding red pixels (one per cell), the lowest row that has red."""
     img = Image.open(png).convert("RGBA")
-    sheet_bg = (30, 30, 36, 255)
-
-    def thumb(x, y):
-        return any(0 <= x + d < img.width and img.getpixel((x + d, y)) == sheet_bg for d in (-1, 1))
     cols = {}
     for y in range(img.height):
         for x in range(img.width):
-            if img.getpixel((x, y))[:3] == (255, 0, 0) and not thumb(x, y):
+            if img.getpixel((x, y))[:3] == (255, 0, 0):
                 cols[x] = max(cols.get(x, -1), y)
     runs, prev = [], None
     for x in sorted(cols):
@@ -15430,7 +15425,7 @@ def test_sheet_align_pivot_leaves_top_level_frames_alone(tmp_path):
 def test_sheet_align_pivot_groups_are_per_file(tmp_path):
     # The same group in two files: each file's frames line up among themselves only.
     p = write(tmp_path, "w.px", PIVOT_WALK)
-    q = write(tmp_path, "v.px", "r #ff0000\n@frame walk/0\n" + "..\n" * 24 + "rr\n")
+    q = write(tmp_path, "v.px", "r #ff0000\n@frame walk/0\n" + "..\n" * 30 + "rr\n")
     out = tmp_path / "s.png"
     assert run("sheet", f"{p}:walk", f"{q}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
     low = red_rows(out)
@@ -15438,8 +15433,9 @@ def test_sheet_align_pivot_groups_are_per_file(tmp_path):
 
 
 def test_sheet_align_pivot_frame_without_pivot_uses_bottom_centre(tmp_path):
-    # walk/0 has none (bottom-centre 1,24); walk/1's pivot 1,23: the same feet row as walk/0's bottom.
-    p = write(tmp_path, "w.px", PIVOT_WALK.replace("@anim walk pivot=1,24\n", ""))
+    # walk/0 has none (bottom-centre 1,30); walk/1's pivot 1,29: the same feet row as walk/0's bottom.
+    p = write(tmp_path, "w.px", PIVOT_WALK.replace("@anim walk pivot=1,30\n", ""))
+    assert "pivot=1,30" not in p.read_text()  # the replace took
     out = tmp_path / "s.png"
     assert run("sheet", f"{p}:walk", "-o", out, "--scale", "1", "--align", "pivot") == 0
     low = red_rows(out)
