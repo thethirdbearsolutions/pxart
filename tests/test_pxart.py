@@ -7859,6 +7859,35 @@ def test_check_names_the_line_of_a_variant_base_two_imports_down(tmp_path, monke
     assert "FAIL s.px: E_BAD_ID: '@variant base' comes from pals/night.px:2:" in capsys.readouterr().out
 
 
+def test_check_names_every_variant_base_line(tmp_path, monkeypatch, capsys):
+    # PX-57 review: two '@variant base' lines in a file are both named, the first in front; two imports both named
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "dup.px").write_text("k #000000\n@variant base\nk #ff0000\n@variant base\nk #00ff00\n\nk\n")
+    assert run("check", "dup.px") == 1
+    assert "FAIL dup.px:2: E_BAD_ID: '@variant base' (also line 4): " in capsys.readouterr().out
+    for n in ("p1", "p2"):
+        (tmp_path / f"{n}.px").write_text("k #000000\n@variant base\nk #f00000\n")
+    (tmp_path / "two.px").write_text("@palette p1.px\n@palette p2.px\n\nk\n")
+    assert run("check", "two.px") == 1
+    assert "FAIL two.px: E_BAD_ID: '@variant base' comes from p1.px:2 and p2.px:2: " in capsys.readouterr().out
+
+
+def test_check_variant_base_keeps_frame_lines_and_the_tally(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "m.px").write_text("k #000000\n@variant base\nk #fff000\n@frame a/0\nk\n@frame a/1\nkk\n")
+    (tmp_path / "d" / "ok.px").write_text("k #000000\n\nk\n")
+    assert run("check", "-v", "d/m.px") == 1  # -v: every frame's line, as -v prints them
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("FAIL d/m.px:2: E_BAD_ID") and lines[1:3] == ["ok   d/m.px:a/0: 1x1 1c",
+                                                                            "ok   d/m.px:a/1: 2x1 1c"]
+    assert run("check", "--size", "1x1", "d/m.px") == 1  # frames that fail too: their count and lines
+    out = capsys.readouterr().out
+    assert "FAIL d/m.px: 1 of 2 frames fail\n     FAIL d/m.px:a/1: 2x1 1c; size 2x1 != 1x1" in out
+    assert run("check", "d") == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "2 files, 3 frames, 1 warning, 1 failed"  # the mixed sizes note
+
+
 def test_check_passes_other_variant_names(tmp_path, capsys):
     p = write(tmp_path, "l.px", "k #000000\n@variant based\nk #ffffff\n\nk\n")
     assert run("check", "--strict", p) == 0

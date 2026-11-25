@@ -4948,12 +4948,16 @@ def cmd_check(a):
                 lines.append((bool(probs), f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} "
                                            f"{len(cs)}c" + "".join(f"; {x}" for x in probs)))
             tally["frames"] += len(its)
-            if bad_base:  # the file fails: its FAIL line first, and no 'ok' line for it (frames that fail too follow)
-                failed = True
+            if bad_base:  # the file fails: its FAIL line in place of the 'ok' line, then any frames that fail with
+                failed = True  # their count, as for any file (with -v, every frame's line, as -v prints them)
                 print(f"FAIL {bad_base}")
-                for bad, l in lines:
-                    if bad or a.verbose:
-                        print(f"     {l}")
+                if a.verbose:
+                    print("\n".join(l for _, l in lines))
+                elif nbad:
+                    print(f"FAIL {path}: {nbad} of {len(its)} frames fail")
+                    for bad, l in lines:
+                        if bad:
+                            print(f"     {l}")
             elif a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
                 print("\n".join(l for _, l in lines))
             else:  # a line for the file, then the frames that fail
@@ -5903,28 +5907,41 @@ def said_repeat(doc, path, g, run, wrap):
 
 
 def base_variant_said(doc, path):
-    """check's line for a '@variant base', which never draws: 'base' is the base palette's name (%base, --variant
-    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for a line of doc's own; for one doc imports, the
-    palette file's path and line ('comes from pal.px:19'); None when there is none."""
+    """check's line for '@variant base', which never draws: 'base' is the base palette's name (%base, --variant
+    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for doc's own lines (every one, the first in front);
+    for imported ones, every palette file's line ('comes from pal.px:19'); None when there is none."""
     why = ("'base' is the base palette's name (%base and --variant base draw the base colors), so this "
            "variant's colors never draw; give it another name")
-    where = base_variant_at(doc, path)
-    if where is None:
-        return None
-    if where[0] == path:
-        return f"{where[1]}: E_BAD_ID: '@variant base': {why} (edit the line: @variant NAME)"
-    return f"{path}: E_BAD_ID: '@variant base' comes from {where[1]}: {why} there (edit that line: @variant NAME)"
+    own, imported = base_variant_at(doc, path)
+    if own:
+        more = f" (also line{'s' * (len(own) > 2)} {', '.join(str(n) for n in own[1:])})" if len(own) > 1 else ""
+        return f"{path}:{own[0]}: E_BAD_ID: '@variant base'{more}: {why} (edit the line: @variant NAME)"
+    if imported:
+        return (f"{path}: E_BAD_ID: '@variant base' comes from {' and '.join(imported)}: {why} there (edit "
+                f"{'that line' if len(imported) == 1 else 'those lines'}: @variant NAME)")
+    return None
+
+
+def base_variant_lines(doc):
+    """The line numbers of doc's own '@variant base' lines, in file order (doc.at keeps only the last of a name)."""
+    if "base" not in doc.variants:
+        return []
+    try:
+        text = pathlib.Path(doc.path).read_text() if doc.path else ""
+    except OSError:
+        text = ""
+    got = [n for n, l in enumerate(text.splitlines(), 1) if l.split() == ["@variant", "base"]]
+    return got or [doc.at.get(("variant", "base")) or "?"]
 
 
 def base_variant_at(doc, path, seen=None):
-    """Where doc's '@variant base' is: (the file, 'FILE:LINE'), its own line first, then its @palette imports' (read
-    from doc's folder, as @palette is); None when none has one."""
-    if "base" in doc.variants:
-        n = doc.at.get(("variant", "base"))
-        return path, f"{path}{f':{n}' if n else ''}"
-    if "base" not in doc.shared_variants or not doc.path:
-        return None
-    seen = seen if seen is not None else set()
+    """Where doc's '@variant base' lines are: (its own line numbers, ['FILE:LINE' of its @palette imports' (read from
+    doc's folder, as @palette is), every one]). An own line hides the imports' (it is the one to fix first)."""
+    own = base_variant_lines(doc)
+    if own or "base" not in doc.shared_variants or not doc.path:
+        return own, []
+    seen = seen if seen is not None else {pathlib.Path(doc.path).resolve()}
+    found = []
     for ref in doc.palette_refs:
         p = pathlib.Path(doc.path).parent / ref
         if p.resolve() in seen:
@@ -5935,10 +5952,9 @@ def base_variant_at(doc, path, seen=None):
         except (PxError, OSError):
             continue
         shown = posixpath.normpath((pathlib.Path(path).parent / ref).as_posix())
-        got = base_variant_at(sub, shown, seen)
-        if got:
-            return got
-    return "", " and ".join(doc.palette_refs) or "its @palette"  # an import that didn't read: name it only
+        lines, deeper = base_variant_at(sub, shown, seen)
+        found += [f"{shown}:{n}" for n in lines] + deeper
+    return [], found or [" and ".join(doc.palette_refs) or "its @palette"]  # an import that didn't read: name it
 
 
 def orphans(doc):

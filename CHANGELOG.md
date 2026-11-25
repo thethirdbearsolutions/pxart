@@ -10,10 +10,11 @@ release, entries are grouped by the day they landed on `main`. The file format i
 
 - **`check` fails a `@variant base` (PX-57).** `base` is the base palette's name: `%base` and `--variant base` draw
   the base colors whatever the file says, so a `@variant base` parsed and its colors never drew, and `check` only
-  noted it. Now the file fails, in one line with the line number and no `ok` line beside it: `FAIL pal.px:19:
+  noted it. Now the file fails, its FAIL line in place of the `ok` line, naming every such line (the first in
+  front): `FAIL pal.px:19:
   E_BAD_ID: '@variant base': 'base' is the base palette's name (%base and --variant base draw the base colors), so
   this variant's colors never draw; give it another name (edit the line: @variant NAME)`. A sprite that gets one
-  through `@palette` fails naming the palette file's line (`comes from pal.px:19`, through nested imports too).
+  through `@palette` fails naming the palette files' lines (`comes from pal.px:19`, through nested imports too).
   Files still parse and render as before.
 
 ## 2026-11-24
