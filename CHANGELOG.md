@@ -4,6 +4,16 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-25
+
+### Fixed
+
+- **`check` fails a `@variant base` (PX-57).** `base` is the base palette's name: `%base` and `--variant base` draw
+  the base colors whatever the file says, so a `@variant base` parsed and its colors never drew, and `check` only
+  noted it. Now it fails with the line: `FAIL hero.px:3: E_BAD_ID: '@variant base': 'base' is the base palette's
+  name (%base and --variant base draw the base colors), so these colors never draw; give the variant another name`,
+  and a sprite that gets one through `@palette` fails naming the palette file. Files still parse and render as before.
+
 ## 2026-11-24
 
 ### Fixed

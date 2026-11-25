@@ -7828,10 +7828,28 @@ def test_export_base(tmp_path):
     assert px1(tmp_path / "f" / "lamp.png", (0, 0))[:3] == (0xF0, 0xC0, 0x40)
 
 
-def test_check_notes_variant_named_base(tmp_path, capsys):
+def test_check_fails_variant_named_base(tmp_path, capsys):
+    # PX-57: 'base' is the base palette's name (%base, --variant base), so a @variant base never draws
     p = write(tmp_path, "l.px", "k #000000\n@variant base\nk #ffffff\n\nk\n")
-    assert run("check", p) == 0
-    assert "'@variant base' can't be picked" in capsys.readouterr().out
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {p}:2: E_BAD_ID: '@variant base': 'base' is the base palette's name" in out
+    assert "give the variant another name" in out
+
+
+def test_check_fails_variant_named_base_in_a_palette_file(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "k #000000\n\n@variant base\nk #ffffff\n")
+    s = write(tmp_path, "s.px", "@palette pal.px\n\nk\n")
+    assert run("check", pal) == 1
+    assert f"FAIL {pal}:3: E_BAD_ID: '@variant base'" in capsys.readouterr().out
+    assert run("check", s) == 1
+    assert f"FAIL {s}: E_BAD_ID: '@variant base' comes from pal.px" in capsys.readouterr().out
+
+
+def test_check_passes_other_variant_names(tmp_path, capsys):
+    p = write(tmp_path, "l.px", "k #000000\n@variant based\nk #ffffff\n\nk\n")
+    assert run("check", "--strict", p) == 0
+    assert "E_BAD_ID" not in capsys.readouterr().out
 
 
 def test_help_documents_percent_base():

@@ -4835,6 +4835,9 @@ def cmd_check(a):
                     for name, ks in half_variants(pdoc):
                         print(f"     {path}: {said_half(pdoc, name, ks)}")
                         tally["warnings"] += 1
+                    if base_variant_said(pdoc, path):
+                        failed = True
+                        print(f"FAIL {base_variant_said(pdoc, path)}")
                 except PxError as e:
                     failed = True
                     print(f"FAIL {path}: {len(e.issues)} error(s)")
@@ -4849,7 +4852,7 @@ def cmd_check(a):
                 for i in e.issues:
                     print(f"     {i}")
                 continue
-            notes, slot_off = [], ""
+            notes, slot_off, bad_base = [], "", None
             if its and its[0].doc:
                 doc = its[0].doc
                 over = [k for k in doc.palette if k in doc.shared and not same_key(doc.palette[k], doc.shared[k])]
@@ -4887,9 +4890,7 @@ def cmd_check(a):
                         notes.append(f"frame {f.id}: pivot {fmt_setting(pv)} ({whose}) is outside its {f.size[0]}x"
                                      f"{f.size[1]} frame (allowed: a hand or the ground below the feet; check it's "
                                      "not a typo)")
-                if "base" in doc.variants or "base" in doc.shared_variants:
-                    notes.append("'@variant base' can't be picked: %base and --variant base mean the base palette; "
-                                 "rename it")
+                bad_base = base_variant_said(doc, path)
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
                         notes.append(f"animation {g!r} mixes frame sizes ("
@@ -4957,6 +4958,9 @@ def cmd_check(a):
             gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
             gaps += headroom_said(its, path, a.headroom) if a.headroom else []
             pxed |= any(it.frame is not None for it in its)
+            if bad_base:
+                failed = True
+                print(f"FAIL {bad_base}")
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
                 print(f"FAIL {path}: slot alternatives off-palette: {slot_off}")
@@ -5891,6 +5895,22 @@ def said_repeat(doc, path, g, run, wrap):
             + (still or "") + f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
             + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]) + "; "
             + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")" + mixed)
+
+
+def base_variant_said(doc, path):
+    """check's line for a '@variant base', which never draws: 'base' is the base palette's name (%base, --variant
+    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for a line of doc's own, or one naming the @palette
+    file it comes from; None when there is none."""
+    why = ("'base' is the base palette's name (%base and --variant base draw the base colors), so these colors "
+           "never draw; give the variant another name")
+    if "base" in doc.variants:
+        n = doc.at.get(("variant", "base"))
+        return f"{path}{f':{n}' if n else ''}: E_BAD_ID: '@variant base': {why} (edit the line: @variant NAME)"
+    if "base" in doc.shared_variants:
+        refs = " and ".join(doc.palette_refs) or "its @palette"
+        return (f"{path}: E_BAD_ID: '@variant base' comes from {refs}: {why} there (check {refs} names the "
+                "line)")
+    return None
 
 
 def orphans(doc):
