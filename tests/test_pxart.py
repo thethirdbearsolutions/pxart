@@ -7828,10 +7828,70 @@ def test_export_base(tmp_path):
     assert px1(tmp_path / "f" / "lamp.png", (0, 0))[:3] == (0xF0, 0xC0, 0x40)
 
 
-def test_check_notes_variant_named_base(tmp_path, capsys):
+def test_check_fails_variant_named_base(tmp_path, capsys):
+    # PX-57: 'base' is the base palette's name (%base, --variant base), so a @variant base never draws
     p = write(tmp_path, "l.px", "k #000000\n@variant base\nk #ffffff\n\nk\n")
-    assert run("check", p) == 0
-    assert "'@variant base' can't be picked" in capsys.readouterr().out
+    assert run("check", p) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {p}:2: E_BAD_ID: '@variant base': 'base' is the base palette's name" in out
+    assert "give it another name (edit the line: @variant NAME)" in out
+    assert "ok   " not in out  # one FAIL line for the file, no 'ok' above or below it (PX-57 loop)
+
+
+def test_check_fails_variant_named_base_in_a_palette_file(tmp_path, capsys):
+    pal = write(tmp_path, "pal.px", "k #000000\n\n@variant base\nk #ffffff\n")
+    s = write(tmp_path, "s.px", "@palette pal.px\n\nk\n")
+    assert run("check", pal) == 1
+    assert f"FAIL {pal}:3: E_BAD_ID: '@variant base'" in capsys.readouterr().out
+    assert run("check", s) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL {s}: E_BAD_ID: '@variant base' comes from {tmp_path.as_posix()}/pal.px:3:" in out
+    assert "ok   " not in out
+
+
+def test_check_names_the_line_of_a_variant_base_two_imports_down(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pals").mkdir()
+    (tmp_path / "pals" / "night.px").write_text("k #000000\n@variant base\nk #ffffff\n")
+    (tmp_path / "pals" / "pal.px").write_text("@palette night.px\n")
+    (tmp_path / "s.px").write_text("@palette pals/pal.px\n\nk\n")
+    assert run("check", "s.px") == 1
+    assert "FAIL s.px: E_BAD_ID: '@variant base' comes from pals/night.px:2:" in capsys.readouterr().out
+
+
+def test_check_names_every_variant_base_line(tmp_path, monkeypatch, capsys):
+    # PX-57 review: two '@variant base' lines in a file are both named, the first in front; two imports both named
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "dup.px").write_text("k #000000\n@variant base\nk #ff0000\n@variant base\nk #00ff00\n\nk\n")
+    assert run("check", "dup.px") == 1
+    assert "FAIL dup.px:2: E_BAD_ID: '@variant base' (also line 4): " in capsys.readouterr().out
+    for n in ("p1", "p2"):
+        (tmp_path / f"{n}.px").write_text("k #000000\n@variant base\nk #f00000\n")
+    (tmp_path / "two.px").write_text("@palette p1.px\n@palette p2.px\n\nk\n")
+    assert run("check", "two.px") == 1
+    assert "FAIL two.px: E_BAD_ID: '@variant base' comes from p1.px:2 and p2.px:2: " in capsys.readouterr().out
+
+
+def test_check_variant_base_keeps_frame_lines_and_the_tally(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "m.px").write_text("k #000000\n@variant base\nk #fff000\n@frame a/0\nk\n@frame a/1\nkk\n")
+    (tmp_path / "d" / "ok.px").write_text("k #000000\n\nk\n")
+    assert run("check", "-v", "d/m.px") == 1  # -v: every frame's line, as -v prints them
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("FAIL d/m.px:2: E_BAD_ID") and lines[1:3] == ["ok   d/m.px:a/0: 1x1 1c",
+                                                                            "ok   d/m.px:a/1: 2x1 1c"]
+    assert run("check", "--size", "1x1", "d/m.px") == 1  # frames that fail too: their count and lines
+    out = capsys.readouterr().out
+    assert "FAIL d/m.px: 1 of 2 frames fail\n     FAIL d/m.px:a/1: 2x1 1c; size 2x1 != 1x1" in out
+    assert run("check", "d") == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "2 files, 3 frames, 1 warning, 1 failed"  # the mixed sizes note
+
+
+def test_check_passes_other_variant_names(tmp_path, capsys):
+    p = write(tmp_path, "l.px", "k #000000\n@variant based\nk #ffffff\n\nk\n")
+    assert run("check", "--strict", p) == 0
+    assert "E_BAD_ID" not in capsys.readouterr().out
 
 
 def test_help_documents_percent_base():

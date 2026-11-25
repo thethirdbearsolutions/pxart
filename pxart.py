@@ -4826,8 +4826,13 @@ def cmd_check(a):
                         failed = True
                         tally["warnings"] += 1
                         continue
-                    print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
-                          + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                    bad_base = base_variant_said(pdoc, path)
+                    if bad_base:  # one FAIL line, not an 'ok' line listing base as a variant above it
+                        failed = True
+                        print(f"FAIL {bad_base}")
+                    else:
+                        print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
+                              + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
                     if empty:
                         print(f"     {path}: empty: nothing in it (a command whose output was redirected there and "
                               f"failed leaves one; run it again, or remove {path}; --strict fails it)")
@@ -4849,7 +4854,7 @@ def cmd_check(a):
                 for i in e.issues:
                     print(f"     {i}")
                 continue
-            notes, slot_off = [], ""
+            notes, slot_off, bad_base = [], "", None
             if its and its[0].doc:
                 doc = its[0].doc
                 over = [k for k in doc.palette if k in doc.shared and not same_key(doc.palette[k], doc.shared[k])]
@@ -4887,9 +4892,7 @@ def cmd_check(a):
                         notes.append(f"frame {f.id}: pivot {fmt_setting(pv)} ({whose}) is outside its {f.size[0]}x"
                                      f"{f.size[1]} frame (allowed: a hand or the ground below the feet; check it's "
                                      "not a typo)")
-                if "base" in doc.variants or "base" in doc.shared_variants:
-                    notes.append("'@variant base' can't be picked: %base and --variant base mean the base palette; "
-                                 "rename it")
+                bad_base = base_variant_said(doc, path)
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
                         notes.append(f"animation {g!r} mixes frame sizes ("
@@ -4945,7 +4948,17 @@ def cmd_check(a):
                 lines.append((bool(probs), f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} "
                                            f"{len(cs)}c" + "".join(f"; {x}" for x in probs)))
             tally["frames"] += len(its)
-            if a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
+            if bad_base:  # the file fails: its FAIL line in place of the 'ok' line, then any frames that fail with
+                failed = True  # their count, as for any file (with -v, every frame's line, as -v prints them)
+                print(f"FAIL {bad_base}")
+                if a.verbose:
+                    print("\n".join(l for _, l in lines))
+                elif nbad:
+                    print(f"FAIL {path}: {nbad} of {len(its)} frames fail")
+                    for bad, l in lines:
+                        if bad:
+                            print(f"     {l}")
+            elif a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
                 print("\n".join(l for _, l in lines))
             else:  # a line for the file, then the frames that fail
                 cs = f"{min(ncs)}c" if min(ncs) == max(ncs) else f"{min(ncs)}-{max(ncs)}c"
@@ -5891,6 +5904,57 @@ def said_repeat(doc, path, g, run, wrap):
             + (still or "") + f"for a hold, remove {both([f.id for f in drop])} and give {keep.id} ms={hold} ("
             + shlex.join(["pxart", "frames", path, "--rm"] + [f.id for f in drop]) + "; "
             + shlex.join(["pxart", "anim-set", f"{path}:{keep.id}", f"ms={hold}"]) + ")" + mixed)
+
+
+def base_variant_said(doc, path):
+    """check's line for '@variant base', which never draws: 'base' is the base palette's name (%base, --variant
+    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for doc's own lines (every one, the first in front);
+    for imported ones, every palette file's line ('comes from pal.px:19'); None when there is none."""
+    why = ("'base' is the base palette's name (%base and --variant base draw the base colors), so this "
+           "variant's colors never draw; give it another name")
+    own, imported = base_variant_at(doc, path)
+    if own:
+        more = f" (also line{'s' * (len(own) > 2)} {', '.join(str(n) for n in own[1:])})" if len(own) > 1 else ""
+        return f"{path}:{own[0]}: E_BAD_ID: '@variant base'{more}: {why} (edit the line: @variant NAME)"
+    if imported:
+        return (f"{path}: E_BAD_ID: '@variant base' comes from {' and '.join(imported)}: {why} there (edit "
+                f"{'that line' if len(imported) == 1 else 'those lines'}: @variant NAME)")
+    return None
+
+
+def base_variant_lines(doc):
+    """The line numbers of doc's own '@variant base' lines, in file order (doc.at keeps only the last of a name)."""
+    if "base" not in doc.variants:
+        return []
+    try:
+        text = pathlib.Path(doc.path).read_text() if doc.path else ""
+    except OSError:
+        text = ""
+    got = [n for n, l in enumerate(text.splitlines(), 1) if l.split() == ["@variant", "base"]]
+    return got or [doc.at.get(("variant", "base")) or "?"]
+
+
+def base_variant_at(doc, path, seen=None):
+    """Where doc's '@variant base' lines are: (its own line numbers, ['FILE:LINE' of its @palette imports' (read from
+    doc's folder, as @palette is), every one]). An own line hides the imports' (it is the one to fix first)."""
+    own = base_variant_lines(doc)
+    if own or "base" not in doc.shared_variants or not doc.path:
+        return own, []
+    seen = seen if seen is not None else {pathlib.Path(doc.path).resolve()}
+    found = []
+    for ref in doc.palette_refs:
+        p = pathlib.Path(doc.path).parent / ref
+        if p.resolve() in seen:
+            continue
+        seen.add(p.resolve())
+        try:
+            sub = parse(str(p), palette_only=True)
+        except (PxError, OSError):
+            continue
+        shown = posixpath.normpath((pathlib.Path(path).parent / ref).as_posix())
+        lines, deeper = base_variant_at(sub, shown, seen)
+        found += [f"{shown}:{n}" for n in lines] + deeper
+    return [], found or [" and ".join(doc.palette_refs) or "its @palette"]  # an import that didn't read: name it
 
 
 def orphans(doc):

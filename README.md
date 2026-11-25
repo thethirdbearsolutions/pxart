@@ -230,7 +230,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   pxart compose --map room.map -o room.px`, paths from its folder), so a variant `WARNING` about
   it can offer composing it again once the map's sprites have that variant.
 - **Checking:** `check` (format errors, size, off-palette colors, color budget, unused
-  keys; an empty `.px` is a warning, which `--strict` fails; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
+  keys; an empty `.px` is a warning, which `--strict` fails; a `@variant base` fails as `E_BAD_ID`, since `base` is
+  the base palette's name (`%base`, `--variant base`) and its colors never draw; `.map` tilemaps too; `check crossover/` checks every `.px` and `.map` under it;
   notes Cyrillic/Greek/fullwidth letters posing as ASCII, `@anim`/`@still` lines with
   no frames, and neighbour frames of an animation that draw the same in every variant
   (`idle/1 and idle/2 are identical`, the wrap from last to first too when it loops: a
