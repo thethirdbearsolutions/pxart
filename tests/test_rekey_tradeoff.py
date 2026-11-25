@@ -126,8 +126,7 @@ def test_crop_warns_only_for_the_keys_it_copies(tmp_path, monkeypatch, capsys):
     setup(tmp_path, monkeypatch)
     assert run("crop", "quarter.px", "0,0,2,1", "-o", "tiles.px:d") == 0
     warns = [l for l in capsys.readouterr().out.splitlines() if l.startswith("WARNING")]
-    assert warns and all("'D'" not in l and "'F'" not in l for l in warns)
-    assert any("'E'" in l for l in warns) and any("'L'" in l for l in warns)
+    assert len(warns) == 2 and any("'E'" in l for l in warns) and any("'L'" in l for l in warns)
     assert "@frame d\nLE\n" in (tmp_path / "tiles.px").read_text()
 
 
@@ -135,7 +134,15 @@ def test_compose_layer_partly_off_the_canvas_warns_only_for_what_lands(tmp_path,
     setup(tmp_path, monkeypatch)  # quarter.px's bottom row FD lands below a 2x1 canvas
     assert run("compose", "-o", "tiles.px:e", "--size", "2x1", "quarter.px@0,0") == 0
     out = capsys.readouterr().out
-    assert "'D'" not in out and "'F'" not in out and "'L'" in out
+    assert "'D'" not in out and "'F'" not in out and "'L'" in out and "'E'" in out
+
+
+def test_crop_rekey_of_a_key_outside_the_region_says_why(tmp_path, monkeypatch, capsys):
+    # PX-58 review: --rekey D,F on a crop that doesn't copy them is no move, and the note says it may be that
+    setup(tmp_path, monkeypatch)
+    assert run("crop", "quarter.px", "0,0,2,1", "-o", "tiles.px:d", "--rekey", "D,F") == 0
+    assert ("note: --rekey D F: no other key needed; tiles.px has them in the same colors, or no copied pixel draws "
+            "them (a crop's region, or a layer off the canvas)") in capsys.readouterr().out
 
 
 def test_compose_after_a_partial_rekey_says_add(tmp_path, monkeypatch, capsys):

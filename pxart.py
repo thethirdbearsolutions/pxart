@@ -8052,7 +8052,8 @@ def cmd_compose(a):
             why.setdefault(path, {}).update({k: w for k, w in whys.get(path, {}).items() if k in moves})
         if needless:
             print(f"note: --rekey {' '.join(sorted(needless))}: no other key needed; {opath} has "
-                  f"{'them' if len(needless) > 1 else 'it'} in the same colors")
+                  f"{'them' if len(needless) > 1 else 'it'} in the same colors, or no copied pixel draws "
+                  f"{'them' if len(needless) > 1 else 'it'} (a crop's region, or a layer off the canvas)")
         renamed = {p: m for p, m in renamed.items() if m}
     compose(a, layers, gone=gone, vmap=vmap, notes=notes, renamed=renamed, moved=why)
 
