@@ -29383,12 +29383,21 @@ def test_export_tiled_writes_a_group_in_play_order(tmp_path, capsys):
     assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4  # the animated tile is still the group's first
     out = capsys.readouterr().out
     assert ("note: w has repeat=2, and a Tiled tile animation loops forever: it plays its cycle on a loop there "
-            "(the game stops it, or export --aseprite keeps the repeat)") in out
+            "(the game stops it, or export --aseprite keeps the repeat); a pingpong's repeat counts one-way passes, "
+            "so stop it after 2 passes, not 2 times round the list") in out
     assert "note: r " not in out and "note: q " not in out
 
 
 def test_export_tiled_two_frame_pingpong_plays_0_1(tmp_path):
     p = write(tmp_path, "t.px", "k #000000\n@anim w direction=pingpong\n@frame w/0\nk\n@frame w/1\n.\n")
     assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
+    assert [a["tileid"] for a in tile["animation"]] == [0, 1]
+
+
+def test_export_tiled_part_of_a_group_plays_as_selected(tmp_path):
+    # PX-62 loop: a part of a reversed group plays as selected, as anim plays it
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", f"{p}:r/0", f"{p}:r/2", "--tiled", tmp_path / "t.tsj") == 0
     (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
     assert [a["tileid"] for a in tile["animation"]] == [0, 1]

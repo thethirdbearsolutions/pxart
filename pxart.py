@@ -10271,15 +10271,19 @@ def cmd_export(a):
             way = meta.get("direction") or "forward"
             # a Tiled tile animation is a plain list that loops forever: the frames go in play order, one cycle as
             # anim loops it (reverse 3 2 1 0, pingpong 0 1 2 3 2 1), and a finite repeat can't be kept (PX-62)
-            played = way_order(fs, way)
+            whole = [f.id for f in fs] == [f.id for f in doc.frames if f.group == g]
+            played = way_order(fs, way) if whole else fs  # a part of a group plays as selected, as in anim
             tiles.append({"id": index[id(fs[0])],
                           "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in played],
                           "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
             if meta.get("repeat"):
+                passes = (f"; a pingpong's repeat counts one-way passes, so stop it after {meta['repeat']} "
+                          f"pass{'es' * (meta['repeat'] != 1)}, not {meta['repeat']} times round the list"
+                          if way.startswith("pingpong") and whole else "")
                 tiled_notes.append(f"note: {tag_name} has repeat={meta['repeat']}, and a Tiled tile animation "
-                                   "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") else
-                                                                 "its frames") + " on a loop there (the game stops "
-                                   "it, or export --aseprite keeps the repeat)")
+                                   "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") and whole
+                                                                 else "its frames") + " on a loop there (the game "
+                                   "stops it, or export --aseprite keeps the repeat)" + passes)
         data = {"type": "tileset", "version": "1.10", "name": entries[0][0].stem if len(entries) == 1 else tp.stem,
                 "image": ip.name, "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
                 "tilewidth": cw, "tileheight": ch, "columns": cols, "tilecount": len(its),
