@@ -24,6 +24,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
   out/a.png' one)`. With a bare `--png` the folder is the file's own, where `--png` would have written, the PNG is named by the
   frame's id as export names it, and a `--variant` comes along.
 
+- **crop's variant WARNINGs name only the keys it copies (PX-58).** `crop quarter.px 0,0,2,1 -o tiles.px:d` on a
+  frame `LE` / `FD` copies `LE`, yet warned that quarter.px `draws 'D'` and `'F'` in tiles.px's night colors, and
+  the note after the WARNINGs offered `crop --rekey D,E,F,L`. The keys now come from the pixels that land on the
+  canvas (the crop's region, or the part of a compose layer inside OUT), so it warns for E and L and offers
+  `crop --rekey E,L`.
+
 ## 2026-11-24
 
 ### Fixed
