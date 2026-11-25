@@ -23810,9 +23810,9 @@ def test_help_all_does_not_grow(capsys):
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
     # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
-    # 73168 with from-png -o OUT:ID (PX-23), in a clause.
+    # 73168 with from-png -o OUT:ID (PX-23), in a clause. 73175 with export --tiled's play order (PX-62), in three words.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73168
+    assert len(capsys.readouterr().out.encode()) <= 73175
 
 
 def test_help_says_each_shared_rule_once():
@@ -29472,3 +29472,51 @@ def test_render_png_routes_run_as_printed(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "'pxart render 'one.px:*' --plain -o one.png' that frame" in out
     assert run_route(out) == [0, 0] and (tmp_path / "one.png").exists() and not (tmp_path / "*.png").exists()
+
+
+TILED_WAYS = ("k #000000\n@anim w direction=pingpong ms=100 repeat=2\n@anim r direction=reverse\n@anim q direction="
+              "pingpong_reverse\n@frame w/0\nk.\n@frame w/1\n.k\n@frame w/2\nkk\n@frame w/3\n..\n@frame r/0\nk.\n"
+              "@frame r/1\n.k\n@frame r/2\nkk\n@frame q/0\nk.\n@frame q/1\n.k\n@frame q/2\nkk\n")
+
+
+def test_export_tiled_writes_a_group_in_play_order(tmp_path, capsys):
+    # PX-62: a Tiled tile animation is a plain list that loops forever, so the frames go in the order anim plays them
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    tiles = {t["properties"][0]["value"]: t for t in json.loads((tmp_path / "t.tsj").read_text())["tiles"]}
+    assert [a["tileid"] for a in tiles["w"]["animation"]] == [0, 1, 2, 3, 2, 1]
+    assert [a["tileid"] for a in tiles["r"]["animation"]] == [6, 5, 4]
+    assert [a["tileid"] for a in tiles["q"]["animation"]] == [9, 8, 7, 8]
+    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4  # the animated tile is still the group's first
+    out = capsys.readouterr().out
+    assert ("note: w has repeat=2, and a Tiled tile animation loops forever: it plays its cycle on a loop there "
+            "(the game stops it, or export --aseprite keeps the repeat); a pingpong's repeat counts one-way passes, "
+            "so stop it after 2 passes, not 2 times round the list") in out
+    assert "note: r " not in out and "note: q " not in out
+
+
+def test_export_tiled_two_frame_pingpong_plays_0_1(tmp_path):
+    p = write(tmp_path, "t.px", "k #000000\n@anim w direction=pingpong\n@frame w/0\nk\n@frame w/1\n.\n")
+    assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
+    assert [a["tileid"] for a in tile["animation"]] == [0, 1]
+
+
+def test_export_tiled_part_of_a_group_plays_as_selected(tmp_path):
+    # PX-62 loop: a part of a reversed group plays as selected, as anim plays it
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", f"{p}:r/0", f"{p}:r/2", "--tiled", tmp_path / "t.tsj") == 0
+    (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
+    assert [a["tileid"] for a in tile["animation"]] == [0, 1]
+
+
+def test_export_tiled_repeat_note_wording(tmp_path, capsys):
+    # PX-62 review: a forward group's note has no passes clause; a pingpong with repeat=1 says 'once'; --prefix-file
+    # names the group as its tag
+    p = write(tmp_path, "t.px", "k #000000\n@anim d repeat=1\n@anim w direction=pingpong repeat=1\n"
+                                "@frame d/0\nk\n@frame d/1\n.\n@frame w/0\nk\n@frame w/1\n.\n@frame w/2\nk\n")
+    assert run("export", p, "--tiled", tmp_path / "t.tsj", "--prefix-file") == 0
+    out = capsys.readouterr().out
+    assert ("note: t/d has repeat=1, and a Tiled tile animation loops forever: it plays its frames on a loop there "
+            "(the game stops it, or export --aseprite keeps the repeat)\n") in out
+    assert "note: t/w has repeat=1" in out and "so stop it after 1 pass, not once round the list" in out

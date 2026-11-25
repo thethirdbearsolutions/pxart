@@ -30,6 +30,12 @@ release, entries are grouped by the day they landed on `main`. The file format i
   canvas (the crop's region, or the part of a compose layer inside OUT), so it warns for E and L and offers
   `crop --rekey E,L`.
 
+- **`export --tiled` writes a group's frames in play order (PX-62).** A Tiled tile animation is a plain frame list
+  that loops forever, and pxart wrote a group's frames in file order, so a `pingpong` or `reverse` group played
+  forward in Tiled. Now the list is one cycle as `anim` loops it: `reverse` 3 2 1 0, `pingpong` 0 1 2 3 2 1,
+  `pingpong_reverse` 3 2 1 0 1 2. A group with a `repeat` gets `note: walk has repeat=2, and a Tiled tile animation
+  loops forever: ...`, since Tiled can't stop one.
+
 ## 2026-11-24
 
 ### Fixed
