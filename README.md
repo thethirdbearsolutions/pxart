@@ -403,7 +403,9 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
     `--prefix-file` ids them `roofs/roof-red`.
   - `export --aseprite x.json` writes a sprite sheet and JSON with frameTags (and pivots as
     `meta.slices`, the shape Aseprite's own export uses).
-  - `export --tiled x.tsj` writes a tileset with tile animations.
+  - `export --tiled x.tsj` writes a tileset with tile animations, each group's frames in the order its `direction`
+    plays them (a pingpong `0 1 2 3 2 1`), since a Tiled animation is a list that loops forever; a group with a
+    `repeat` gets a note, as Tiled can't stop one.
   - `export font.px --font font.woff2` (or `.ttf`) writes a pixel font: each frame is a glyph
     named for its character (`A`, `zero`, `period`, `uni00A0`), its width the advance, and
     its pixels one seamless outline. An `@font` section sets the metrics (baseline, units

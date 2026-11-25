@@ -3692,6 +3692,14 @@ def anim_path(d, its):
     return str(pathlib.Path(d) / f"{stem}.gif")
 
 
+def way_order(fs, way):
+    """A group's frames (or items) in the order direction `way` plays them, one cycle: forward 0 1 2 3; reverse 3 2 1
+    0; pingpong 0 1 2 3 2 1; pingpong_reverse 3 2 1 0 1 2 (a 2-frame pingpong plays 0 1)."""
+    back = list(fs)[::-1]
+    return {"reverse": back, "pingpong": list(fs) + list(fs)[-2:0:-1],
+            "pingpong_reverse": back + back[-2:0:-1]}.get(way, list(fs))
+
+
 def play_order(its):
     """The frames of one group in the order its @anim direction plays them, one cycle: forward 0 1 2 3; reverse 3 2 1
     0; pingpong 0 1 2 3 2 1 (it turns at its ends, each played once a cycle); pingpong_reverse 3 2 1 0 1 2. The
@@ -3702,8 +3710,7 @@ def play_order(its):
         return its  # a @still group, or a part of a group or another order: played as selected
     doc, g = one
     way = doc.anims.get(g, {}).get("direction") or "forward"
-    back = its[::-1]
-    order = {"reverse": back, "pingpong": its + its[-2:0:-1], "pingpong_reverse": back + back[-2:0:-1]}.get(way, its)
+    order = way_order(its, way)
     return its if [id(it) for it in order] == [id(it) for it in its] else order  # a 2-frame pingpong plays 0 1
 
 
@@ -10256,19 +10263,31 @@ def cmd_export(a):
         tp = outpath(a.tiled)
         ip = save_image(sheet_img, tp.with_suffix(".png"), "--tiled's image")
         index = {id(it.frame): n for n, it in enumerate(its)}
-        tiles = []
+        tiles, tiled_notes = [], []
         for doc, g, fs, tag_name in groups():
             if not doc.animated(g) or len(fs) < 2:
                 continue
+            meta = doc.anims.get(g, {})
+            way = meta.get("direction") or "forward"
+            # a Tiled tile animation is a plain list that loops forever: the frames go in play order, one cycle as
+            # anim loops it (reverse 3 2 1 0, pingpong 0 1 2 3 2 1), and a finite repeat can't be kept (PX-62)
+            played = way_order(fs, way)
             tiles.append({"id": index[id(fs[0])],
-                          "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in fs],
+                          "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in played],
                           "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
+            if meta.get("repeat"):
+                tiled_notes.append(f"note: {tag_name} has repeat={meta['repeat']}, and a Tiled tile animation "
+                                   "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") else
+                                                                 "its frames") + " on a loop there (the game stops "
+                                   "it, or export --aseprite keeps the repeat)")
         data = {"type": "tileset", "version": "1.10", "name": entries[0][0].stem if len(entries) == 1 else tp.stem,
                 "image": ip.name, "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
                 "tilewidth": cw, "tileheight": ch, "columns": cols, "tilecount": len(its),
                 "margin": 0, "spacing": 0, "tiles": tiles}
         tp.write_text(json.dumps(data, indent=1) + "\n")
         wrote += [str(ip), str(tp)]
+        for n in tiled_notes:
+            print(n)
     if a.indexed:
         p = outpath(a.indexed)
         p.write_text(json.dumps(indexed, indent=1) + "\n")

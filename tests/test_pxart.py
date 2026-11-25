@@ -29365,3 +29365,30 @@ def test_compose_one_file_variant_has_no_also_line(tmp_path, capsys):
     out = tmp_path / "s.px"
     assert run("compose", "-o", out, f"{tmp_path}/bug.px:b@0,0") == 0
     assert "also from" not in out.read_text()
+
+
+TILED_WAYS = ("k #000000\n@anim w direction=pingpong ms=100 repeat=2\n@anim r direction=reverse\n@anim q direction="
+              "pingpong_reverse\n@frame w/0\nk.\n@frame w/1\n.k\n@frame w/2\nkk\n@frame w/3\n..\n@frame r/0\nk.\n"
+              "@frame r/1\n.k\n@frame r/2\nkk\n@frame q/0\nk.\n@frame q/1\n.k\n@frame q/2\nkk\n")
+
+
+def test_export_tiled_writes_a_group_in_play_order(tmp_path, capsys):
+    # PX-62: a Tiled tile animation is a plain list that loops forever, so the frames go in the order anim plays them
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    tiles = {t["properties"][0]["value"]: t for t in json.loads((tmp_path / "t.tsj").read_text())["tiles"]}
+    assert [a["tileid"] for a in tiles["w"]["animation"]] == [0, 1, 2, 3, 2, 1]
+    assert [a["tileid"] for a in tiles["r"]["animation"]] == [6, 5, 4]
+    assert [a["tileid"] for a in tiles["q"]["animation"]] == [9, 8, 7, 8]
+    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4  # the animated tile is still the group's first
+    out = capsys.readouterr().out
+    assert ("note: w has repeat=2, and a Tiled tile animation loops forever: it plays its cycle on a loop there "
+            "(the game stops it, or export --aseprite keeps the repeat)") in out
+    assert "note: r " not in out and "note: q " not in out
+
+
+def test_export_tiled_two_frame_pingpong_plays_0_1(tmp_path):
+    p = write(tmp_path, "t.px", "k #000000\n@anim w direction=pingpong\n@frame w/0\nk\n@frame w/1\n.\n")
+    assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
+    assert [a["tileid"] for a in tile["animation"]] == [0, 1]
