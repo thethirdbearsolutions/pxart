@@ -12,7 +12,7 @@ release, entries are grouped by the day they landed on `main`. The file format i
   file of several frames writes nothing to `out/`, by design, and its note said `'export --frames DIR' every frame`.
   Now it names the file, the folder and a frame: `note: --png skips tiles.px: 10 frames; --png writes single-frame .px
   files only ('pxart export tiles.px --frames out/' writes each frame at 1x, 'pxart render tiles.px:a --plain -o
-  x.png' one)`.
+  out/a.png' one)`. With a bare `--png` the folder is the file's own, where `--png` would have written.
 
 ## 2026-11-24
 

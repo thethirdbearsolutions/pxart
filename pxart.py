@@ -3525,9 +3525,11 @@ def cmd_render(a):
                 picked = pdoc.select(sel) if sel else pdoc.frames
                 one = sel if len(picked) == 1 else picked[0].id or pdoc.stem  # one of them, runnable
                 q = shlex.quote
-                route = (f"'pxart export {q(f)} --frames {q(a.png or 'DIR')}' writes "
+                where = a.png or (pathlib.Path(path).parent.as_posix())  # where --png would write; the PNG at export's path
+                route = (f"'pxart export {q(f)} --frames {q(where)}' writes "
                          f"{'each selected' if sel else 'each'} frame at 1x, "
-                         f"'pxart render {q(path + ':' + one)} --plain -o x.png' " + ("that frame" if len(picked) == 1
+                         f"'pxart render {q(path + ':' + one)} --plain -o "
+                         f"{q((pathlib.Path(where) / (one + '.png')).as_posix())}' " + ("that frame" if len(picked) == 1
                                                                                      else "one"))
             else:
                 route = "a PNG is already an image"
