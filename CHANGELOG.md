@@ -17,6 +17,13 @@ release, entries are grouped by the day they landed on `main`. The file format i
   through `@palette` fails naming the palette files' lines (`comes from pal.px:19`, through nested imports too).
   Files still parse and render as before.
 
+- **`render --png DIR`'s note on a file it skips gives a route that runs (PX-59).** `render tiles.px --png out/` on a
+  file of several frames writes nothing to `out/`, by design, and its note said `'export --frames DIR' every frame`.
+  Now it names the file, the folder and a frame: `note: --png skips tiles.px: 10 frames; --png writes single-frame .px
+  files only ('pxart export tiles.px --frames out/' writes each frame at 1x, 'pxart render tiles.px:a --plain -o
+  out/a.png' one)`. With a bare `--png` the folder is the file's own, where `--png` would have written, the PNG is named by the
+  frame's id as export names it, and a `--variant` comes along.
+
 ## 2026-11-24
 
 ### Fixed
