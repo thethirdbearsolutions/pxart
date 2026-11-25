@@ -4,6 +4,16 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-25
+
+### Fixed
+
+- **crop's variant WARNINGs name only the keys it copies (PX-58).** `crop quarter.px 0,0,2,1 -o tiles.px:d` on a
+  frame `LE` / `FD` copies `LE`, yet warned that quarter.px `draws 'D'` and `'F'` in tiles.px's night colors, and
+  the note after the WARNINGs offered `crop --rekey D,E,F,L`. The keys now come from the pixels that land on the
+  canvas (the crop's region, or the part of a compose layer inside OUT), so it warns for E and L and offers
+  `crop --rekey E,L`.
+
 ## 2026-11-24
 
 ### Fixed

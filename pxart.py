@@ -8272,7 +8272,11 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             c["layers"].append((n, label, lay.doc))
             c["keys"].update(bad)
-        for k in vclashes(doc, lay.doc, keys - set(bad), vmap):
+        # the keys that land on OUT's canvas: a crop's region, or a layer partly off the edge, copies only those
+        # pixels, so only their keys can take OUT's variant colors (PX-58)
+        seen = {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
+                for c, ch in enumerate(row) if 0 <= x + c < size[0]} - {erase}
+        for k in vclashes(doc, lay.doc, (keys & seen) - set(bad), vmap):
             c = vclashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             if (n, label, lay.doc) not in c["layers"]:
                 c["layers"].append((n, label, lay.doc))
