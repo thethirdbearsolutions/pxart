@@ -23750,9 +23750,9 @@ def test_help_all_does_not_grow(capsys):
     # 72955 with scene's --bg under --variant, --anchor in place of the crop notes, and @still a group a line (PX-48).
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
     # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
-    # 73168 with from-png -o OUT:ID (PX-23), in a clause.
+    # 73168 with from-png -o OUT:ID (PX-23), in a clause. 73175 with export --tiled's play order (PX-62), in three words.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73168
+    assert len(capsys.readouterr().out.encode()) <= 73175
 
 
 def test_help_says_each_shared_rule_once():
@@ -29401,3 +29401,15 @@ def test_export_tiled_part_of_a_group_plays_as_selected(tmp_path):
     assert run("export", f"{p}:r/0", f"{p}:r/2", "--tiled", tmp_path / "t.tsj") == 0
     (tile,) = json.loads((tmp_path / "t.tsj").read_text())["tiles"]
     assert [a["tileid"] for a in tile["animation"]] == [0, 1]
+
+
+def test_export_tiled_repeat_note_wording(tmp_path, capsys):
+    # PX-62 review: a forward group's note has no passes clause; a pingpong with repeat=1 says 'once'; --prefix-file
+    # names the group as its tag
+    p = write(tmp_path, "t.px", "k #000000\n@anim d repeat=1\n@anim w direction=pingpong repeat=1\n"
+                                "@frame d/0\nk\n@frame d/1\n.\n@frame w/0\nk\n@frame w/1\n.\n@frame w/2\nk\n")
+    assert run("export", p, "--tiled", tmp_path / "t.tsj", "--prefix-file") == 0
+    out = capsys.readouterr().out
+    assert ("note: t/d has repeat=1, and a Tiled tile animation loops forever: it plays its frames on a loop there "
+            "(the game stops it, or export --aseprite keeps the repeat)\n") in out
+    assert "note: t/w has repeat=1" in out and "so stop it after 1 pass, not once round the list" in out

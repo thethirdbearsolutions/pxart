@@ -851,7 +851,7 @@ CONVERTING
         Aseprite writes them: meta.slices = one slice "pivot" with a key per frame index,
         {"frame": N, "bounds": {"x": 0, "y": 0, "w": W, "h": H}, "pivot": {"x": X, "y": Y}},
         bounds = the whole frame, pivot relative to it, "pivot" left out for a frame without)
-      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations (worlds: help worlds)
+      --tiled: sheet PNG + Tiled tileset JSON with per-tile animations in play order (worlds: help worlds)
       (--aseprite x.json and --tiled x.tsj write the same x.png)
       --font F.woff2|F.ttf: a pixel font of one file's frames, a glyph each (help fonts)
       FILE:SEL exports only those frames; several selectors of one file add up, in file
@@ -10278,7 +10278,8 @@ def cmd_export(a):
                           "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
             if meta.get("repeat"):
                 passes = (f"; a pingpong's repeat counts one-way passes, so stop it after {meta['repeat']} "
-                          f"pass{'es' * (meta['repeat'] != 1)}, not {meta['repeat']} times round the list"
+                          f"pass{'es' * (meta['repeat'] != 1)}, not "
+                          + ("once" if meta['repeat'] == 1 else f"{meta['repeat']} times") + " round the list"
                           if way.startswith("pingpong") and whole else "")
                 tiled_notes.append(f"note: {tag_name} has repeat={meta['repeat']}, and a Tiled tile animation "
                                    "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") and whole
