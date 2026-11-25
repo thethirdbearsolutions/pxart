@@ -7834,7 +7834,8 @@ def test_check_fails_variant_named_base(tmp_path, capsys):
     assert run("check", p) == 1
     out = capsys.readouterr().out
     assert f"FAIL {p}:2: E_BAD_ID: '@variant base': 'base' is the base palette's name" in out
-    assert "give the variant another name" in out
+    assert "give it another name (edit the line: @variant NAME)" in out
+    assert "ok   " not in out  # one FAIL line for the file, no 'ok' above or below it (PX-57 loop)
 
 
 def test_check_fails_variant_named_base_in_a_palette_file(tmp_path, capsys):
@@ -7843,7 +7844,19 @@ def test_check_fails_variant_named_base_in_a_palette_file(tmp_path, capsys):
     assert run("check", pal) == 1
     assert f"FAIL {pal}:3: E_BAD_ID: '@variant base'" in capsys.readouterr().out
     assert run("check", s) == 1
-    assert f"FAIL {s}: E_BAD_ID: '@variant base' comes from pal.px" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"FAIL {s}: E_BAD_ID: '@variant base' comes from {tmp_path.as_posix()}/pal.px:3:" in out
+    assert "ok   " not in out
+
+
+def test_check_names_the_line_of_a_variant_base_two_imports_down(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pals").mkdir()
+    (tmp_path / "pals" / "night.px").write_text("k #000000\n@variant base\nk #ffffff\n")
+    (tmp_path / "pals" / "pal.px").write_text("@palette night.px\n")
+    (tmp_path / "s.px").write_text("@palette pals/pal.px\n\nk\n")
+    assert run("check", "s.px") == 1
+    assert "FAIL s.px: E_BAD_ID: '@variant base' comes from pals/night.px:2:" in capsys.readouterr().out
 
 
 def test_check_passes_other_variant_names(tmp_path, capsys):

@@ -4826,8 +4826,13 @@ def cmd_check(a):
                         failed = True
                         tally["warnings"] += 1
                         continue
-                    print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
-                          + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
+                    bad_base = base_variant_said(pdoc, path)
+                    if bad_base:  # one FAIL line, not an 'ok' line listing base as a variant above it
+                        failed = True
+                        print(f"FAIL {bad_base}")
+                    else:
+                        print(f"ok   {path}: palette file, {len(pdoc.palette)} key(s)"
+                              + (f", variants {', '.join(pdoc.variants)}" if pdoc.variants else ""))
                     if empty:
                         print(f"     {path}: empty: nothing in it (a command whose output was redirected there and "
                               f"failed leaves one; run it again, or remove {path}; --strict fails it)")
@@ -4835,9 +4840,6 @@ def cmd_check(a):
                     for name, ks in half_variants(pdoc):
                         print(f"     {path}: {said_half(pdoc, name, ks)}")
                         tally["warnings"] += 1
-                    if base_variant_said(pdoc, path):
-                        failed = True
-                        print(f"FAIL {base_variant_said(pdoc, path)}")
                 except PxError as e:
                     failed = True
                     print(f"FAIL {path}: {len(e.issues)} error(s)")
@@ -4946,7 +4948,13 @@ def cmd_check(a):
                 lines.append((bool(probs), f"{'FAIL' if probs else 'ok  '} {name}: {it.img.width}x{it.img.height} "
                                            f"{len(cs)}c" + "".join(f"; {x}" for x in probs)))
             tally["frames"] += len(its)
-            if a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
+            if bad_base:  # the file fails: its FAIL line first, and no 'ok' line for it (frames that fail too follow)
+                failed = True
+                print(f"FAIL {bad_base}")
+                for bad, l in lines:
+                    if bad or a.verbose:
+                        print(f"     {l}")
+            elif a.verbose or len(its) == 1:  # a frame per line (one frame: the file's line is the frame's)
                 print("\n".join(l for _, l in lines))
             else:  # a line for the file, then the frames that fail
                 cs = f"{min(ncs)}c" if min(ncs) == max(ncs) else f"{min(ncs)}-{max(ncs)}c"
@@ -4958,9 +4966,6 @@ def cmd_check(a):
             gaps = outline_gaps_said(its, path, keys, None if a.verbose else 8, outlined, a.min_alpha) if keys else []
             gaps += headroom_said(its, path, a.headroom) if a.headroom else []
             pxed |= any(it.frame is not None for it in its)
-            if bad_base:
-                failed = True
-                print(f"FAIL {bad_base}")
             if slot_off:  # a slot's alternatives are colors the file can draw in too
                 failed = True
                 print(f"FAIL {path}: slot alternatives off-palette: {slot_off}")
@@ -5899,18 +5904,41 @@ def said_repeat(doc, path, g, run, wrap):
 
 def base_variant_said(doc, path):
     """check's line for a '@variant base', which never draws: 'base' is the base palette's name (%base, --variant
-    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for a line of doc's own, or one naming the @palette
-    file it comes from; None when there is none."""
-    why = ("'base' is the base palette's name (%base and --variant base draw the base colors), so these colors "
-           "never draw; give the variant another name")
+    base), so its colors are dead. 'PATH:LINE: E_BAD_ID: ...' for a line of doc's own; for one doc imports, the
+    palette file's path and line ('comes from pal.px:19'); None when there is none."""
+    why = ("'base' is the base palette's name (%base and --variant base draw the base colors), so this "
+           "variant's colors never draw; give it another name")
+    where = base_variant_at(doc, path)
+    if where is None:
+        return None
+    if where[0] == path:
+        return f"{where[1]}: E_BAD_ID: '@variant base': {why} (edit the line: @variant NAME)"
+    return f"{path}: E_BAD_ID: '@variant base' comes from {where[1]}: {why} there (edit that line: @variant NAME)"
+
+
+def base_variant_at(doc, path, seen=None):
+    """Where doc's '@variant base' is: (the file, 'FILE:LINE'), its own line first, then its @palette imports' (read
+    from doc's folder, as @palette is); None when none has one."""
     if "base" in doc.variants:
         n = doc.at.get(("variant", "base"))
-        return f"{path}{f':{n}' if n else ''}: E_BAD_ID: '@variant base': {why} (edit the line: @variant NAME)"
-    if "base" in doc.shared_variants:
-        refs = " and ".join(doc.palette_refs) or "its @palette"
-        return (f"{path}: E_BAD_ID: '@variant base' comes from {refs}: {why} there (check {refs} names the "
-                "line)")
-    return None
+        return path, f"{path}{f':{n}' if n else ''}"
+    if "base" not in doc.shared_variants or not doc.path:
+        return None
+    seen = seen if seen is not None else set()
+    for ref in doc.palette_refs:
+        p = pathlib.Path(doc.path).parent / ref
+        if p.resolve() in seen:
+            continue
+        seen.add(p.resolve())
+        try:
+            sub = parse(str(p), palette_only=True)
+        except (PxError, OSError):
+            continue
+        shown = posixpath.normpath((pathlib.Path(path).parent / ref).as_posix())
+        got = base_variant_at(sub, shown, seen)
+        if got:
+            return got
+    return "", " and ".join(doc.palette_refs) or "its @palette"  # an import that didn't read: name it only
 
 
 def orphans(doc):
