@@ -3523,14 +3523,16 @@ def cmd_render(a):
             if path.endswith(".px"):  # the routes, runnable as printed (PX-59): export for every frame, --plain one
                 pdoc = parse(path)
                 picked = pdoc.select(sel) if sel else pdoc.frames
-                one = sel if len(picked) == 1 else picked[0].id or pdoc.stem  # one of them, runnable
+                fid = picked[0].id or pdoc.stem  # one of them, by its id: export's file name for it
+                one = sel if len(picked) == 1 else fid  # the selector as typed when it is that one frame
                 q = shlex.quote
                 where = a.png or (pathlib.Path(path).parent.as_posix())  # where --png would write; the PNG at export's path
-                route = (f"'pxart export {q(f)} --frames {q(where)}' writes "
+                var = f" --variant {q(a.variant)}" if a.variant else ""  # the colors --png would have drawn
+                route = (f"'pxart export {q(f)} --frames {q(where)}{var}' writes "
                          f"{'each selected' if sel else 'each'} frame at 1x, "
                          f"'pxart render {q(path + ':' + one)} --plain -o "
-                         f"{q((pathlib.Path(where) / (one + '.png')).as_posix())}' " + ("that frame" if len(picked) == 1
-                                                                                     else "one"))
+                         f"{q((pathlib.Path(where) / (fid + '.png')).as_posix())}{var}' "
+                         + ("that frame" if len(picked) == 1 else "one"))
             else:
                 route = "a PNG is already an image"
             print(f"note: --png skips {f}: {why}; --png writes single-frame .px files only ({route})")
