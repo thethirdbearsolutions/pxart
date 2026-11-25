@@ -169,7 +169,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   draws every pixel that draws in one color (`#2b1d32` unless given), at its own alpha, so the shape is all
   there is to judge, and a sheet of several candidates' silhouettes compares their shapes (with
   `--variant`, that variant's shape). `render` (`--png` also writes each single-frame `.px` at 1x, `FILE.png` beside it
-  or in `--png DIR`, and prints the path; `--plain` writes one frame alone at its exact size, no grid,
+  or in `--png DIR`, and prints the path, and a note for each file it skips (several frames, a selection) with the
+  `export ... --frames DIR` that writes every frame; `--plain` writes one frame alone at its exact size, no grid,
   rulers or labels, to `diff` against a scene's PNG), `sheet` (a directory stands for every `.px` under it, sorted by
   path, and palette files are skipped with a note; `--exclude GLOB` leaves files out, `room.px`
   or a folder `wip`, in `check` and `stats` too; frames with one id from several files

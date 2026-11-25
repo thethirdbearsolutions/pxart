@@ -24664,9 +24664,25 @@ def test_render_png_notes_what_it_skips(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert run("render", "m.px", "m.px:w/0", "--png", "-o", "p.png") == 0
     out = capsys.readouterr().out
-    assert "note: --png skips m.px: 2 frames; --png writes a single-frame .px at 1x" in out
-    assert "note: --png skips m.px:w/0: a selection;" in out and "'render --plain FILE:ID -o x.png'" in out
+    assert "note: --png skips m.px: 2 frames; --png writes single-frame .px files only" in out
+    assert "note: --png skips m.px:w/0: a selection;" in out
+    assert "'pxart render m.px:w/0 --plain -o x.png' that frame" in out
     assert not (tmp_path / "m.png").exists()
+
+
+def test_render_png_dir_on_a_multi_frame_file_says_the_route(tmp_path, monkeypatch, capsys):
+    # PX-59: render tiles.px --png out/ on a file of several frames writes nothing to out/; the note names the
+    # file and a route that runs as printed
+    (tmp_path / "tiles.px").write_text("k #1a1423\n@frame a\nk\n@frame b\nkk\n")
+    monkeypatch.chdir(tmp_path)
+    assert run("render", "tiles.px", "--png", "out/", "-o", "p.png") == 0
+    out = capsys.readouterr().out
+    assert ("note: --png skips tiles.px: 2 frames; --png writes single-frame .px files only ('pxart export tiles.px "
+            "--frames out/' writes each frame at 1x, 'pxart render tiles.px:a --plain -o x.png' one)") in out
+    assert not (tmp_path / "out").exists()
+    route = out.split("('", 1)[1].split("'", 1)[0]
+    assert run(*shlex.split(route)[1:]) == 0
+    assert (tmp_path / "out" / "a.png").exists() and (tmp_path / "out" / "b.png").exists()
 
 
 def test_render_png_dry_run_says_what_it_would_write(tmp_path, monkeypatch, capsys):

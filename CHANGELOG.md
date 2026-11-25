@@ -4,6 +4,16 @@ What changed in pxart, newest first. pxart is still `0.1.0`: until a first tagge
 release, entries are grouped by the day they landed on `main`. The file format is
 `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-25
+
+### Fixed
+
+- **`render --png DIR`'s note on a file it skips gives a route that runs (PX-59).** `render tiles.px --png out/` on a
+  file of several frames writes nothing to `out/`, by design, and its note said `'export --frames DIR' every frame`.
+  Now it names the file, the folder and a frame: `note: --png skips tiles.px: 10 frames; --png writes single-frame .px
+  files only ('pxart export tiles.px --frames out/' writes each frame at 1x, 'pxart render tiles.px:a --plain -o
+  x.png' one)`.
+
 ## 2026-11-24
 
 ### Fixed

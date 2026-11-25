@@ -3520,8 +3520,18 @@ def cmd_render(a):
         n = len(parse(path).frames) if path.endswith(".px") else 0
         if sel or n != 1:
             why = "a selection" if sel else "a PNG" if not path.endswith(".px") else f"{n} frames"
-            print(f"note: --png skips {f}: {why}; --png writes a single-frame .px at 1x ('render --plain FILE:ID -o "
-                  "x.png' writes one frame, 'export --frames DIR' every frame)")
+            if path.endswith(".px"):  # the routes, runnable as printed (PX-59): export for every frame, --plain one
+                pdoc = parse(path)
+                picked = pdoc.select(sel) if sel else pdoc.frames
+                one = sel if len(picked) == 1 else picked[0].id or pdoc.stem  # one of them, runnable
+                q = shlex.quote
+                route = (f"'pxart export {q(f)} --frames {q(a.png or 'DIR')}' writes "
+                         f"{'each selected' if sel else 'each'} frame at 1x, "
+                         f"'pxart render {q(path + ':' + one)} --plain -o x.png' " + ("that frame" if len(picked) == 1
+                                                                                     else "one"))
+            else:
+                route = "a PNG is already an image"
+            print(f"note: --png skips {f}: {why}; --png writes single-frame .px files only ({route})")
             continue
         doc = parse(path)
         out = (pathlib.Path(a.png) if a.png else pathlib.Path(path).parent) / (pathlib.Path(path).stem + ".png")
