@@ -31,9 +31,9 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Fixed
 
-- **`anim` reports the same number of changed pixels for frames A to B as for B to A.** `anim` lines each pair up
+- **`anim` counts the same changed pixels from frame A to B as from B to A.** `anim` lines each pair up
   by its best shift; pixels that shift pushes off the canvas, such as feet, now count as changed, so some counts
-  grow. `paste --align shift` uses the same shift. `anim` is also about twice as fast on big frames (PX-55).
+  grow. `paste --align shift` uses the same shift. `anim` is also faster on big frames (PX-55).
 
 - **`repeat=N` on a `pingpong` group means N one-way passes, as in Aseprite.** `repeat=1` plays 0 1 2 3 and stops,
   where it used to go there and back. `anim` previews it pass by pass, and `check`'s hold advice follows (PX-56).
