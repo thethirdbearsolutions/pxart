@@ -12,6 +12,14 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-26
+
+### Fixed
+
+- **`onion --feet N` and `--rows Y0-Y1` count the same changed pixels from A to B as from B to A,** with opposite
+  shifts unless two mirror-image shifts tie. The band now counts its rows in both frames, and pixels pushed past an
+  edge, so some band readouts change (PX-61).
+
 ## 2026-11-25
 
 ### Fixed

@@ -150,8 +150,8 @@ LOOKING
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
       or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
       weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
-      A opaque in 20-23, B in 21-23): left +0, ...'. The shift still moves all of A (pixels
-      come into the band from above) and counts only the band's pixels; when the bottom edges
+      A opaque in 20-23, B in 21-23): left +0, ...'. The shift moves all of A and counts the
+      band's rows of both frames, the same count both ways; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
       shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
@@ -3988,17 +3988,39 @@ def onion_band(a, h):
     return y0, y1
 
 
+def band_count(prev, cur, y0, y1, dx, dy):
+    """band_shift's count for one shift: prev moved by dx, dy on a canvas padded by the shift (shift_mask), counting
+    the pixels that differ in the band's rows of both frames: cur's rows y0..y1 and the rows prev's band moved to. A
+    pixel moving into the band from outside counts as one moving out does, and one pushed past an edge counts, so a
+    pair read A->B and B->A gives the same count, with opposite shifts (PX-61). (count, those past the canvas edge)."""
+    m, p = shift_mask(prev, cur, dx, dy)
+    W, H = m.size
+    rows = sorted({p + y for y in range(y0, y1 + 1)} | {p + y + dy for y in range(y0, y1 + 1)})
+    n = inside = 0
+    for r in rows:
+        line = m.crop((0, r, W, r + 1))
+        n += line.histogram()[255]
+        if p <= r < H - p:
+            inside += line.crop((p, 0, W - p, 1)).histogram()[255]
+    return n, n - inside
+
+
 def band_shift(prev, cur, y0, y1, reach=2):
-    """best_shift for a band of rows: all of prev moves (so pixels come in from above and below the band), and only the
-    band's pixels count. (dx, dy, px changed after it, px changed with no shift)."""
-    box = (0, y0, cur.width, y1 + 1)
-    c, best = cur.crop(box), None
+    """best_shift for a band of rows: all of prev moves, and the pixels that differ in the band's rows of either frame
+    count (band_count), so a pair gives the same count both ways. (dx, dy, px changed after it, px changed with no shift,
+    those of the first past the canvas edge)."""
+    found = []
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
-            key = (n_changed(shifted(prev, dx, dy).crop(box), c), abs(dx) + abs(dy))
-            if best is None or key < best[0]:
-                best = (key, dx, dy)
-    return best[1], best[2], best[0][0], n_changed(prev.crop(box), c)
+            n, past = band_count(prev, cur, y0, y1, dx, dy)
+            found.append(((n, abs(dx) + abs(dy)), dx, dy, past))
+    low = min(f[0] for f in found)
+    tied = [f for f in found if f[0] == low]
+    # a tie goes to the shift that also changes the fewest pixels of the whole sprites: that count is the same both
+    # ways too (PX-55), so A->B and B->A pick opposite shifts unless that ties as well (mirror-image shifts, -1,+0 and
+    # +1,+0 alike: then either may be named both ways, as in the whole canvas's best_shift)
+    best = min(tied, key=lambda f: shift_count(prev, cur, f[1], f[2])) if len(tied) > 1 else tied[0]
+    return best[1], best[2], best[0][0], band_count(prev, cur, y0, y1, 0, 0)[0], best[3]
 
 
 def box_text(b):
@@ -4046,7 +4068,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
     if all(boxes):
         (l0, t0, r0, b0), (l1, t1, r1, b1) = boxes
         whole = motion(*clear)[:4]
-        dx, dy, n_shift, n_none = band_shift(*clear, *band) if band else whole
+        dx, dy, n_shift, n_none, band_past = band_shift(*clear, *band) if band else (*whole, 0)
         most = max(sum(c.getchannel("A").histogram()[1:]) for c in clear)  # the whole sprites, band or not
         edges = f"B vs A{f' ({rows})' if band else ''}: left {l1 - l0:+d}, right {r1 - r0:+d}, top {t1 - t0:+d}, " \
                 f"bottom {b1 - b0:+d}"
@@ -4056,7 +4078,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
             lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
                          f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
         else:
-            past = past_edge(*clear, dx, dy, n_shift) if not band else 0
+            past = past_edge(*clear, dx, dy, n_shift) if not band else band_past
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed"
                          + (f" ({past} past the edge)" if past else "") + f" (no shift: {n_none}px)")
     return lines

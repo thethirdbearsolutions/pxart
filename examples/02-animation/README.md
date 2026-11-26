@@ -191,12 +191,13 @@ The image darkens the rows it isn't looking at.
 ```text
 A (frame walk/down/0) covers x 7..16, y 26..31 (rows 26-31 of the 24x32 canvas, lined up by pivot)
 B (frame walk/down/3) covers x 7..16, y 26..30
-B vs A (bottom 6 canvas rows 26-31; A opaque in 26-31, B in 26-30): left +0, right +0, top +0, bottom -1; best shift +0,-1 then 9px changed (no shift: 11px)
+B vs A (bottom 6 canvas rows 26-31; A opaque in 26-31, B in 26-30): left +0, right +0, top +0, bottom -1; best shift +0,+0 then 11px changed (no shift: 11px)
 wrote onion-feet.png
 ```
 
 `bottom -1`: in frame 3 the lowest pixel is 1 row higher (it stops at row 30, not 31).
-One foot is off the ground.
+One foot is off the ground. `best shift +0,+0`: no move of the whole sprite lines the
+feet up better, because only one foot rose.
 
 ![the feet of frame 3 over frame 0's](onion-feet.png)
 
