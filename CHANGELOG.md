@@ -14,6 +14,12 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ## 2026-11-26
 
+### Added
+
+- **`export --tiled` writes a group's `repeat` and `direction` as tile properties,** `pxart_repeat` and
+  `pxart_direction`, so a game can stop an animation Tiled would loop forever. The animation now sits on the first
+  tile it plays, so a reversed group shows its starting frame in Tiled (PX-66).
+
 ### Fixed
 
 - **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
