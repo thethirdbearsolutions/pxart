@@ -12,6 +12,14 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-26
+
+### Fixed
+
+- **`crop` and `compose` into an existing file add only the keys of the pixels they copy,** with each key's
+  comment, so `check` no longer finds unused keys afterwards. A key outside the cropped area can't cause a key
+  conflict, and `--under` warns only about pixels that show (PX-64).
+
 ## 2026-11-25
 
 ### Fixed
