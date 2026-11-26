@@ -16,6 +16,10 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
+- **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
+  that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as
+  before (PX-63).
+
 - **`onion --feet N` and `--rows Y0-Y1` count the same changed pixels from A to B as from B to A,** with opposite
   shifts unless two mirror-image shifts tie. The band now counts its rows in both frames, and pixels pushed past an
   edge, so some band readouts change (PX-61).
