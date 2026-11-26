@@ -10430,10 +10430,17 @@ def cmd_export(a):
             # anim loops it (reverse 3 2 1 0, pingpong 0 1 2 3 2 1), and a finite repeat can't be kept (PX-62)
             whole = [f.id for f in fs] == [f.id for f in doc.frames if f.group == g]
             played = way_order(fs, way) if whole else fs  # a part of a group plays as selected, as in anim
+            # on the group's first tile in the file, which is the tile a .map legend names (door/0) and js/px.ts
+            # animates; the repeat and direction ride along as properties, for a game that stops it (PX-66)
+            props = [{"name": "pxart_anim", "type": "string", "value": tag_name}]
+            if way != "forward" and whole:  # a part of a group plays as selected, forward, looping: no properties
+                props.append({"name": "pxart_direction", "type": "string", "value": way})
+            if meta.get("repeat") and whole:
+                props.append({"name": "pxart_repeat", "type": "int", "value": int(meta["repeat"])})
             tiles.append({"id": index[id(fs[0])],
                           "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in played],
-                          "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
-            if meta.get("repeat"):
+                          "properties": props})
+            if meta.get("repeat") and whole:
                 passes = (f"; a pingpong's repeat counts one-way passes, so stop it after {meta['repeat']} "
                           f"pass{'es' * (meta['repeat'] != 1)}, not "
                           + ("once" if meta['repeat'] == 1 else f"{meta['repeat']} times") + " round the list"
@@ -10441,7 +10448,8 @@ def cmd_export(a):
                 tiled_notes.append(f"note: {tag_name} has repeat={meta['repeat']}, and a Tiled tile animation "
                                    "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") and whole
                                                                  else "its frames") + " on a loop there (the game "
-                                   "stops it, or export --aseprite keeps the repeat)" + passes)
+                                   "stops it: the tile's pxart_repeat property says when; or export --aseprite keeps "
+                                   "the repeat)" + passes)
         data = {"type": "tileset", "version": "1.10", "name": entries[0][0].stem if len(entries) == 1 else tp.stem,
                 "image": ip.name, "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
                 "tilewidth": cw, "tileheight": ch, "columns": cols, "tilecount": len(its),

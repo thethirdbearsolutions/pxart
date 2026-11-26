@@ -408,7 +408,11 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
     `meta.slices`, the shape Aseprite's own export uses).
   - `export --tiled x.tsj` writes a tileset with tile animations, each whole group's frames in the order its
     `direction` plays them (a pingpong `0 1 2 3 2 1`; a part of a group in file order), since a Tiled animation is a
-    list that loops forever; a group with a `repeat` gets a note, as Tiled can't stop one.
+    list that loops forever. The animation sits on the group's first tile in the file (the one a `.map` names),
+    with a `pxart_repeat` property when the group has a `repeat` (Tiled can't stop one, so the game does, on the
+    last frame played) and `pxart_direction` when it isn't forward. For a pingpong, `pxart_repeat` counts one-way
+    passes, as Aseprite does: `0 1 2 3` is one, so `repeat=2` plays `0 1 2 3 2 1 0`. A part of a group plays
+    forward as selected and gets neither.
   - `export font.px --font font.woff2` (or `.ttf`) writes a pixel font: each frame is a glyph
     named for its character (`A`, `zero`, `period`, `uni00A0`), its width the advance, and
     its pixels one seamless outline. An `@font` section sets the metrics (baseline, units

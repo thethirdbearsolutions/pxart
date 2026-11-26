@@ -14,6 +14,11 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ## 2026-11-26
 
+### Added
+
+- **`export --tiled` writes a group's `repeat` and `direction` as tile properties,** `pxart_repeat` and
+  `pxart_direction`, next to `pxart_anim`, so a game can stop an animation that Tiled would loop forever (PX-66).
+
 ### Fixed
 
 - **`crop` and `compose` into an existing file add only the keys of the pixels they copy,** in their file's order

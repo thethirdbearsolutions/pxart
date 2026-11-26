@@ -29485,11 +29485,12 @@ def test_export_tiled_writes_a_group_in_play_order(tmp_path, capsys):
     assert [a["tileid"] for a in tiles["w"]["animation"]] == [0, 1, 2, 3, 2, 1]
     assert [a["tileid"] for a in tiles["r"]["animation"]] == [6, 5, 4]
     assert [a["tileid"] for a in tiles["q"]["animation"]] == [9, 8, 7, 8]
-    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4  # the animated tile is still the group's first
+    # the animation stays on the group's first tile in the file, which a .map legend names (PX-66 review)
+    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4 and tiles["q"]["id"] == 7
     out = capsys.readouterr().out
     assert ("note: w has repeat=2, and a Tiled tile animation loops forever: it plays its cycle on a loop there "
-            "(the game stops it, or export --aseprite keeps the repeat); a pingpong's repeat counts one-way passes, "
-            "so stop it after 2 passes, not 2 times round the list") in out
+            "(the game stops it: the tile's pxart_repeat property says when; or export --aseprite keeps the repeat); "
+            "a pingpong's repeat counts one-way passes, so stop it after 2 passes, not 2 times round the list") in out
     assert "note: r " not in out and "note: q " not in out
 
 
@@ -29516,5 +29517,39 @@ def test_export_tiled_repeat_note_wording(tmp_path, capsys):
     assert run("export", p, "--tiled", tmp_path / "t.tsj", "--prefix-file") == 0
     out = capsys.readouterr().out
     assert ("note: t/d has repeat=1, and a Tiled tile animation loops forever: it plays its frames on a loop there "
-            "(the game stops it, or export --aseprite keeps the repeat)\n") in out
+            "(the game stops it: the tile's pxart_repeat property says when; or export --aseprite keeps the "
+            "repeat)\n") in out
     assert "note: t/w has repeat=1" in out and "so stop it after 1 pass, not once round the list" in out
+
+
+def test_export_tiled_carries_repeat_and_direction_as_properties(tmp_path):
+    # PX-66: a game reading the .tsj can stop a repeat=N animation; forward groups with no repeat carry neither
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", p, "--tiled", tmp_path / "t.tsj") == 0
+    props = {t["properties"][0]["value"]: {q["name"]: (q["type"], q["value"]) for q in t["properties"]}
+             for t in json.loads((tmp_path / "t.tsj").read_text())["tiles"]}
+    assert props["w"]["pxart_repeat"] == ("int", 2) and props["w"]["pxart_direction"] == ("string", "pingpong")
+    assert props["r"]["pxart_direction"] == ("string", "reverse") and "pxart_repeat" not in props["r"]
+    plain = write(tmp_path, "f.px", "k #000000\n@anim f\n@frame f/0\nk\n@frame f/1\n.\n")
+    assert run("export", plain, "--tiled", tmp_path / "f.tsj") == 0
+    (tile,) = json.loads((tmp_path / "f.tsj").read_text())["tiles"]
+    assert [q["name"] for q in tile["properties"]] == ["pxart_anim"]
+
+
+def test_export_tiled_part_of_a_group_carries_no_repeat_or_direction(tmp_path, capsys):
+    # PX-66 loop: a part of a group plays forward as selected and loops, as anim plays it: no properties, no note
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", f"{p}:r/0", f"{p}:r/2", f"{p}:w/0", f"{p}:w/1", "--tiled", tmp_path / "t.tsj") == 0
+    for tile in json.loads((tmp_path / "t.tsj").read_text())["tiles"]:
+        assert [q["name"] for q in tile["properties"]] == ["pxart_anim"]
+    assert "repeat=" not in capsys.readouterr().out
+
+
+def test_export_tiled_properties_for_every_way_and_prefix_file(tmp_path):
+    # PX-66 review: pingpong_reverse's direction, a forward repeat with no direction, names under --prefix-file
+    p = write(tmp_path, "t.px", TILED_WAYS.replace("@anim r direction=reverse", "@anim r repeat=3"))
+    assert run("export", p, "--tiled", tmp_path / "t.tsj", "--prefix-file") == 0
+    props = {t["properties"][0]["value"]: {q["name"]: q["value"] for q in t["properties"]}
+             for t in json.loads((tmp_path / "t.tsj").read_text())["tiles"]}
+    assert props["t/q"] == {"pxart_anim": "t/q", "pxart_direction": "pingpong_reverse"}
+    assert props["t/r"] == {"pxart_anim": "t/r", "pxart_repeat": 3}
