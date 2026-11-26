@@ -4009,13 +4009,16 @@ def band_shift(prev, cur, y0, y1, reach=2):
     """best_shift for a band of rows: all of prev moves, and the pixels that differ in the band's rows of either frame
     count (band_count), so a pair reads the same both ways. (dx, dy, px changed after it, px changed with no shift,
     those of the first past the canvas edge)."""
-    best = None
+    found = []
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
             n, past = band_count(prev, cur, y0, y1, dx, dy)
-            key = (n, abs(dx) + abs(dy))
-            if best is None or key < best[0]:
-                best = (key, dx, dy, past)
+            found.append(((n, abs(dx) + abs(dy)), dx, dy, past))
+    low = min(f[0] for f in found)
+    tied = [f for f in found if f[0] == low]
+    # a tie goes to the shift that also changes the fewest pixels of the whole sprites: that count is the same both
+    # ways too (PX-55), so A->B and B->A pick opposite shifts unless that ties as well
+    best = min(tied, key=lambda f: shift_count(prev, cur, f[1], f[2])) if len(tied) > 1 else tied[0]
     return best[1], best[2], best[0][0], band_count(prev, cur, y0, y1, 0, 0)[0], best[3]
 
 
