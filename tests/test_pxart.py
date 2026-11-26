@@ -29484,8 +29484,8 @@ def test_export_tiled_writes_a_group_in_play_order(tmp_path, capsys):
     assert [a["tileid"] for a in tiles["w"]["animation"]] == [0, 1, 2, 3, 2, 1]
     assert [a["tileid"] for a in tiles["r"]["animation"]] == [6, 5, 4]
     assert [a["tileid"] for a in tiles["q"]["animation"]] == [9, 8, 7, 8]
-    # the animation sits on the first frame played (PX-66): a reverse group's last frame in the file
-    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 6 and tiles["q"]["id"] == 9
+    # the animation stays on the group's first tile in the file, which a .map legend names (PX-66 review)
+    assert tiles["w"]["id"] == 0 and tiles["r"]["id"] == 4 and tiles["q"]["id"] == 7
     out = capsys.readouterr().out
     assert ("note: w has repeat=2, and a Tiled tile animation loops forever: it plays its cycle on a loop there "
             "(the game stops it: the tile's pxart_repeat property says when; or export --aseprite keeps the repeat); "
@@ -29542,3 +29542,13 @@ def test_export_tiled_part_of_a_group_carries_no_repeat_or_direction(tmp_path, c
     for tile in json.loads((tmp_path / "t.tsj").read_text())["tiles"]:
         assert [q["name"] for q in tile["properties"]] == ["pxart_anim"]
     assert "repeat=" not in capsys.readouterr().out
+
+
+def test_export_tiled_properties_for_every_way_and_prefix_file(tmp_path):
+    # PX-66 review: pingpong_reverse's direction, a forward repeat with no direction, names under --prefix-file
+    p = write(tmp_path, "t.px", TILED_WAYS.replace("@anim r direction=reverse", "@anim r repeat=3"))
+    assert run("export", p, "--tiled", tmp_path / "t.tsj", "--prefix-file") == 0
+    props = {t["properties"][0]["value"]: {q["name"]: q["value"] for q in t["properties"]}
+             for t in json.loads((tmp_path / "t.tsj").read_text())["tiles"]}
+    assert props["t/q"] == {"pxart_anim": "t/q", "pxart_direction": "pingpong_reverse"}
+    assert props["t/r"] == {"pxart_anim": "t/r", "pxart_repeat": 3}
