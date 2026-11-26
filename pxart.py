@@ -148,10 +148,10 @@ LOOKING
       The edges are the sides of each frame's opaque bounding box: 'top -1' is B's top row 1px
       above A's.
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
-      or --feet N (the bottom N rows) limit the edges and what the best shift counts to that band, so a
+      or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
       weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
       A opaque in 20-23, B in 21-23): left +0, ...'. The shift moves all of A and counts the
-      band's rows of both frames: the same count both ways; when the bottom edges
+      band's rows of both frames, the same count both ways; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
       shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
