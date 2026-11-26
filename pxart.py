@@ -148,10 +148,10 @@ LOOKING
       The edges are the sides of each frame's opaque bounding box: 'top -1' is B's top row 1px
       above A's.
       --rows Y0-Y1 (canvas rows as the readout prints them, both included; one row: --rows Y)
-      or --feet N (the bottom N rows) limit the edges and the best shift to that band, so a
+      or --feet N (the bottom N rows) limit the edges and what the best shift counts to that band, so a
       weapon swing above doesn't hide what the feet did: 'B vs A (bottom 4 canvas rows 20-23;
       A opaque in 20-23, B in 21-23): left +0, ...'. The shift moves all of A and counts the
-      band's rows of both frames, so it reads alike both ways; when the bottom edges
+      band's rows of both frames: the same count both ways; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
       shift. The PNG darkens the rows outside the band.
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
@@ -4007,7 +4007,7 @@ def band_count(prev, cur, y0, y1, dx, dy):
 
 def band_shift(prev, cur, y0, y1, reach=2):
     """best_shift for a band of rows: all of prev moves, and the pixels that differ in the band's rows of either frame
-    count (band_count), so a pair reads the same both ways. (dx, dy, px changed after it, px changed with no shift,
+    count (band_count), so a pair gives the same count both ways. (dx, dy, px changed after it, px changed with no shift,
     those of the first past the canvas edge)."""
     found = []
     for dy in range(-reach, reach + 1):
@@ -4017,7 +4017,8 @@ def band_shift(prev, cur, y0, y1, reach=2):
     low = min(f[0] for f in found)
     tied = [f for f in found if f[0] == low]
     # a tie goes to the shift that also changes the fewest pixels of the whole sprites: that count is the same both
-    # ways too (PX-55), so A->B and B->A pick opposite shifts unless that ties as well
+    # ways too (PX-55), so A->B and B->A pick opposite shifts unless that ties as well (mirror-image shifts, -1,+0 and
+    # +1,+0 alike: then either may be named both ways, as in the whole canvas's best_shift)
     best = min(tied, key=lambda f: shift_count(prev, cur, f[1], f[2])) if len(tied) > 1 else tied[0]
     return best[1], best[2], best[0][0], band_count(prev, cur, y0, y1, 0, 0)[0], best[3]
 

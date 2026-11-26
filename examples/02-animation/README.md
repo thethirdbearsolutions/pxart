@@ -196,7 +196,8 @@ wrote onion-feet.png
 ```
 
 `bottom -1`: in frame 3 the lowest pixel is 1 row higher (it stops at row 30, not 31).
-One foot is off the ground.
+One foot is off the ground. `best shift +0,+0`: no move of the whole sprite lines the
+feet up better, because only one foot rose.
 
 ![the feet of frame 3 over frame 0's](onion-feet.png)
 

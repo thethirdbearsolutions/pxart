@@ -36,6 +36,11 @@ def test_random_band_pairs_read_the_same_both_ways():
         y1 = rng.randint(y0, h - 1)
         there, back = both_ways(a, b, y0, y1)
         assert there[2] == back[2] and there[3] == back[3], (y0, y1, list(a.getdata()), list(b.getdata()))
+        # opposite shifts, unless another shift ties on the band count, its size and the whole-sprite count
+        full = {(dx, dy): (pxart.band_count(a, b, y0, y1, dx, dy)[0], abs(dx) + abs(dy), pxart.shift_count(a, b, dx, dy))
+                for dy in range(-2, 3) for dx in range(-2, 3)}
+        if sum(v == full[there[:2]] for v in full.values()) == 1:
+            assert back[:2] == (-there[0], -there[1])
 
 
 def test_a_clear_winner_gives_opposite_shifts():
@@ -126,3 +131,19 @@ def test_a_tie_in_the_band_gives_opposite_shifts(tmp_path, capsys):
         return next(s for s in capsys.readouterr().out.splitlines() if s.startswith("B vs A"))
     assert "best shift +1,+1 then 6px changed (no shift: 21px)" in line(2, 3)
     assert "best shift -1,-1 then 6px changed (no shift: 21px)" in line(3, 2)
+
+
+def test_onion_both_ways_with_pivots_and_sizes(tmp_path, capsys):
+    # frames of two sizes lined up by pivot, a 2-row feet band: the counts and shifts mirror
+    p = write(tmp_path, "w.px", "k #1b1420\ng #43e1b3\n@anim w ms=100\n"
+              "@frame w/0 pivot=2,3\n.kk.\nkggk\n.kg.\nk..k\n"
+              "@frame w/1 pivot=3,4\n......\n..kk..\n.kggk.\n.kg...\n..k.kk\n")
+
+    def line(x, y):
+        assert run("onion", f"{p}:w/{x}", f"{p}:w/{y}", "--feet", "2", "--dry-run") == 0
+        return next(s for s in capsys.readouterr().out.splitlines() if s.startswith("B vs A"))
+    import re
+    there, back = line(0, 1), line(1, 0)
+    n1 = re.search(r"(\d+)px changed", there).group(1)
+    n2 = re.search(r"(\d+)px changed", back).group(1)
+    assert n1 == n2

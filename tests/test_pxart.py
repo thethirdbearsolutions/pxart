@@ -12283,7 +12283,7 @@ def test_onion_feet_band_reads_the_feet_only(tmp_path, capsys):
     ]
 
 
-def test_onion_feet_band_sees_a_leg_move(tmp_path, capsys):
+def test_onion_feet_band_a_leg_move_is_no_shift(tmp_path, capsys):
     p = write(tmp_path, "s.px", SWING)
     lines = onion_lines(tmp_path, capsys, f"{p}:b", f"{p}:c", "--feet", "1")
     assert lines[0] == "A (frame b) covers x 2..4, y 4..4 (row 4 of the 6x5 canvas, bottom-centered)"
