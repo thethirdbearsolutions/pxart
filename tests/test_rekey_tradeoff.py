@@ -197,3 +197,36 @@ def test_review_9_crop_after_a_partial_rekey_says_add(tmp_path, monkeypatch, cap
     setup(tmp_path, monkeypatch)
     assert run("crop", "quarter.px", "0,0,2,2", "-o", "tiles.px:d", "--rekey", "D,F") == 0
     assert "note: adding E,L to --rekey would give those pixels new letters too in tiles.px" in capsys.readouterr().out
+
+
+# PX-65: paste reads the keys of the region's pixels that land in the destination frame
+def test_paste_region_warns_only_for_the_keys_it_copies(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    assert run("paste", "quarter.px", "--region", "0,0,2,1", "--into", "tiles.px:b", "--at", "0,0") == 0
+    out = capsys.readouterr().out
+    warns = [l for l in out.splitlines() if l.startswith("WARNING")]
+    assert len(warns) == 2 and any("'E'" in l for l in warns) and any("'L'" in l for l in warns)
+    note = next(l for l in out.splitlines() if "would give those pixels new letters" in l)
+    assert note.split()[3] == "E,L"
+
+
+def test_paste_partly_off_the_frame_warns_only_for_what_lands(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)  # tiles.px:b is 4x4; at 0,3 only quarter.px's top row LE lands
+    assert run("paste", "quarter.px", "--into", "tiles.px:b", "--at", "0,3") == 0
+    out = capsys.readouterr().out
+    assert "'D'" not in out and "'F'" not in out and "'L'" in out and "'E'" in out
+
+
+def test_paste_under_warns_only_for_what_shows(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)  # tiles.px:a is full, so nothing of quarter.px shows under it
+    assert run("paste", "quarter.px", "--into", "tiles.px:a", "--at", "0,0", "--under") == 0
+    out = capsys.readouterr().out
+    assert "WARNING" not in out and "--rekey" not in out
+
+
+def test_paste_region_imports_only_the_keys_it_copies(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "own.px").write_text("p #ff00ff\nq #00ffff\n\npq\n")
+    assert run("paste", "own.px", "--region", "0,0,1,1", "--into", "tiles.px:b", "--at", "0,0") == 0
+    pal = pxart.parse(tmp_path / "tiles.px").palette
+    assert "p" in pal and "q" not in pal

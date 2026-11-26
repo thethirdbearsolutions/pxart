@@ -6603,17 +6603,33 @@ def cmd_paste(a):
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, ddoc, out, [src.doc])
     label = f"SRC ({a.src})"
-    _, asked = rekey_one(a.rekey, ddoc, src.doc, set("".join(src.frame.grid)), vmap, False, out, label, [src.frame])
-    warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap), ddoc, out, vmap,
-                       "paste --rekey", asked)
     if a.keys is not None and not a.align:
         fail("E_BAD_ARG", "--keys picks the drawing --align follows; add --align shift, bbox or bottom")
     offsets = aligned(ddoc, dframes, a.align, a.keys) if a.align else {}
-    added = []
+    # the source pixels that land: in --region, on a destination frame, and with --under on its empty pixels; only
+    # their keys can take DST's variant colors, be offered to --rekey, or join DST's palette (PX-65)
+    x0, y0, w, h = parse_rect(a.region, src.frame.size)
+    dblank, spots = ddoc.blanks(), set()
+    for f in dframes:
+        dx, dy = offsets.get(id(f), (0, 0))
+        W, H = f.size
+        for y in range(max(y0, 0), min(y0 + h, src.frame.size[1])):
+            for x in range(max(x0, 0), min(x0 + w, src.frame.size[0])):
+                tx, ty = ax + dx + x - x0, ay + dy + y - y0
+                if 0 <= tx < W and 0 <= ty < H and not (a.under and f.grid[ty][tx] not in dblank):
+                    spots.add((x, y))
+
+    def landed():
+        return {src.frame.grid[y][x] for x, y in spots}
+    _, asked = rekey_one(a.rekey, ddoc, src.doc, landed(), vmap, False, out, label, [src.frame])
+    warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, landed(), vmap), ddoc, out, vmap,
+                       "paste --rekey", asked)
+    added, only = [], landed()  # after --rekey: the keys as they are now
     for f in dframes:
         dx, dy = offsets.get(id(f), (0, 0))
         with reading(label):
-            added += stamp(ddoc, f, src.doc, src.frame, (ax + dx, ay + dy), a.region, a.under, out=out, vmap=vmap)
+            added += stamp(ddoc, f, src.doc, src.frame, (ax + dx, ay + dy), a.region, a.under, out=out, vmap=vmap,
+                           only=only)
     uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
     moved = [f"{ax + offsets[id(f)][0]},{ay + offsets[id(f)][1]} in {ddoc.label(f)}" for f in dframes] \
         if len(dframes) > 1 and a.align else []
