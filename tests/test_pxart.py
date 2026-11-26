@@ -16770,9 +16770,13 @@ def test_paste_map_still_reads_the_same_named_night(tmp_path, capsys):
 
 def test_paste_map_without_rekey_new_key_in_night(tmp_path, capsys):
     s, d = night_pack(tmp_path)
-    # at 0,0 so walk/0's z lands on the 2x2 awning (at 0,1 it fell off the bottom, and isn't added since PX-65)
+    # at 0,0 so walk/0's z lands on the 2x2 awning; at 0,1 it falls off the bottom and isn't added (PX-65)
     assert run("paste", f"{s}:walk/0", "--into", f"{d}:awning", "--at", "0,0", "--variant-map", "dusk=night") == 0
     assert pxart.parse(d).variants["night"]["z"] == NIGHT_Z
+    (tmp_path / "off").mkdir()
+    s2, d2 = night_pack(tmp_path / "off")
+    assert run("paste", f"{s2}:walk/0", "--into", f"{d2}:awning", "--at", "0,1", "--variant-map", "dusk=night") == 0
+    assert "z" not in pxart.parse(d2).palette
 
 
 def test_crop_existing_map_still_reads_the_same_named_night(tmp_path, capsys):

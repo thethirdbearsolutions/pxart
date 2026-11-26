@@ -230,3 +230,39 @@ def test_paste_region_imports_only_the_keys_it_copies(tmp_path, monkeypatch):
     assert run("paste", "own.px", "--region", "0,0,1,1", "--into", "tiles.px:b", "--at", "0,0") == 0
     pal = pxart.parse(tmp_path / "tiles.px").palette
     assert "p" in pal and "q" not in pal
+
+
+def test_paste_rekey_of_a_key_outside_the_region_says_why(tmp_path, monkeypatch, capsys):
+    # PX-65 review: --rekey D where D is in the source but outside --region is a note, not an error, as crop's is
+    setup(tmp_path, monkeypatch)
+    assert run("paste", "quarter.px", "--region", "0,0,2,1", "--into", "tiles.px:b", "--at", "0,0", "--rekey", "D") == 0
+    assert "note: --rekey D: no copied pixel draws it" in capsys.readouterr().out
+
+
+def test_paste_a_clashing_key_outside_the_region_raises_no_conflict(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "q.px").write_text("L #3a7d44\nE #2b5f8a\nD #ff0000\n\nLE\nDD\n")  # D clashes, but isn't copied
+    assert run("paste", "q.px", "--region", "0,0,2,1", "--into", "tiles.px:b", "--at", "0,0") == 0
+    assert "E_KEY_CONFLICT" not in capsys.readouterr().out
+
+
+def test_paste_under_a_partly_empty_frame_warns_for_what_shows(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "tiles.px").write_text(TILES.replace("@frame b\n....\n", "@frame b\nLL..\n"))
+    assert run("paste", "quarter.px", "--into", "tiles.px:b", "--at", "0,0", "--under") == 0
+    out = capsys.readouterr().out  # row 0 of b is L L . .: quarter's L and E fall on L L, F and D on empty pixels
+    assert "'D'" in out and "'F'" in out and "'L'" not in out and "'E'" not in out
+
+
+def test_paste_align_reads_each_frames_offset(tmp_path, monkeypatch, capsys):
+    setup(tmp_path, monkeypatch)
+    (tmp_path / "anim.px").write_text("@palette pal.px\n@anim m\n@frame m/0\nS...\n....\n@frame m/1\n....\n...S\n")
+    assert run("paste", "quarter.px", "--into", "anim.px:m/0,m/1", "--at", "0,-1", "--align", "bbox") == 0
+    out = capsys.readouterr().out  # bbox follows S to 3,1 in m/1, so all of quarter lands there
+    assert "'D'" in out and "'F'" in out
+
+
+def test_paste_region_error_names_the_source(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    from test_pxart import run_err
+    assert "SRC (quarter.px)" in run_err("paste", "quarter.px", "--region", "1,2", "--into", "tiles.px:b", "--at", "0,0")
