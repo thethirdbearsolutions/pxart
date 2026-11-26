@@ -10399,14 +10399,14 @@ def cmd_export(a):
             # on the first frame played, so Tiled's palette shows where it starts (a reverse door's open frame); the
             # repeat and direction ride along as properties, for a game that stops it (PX-66)
             props = [{"name": "pxart_anim", "type": "string", "value": tag_name}]
-            if way != "forward":
+            if way != "forward" and whole:  # a part of a group plays as selected, forward, looping: no properties
                 props.append({"name": "pxart_direction", "type": "string", "value": way})
-            if meta.get("repeat"):
+            if meta.get("repeat") and whole:
                 props.append({"name": "pxart_repeat", "type": "int", "value": int(meta["repeat"])})
             tiles.append({"id": index[id(played[0])],
                           "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in played],
                           "properties": props})
-            if meta.get("repeat"):
+            if meta.get("repeat") and whole:
                 passes = (f"; a pingpong's repeat counts one-way passes, so stop it after {meta['repeat']} "
                           f"pass{'es' * (meta['repeat'] != 1)}, not "
                           + ("once" if meta['repeat'] == 1 else f"{meta['repeat']} times") + " round the list"

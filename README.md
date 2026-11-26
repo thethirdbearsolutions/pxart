@@ -409,7 +409,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   - `export --tiled x.tsj` writes a tileset with tile animations, each whole group's frames in the order its
     `direction` plays them (a pingpong `0 1 2 3 2 1`; a part of a group in file order), since a Tiled animation is a
     list that loops forever. The animation sits on the first tile played, with a `pxart_repeat` property when the
-    group has a `repeat` (Tiled can't stop one, so the game does) and `pxart_direction` when it isn't forward.
+    group has a `repeat` (Tiled can't stop one, so the game does: it stops on the last frame of the last pass) and
+    `pxart_direction` when it isn't forward. A part of a group plays forward as selected and gets neither.
   - `export font.px --font font.woff2` (or `.ttf`) writes a pixel font: each frame is a glyph
     named for its character (`A`, `zero`, `period`, `uni00A0`), its width the advance, and
     its pixels one seamless outline. An `@font` section sets the metrics (baseline, units

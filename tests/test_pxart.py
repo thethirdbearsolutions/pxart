@@ -29533,3 +29533,12 @@ def test_export_tiled_carries_repeat_and_direction_as_properties(tmp_path):
     assert run("export", plain, "--tiled", tmp_path / "f.tsj") == 0
     (tile,) = json.loads((tmp_path / "f.tsj").read_text())["tiles"]
     assert [q["name"] for q in tile["properties"]] == ["pxart_anim"]
+
+
+def test_export_tiled_part_of_a_group_carries_no_repeat_or_direction(tmp_path, capsys):
+    # PX-66 loop: a part of a group plays forward as selected and loops, as anim plays it: no properties, no note
+    p = write(tmp_path, "t.px", TILED_WAYS)
+    assert run("export", f"{p}:r/0", f"{p}:r/2", f"{p}:w/0", f"{p}:w/1", "--tiled", tmp_path / "t.tsj") == 0
+    for tile in json.loads((tmp_path / "t.tsj").read_text())["tiles"]:
+        assert [q["name"] for q in tile["properties"]] == ["pxart_anim"]
+    assert "repeat=" not in capsys.readouterr().out
