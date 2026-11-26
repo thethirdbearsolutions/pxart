@@ -24723,8 +24723,10 @@ def test_render_png_notes_what_it_skips(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "note: --png skips m.px: 2 frames; --png writes single-frame .px files only" in out
     assert "note: --png skips m.px:w/0: a selection;" in out
-    assert "'pxart export m.px:w/0 --frames .' writes each selected frame at 1x" in out  # where --png writes
-    assert "'pxart render m.px:w/0 --plain -o w/0.png' that frame" in out
+    # both name m.px into the one folder --png writes: a folder each, so neither export overwrites the other (PX-67)
+    assert "'pxart export m.px --frames m' writes each frame at 1x" in out
+    assert "'pxart export m.px:w/0 --frames m-w-0' writes each selected frame at 1x" in out
+    assert "'pxart render m.px:w/0 --plain -o m-w-0/w/0.png' that frame" in out
     assert not (tmp_path / "m.png").exists()
 
 

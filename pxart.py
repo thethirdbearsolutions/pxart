@@ -3524,16 +3524,22 @@ def cmd_render(a):
                 skipped.setdefault(a.png or pathlib.Path(path).parent.as_posix(), []).append(f)
     sub = {}  # FILE -> its own subfolder, when several skipped files share one folder (PX-67): their routes then
     for fs in skipped.values():  # can't overwrite each other's PNGs or pivots.json, and a %variant stays its own
-        paths = list(dict.fromkeys(split_sel(g)[0] for g in fs))
-        if len(paths) < 2:
+        fs = list(dict.fromkeys(fs))
+        if len(fs) < 2:
             continue
-        stems = [pathlib.Path(p).stem for p in paths]
-        for p, stem in zip(paths, stems):
-            parts = [x for x in pathlib.Path(p).with_suffix("").parts if x not in (".", "..", "/")]
-            name = stem if stems.count(stem) == 1 else "/".join(parts)
-            for g in fs:
-                if split_sel(g)[0] == p:
-                    sub[g] = name
+        paths = [split_sel(g)[0] for g in fs]
+        names = []
+        for g, p in zip(fs, paths):
+            stem = pathlib.Path(p).stem
+            same = [q for q in dict.fromkeys(paths) if pathlib.Path(q).stem == stem]
+            name = stem if len(same) == 1 else "/".join(
+                x for x in pathlib.Path(p).with_suffix("").parts if x not in (".", "..", "/"))
+            if paths.count(p) > 1:  # one file named twice (a selection each, or a %variant): the rest names it
+                sel, pct = split_sel(g)[1], split_variant(g)[1]
+                name += "".join(f"-{x}" for x in (sel and re.sub(r"[^A-Za-z0-9_\-]+", "-", sel).strip("-"), pct) if x)
+            names.append(name)
+        for g, name in zip(fs, names):
+            sub[g] = name
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0

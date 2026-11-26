@@ -73,3 +73,13 @@ def test_two_files_of_one_name_get_their_paths(tmp_path, monkeypatch, capsys):
     got = routes(capsys.readouterr().out)
     assert [e[-1] for e, _ in got] == ["o/a/knight", "o/b/knight"]
     run_all(got)
+
+
+def test_one_file_named_twice_gets_two_folders(tmp_path, monkeypatch, capsys):
+    # second private loop: slime.px and slime.px%night, or two selections of one file, wrote into one folder
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "s.px").write_text(TWO + "@variant night\ng #003300\n")
+    assert run("render", "s.px", "s.px%night", "s.px:a/0", "--png", "o", "-o", "p.png") == 0
+    got = routes(capsys.readouterr().out)
+    assert [e[-1] for e, _ in got] == ["o/s", "o/s-night", "o/s-a-0"]
+    run_all(got)
