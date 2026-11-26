@@ -3,14 +3,14 @@
 - At most one short example: a command and up to two lines of its output, in a code block, and only when it shows the change better than words.
 - Under 60 words per entry, example included. The PX id goes last, in parentheses.
 - Quote no full error or note text. Name the message instead ("`check` now names the line").
-- Fold together fixes that only reword a warning or note: one entry per day, e.g. "Clearer messages from `crop`'s night-colour warnings and `render --png`'s skip note (PX-58, PX-59)."
+- Fold together fixes that only reword a warning or note: one entry per day, e.g. "Clearer messages from `crop`'s variant warnings and `render --png`'s skip note (PX-58, PX-59)."
 - Keep the Added / Changed / Fixed headings under each day, newest first.
 -->
 
 # Changelog
 
-What changed in pxart, newest first, grouped by the day it landed on `main` until a first tagged release.
-The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
+What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
+release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
 ## 2026-11-25
 
@@ -18,14 +18,14 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 - **`check` fails a file with a `@variant base`, and names the line.** A variant called `base` can never draw,
   since `base` always means the base colors. A sprite that gets one through `@palette` fails too, naming the
-  palette file's line (PX-57).
+  palette file's line. Such files still render as before (PX-57).
 
 - **`export --tiled` plays `pingpong` and `reverse` groups in Tiled as `anim` plays them,** instead of always
   forward. A group with a `repeat` gets a note, because a Tiled animation always loops (PX-62).
 
-- **Clearer messages from `crop` and `render --png`.** Cropping into a file with a night palette warns only about
-  the colors in the cropped area, not the whole source frame. When `render --png` skips a multi-frame file, the
-  `export` command its note suggests now runs as printed (PX-58, PX-59).
+- **Clearer messages from `crop`, `compose` and `render --png`.** Cropping or composing into a file with a
+  `@variant` warns only about keys the copied pixels use, and the `--rekey` it offers lists only those. When
+  `render --png` skips a multi-frame file, the `export` command its note suggests runs as printed (PX-58, PX-59).
 
 ## 2026-11-24
 
@@ -36,20 +36,20 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
   grow. `paste --align shift` uses the same shift. `anim` is also faster on big frames (PX-55).
 
 - **`repeat=N` on a `pingpong` group means N one-way passes, as in Aseprite.** `repeat=1` plays 0 1 2 3 and stops,
-  where it used to go there and back. `anim` previews it pass by pass, and `check`'s hold advice follows (PX-56).
+  where it used to play 0 1 2 3 2 1. `anim` previews it pass by pass, and `check`'s hold advice follows (PX-56).
 
-- **`anim -o x.gif` plays as often as the group's `repeat` says,** instead of looping forever, and `--dry-run` says
-  so too. Frame labels on `render` and `sheet` no longer run the size into the color count (PX-50).
+- **`anim -o x.gif` on a whole group plays as often as its `repeat` says,** instead of looping forever, and
+  `--dry-run` says so too. Frame labels on `render` and `sheet` no longer run the size into the color count (PX-50).
 
 - **Negative coordinates after a flag work as typed,** such as `mask --keep-circle -10,-8,34`. Negative widths,
   heights, radii and sizes are now errors, and `shift --region` clips a negative x or y to the frame instead of
   counting from the far edge (PX-52).
 
 - **`-o FILE.px:FRAME` no longer makes a file or folder with that literal name.** Whole-file edits such as
-  `outline` and `shade` refuse it and suggest copying the frame with `dup`, then editing the copy.
+  `outline` and `shade` refuse it; when it names a frame of the same file, they give the `dup` to copy it first.
   `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame `walk/9` (PX-23).
 
-- **Three small traps.** `check` warns about an empty `.px` file. `dup` and `frames --rename` work on a file that
+- **`check` warns about an empty `.px` file.** `dup` and `frames --rename` work on a file that
   is a single grid with no `@frame` name. `outline --key` notes when the art already has a dark line, which an
   outline would double (PX-24).
 
@@ -75,7 +75,7 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 - **`render --silhouette` and `sheet --silhouette` draw each sprite's shape in one flat color,** for comparing
   silhouettes or for a blind review. Faint pixels stay faint, and it works with `--variant`, `--scale` and
-  `--plain`. Give a color, as in `--silhouette '#ffffff'` (PX-31).
+  `--plain`. The color is `#2b1d32` unless you give one, as in `--silhouette '#ffffff'` (PX-31).
 
 - **A variant made with `palette --variant night --derive-from base` records the command that made it,** as a
   `# derived by` comment above `@variant`, so you can change one setting, such as `--darken`, and run it again.
@@ -133,6 +133,7 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
   ```
   $ pxart check hero.px --outline k
+  ok   hero.px:idle/0: 6x4 2c
        note: hero.px:idle/0: outline 'k' has 2 gaps at (3,1) (4,2)
   ```
 
@@ -141,8 +142,8 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Fixed
 
-- **The test suite passes on any machine.** Images in the example checks now compare by their pixels, not their
-  bytes, which differ between zlib and Pillow versions (PX-27).
+- **`pytest` passes on any machine.** The example checks compare images by their pixels instead of their bytes
+  (PX-27).
 
 ## 2026-11-19
 
@@ -171,20 +172,21 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Changed
 
-- **Rendering a file with palette variants no longer slows down as it gains frames.** A 640-frame cast with two
+- **`render`, `sheet` and `export` of a file with palette variants no longer slow down as it gains frames.** A 640-frame cast with two
   variants builds in 2.0 s instead of 8.2 s, with the same output.
 
 ## 2026-11-12
 
 ### Changed
 
-- **`put --rows` can repair a frame whose rows are different widths,** which used to make every command refuse
-  the file. `put --text ROW`, once per row, gives the rows on the command line instead of stdin.
+- **`put --rows` can repair a frame whose rows are different widths,** so a file with one ragged row can be fixed
+  without retyping it. `put --text ROW`, once per row, gives the rows on the command line instead of stdin.
 
 - **The argument orders people guess first now work,** such as `dup FILE:a FILE:b`, `shift FILE DX DY` and
   `set FILE x,y KEY` with the key last.
 
-- **A row one pixel too wide or short says which pixel to delete or add** to line it up with the rows around it.
+- **`check` and every command that reads a file name the pixel to delete or add** when a row is one pixel too wide
+  or short.
 
 ## 2026-11-10
 
@@ -204,11 +206,12 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Added
 
-- **Palette slots:** a key line can list alternative colors, `f #e0ac69 | #f5cfa0 | #c68642`, for games that
-  recolor at runtime. `render --slots` and `sheet --slots` draw them, and `export --indexed` writes them.
+- **A palette key can list alternative colors (slots), `f #e0ac69 | #f5cfa0 | #c68642`, for games that
+  recolor at runtime.** `render --slots` and `sheet --slots` draw them, and `export --indexed` writes them.
   `pxart help slots` has the rules.
-- `from-png --colors N` reduces a PNG with many colors to fit the free palette keys.
-- `from-png --hard-edges` makes half-transparent edge pixels solid or clear; `outline --min-alpha A` ignores
+- `from-png --colors N` reduces a PNG with many colors to fit the free palette keys, and reuses OUT's palette
+  when OUT exists.
+- `from-png --hard-edges` makes every see-through pixel opaque, or clear if faint; `outline --min-alpha A` ignores
   pixels fainter than A; `outline --pad` grows the frame so an outline fits at its border.
 
 ### Changed
@@ -222,10 +225,10 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Added
 
-- **Tiled worlds:** `export --tiled` compiles a `world.src.json` and its `.map` rooms into `.world` and `.tmj`
-  files. `pxart help worlds` has the details.
+- **`export --tiled` compiles a `world.src.json` and its `.map` rooms into Tiled `.world` and `.tmj` files,** with
+  stable object ids. `pxart help worlds` has the details.
 - `pxart world` draws a compiled world to one PNG.
-- `check` reads `.world` and `.tmj` files.
+- `check` reads `.world` and `.tmj` files, by the same rules as the export.
 
 ## 2026-09-27
 
