@@ -3525,6 +3525,35 @@ def cmd_render(a):
         its = silhouetted(its, a.silhouette)
         if a.png is not None:
             print("note: --png writes each file's colors at 1x; --silhouette draws only the preview")
+    skipped, written = {}, {}  # folder -> the skipped .px entries that would export into it / --png's own PNGs there
+    for f in a.files if a.png is not None else ():
+        path, sel = split_sel(f)
+        if path.endswith(".px"):
+            where = a.png or pathlib.Path(path).parent.as_posix()
+            pdoc = parse(path)
+            if sel or len(pdoc.frames) != 1:
+                skipped.setdefault(where, []).append(f)
+            else:
+                written.setdefault(where, set()).add(f"{pathlib.Path(path).stem}.png".casefold())
+    sub = {}  # FILE -> a subfolder of its own, when its export would share the folder with another skipped file's or
+    for where, fs in skipped.items():  # with --png's own PNGs (PX-67): no PNG or pivots.json overwrites another
+        fs = list(dict.fromkeys(fs))
+        if len(fs) < 2 and not written.get(where):
+            continue
+        real = [pathlib.Path(split_sel(g)[0]).resolve() for g in fs]
+        taken = set(written.get(where, ()))
+        for g, p in zip(fs, real):
+            name = p.stem
+            if real.count(p) > 1:  # one file named twice (a selection each, or a %variant): the rest names it
+                sel, pct = split_sel(g)[1], split_variant(g)[1]
+                name += "".join(f"-{x}" for x in (sel and re.sub(r"[^A-Za-z0-9_]+", "-", sel).strip("-"), pct) if x)
+            base, n = name, 1
+            while name.casefold() in taken or (pathlib.Path(where) / name).exists() and \
+                    not (pathlib.Path(where) / name).is_dir():
+                n += 1
+                name = f"{base}-{n}"
+            taken.add(name.casefold())
+            sub[g] = name
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -3537,10 +3566,13 @@ def cmd_render(a):
                 one = sel if len(picked) == 1 else fid  # the selector as typed when it is that one frame
                 q = shlex.quote
                 where = a.png or (pathlib.Path(path).parent.as_posix())  # where --png would write; the PNG at export's path
+                if f in sub:  # another skipped file exports into the same folder: each gets a folder of its own
+                    where = (pathlib.Path(where) / sub[f]).as_posix()
+                pct = split_variant(f)[1]  # a FILE%variant's colors, kept on the --plain route too
                 var = f" --variant {q(a.variant)}" if a.variant else ""  # the colors --png would have drawn
                 route = (f"'pxart export {q(f)} --frames {q(where)}{var}' writes "
                          f"{'each selected' if sel else 'each'} frame at 1x, "
-                         f"'pxart render {q(path + ':' + one)} --plain -o "
+                         f"'pxart render {q(path + ':' + one + (f'%{pct}' if pct else ''))} --plain -o "
                          f"{q((pathlib.Path(where) / (fid + '.png')).as_posix())}{var}' "
                          + ("that frame" if len(picked) == 1 else "one"))
             else:

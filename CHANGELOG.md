@@ -21,17 +21,22 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
+- **Running the commands `render --png DIR` suggests for the multi-frame files it skips no longer overwrites
+  anything.** For each such file it suggests an `export` and a `render`; when several files would write into DIR,
+  each now gets a subfolder, such as `out/knight`. Both commands keep a `FILE%variant`'s colors (PX-67).
+
 - **`crop`, `compose` and `paste` into an existing file add only the keys of the pixels they copy,** so `check`
   finds no unused keys. A key outside the copied area or hidden by `--under` isn't added, warned about or renamed,
-  and can't cause a conflict. `crop` and `compose` keep each key's comment (PX-64, PX-65).
+  and can't cause a conflict. `crop` and `compose` also copy each added key's comment; `paste` doesn't (PX-64,
+  PX-65).
 
-- **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
-  that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as
-  before (PX-63).
+- **`outline --key K` checks every variant before warning that the art already has a dark line,** which an outline
+  would double into a 2px rim, and names the variants where that happens, for example a line that is only dark at
+  night. When every variant agrees, it is one note as before (PX-63).
 
-- **`onion --feet N` and `--rows Y0-Y1` count the same changed pixels from A to B as from B to A,** with opposite
-  shifts unless two mirror-image shifts tie. The band now counts its rows in both frames, and pixels pushed past an
-  edge, so some band readouts change (PX-61).
+- **`onion A B --feet N` gives the same changed-pixel count as `onion B A --feet N`,** and so does `--rows Y0-Y1`. Pixels
+  moving into or out of those rows now count, so some counts go up. Swapping A and B flips the best shift's sign,
+  except in a tie, where both orders may name the same shift (PX-61).
 
 ## 2026-11-25
 
