@@ -3515,6 +3515,25 @@ def cmd_render(a):
         its = silhouetted(its, a.silhouette)
         if a.png is not None:
             print("note: --png writes each file's colors at 1x; --silhouette draws only the preview")
+    skipped = {}  # where --png would write -> the skipped .px files (as typed) that would export into it
+    for f in a.files if a.png is not None else ():
+        path, sel = split_sel(f)
+        if path.endswith(".px"):
+            pdoc = parse(path)
+            if sel or len(pdoc.frames) != 1:
+                skipped.setdefault(a.png or pathlib.Path(path).parent.as_posix(), []).append(f)
+    sub = {}  # FILE -> its own subfolder, when several skipped files share one folder (PX-67): their routes then
+    for fs in skipped.values():  # can't overwrite each other's PNGs or pivots.json, and a %variant stays its own
+        paths = list(dict.fromkeys(split_sel(g)[0] for g in fs))
+        if len(paths) < 2:
+            continue
+        stems = [pathlib.Path(p).stem for p in paths]
+        for p, stem in zip(paths, stems):
+            parts = [x for x in pathlib.Path(p).with_suffix("").parts if x not in (".", "..", "/")]
+            name = stem if stems.count(stem) == 1 else "/".join(parts)
+            for g in fs:
+                if split_sel(g)[0] == p:
+                    sub[g] = name
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         n = len(parse(path).frames) if path.endswith(".px") else 0
@@ -3527,10 +3546,13 @@ def cmd_render(a):
                 one = sel if len(picked) == 1 else fid  # the selector as typed when it is that one frame
                 q = shlex.quote
                 where = a.png or (pathlib.Path(path).parent.as_posix())  # where --png would write; the PNG at export's path
+                if f in sub:  # another skipped file exports into the same folder: each gets a folder of its own
+                    where = (pathlib.Path(where) / sub[f]).as_posix()
+                pct = split_variant(f)[1]  # a FILE%variant's colors, kept on the --plain route too
                 var = f" --variant {q(a.variant)}" if a.variant else ""  # the colors --png would have drawn
                 route = (f"'pxart export {q(f)} --frames {q(where)}{var}' writes "
                          f"{'each selected' if sel else 'each'} frame at 1x, "
-                         f"'pxart render {q(path + ':' + one)} --plain -o "
+                         f"'pxart render {q(path + ':' + one + (f'%{pct}' if pct else ''))} --plain -o "
                          f"{q((pathlib.Path(where) / (fid + '.png')).as_posix())}{var}' "
                          + ("that frame" if len(picked) == 1 else "one"))
             else:

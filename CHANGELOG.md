@@ -16,6 +16,10 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
+- **Clearer messages from `render --png DIR`'s skip notes:** when several skipped files would export into one
+  folder, each file's suggested commands use a subfolder of its own, so running them all overwrites nothing. A
+  `FILE%variant` keeps its colors in both (PX-67).
+
 - **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
   that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as
   before (PX-63).
