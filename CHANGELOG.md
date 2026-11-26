@@ -23,16 +23,17 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 - **`export --tiled` plays `pingpong` and `reverse` groups in Tiled as `anim` plays them,** instead of always
   forward. A group with a `repeat` gets a note, because a Tiled animation always loops (PX-62).
 
-- **Clearer messages from `crop`'s night-colour warnings and `render --png`'s skip note.** The warnings name only
-  the keys the crop actually copies, and the skip note's `export` command runs as printed (PX-58, PX-59).
+- **Clearer messages from `crop` and `render --png`.** Cropping into a file with a night palette warns only about
+  the colors in the cropped area, not the whole source frame. When `render --png` skips a multi-frame file, the
+  `export` command its note suggests now runs as printed (PX-58, PX-59).
 
 ## 2026-11-24
 
 ### Fixed
 
-- **`anim` gives a pair of frames the same count both ways.** Pixels a shift pushes off the canvas, such as feet,
-  now count as changed, and the readout says how many went past the edge. Some counts grow, and `paste --align
-  shift` follows the new numbers. `anim` is also about twice as fast on big frames (PX-55).
+- **`anim` reports the same number of changed pixels for frames A to B as for B to A.** `anim` lines each pair up
+  by its best shift; pixels that shift pushes off the canvas, such as feet, now count as changed, so some counts
+  grow. `paste --align shift` uses the same shift. `anim` is also about twice as fast on big frames (PX-55).
 
 - **`repeat=N` on a `pingpong` group means N one-way passes, as in Aseprite.** `repeat=1` plays 0 1 2 3 and stops,
   where it used to go there and back. `anim` previews it pass by pass, and `check`'s hold advice follows (PX-56).
@@ -44,40 +45,41 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
   heights, radii and sizes are now errors, and `shift --region` clips a negative x or y to the frame instead of
   counting from the far edge (PX-52).
 
-- **`-o FILE.px:FRAME` no longer makes a file or folder with that literal name.** An edit that writes a whole file
-  says so and gives the `dup` to run first. `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame
-  `walk/9` (PX-23).
+- **`-o FILE.px:FRAME` no longer makes a file or folder with that literal name.** Whole-file edits such as
+  `outline` and `shade` refuse it and suggest copying the frame with `dup`, then editing the copy.
+  `from-png x.png -o into.px:walk/9` adds the PNG to into.px as frame `walk/9` (PX-23).
 
-- **Four small traps.** `check` warns about an empty `.px` file. `dup` and `frames --rename` work on a file of one
-  unnamed grid. `outline --key` notes when the art already has a dark line, which an outline would double
-  (PX-24).
+- **Three small traps.** `check` warns about an empty `.px` file. `dup` and `frames --rename` work on a file that
+  is a single grid with no `@frame` name. `outline --key` notes when the art already has a dark line, which an
+  outline would double (PX-24).
 
 - **`scene --variant` notes when the default backdrop shows through,** since `--bg` stays a day color: give `--bg`
   a night color. With `--anchor`, it names items wholly outside the window instead of counting cropped pixels
   (PX-48).
 
-- **`bench/cast/pxc.py` names the key and the files when a cast breaks its one-palette rule,** instead of a raw
-  traceback. A file no longer has to list keys it doesn't draw, and an empty cast folder is an error (PX-46).
+- **The experimental cast encoder, `bench/cast/pxc.py`, explains its errors.** It packs a folder of character
+  `.px` files into one file and needs them to share one palette; it now names the key and the files that differ,
+  instead of a traceback. A file no longer has to list keys it doesn't draw (PX-46).
 
 - **Clearer messages from `from-png` and `palette --remove` when the arguments are in the wrong place,** each now
-  printing the command to type, and from `compose`'s and `crop`'s `--rekey` advice, which says what renaming the
-  keys would change (PX-21, PX-49).
+  printing the command to type. When `compose` or `crop` into a file with a night palette suggest `--rekey`
+  (giving the copied pixels new letters), they now say that this renames keys a game may read (PX-21, PX-49).
 
 ## 2026-11-23
 
 ### Added
 
-- **`check --headroom N` notes standing frames with fewer than N empty rows above the sprite,** so a jump has room
-  to rise, and gives the `crop` that grows the canvas. `anim` now reports how many rows a group rises, and the
-  headroom left at its highest (PX-13).
+- **`check --headroom N` notes frames with fewer than N empty rows above the sprite,** so a jump has room to
+  rise, and gives the `crop` that grows the canvas. Frames already in the air are left out. `anim` now reports how
+  many rows a group rises, and the headroom left at its highest (PX-13).
 
 - **`render --silhouette` and `sheet --silhouette` draw each sprite's shape in one flat color,** for comparing
   silhouettes or for a blind review. Faint pixels stay faint, and it works with `--variant`, `--scale` and
   `--plain`. Give a color, as in `--silhouette '#ffffff'` (PX-31).
 
-- **A derived night variant records the command that made it,** as a `# derived by` comment above `@variant`, so
-  you can change one strength and run it again. The `palette` listing names which keys were kept lit or lamplit
-  (PX-53).
+- **A variant made with `palette --variant night --derive-from base` records the command that made it,** as a
+  `# derived by` comment above `@variant`, so you can change one setting, such as `--darken`, and run it again.
+  The `palette` listing names the keys it kept lit (PX-53).
 
 ### Fixed
 
@@ -97,13 +99,13 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 
 ### Added
 
-- **`palette --lamplit KEYS@S` warms the keys near a lamp in a derived night,** mixing each toward its day color
-  under lamplight by strength S. Repeat it for a near and a far ring. `pxart help palette` shows the setup
-  (PX-30).
+- **`palette --lamplit KEYS@S` warms chosen keys in a night variant made with `--derive-from`,** mixing each
+  toward its day color under lamplight by strength S (0 to 1). Give the pixels near a lamp keys of their own,
+  then list them; repeat the option for a brighter near ring and a dimmer far one (PX-30).
 
-- **`review-pack` packs renders for a blind review,** each under a random id with its metadata stripped, and can add
-  copies of each render to test whether the reviewer agrees with itself. `review-pack --score` tallies the
-  verdicts and lists the copies that disagree (PX-5).
+- **`review-pack` copies a folder of renders under random ids, for a blind review,** so the reviewer, a person or a
+  model, can't tell from the file names which is which. `--copies 2` adds each render twice, and `review-pack
+  --score` reads a JSON of verdicts by id and lists copies judged differently (PX-5).
 
 ### Fixed
 
@@ -112,14 +114,15 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
 - **`scene --anchor center` (or an edge, a corner, or `X,Y`) picks which part of the scene a smaller `--size`
   keeps.** Without it, the top-left is kept, as before (PX-36).
 
-- **`export --indexed` writes no `ms` for a `@still` frame,** so a game can tell tiles and icons from animation
-  frames (PX-33).
+- **`export --indexed` writes no `ms` (frame duration) for a frame marked `@still`,** such as a tile or an icon,
+  so a game can tell it from an animation frame (PX-33).
 
-- **`bench/cast/web/pxc.js` loads a gzipped cast whatever its URL,** including one with a query string, or one the
-  server already unzipped (PX-29).
+- **The experimental cast decoder, `bench/cast/web/pxc.js`, loads a gzipped cast whatever its URL,** including one
+  with a query string, or one the server already unzipped (PX-29).
 
-- **Clearer output from `anim` on a single frame,** which says there is nothing to compare, and from `paste`'s and
-  `frames --copy-to`'s `--rekey` advice, which says what renaming the keys would change (PX-41, PX-35).
+- **Clearer output from `anim` on a single frame,** which says there is nothing to compare. When `paste` or
+  `frames --copy-to` into a file with a night palette suggest `--rekey` (new letters for the copied pixels), they
+  say that this renames keys a game may read (PX-41, PX-35).
 
 ## 2026-11-21
 
@@ -161,8 +164,8 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
   on desktop, 4G and an emulated phone, with every result recorded so far. `uv run bench/load/run.py --out DIR`
   reruns it.
 
-- **`bench/cast/` is a spike of a whole-cast format** that ships a cast as one file and decodes it in a Web Worker.
-  Its README has the results.
+- **`bench/cast/` is an experiment, not a supported format:** it packs a game's whole cast of characters into one
+  file and draws it in a Web Worker. Its README has the measurements.
 
 ## 2026-11-14
 
@@ -205,13 +208,15 @@ The file format is `pxart 1` throughout, and every `.px` file written for an ear
   recolor at runtime. `render --slots` and `sheet --slots` draw them, and `export --indexed` writes them.
   `pxart help slots` has the rules.
 - `from-png --colors N` reduces a PNG with many colors to fit the free palette keys.
-- `from-png --hard-edges`, `outline --min-alpha A` and `outline --pad`.
+- `from-png --hard-edges` makes half-transparent edge pixels solid or clear; `outline --min-alpha A` ignores
+  pixels fainter than A; `outline --pad` grows the frame so an outline fits at its border.
 
 ### Changed
 
 - `check` and `from-png` count see-through pixels, and say when a key is faint or a shape touches the frame's edge.
 - `from-png` with no `-o` prints its notes on stderr, so `from-png a.png > a.px` gives a clean file.
-- Erase errors name a command that runs as printed.
+- When `recolor` refuses a move to `.` (`'k>.'`), the error gives the `recolor` command that does erase those
+  pixels, ready to paste.
 
 ## 2026-09-28
 
@@ -232,9 +237,10 @@ The first public version: the format, about forty commands, and the
 - `compose --dry-run` prints what compose would say and the diff it would write.
 - `paste --align shift|pivot|bottom|bbox` and `FILE:a,b,c` frame lists, so one paste can follow a bobbing
   animation.
-- `ellipse --ring N` and `ellipse --box x,y,w,h`.
+- `ellipse --ring N` draws a ring N pixels thick; `ellipse --box x,y,w,h` fits the ellipse in a box.
 - `onion --variant V`, `stats --variant V`, and `render` and `sheet` cells labeled with their variant.
-- `dup FILE:GROUP NEWGROUP`; `flip FILE:G -o FILE:NEWG`; `--replace` for `flip`, `rotate`, `transpose` and `dup`.
+- `dup FILE:GROUP NEWGROUP` copies a whole animation group, and `flip FILE:G -o FILE:NEWG` writes a flipped copy
+  as a new group. `--replace` lets `flip`, `rotate`, `transpose` and `dup` overwrite a group that exists.
 - `--dry-run` on every in-place edit, `new` and `palette` included.
 
 ### Changed
