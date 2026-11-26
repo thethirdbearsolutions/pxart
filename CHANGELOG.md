@@ -16,8 +16,9 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
-- **`outline --key K` notes an existing dark line in each variant where it shows,** such as a line that is only
-  dark at night, naming the variant. When every variant agrees with the base, it is one note as before (PX-63).
+- **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
+  that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as
+  before (PX-63).
 
 ## 2026-11-25
 
