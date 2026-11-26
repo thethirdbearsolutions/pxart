@@ -67,6 +67,39 @@ def test_under_warns_only_for_pixels_that_show(tmp_path, monkeypatch, capsys):
     assert "WARNING" not in out and "--rekey" not in out
 
 
+def test_under_adds_only_the_keys_that_show(tmp_path, monkeypatch):
+    house(tmp_path, monkeypatch)  # tiles.px frame a: kk / ww; frame b gets one empty pixel to show through
+    (tmp_path / "tiles.px").write_text("@palette pal.px\n\n@frame a\nkk\nww\n@frame b\nk.\nww\n")
+    (tmp_path / "s.px").write_text("# shadow\nx #20202080\nZ #ff00ff\n\nZx\nZZ\n")  # only x lands on b's '.'
+    assert run("compose", "-o", "tiles.px:b", "--under", "s.px@0,0") == 0
+    text = (tmp_path / "tiles.px").read_text()
+    assert "# shadow\nx #20202080" in text and "Z #" not in text
+
+
+def test_a_new_out_still_conflicts_on_a_key_its_file_needs(tmp_path, monkeypatch):
+    # a new OUT is seeded from the layers' whole files: a key cropped away there still clashes (review finding 1)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "l1.px").write_text("a #ff0000\n@frame x\naa\n")
+    (tmp_path / "l4.px").write_text("a #0000ff\nb #00ff00\n@frame y\nbb\naa\n@frame z\na\n")
+    assert "E_KEY_CONFLICT" in run_err("compose", "-o", "f.px", "--size", "2x1", "l1.px:x@0,0", "l4.px:y@0,0")
+
+
+def test_two_layers_of_one_file_carry_its_comment_once(tmp_path, monkeypatch):
+    house(tmp_path, monkeypatch)
+    (tmp_path / "w.px").write_text("# walls\nX #c0b090\nx #a09070\n\n@frame a\nx\n@frame b\nX\n")
+    assert run("compose", "-o", "tiles.px:c", "--size", "2x1", "w.px:a@0,0", "w.px:b@1,0") == 0
+    text = (tmp_path / "tiles.px").read_text()
+    assert text.count("# walls") == 1
+
+
+def test_variant_lines_follow_the_new_keys_order(tmp_path, monkeypatch):
+    house(tmp_path, monkeypatch)
+    (tmp_path / "n.px").write_text("z #101010\na #202020\n\n@variant night\nz #000000\na #010101\n\nza\n")
+    assert run("compose", "-o", "tiles.px:c", "--size", "2x1", "n.px@0,0") == 0
+    doc = pxart.parse(tmp_path / "tiles.px")
+    assert [k for k in doc.palette if k in "za"] == ["z", "a"] == [k for k in doc.variants["night"] if k in "za"]
+
+
 @pytest.mark.parametrize("cmd", [["crop", "house.px", "0,2,4,2", "-o", "tiles.px:wall"],
                                  ["compose", "-o", "tiles.px:c", "--size", "4x2", "house.px@0,-2"]])
 def test_check_is_quiet_after(tmp_path, monkeypatch, capsys, cmd):
