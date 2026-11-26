@@ -3226,7 +3226,7 @@ def import_keys(dst, src, keys, vmap=None, clear=False):
             c = src.resolved(lv[n])[k]
             if c != pal[k] or k in src.variants.get(lv[n], {}) or k in src.shared_variants.get(lv[n], {}):
                 dst.variants.setdefault(n, {})[k] = c
-    return added
+    return sorted(added)
 
 
 def check_vmap(vmap, dst, dst_name, srcs, fresh=False):
@@ -3402,18 +3402,25 @@ def check_asked(asked, src, dst, dst_name, what):
                  f"{fmt_color(pal[k])}, or give {k} a free one: --rekey {k}")
 
 
-def rekey_one(value, dst, src, keys, vmap, clear, dst_name, what, frames=()):
+def rekey_one(value, dst, src, keys, vmap, clear, dst_name, what, frames=(), drawn=None):
     """--rekey [KEYS | KEY=DSTKEY,...] for one source going into an existing dst (frames --copy-to, paste): the named
     keys go where they were told, then the keys that need free ones (rekey_moves; with a list, only those it names)
     get them; src moves in memory (rekey). Prints what moved and, for a key it moved to a free one while dst has its
     base color under a key whose variants differ, how to use that key anyway. Returns ({old: new}, {new: old} of the
-    asked moves)."""
+    asked moves). drawn: every key the source frame draws, when keys are only those of the pixels that land (paste:
+    PX-65); a key it names that src draws but no copied pixel does is left alone, with a note, as crop's --rekey."""
     spec = rekey_spec(value)
     if spec is None:
         return {}, {}
     only, asked, scoped = spec
     for o, a_ in scoped_to(scoped, [src.path.resolve()], value).values():  # the one source: its own entries win
         only, asked = (only - set(a_)) | o, {**{k: j for k, j in asked.items() if k not in o}, **a_}
+    off = [k for k in sorted((only or set()) | set(asked)) if drawn and k in drawn and k not in keys]
+    if off:
+        print(f"note: --rekey {' '.join(off)}: no copied pixel draws {'them' if len(off) > 1 else 'it'} (the "
+              "--region, a part off the frame, or one hidden by --under), so it stays as it is")
+        only = None if only is None else only - set(off)
+        asked = {k: j for k, j in asked.items() if k not in off}
     unused = [k for k in sorted((only or set()) | set(asked)) if k not in keys]
     if unused:
         fail("E_SELECT", f"--rekey {value}: {what} doesn't draw with {' '.join(unused)}")
@@ -3471,13 +3478,16 @@ def spans(ns):
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None, vmap=None,
-          erase=None):
+          erase=None, only=None):
     """Copy src frame (or a region of it) onto dst frame at `at`; keys that draw nothing (Doc.blanks) don't overwrite, but
     a key transparent only in the base does (a night halo). under: only onto dst's empty pixels (by the same test), so
     src goes behind what dst has. erase: a key whose pixels clear dst to '.' (a layer that removes pixels); it is never
-    imported. Returns the keys it added (import_keys)."""
+    imported. only: the keys to check and import, when the caller knows which land (compose: PX-64). Returns the keys
+    it added (import_keys)."""
     src_blank = src_doc.blanks()
     keys = set("".join(src.grid)) - {erase}
+    if only is not None:
+        keys &= only
     clash = key_conflicts(dst_doc, src_doc, keys, what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
@@ -3515,30 +3525,34 @@ def cmd_render(a):
         its = silhouetted(its, a.silhouette)
         if a.png is not None:
             print("note: --png writes each file's colors at 1x; --silhouette draws only the preview")
-    skipped = {}  # where --png would write -> the skipped .px files (as typed) that would export into it
+    skipped, written = {}, {}  # folder -> the skipped .px entries that would export into it / --png's own PNGs there
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
         if path.endswith(".px"):
+            where = a.png or pathlib.Path(path).parent.as_posix()
             pdoc = parse(path)
             if sel or len(pdoc.frames) != 1:
-                skipped.setdefault(a.png or pathlib.Path(path).parent.as_posix(), []).append(f)
-    sub = {}  # FILE -> its own subfolder, when several skipped files share one folder (PX-67): their routes then
-    for fs in skipped.values():  # can't overwrite each other's PNGs or pivots.json, and a %variant stays its own
+                skipped.setdefault(where, []).append(f)
+            else:
+                written.setdefault(where, set()).add(f"{pathlib.Path(path).stem}.png".casefold())
+    sub = {}  # FILE -> a subfolder of its own, when its export would share the folder with another skipped file's or
+    for where, fs in skipped.items():  # with --png's own PNGs (PX-67): no PNG or pivots.json overwrites another
         fs = list(dict.fromkeys(fs))
-        if len(fs) < 2:
+        if len(fs) < 2 and not written.get(where):
             continue
-        paths = [split_sel(g)[0] for g in fs]
-        names = []
-        for g, p in zip(fs, paths):
-            stem = pathlib.Path(p).stem
-            same = [q for q in dict.fromkeys(paths) if pathlib.Path(q).stem == stem]
-            name = stem if len(same) == 1 else "/".join(
-                x for x in pathlib.Path(p).with_suffix("").parts if x not in (".", "..", "/"))
-            if paths.count(p) > 1:  # one file named twice (a selection each, or a %variant): the rest names it
+        real = [pathlib.Path(split_sel(g)[0]).resolve() for g in fs]
+        taken = set(written.get(where, ()))
+        for g, p in zip(fs, real):
+            name = p.stem
+            if real.count(p) > 1:  # one file named twice (a selection each, or a %variant): the rest names it
                 sel, pct = split_sel(g)[1], split_variant(g)[1]
-                name += "".join(f"-{x}" for x in (sel and re.sub(r"[^A-Za-z0-9_\-]+", "-", sel).strip("-"), pct) if x)
-            names.append(name)
-        for g, name in zip(fs, names):
+                name += "".join(f"-{x}" for x in (sel and re.sub(r"[^A-Za-z0-9_]+", "-", sel).strip("-"), pct) if x)
+            base, n = name, 1
+            while name.casefold() in taken or (pathlib.Path(where) / name).exists() and \
+                    not (pathlib.Path(where) / name).is_dir():
+                n += 1
+                name = f"{base}-{n}"
+            taken.add(name.casefold())
             sub[g] = name
     for f in a.files if a.png is not None else ():
         path, sel = split_sel(f)
@@ -6628,17 +6642,35 @@ def cmd_paste(a):
     vmap = variant_map(a.variant_map)
     check_vmap(vmap, ddoc, out, [src.doc])
     label = f"SRC ({a.src})"
-    _, asked = rekey_one(a.rekey, ddoc, src.doc, set("".join(src.frame.grid)), vmap, False, out, label, [src.frame])
-    warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, set("".join(src.frame.grid)), vmap), ddoc, out, vmap,
-                       "paste --rekey", asked)
     if a.keys is not None and not a.align:
         fail("E_BAD_ARG", "--keys picks the drawing --align follows; add --align shift, bbox or bottom")
     offsets = aligned(ddoc, dframes, a.align, a.keys) if a.align else {}
-    added = []
+    # the source pixels that land: in --region, on a destination frame, and with --under on its empty pixels; only
+    # their keys can take DST's variant colors, be offered to --rekey, or join DST's palette (PX-65)
+    with reading(label):
+        x0, y0, w, h = parse_rect(a.region, src.frame.size)
+    dblank, spots = ddoc.blanks(), set()
+    for f in dframes:
+        dx, dy = offsets.get(id(f), (0, 0))
+        W, H = f.size
+        for y in range(max(y0, 0), min(y0 + h, src.frame.size[1])):
+            for x in range(max(x0, 0), min(x0 + w, src.frame.size[0])):
+                tx, ty = ax + dx + x - x0, ay + dy + y - y0
+                if 0 <= tx < W and 0 <= ty < H and not (a.under and f.grid[ty][tx] not in dblank):
+                    spots.add((x, y))
+
+    def landed():
+        return {src.frame.grid[y][x] for x, y in spots}
+    _, asked = rekey_one(a.rekey, ddoc, src.doc, landed(), vmap, False, out, label, [src.frame],
+                         drawn=set("".join(src.frame.grid)))
+    warn = said_vclash(label, src.doc, vclashes(ddoc, src.doc, landed(), vmap), ddoc, out, vmap,
+                       "paste --rekey", asked)
+    added, only = [], landed()  # after --rekey: the keys as they are now
     for f in dframes:
         dx, dy = offsets.get(id(f), (0, 0))
         with reading(label):
-            added += stamp(ddoc, f, src.doc, src.frame, (ax + dx, ay + dy), a.region, a.under, out=out, vmap=vmap)
+            added += stamp(ddoc, f, src.doc, src.frame, (ax + dx, ay + dy), a.region, a.under, out=out, vmap=vmap,
+                           only=only)
     uncovered = said_uncovered(label, src.doc, ddoc, out, vmap, added)
     moved = [f"{ax + offsets[id(f)][0]},{ay + offsets[id(f)][1]} in {ddoc.label(f)}" for f in dframes] \
         if len(dframes) > 1 and a.align else []
@@ -8206,7 +8238,8 @@ def cmd_compose(a):
         if needless:
             print(f"note: --rekey {' '.join(sorted(needless))}: no other key needed; {opath} has "
                   f"{'them' if len(needless) > 1 else 'it'} in the same colors, or no copied pixel draws "
-                  f"{'them' if len(needless) > 1 else 'it'} (a crop's region, or a layer off the canvas)")
+                  f"{'them' if len(needless) > 1 else 'it'} (a crop's region, a layer off the canvas, or one hidden "
+                  "by --under)")
         renamed = {p: m for p, m in renamed.items() if m}
     compose(a, layers, gone=gone, vmap=vmap, notes=notes, renamed=renamed, moved=why)
 
@@ -8410,32 +8443,62 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         size, why = target.size, "the frame being replaced"
     elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):
         size = next(f.size for f in doc.frames if f.group == target.group and f.grid and f is not target)
-        why = f"the rest of {target.group!r}"
+        why = f"the rest of {target.group!r}" if target.group else "the file's other top-level frames"
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
     # every layer's conflicts at once, before anything is drawn, gathered by source file: keys of another color
     # (clashed), keys OUT's variants color otherwise than the layer's file does (vclashed, see vclashes), and the keys
     # each file adds to an existing OUT, in its own variant colors (import_keys)
-    clashed, vclashed, added = {}, {}, {}
+    clashed, vclashed, added, landed = {}, {}, {}, {}
     erase = getattr(a, "erase", None)
+    hidden = doc.blanks() if under else None  # with --under, a layer shows only through OUT's empty pixels
+    carried = set()  # (file, comment anchor) already given to a key of OUT
     for n, (lay, x, y, label) in enumerate(layers, 1):
-        keys = set("".join(lay.frame.grid)) - {erase}
+        # the keys that land on OUT's canvas: a crop's region, or a layer partly off the edge, copies only those
+        # pixels (PX-58), and with --under only those on OUT's empty pixels show; only their keys can clash, take
+        # OUT's variant colors, or join OUT's palette (PX-64)
+        keys = {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
+                for c, ch in enumerate(row) if 0 <= x + c < size[0]
+                and (hidden is None or under[y + r][x + c] in hidden)} - {erase}
+        landed[n] = keys
+        if fresh:  # a new OUT's palette is seeded from the layers' whole files (seed_palette), as before
+            keys = set("".join(lay.frame.grid)) - {erase}
+            landed[n] = None
         bad = clashes(doc, lay.doc, keys)
         if bad:
             c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             c["layers"].append((n, label, lay.doc))
             c["keys"].update(bad)
-        # the keys that land on OUT's canvas: a crop's region, or a layer partly off the edge, copies only those
-        # pixels, so only their keys can take OUT's variant colors (PX-58)
-        seen = {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
-                for c, ch in enumerate(row) if 0 <= x + c < size[0]} - {erase}
+        seen = keys if landed[n] is not None else {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
+                                                   for c, ch in enumerate(row) if 0 <= x + c < size[0]} - {erase}
         for k in vclashes(doc, lay.doc, (keys & seen) - set(bad), vmap):
             c = vclashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             if (n, label, lay.doc) not in c["layers"]:
                 c["layers"].append((n, label, lay.doc))
             c["keys"].add(k)
-        for k in import_keys(doc, lay.doc, keys, vmap):
+        new = import_keys(doc, lay.doc, keys, vmap)
+        if not fresh and new:  # each key's comment in its file comes with it (PX-64); a new OUT's come in carry_notes
+            src_order = list(lay.doc.resolved())  # the new keys in their file's order, so a comment's keys stay under it
+            mine_first = sorted(new, key=src_order.index)
+            doc.palette = {**{k: c for k, c in doc.palette.items() if k not in new}, **{k: doc.palette[k] for k in mine_first}}
+            for v, over in doc.variants.items():  # the variant lines in the same order
+                doc.variants[v] = {**{k: c for k, c in over.items() if k not in new},
+                                   **{k: over[k] for k in mine_first if k in over}}
+            moves = (renamed or {}).get(lay.doc.path.resolve(), {})
+            leads, blocks = (notes or {}).get(lay.doc.path.resolve(), ({}, {}))[:2]
+            back = {v: o for o, v in moves.items()}
+            for anchor in [o for o in leads if o[0] == "key"]:  # a comment goes to the first of its keys copied
+                if (lay.doc.path.resolve(), anchor) in carried:  # once per file: a map's cells are many layers
+                    continue
+                was = anchor[1]
+                mine = [moves.get(o, o) for o in [was] + blocks.get(was, [])]
+                first = next((k for k in mine if k in new), None)
+                if first and ("key", first) not in doc.lead:
+                    doc.lead[("key", first)] = renamed_lead(leads[anchor], moves,
+                                                            (back[first], first) if first in back else None)
+                    carried.add((lay.doc.path.resolve(), anchor))
+        for k in new:
             whose[k] = label
             c = added.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": []})
             if (n, label, lay.doc) not in c["layers"]:
@@ -8505,7 +8568,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         said.insert(last + 1, trade)
     cuts = []  # the cropping notes, said after these (the drawing decides whether there is an undrawn-keys note)
     map_cut = 0  # a map's cells are one thing to crop, as scene says it
-    for lay, x, y, label in layers:
+    for n, (lay, x, y, label) in enumerate(layers, 1):
         w, h = lay.frame.size
         blank = lay.doc.blanks()
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
@@ -8517,7 +8580,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             cuts.append(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                         f"(size from {why}) and were cropped")
         with reading(label):
-            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap, erase=erase)
+            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap, erase=erase, only=landed[n])
     if map_cut:
         cuts.append(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from "
                     f"{why}) and were cropped")
@@ -10424,10 +10487,17 @@ def cmd_export(a):
             # anim loops it (reverse 3 2 1 0, pingpong 0 1 2 3 2 1), and a finite repeat can't be kept (PX-62)
             whole = [f.id for f in fs] == [f.id for f in doc.frames if f.group == g]
             played = way_order(fs, way) if whole else fs  # a part of a group plays as selected, as in anim
+            # on the group's first tile in the file, which is the tile a .map legend names (door/0) and js/px.ts
+            # animates; the repeat and direction ride along as properties, for a game that stops it (PX-66)
+            props = [{"name": "pxart_anim", "type": "string", "value": tag_name}]
+            if way != "forward" and whole:  # a part of a group plays as selected, forward, looping: no properties
+                props.append({"name": "pxart_direction", "type": "string", "value": way})
+            if meta.get("repeat") and whole:
+                props.append({"name": "pxart_repeat", "type": "int", "value": int(meta["repeat"])})
             tiles.append({"id": index[id(fs[0])],
                           "animation": [{"tileid": index[id(f)], "duration": doc.ms(f)} for f in played],
-                          "properties": [{"name": "pxart_anim", "type": "string", "value": tag_name}]})
-            if meta.get("repeat"):
+                          "properties": props})
+            if meta.get("repeat") and whole:
                 passes = (f"; a pingpong's repeat counts one-way passes, so stop it after {meta['repeat']} "
                           f"pass{'es' * (meta['repeat'] != 1)}, not "
                           + ("once" if meta['repeat'] == 1 else f"{meta['repeat']} times") + " round the list"
@@ -10435,7 +10505,8 @@ def cmd_export(a):
                 tiled_notes.append(f"note: {tag_name} has repeat={meta['repeat']}, and a Tiled tile animation "
                                    "loops forever: it plays " + ("its cycle" if way.startswith("pingpong") and whole
                                                                  else "its frames") + " on a loop there (the game "
-                                   "stops it, or export --aseprite keeps the repeat)" + passes)
+                                   "stops it: the tile's pxart_repeat property says when; or export --aseprite keeps "
+                                   "the repeat)" + passes)
         data = {"type": "tileset", "version": "1.10", "name": entries[0][0].stem if len(entries) == 1 else tp.stem,
                 "image": ip.name, "imagewidth": sheet_img.width, "imageheight": sheet_img.height,
                 "tilewidth": cw, "tileheight": ch, "columns": cols, "tilecount": len(its),

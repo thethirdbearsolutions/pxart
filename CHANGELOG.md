@@ -14,11 +14,20 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ## 2026-11-26
 
+### Added
+
+- **`export --tiled` writes a group's `repeat` and `direction` as tile properties,** `pxart_repeat` and
+  `pxart_direction`, next to `pxart_anim`, so a game can stop an animation that Tiled would loop forever (PX-66).
+
 ### Fixed
 
-- **Clearer messages from `render --png DIR`'s skip notes:** when several skipped files would export into one
-  folder, each one's suggested commands use a subfolder of its own, so running them all overwrites nothing. A
-  `FILE%variant` keeps its colors in both (PX-67).
+- **`render --png`'s skip notes suggest a subfolder per file when several would export into one folder,** such as
+  `out/knight` and `out/slime`, so running every suggested command keeps each file's PNGs and `pivots.json`. A
+  `FILE%variant` keeps its colors in both commands (PX-67).
+
+- **`crop`, `compose` and `paste` into an existing file add only the keys of the pixels they copy,** so `check`
+  finds no unused keys. A key outside the copied area or hidden by `--under` isn't added, warned about or renamed,
+  and can't cause a conflict. `crop` and `compose` keep each key's comment (PX-64, PX-65).
 
 - **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
   that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as

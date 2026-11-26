@@ -48,9 +48,21 @@ def test_files_sharing_a_folder_get_a_subfolder_each(tmp_path, monkeypatch, caps
 def test_one_skipped_file_keeps_the_folder(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "x.px").write_text(TWO)
-    (tmp_path / "icon.px").write_text("k #000000\nk\n")
-    assert run("render", "x.px", "icon.px", "--png", "o", "-o", "p.png") == 0
+    assert run("render", "x.px", "--png", "o", "-o", "p.png") == 0
     assert routes(capsys.readouterr().out)[0][0] == ["export", "x.px", "--frames", "o"]
+
+
+def test_a_skipped_file_beside_pngs_png_writes_gets_a_subfolder(tmp_path, monkeypatch, capsys):
+    # review finding 6: export x.px --frames o would overwrite o/a.png, which --png writes for a.px
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "x.px").write_text(TWO)
+    (tmp_path / "a.px").write_text("k #000000\nk\n")
+    assert run("render", "x.px", "a.px", "--png", "o", "-o", "p.png") == 0
+    got = routes(capsys.readouterr().out)
+    assert got[0][0] == ["export", "x.px", "--frames", "o/x"]
+    before = (tmp_path / "o" / "a.png").read_bytes()
+    run_all(got)
+    assert (tmp_path / "o" / "a.png").read_bytes() == before
 
 
 def test_a_variant_file_keeps_its_colors_on_both_routes(tmp_path, monkeypatch, capsys):
@@ -64,14 +76,37 @@ def test_a_variant_file_keeps_its_colors_on_both_routes(tmp_path, monkeypatch, c
     run_all(got)
 
 
-def test_two_files_of_one_name_get_their_paths(tmp_path, monkeypatch, capsys):
+def test_two_files_of_one_name_get_numbered_folders(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     for d in ("a", "b"):
         (tmp_path / d).mkdir()
         (tmp_path / d / "knight.px").write_text(TWO)
     assert run("render", "a/knight.px", "b/knight.px", "--png", "o", "-o", "p.png") == 0
     got = routes(capsys.readouterr().out)
-    assert [e[-1] for e, _ in got] == ["o/a/knight", "o/b/knight"]
+    assert [e[-1] for e, _ in got] == ["o/knight", "o/knight-2"]
+    run_all(got)
+
+
+def test_review_cases_never_share_a_folder(tmp_path, monkeypatch, capsys):
+    # review findings 1-5, 7-8: '..', './', a suffix equal to another stem, nesting, an existing file, case, absolute
+    (tmp_path / "sub").mkdir()
+    monkeypatch.chdir(tmp_path / "sub")
+    (tmp_path / "knight.px").write_text(TWO)
+    (tmp_path / "sub" / "knight.px").write_text(TWO)
+    (tmp_path / "sub" / "s.px").write_text(TWO + "@variant night\ng #003300\n")
+    (tmp_path / "sub" / "s-night.px").write_text(TWO)
+    (tmp_path / "sub" / "X.px").write_text(TWO)
+    (tmp_path / "sub" / "x.px").write_text(TWO)
+    (tmp_path / "sub" / "o").mkdir()
+    (tmp_path / "sub" / "o" / "p").write_text("a file")
+    (tmp_path / "sub" / "p.px").write_text(TWO)
+    args = ["../knight.px", "knight.px", "s.px", "./s.px%night", "s-night.px", "X.px", "x.px", "p.px",
+            str(tmp_path / "sub" / "knight.px")]
+    assert run("render", *args, "--png", "o", "-o", "q.png") == 0
+    got = routes(capsys.readouterr().out)
+    folders = [e[-1] for e, _ in got]
+    assert len({f.casefold() for f in folders}) == len(folders) and "o/p" not in folders
+    assert all(f.count("/") == 1 for f in folders)  # flat names: none inside another, no absolute path copied
     run_all(got)
 
 
