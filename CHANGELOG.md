@@ -16,6 +16,10 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
+- **`crop` and `compose` into an existing file add only the keys of the pixels they copy,** in their file's order
+  and with their comments, so `check` no longer finds unused keys. A key outside the copied area, or hidden by
+  `--under`, is not added and can't cause a key conflict (PX-64).
+
 - **`outline --key K` notes an existing dark line in each variant where it would double,** such as a line, or a K,
   that is only dark at night, naming the variants. When every variant agrees with the base, it is one note as
   before (PX-63).

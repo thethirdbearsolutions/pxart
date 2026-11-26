@@ -3226,7 +3226,7 @@ def import_keys(dst, src, keys, vmap=None, clear=False):
             c = src.resolved(lv[n])[k]
             if c != pal[k] or k in src.variants.get(lv[n], {}) or k in src.shared_variants.get(lv[n], {}):
                 dst.variants.setdefault(n, {})[k] = c
-    return added
+    return sorted(added)
 
 
 def check_vmap(vmap, dst, dst_name, srcs, fresh=False):
@@ -3471,13 +3471,16 @@ def spans(ns):
 
 
 def stamp(dst_doc, dst, src_doc, src, at, region=None, under=False, what="SRC", redo="paste", out=None, vmap=None,
-          erase=None):
+          erase=None, only=None):
     """Copy src frame (or a region of it) onto dst frame at `at`; keys that draw nothing (Doc.blanks) don't overwrite, but
     a key transparent only in the base does (a night halo). under: only onto dst's empty pixels (by the same test), so
     src goes behind what dst has. erase: a key whose pixels clear dst to '.' (a layer that removes pixels); it is never
-    imported. Returns the keys it added (import_keys)."""
+    imported. only: the keys to check and import, when the caller knows which land (compose: PX-64). Returns the keys
+    it added (import_keys)."""
     src_blank = src_doc.blanks()
     keys = set("".join(src.grid)) - {erase}
+    if only is not None:
+        keys &= only
     clash = key_conflicts(dst_doc, src_doc, keys, what, out or dst_doc.path, redo)
     if clash:
         raise PxError(clash)
@@ -8178,7 +8181,8 @@ def cmd_compose(a):
         if needless:
             print(f"note: --rekey {' '.join(sorted(needless))}: no other key needed; {opath} has "
                   f"{'them' if len(needless) > 1 else 'it'} in the same colors, or no copied pixel draws "
-                  f"{'them' if len(needless) > 1 else 'it'} (a crop's region, or a layer off the canvas)")
+                  f"{'them' if len(needless) > 1 else 'it'} (a crop's region, a layer off the canvas, or one hidden "
+                  "by --under)")
         renamed = {p: m for p, m in renamed.items() if m}
     compose(a, layers, gone=gone, vmap=vmap, notes=notes, renamed=renamed, moved=why)
 
@@ -8382,32 +8386,62 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         size, why = target.size, "the frame being replaced"
     elif osel and any(f.grid for f in doc.frames if f.group == target.group and f is not target):
         size = next(f.size for f in doc.frames if f.group == target.group and f.grid and f is not target)
-        why = f"the rest of {target.group!r}"
+        why = f"the rest of {target.group!r}" if target.group else "the file's other top-level frames"
     else:
         size, why = layers[0][0].frame.size, "the first layer"
     target.grid = ["." * size[0]] * size[1]
     # every layer's conflicts at once, before anything is drawn, gathered by source file: keys of another color
     # (clashed), keys OUT's variants color otherwise than the layer's file does (vclashed, see vclashes), and the keys
     # each file adds to an existing OUT, in its own variant colors (import_keys)
-    clashed, vclashed, added = {}, {}, {}
+    clashed, vclashed, added, landed = {}, {}, {}, {}
     erase = getattr(a, "erase", None)
+    hidden = doc.blanks() if under else None  # with --under, a layer shows only through OUT's empty pixels
+    carried = set()  # (file, comment anchor) already given to a key of OUT
     for n, (lay, x, y, label) in enumerate(layers, 1):
-        keys = set("".join(lay.frame.grid)) - {erase}
+        # the keys that land on OUT's canvas: a crop's region, or a layer partly off the edge, copies only those
+        # pixels (PX-58), and with --under only those on OUT's empty pixels show; only their keys can clash, take
+        # OUT's variant colors, or join OUT's palette (PX-64)
+        keys = {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
+                for c, ch in enumerate(row) if 0 <= x + c < size[0]
+                and (hidden is None or under[y + r][x + c] in hidden)} - {erase}
+        landed[n] = keys
+        if fresh:  # a new OUT's palette is seeded from the layers' whole files (seed_palette), as before
+            keys = set("".join(lay.frame.grid)) - {erase}
+            landed[n] = None
         bad = clashes(doc, lay.doc, keys)
         if bad:
             c = clashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             c["layers"].append((n, label, lay.doc))
             c["keys"].update(bad)
-        # the keys that land on OUT's canvas: a crop's region, or a layer partly off the edge, copies only those
-        # pixels, so only their keys can take OUT's variant colors (PX-58)
-        seen = {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
-                for c, ch in enumerate(row) if 0 <= x + c < size[0]} - {erase}
+        seen = keys if landed[n] is not None else {ch for r, row in enumerate(lay.frame.grid) if 0 <= y + r < size[1]
+                                                   for c, ch in enumerate(row) if 0 <= x + c < size[0]} - {erase}
         for k in vclashes(doc, lay.doc, (keys & seen) - set(bad), vmap):
             c = vclashed.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": set()})
             if (n, label, lay.doc) not in c["layers"]:
                 c["layers"].append((n, label, lay.doc))
             c["keys"].add(k)
-        for k in import_keys(doc, lay.doc, keys, vmap):
+        new = import_keys(doc, lay.doc, keys, vmap)
+        if not fresh and new:  # each key's comment in its file comes with it (PX-64); a new OUT's come in carry_notes
+            src_order = list(lay.doc.resolved())  # the new keys in their file's order, so a comment's keys stay under it
+            mine_first = sorted(new, key=src_order.index)
+            doc.palette = {**{k: c for k, c in doc.palette.items() if k not in new}, **{k: doc.palette[k] for k in mine_first}}
+            for v, over in doc.variants.items():  # the variant lines in the same order
+                doc.variants[v] = {**{k: c for k, c in over.items() if k not in new},
+                                   **{k: over[k] for k in mine_first if k in over}}
+            moves = (renamed or {}).get(lay.doc.path.resolve(), {})
+            leads, blocks = (notes or {}).get(lay.doc.path.resolve(), ({}, {}))[:2]
+            back = {v: o for o, v in moves.items()}
+            for anchor in [o for o in leads if o[0] == "key"]:  # a comment goes to the first of its keys copied
+                if (lay.doc.path.resolve(), anchor) in carried:  # once per file: a map's cells are many layers
+                    continue
+                was = anchor[1]
+                mine = [moves.get(o, o) for o in [was] + blocks.get(was, [])]
+                first = next((k for k in mine if k in new), None)
+                if first and ("key", first) not in doc.lead:
+                    doc.lead[("key", first)] = renamed_lead(leads[anchor], moves,
+                                                            (back[first], first) if first in back else None)
+                    carried.add((lay.doc.path.resolve(), anchor))
+        for k in new:
             whose[k] = label
             c = added.setdefault(lay.doc.path.resolve(), {"layers": [], "keys": []})
             if (n, label, lay.doc) not in c["layers"]:
@@ -8477,7 +8511,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         said.insert(last + 1, trade)
     cuts = []  # the cropping notes, said after these (the drawing decides whether there is an undrawn-keys note)
     map_cut = 0  # a map's cells are one thing to crop, as scene says it
-    for lay, x, y, label in layers:
+    for n, (lay, x, y, label) in enumerate(layers, 1):
         w, h = lay.frame.size
         blank = lay.doc.blanks()
         cut = sum(1 for yy, row in enumerate(lay.frame.grid) for xx, ch in enumerate(row)
@@ -8489,7 +8523,7 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
             cuts.append(f"note: {cut} px of {lay.label} fall outside the {size[0]}x{size[1]} canvas "
                         f"(size from {why}) and were cropped")
         with reading(label):
-            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap, erase=erase)
+            stamp(doc, target, lay.doc, lay.frame, (x, y), vmap=vmap, erase=erase, only=landed[n])
     if map_cut:
         cuts.append(f"note: {map_cut} px of the map ({a.map}) fall outside the {size[0]}x{size[1]} canvas (size from "
                     f"{why}) and were cropped")

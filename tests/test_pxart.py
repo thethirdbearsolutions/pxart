@@ -5782,7 +5782,7 @@ def test_compose_conflict_existing_out(tmp_path):
     a, b, c = conflict_layers(tmp_path)
     out = write(tmp_path, "o.px", "w #eee0b8\nh #111111\n@frame x\nwh\n")
     before = out.read_text()
-    msg = run_err("compose", "-o", f"{out}:y", f"{b}@0,0")
+    msg = run_err("compose", "-o", f"{out}:y", "--size", "4x1", f"{b}@0,0")  # all of b lands (PX-64)
     assert msg == (f"compose: layer 1 ({b}): E_KEY_CONFLICT: 2 keys of this layer are other colors in {out}: "
                    "'h' #aaaaaa (#111111 there), 'w' #f6ecd2 (#eee0b8 there); to keep both colors (no pixel changes "
                    f"color), add --rekey: compose then gives this layer's keys free ones in {out} ('h>a' 'w>b') and "
@@ -11592,7 +11592,7 @@ def test_conflict_suggests_digits_then_safe_punctuation_before_awkward(tmp_path)
     pal = "".join(f"{k} #{i:06x}\n" for i, k in enumerate(letters + pxart.string.digits[:9], 1))
     out = write(tmp_path, "o.px", pal + "@frame x\na\n")
     f = write(tmp_path, "f.px", "a #fefefe\nb #fdfdfd\nc #fcfcfc\n\nabc\n")
-    msg = run_err("compose", "-o", f"{out}:y", f"{f}@0,0")
+    msg = run_err("compose", "-o", f"{out}:y", "--size", "3x1", f"{f}@0,0")  # all three land (PX-64)
     assert fix_of(msg)[2:5] == ["a>9", "b>%", "c>+"]
 
 
@@ -11934,7 +11934,7 @@ def test_help_documents_rekey():
 
 def test_crop_conflict_in_crops_words(tmp_path):
     f, out = field_scene(tmp_path)
-    msg = run_err("crop", f"{f}:grass_a", "0,0,1,1", "-o", f"{out}:c")
+    msg = run_err("crop", f"{f}:grass_a", "0,0,2,1", "-o", f"{out}:c")  # s and t both copied (PX-64)
     assert msg == (f"crop: FILE ({f}:grass_a): E_KEY_CONFLICT: 2 keys of FILE are other colors in {out}: 's' #00ff00 "
                    "(#111111 there), 't' #008800 (#222222 there); to keep both colors (no pixel changes color), add "
                    f"--rekey: crop then gives FILE's keys free ones in {out} ('s>a' 't>b') and leaves {f} as it is. Or "
@@ -12656,7 +12656,8 @@ def test_compose_used_keys_only_existing_out_is_the_plain_compose(tmp_path):
     o2 = write(tmp_path, "o2.px", "k #000000\n@frame x\nk\n")
     assert run("compose", "-o", f"{o1}:y", f"{p}:cloak@0,0") == 0
     assert run("compose", "-o", f"{o2}:y", f"{p}:cloak@0,0", "--used-keys-only") == 0
-    assert o1.read_text() == o2.read_text() and list(pxart.parse(o1).palette) == ["k", "c"]
+    # the 1x1 frame takes the cloak's top-left '.', so no key of it lands and none is added (PX-64)
+    assert o1.read_text() == o2.read_text() and list(pxart.parse(o1).palette) == ["k"]
 
 
 def test_compose_used_keys_only_with_rekey(tmp_path):
@@ -14269,11 +14270,11 @@ def test_compose_a_sprites_header_comment_stays_with_it(tmp_path, capsys):
     assert "# the hero" not in out.read_text()
 
 
-def test_compose_comments_not_for_an_existing_out(tmp_path, capsys):
+def test_compose_into_an_existing_out_brings_the_keys_comment(tmp_path, capsys):  # PX-64
     a = write(tmp_path, "a.px", "pxart 1\n# ink\nk #000000\n@frame x\nk\n")
     out = write(tmp_path, "o.px", "w #ffffff\n@frame y\nw\n")
     run("compose", "-o", f"{out}:z", f"{a}:x@0,0")
-    assert "# ink" not in out.read_text()
+    assert "# ink\nk #000000" in out.read_text()
 
 
 def test_compose_used_keys_only_drops_the_comments_of_dropped_keys(tmp_path, capsys):

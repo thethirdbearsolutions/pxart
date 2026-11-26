@@ -142,7 +142,7 @@ def test_crop_rekey_of_a_key_outside_the_region_says_why(tmp_path, monkeypatch, 
     setup(tmp_path, monkeypatch)
     assert run("crop", "quarter.px", "0,0,2,1", "-o", "tiles.px:d", "--rekey", "D,F") == 0
     assert ("note: --rekey D F: no other key needed; tiles.px has them in the same colors, or no copied pixel draws "
-            "them (a crop's region, or a layer off the canvas)") in capsys.readouterr().out
+            "them (a crop's region, a layer off the canvas, or one hidden by --under)") in capsys.readouterr().out
 
 
 def test_compose_after_a_partial_rekey_says_add(tmp_path, monkeypatch, capsys):
