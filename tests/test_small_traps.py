@@ -128,3 +128,50 @@ def test_inside_says_nothing_of_a_dark_rim(tmp_path, capsys):
     f = write(tmp_path, "m.px", DARK)
     assert run("outline", f, "--key", "k", "--inside", "--dry-run") == 0
     assert "as dark as" not in capsys.readouterr().out
+
+
+# PX-63: the dark-line note reads each palette, base and every variant
+NIGHT_DARK = "k #000000\nd #c0c0c0\ng #43e1b3\n@variant night\nd #101010\n\n" + DARK.split("\n\n", 1)[1]
+
+
+def test_a_line_dark_only_at_night_is_noted_for_night(tmp_path, capsys):
+    f = write(tmp_path, "m.px", NIGHT_DARK)
+    assert run("outline", f, "--key", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "in night: 12 of the shape's 12 edge px are already as dark as k (d)" in out
+    assert "in base:" not in out
+
+
+def test_a_key_dark_only_in_a_variant_is_judged_there(tmp_path, capsys):
+    f = write(tmp_path, "m.px", DARK.replace("k #000000\n", "k #f0f0f0\n").replace(
+        "g #43e1b3\n", "g #43e1b3\n@variant night\nk #000000\n"))
+    assert run("outline", f, "--key", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "in night: 12 of the shape's 12 edge px are already as dark as k (d)" in out
+    assert "in base:" not in out
+
+
+def test_variants_that_agree_with_base_keep_one_line(tmp_path, capsys):
+    f = write(tmp_path, "m.px", DARK.replace("g #43e1b3\n", "g #43e1b3\n@variant night\ng #204030\n"))
+    assert run("outline", f, "--key", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "12 of the shape's 12 edge px are already as dark as k (d)" in out
+    assert "in night:" not in out and "in base:" not in out and out.count("as dark as") == 1
+
+
+def test_a_line_lost_at_night_names_base_only(tmp_path, capsys):
+    f = write(tmp_path, "m.px", DARK.replace("g #43e1b3\n", "g #43e1b3\n@variant day2\nd #f0f0f0\n"))
+    assert run("outline", f, "--key", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "in base: 12 of the shape's 12 edge px are already as dark as k (d)" in out
+    assert "in day2:" not in out
+
+
+def test_variants_that_agree_with_each_other_share_one_note(tmp_path, capsys):
+    f = write(tmp_path, "m.px", NIGHT_DARK.replace("@variant night\nd #101010\n",
+                                                   "@variant dusk\nd #101010\n@variant night\nd #101010\n"))
+    assert run("outline", f, "--key", "k", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.count("as dark as") == 1
+    assert "in dusk, night: 12 of the shape's 12 edge px are already as dark as k (d)" in out
+    assert "repaints that edge in every palette" in out

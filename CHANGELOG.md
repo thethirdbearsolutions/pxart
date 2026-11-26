@@ -12,6 +12,13 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-26
+
+### Fixed
+
+- **`outline --key K` notes an existing dark line in each variant where it shows,** such as a line that is only
+  dark at night, naming the variant. When every variant agrees with the base, it is one note as before (PX-63).
+
 ## 2026-11-25
 
 ### Fixed

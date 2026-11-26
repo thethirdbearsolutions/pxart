@@ -7348,12 +7348,13 @@ def pad_frames(doc, frames, sides):
     return anchored
 
 
-def dark_rim(doc, frames, shapes, key):
+def dark_rim(doc, frames, shapes, key, variant=None):
     """The frames where most of the shape's edge pixels (a side on an empty pixel or the frame's edge) are already a
     dark line like key: a dark key (Rec. 709 luma under 0.5), and edge pixels of keys drawn mostly opaque (alpha 128+)
-    within 0.1 of its luma, key's own pixels too. That is the art's own line, which an outside outline doubles. Base
-    colors only. [(frame label, dark px, edge px)], the keys they are."""
-    pal = doc.resolved()
+    within 0.1 of its luma, key's own pixels too. That is the art's own line, which an outside outline doubles. Read in
+    one palette, the base or a variant's (PX-63: the rim shows only where both are dark). [(frame label, dark px, edge
+    px)], the keys they are."""
+    pal = doc.resolved(variant)
     if key not in pal or pal[key][3] < 128:
         return [], []
 
@@ -7424,13 +7425,23 @@ def outline_notes(a, doc, frames, shapes, faint_before, out, padded, ringed=Fals
         notes.append(f"the shape has {keys}, the outline's key, on the frame's edge: outlined already? outlining an "
                      "outline rings it again")
     else:
-        hits, ks = dark_rim(doc, frames, shapes, a.key)
-        if hits:
-            n, m = sum(h[1] for h in hits), sum(h[2] for h in hits)
-            where = "" if len(hits) == len(frames) else f" in {listed([h[0] for h in hits], 5)}"
-            notes.append(f"{n} of the shape's {m} edge px{where} are already as dark as {a.key} ({' '.join(ks)}): the "
-                         f"art has a line of its own, and an outline outside it makes a 2px dark rim; --inside draws "
-                         f"on that edge instead (it can wipe detail on thin art)")
+        # once per palette, base and each variant (PX-63); one line as before when every variant reads as the base
+        rims = [(v, dark_rim(doc, frames, shapes, a.key, v))
+                for v in [None] + sorted(set(doc.variants) | set(doc.shared_variants))]
+        alike = all(r == rims[0][1] for _, r in rims)
+        same = {}  # palettes that read alike share a note: 'in dusk, night: ...'
+        for v, r in rims[:1] if alike else rims:
+            same.setdefault(repr(r), (r, []))[1].append(v or "base")
+        for (hits, ks), names in same.values():
+            if hits:
+                n, m = sum(h[1] for h in hits), sum(h[2] for h in hits)
+                where = "" if len(hits) == len(frames) else f" in {listed([h[0] for h in hits], 5)}"
+                notes.append(("" if alike else f"in {', '.join(names)}: ")
+                             + f"{n} of the shape's {m} edge px{where} are already as dark as {a.key} "
+                             f"({' '.join(ks)}): the art has a line of its own, and an outline outside it makes a 2px "
+                             f"dark rim; --inside draws on that edge instead (it can wipe detail on thin art"
+                             + (", and repaints that edge in every palette, where the line isn't dark too)" if not
+                                alike else ")"))
     if padded:
         grown, sides, anchored, pivoted = padded
         notes.append(f"--pad grew {listed(grown, 5)} 1px at the {said_sides(sides)}"
