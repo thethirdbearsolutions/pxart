@@ -99,7 +99,9 @@ pxart 1
   `palette wick.px --variant dusk --derive-from base --match pal.px --keep-lit M,m` gives the
   sprite a dusk of its own, fitted to the palette's, with its lights kept lit: the WARNING
   prints that command, the lights inferred from the file's other variants (a key one leaves at
-  base or brightens: `M left at base in night`).
+  base or brightens: `M left at base in night`). When the sprite has a `@variant night` of its own as well (`compose`
+  and `crop` write one for a lamp they copy), `check` names the drawn keys neither night colors, and prints the
+  derive with an `--add` for each key that local night already colors, so those keep their colors.
 - **Slots, `f #e0ac69 | #f5cfa0 | #c68642`:** a key's alternatives, for a game that
   recolors sprites at runtime. The first is the key's base color, the one every command
   draws and exports; `render`/`sheet --slots 6` show combinations, and `export --indexed

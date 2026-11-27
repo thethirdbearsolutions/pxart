@@ -24,6 +24,14 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
   pxart crop hero.px:walk 0,-6,16,30 -o hero.px:walk
   ```
 
+## 2026-11-27
+
+### Fixed
+
+- **`check` names the keys left day-bright at night in a sprite with its own `@variant night`,** when neither that
+  night nor its `@palette`'s colors them, and prints a derive that fixes them, keeping the night colors already
+  set (PX-71).
+
 ## 2026-11-26
 
 ### Added
