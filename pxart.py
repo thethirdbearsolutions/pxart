@@ -415,13 +415,13 @@ EDITING (writes .px; -o defaults to editing the input in place)
       Cut the w x h rectangle at x,y out of one frame into a frame of its own: 'crop
       hero.px:idle/0 4,0,8,8 -o parts.px:head'. The pixels left outside get no note (they're
       what crop is for); a rectangle that runs past the frame's edge (or starts at a
-      negative x,y) gets '.' there. FILE:frame must be one .px frame.
+      negative x,y) gets '.' there. FILE:frame must be one .px frame, or a group in place:
       OUT is written as compose writes it, FILE's frame its one layer (see compose): a new
       OUT gets FILE's whole palette (--used-keys-only: the cut's keys), OUT:frame adds or
       replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
       replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
       gives the cut those keys in OUT and leaves FILE as it is.
-      FILE:GROUP -o FILE:GROUP crops each frame in place, pivots moving with the art.
+      FILE:GROUP -o FILE:GROUP (or -o FILE) crops its frames, pivots moving with the art.
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
       variants, and @anim/@still lines (minus those of groups left behind;
@@ -5220,7 +5220,8 @@ def headroom_said(its, path, want):
         sel = shlex.quote(path if f0.id is None else f"{path}:{f0.id}")
         pv = doc.pivot(f0)
         rows = f"{grow} row{'s' * (grow != 1)}"
-        if g is not None and len(whole) > 1 and len({f.size for f in whole}) == 1:  # one crop grows the whole group
+        if g is not None and len(whole) > 1 and len({f.size for f in whole}) == 1 and doc.get(g) is None:
+            # one crop grows the whole group (crop_frames: the frames whose group is g; a frame named g would win)
             gsel = shlex.quote(f"{path}:{g}")
             fix = (f"pxart crop {gsel} 0,-{grow},{w},{h + grow} -o {gsel}"
                    + (" (every frame, pivots moving with the art)" if any(doc.pivot(f) for f in whole) else
@@ -6637,7 +6638,10 @@ def crop_frames(a):
         return False
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
-        frames = doc.select(sel)
+        if doc.get(sel) is not None:  # a frame by that id: crop's one-frame cut, as the headroom note means it
+            return False
+        picked = doc.select(sel)
+    frames = [f for f in picked if f.group == sel]  # the group's own frames, not a nested group's (walk/side/0)
     if len(frames) < 2:
         return False
     opath, osel = split_sel(str(a.o))
@@ -6668,6 +6672,10 @@ def crop_frames(a):
     if len(sizes) > 1:
         print(f"note: the frames were {len(sizes)} sizes ({', '.join(f'{a}x{b}' for a, b in sorted(sizes))}); each "
               f"is cut at {x},{y} from its own top-left, and all are {w}x{h} now")
+    nested = [doc.label(f) for f in picked if f.group != sel]
+    if nested:
+        print(f"note: crop {sel} cuts {sel}'s own frames; {listed(nested, 4)} (another group) "
+              f"{'are' if len(nested) > 1 else 'is'} left as {'they are' if len(nested) > 1 else 'it is'}")
     if lost:  # cutting one frame out is crop's point; cutting a whole group in place can lose a hat
         print(f"note: the rectangle cuts off drawn px: {listed([f'{n} in {i}' for i, n in lost.items()], 4)}")
     off = [doc.label(f) for f in frames if doc.pivot(f) and not (0 <= doc.pivot(f)[0] < w and 0 <= doc.pivot(f)[1] < h)]

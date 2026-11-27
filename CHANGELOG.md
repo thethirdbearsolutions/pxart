@@ -16,8 +16,8 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Added
 
-- **`crop` takes a whole group and cuts every frame in place to the same rectangle,** moving pivots with the art,
-  so a walk's canvas grows in one command. `check --headroom` now prints that one command for a group whose frames
+- **`crop` takes a whole group and cuts every frame in place to the same rectangle** (`-o` naming the same file or
+  group), moving pivots with the art, so a walk's canvas grows in one command. `check --headroom` now prints that one command for a group whose frames
   share a size (PX-69).
 
   ```
