@@ -17,8 +17,8 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 ### Added
 
 - **`onion A B -o out.png` now marks in pink the pixels that changed from frame A to frame B,** in a second
-  panel beside the overlay, so a foot that lifted is easy to spot. With `--feet N` (only the bottom N rows), just
-  those rows are marked (PX-70).
+  panel beside the overlay, so a foot that lifted is easy to spot. With `--feet N` (only the bottom N rows), it
+  marks just the pixels that band's printed count covers (PX-70).
 
 - **`crop hero.px:walk x,y,w,h -o hero.px:walk` crops every frame of the `walk` animation to the same box,**
   keeping each frame's anchor point (pivot) on the same spot of the art. A negative y adds empty rows on top:

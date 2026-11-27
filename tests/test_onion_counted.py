@@ -46,14 +46,18 @@ def run(*argv):
     return 0
 
 
-def pink_cells(png, scale, w, h):
-    """How many canvas pixels the right panel paints pink: sampled at each cell's centre."""
+def pink_at(png, scale, w, h):
+    """The canvas pixels the right panel paints pink, {(x, y)}: sampled at each cell's centre."""
     img = Image.open(png).convert("RGBA")
     rulers = 16
     left_w = w * scale + rulers
     x0, y0 = left_w + 8 + rulers, rulers
-    return sum(img.getpixel((x0 + x * scale + scale // 2, y0 + y * scale + scale // 2)) == PINK
-               for y in range(h) for x in range(w))
+    return {(x, y) for y in range(h) for x in range(w)
+            if img.getpixel((x0 + x * scale + scale // 2, y0 + y * scale + scale // 2)) == PINK}
+
+
+def pink_cells(png, scale, w, h):
+    return len(pink_at(png, scale, w, h))
 
 
 def counted(out):
@@ -70,7 +74,7 @@ def test_a_band_pair_marks_exactly_the_counted_pixels(tmp_path, capsys):
     out = capsys.readouterr().out
     n = counted(out)
     assert n == 2  # the lifted foot: two pixels gone
-    assert pink_cells(o, 8, 6, 7) == n
+    assert pink_at(o, 8, 6, 7) == {(4, 5), (4, 6)}  # the right foot, where it was
 
 
 def test_the_whole_canvas_marks_what_it_counts_less_past_the_edge(tmp_path, capsys):
@@ -120,3 +124,61 @@ def test_two_different_sprites_get_no_counted_panel(tmp_path, capsys):
     assert run("onion", a, b, "-o", o) == 0
     assert "different sprites" in capsys.readouterr().out
     assert PINK not in set(pxart.pixels(Image.open(o).convert("RGBA")))
+
+
+# a band whose best shift moves it a row: the rows it moved into count too, and so get marked, past the band
+BAND = """pxart 1
+k #000000
+@anim a ms=100
+@frame a/0
+...k
+k...
+.k.k
+....
+kk..
+..kk
+@frame a/1
+...k
+...k
+k...
+.k.k
+k...
+kk..
+"""
+
+
+def test_a_band_shifted_a_row_marks_the_row_it_moved_into(tmp_path, capsys):
+    p = tmp_path / "band.px"
+    p.write_text(BAND)
+    o = tmp_path / "o.png"
+    assert run("onion", f"{p}:a/0", f"{p}:a/1", "--rows", "1-3", "-o", o) == 0
+    out = capsys.readouterr().out
+    assert "best shift +0,+1 then 1px changed" in out
+    assert pink_at(o, 8, 4, 6) == {(0, 4)}
+
+
+def test_bottom_edges_agree_marks_the_no_shift_count(tmp_path, capsys):
+    ex = ROOT / "examples" / "02-animation"
+    o = tmp_path / "o.png"
+    assert run("onion", f"{ex}/hero.px:walk/down/0", f"{ex}/hero.px:walk/down/1", "--rows", "0-1", "-o", o) == 0
+    out = capsys.readouterr().out
+    assert "bottom edges agree, so no shift: 7px changed" in out
+    got = pink_at(o, 8, 24, 32)
+    assert len(got) == 7 and all(y <= 1 for _, y in got)
+
+
+def test_the_label_counts_what_went_past_the_edge(tmp_path, capsys):
+    ex = ROOT / "examples" / "02-animation"
+    got = {}
+    real = pxart.onion_panels
+
+    def spy(left, right, scale, shown, total, how):
+        got.update(shown=shown, total=total)
+        return real(left, right, scale, shown, total, how)
+    pxart.onion_panels = spy
+    try:
+        assert run("onion", f"{ex}/hero.px:walk/down/0", f"{ex}/hero.px:walk/down/1", "-o", tmp_path / "o.png") == 0
+    finally:
+        pxart.onion_panels = real
+    assert "30px changed (4 past the edge)" in capsys.readouterr().out
+    assert got == {"shown": 26, "total": 30}
