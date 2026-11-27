@@ -28,9 +28,10 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
-- **`check` names the keys left day-bright at night in a sprite with its own `@variant night`,** when neither that
-  night nor its `@palette`'s colors them, and prints a derive that fixes them, keeping the night colors already
-  set (PX-71).
+- **`check` now warns when some of a sprite's colors stay daytime-bright at night.** This happened when the
+  sprite's own night colors (`@variant night`) covered only a few keys and the shared palette file it imports had
+  none for the rest: those rendered in day colors, and `check` said nothing. The command it prints fixes the
+  sprite's file and leaves the shared palette alone (PX-71).
 
 ## 2026-11-26
 
