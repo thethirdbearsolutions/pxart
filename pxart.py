@@ -6644,8 +6644,9 @@ def crop_frames(a):
     ids = [doc.label(f) for f in frames]
     if pathlib.Path(opath).resolve() != pathlib.Path(path).resolve() or osel not in (None, sel):
         fail("E_SELECT", f"crop: {a.src} is {len(frames)} frames ({listed(ids, 4)}); crop cuts several frames only in "
-             f"place, each to the same rectangle: -o {shlex.quote(a.src)}; to cut one out into "
-             f"{a.o}, pick one: {path}:{ids[0]}")
+             f"place, each to the same rectangle: -o {shlex.quote(a.src)}; to cut one out, name one frame on both "
+             f"sides: pxart crop {shlex.quote(f'{path}:{ids[0]}')} {a.rect} -o "
+             f"{shlex.quote(f'{opath}:{osel if osel and osel != sel else ids[0]}')}")
     for flag, val in (("--rekey", a.rekey), ("--variant-map", a.variant_map), ("--used-keys-only", a.used_keys_only)):
         if val not in (None, False):
             fail("E_BAD_ARG", f"crop {a.src} cuts its frames in place, where no key moves: {flag} is for a cut into "
@@ -6654,16 +6655,25 @@ def crop_frames(a):
     if w < 1 or h < 1:
         fail("E_BAD_ARG", f"crop's x,y,w,h wants w and h of 1 or more, got {a.rect!r}")
     doc.before = {id(f): list(f.grid) for f in doc.frames}
-    sizes = {f.size for f in frames}
+    sizes, blank, lost = {f.size for f in frames}, doc.blanks(), {}
     for f in frames:
         W, H = f.size
+        n = sum(c not in blank for r, row in enumerate(f.grid) for c_, c in enumerate(row)
+                if not (x <= c_ < x + w and y <= r < y + h))
+        if n:
+            lost[doc.label(f)] = n
         f.grid = ["".join(f.grid[r][c] if 0 <= r < H and 0 <= c < W else "." for c in range(x, x + w))
                   for r in range(y, y + h)]
     move_pivots(doc, frames, lambda f: lambda px, py: (px - x, py - y))
     if len(sizes) > 1:
         print(f"note: the frames were {len(sizes)} sizes ({', '.join(f'{a}x{b}' for a, b in sorted(sizes))}); each "
               f"is cut at {x},{y} from its own top-left, and all are {w}x{h} now")
-    print(f"cropped {len(frames)} frames to {w}x{h}", write_doc(doc))
+    if lost:  # cutting one frame out is crop's point; cutting a whole group in place can lose a hat
+        print(f"note: the rectangle cuts off drawn px: {listed([f'{n} in {i}' for i, n in lost.items()], 4)}")
+    off = [doc.label(f) for f in frames if doc.pivot(f) and not (0 <= doc.pivot(f)[0] < w and 0 <= doc.pivot(f)[1] < h)]
+    if off:
+        print(f"note: the pivot of {listed(off, 4)} is outside the {w}x{h} frame now")
+    print(f"cropped {len(frames)} frames to {w}x{h};", write_doc(doc))
     return True
 
 

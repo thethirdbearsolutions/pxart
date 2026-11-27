@@ -267,7 +267,7 @@ def test_the_group_crop_check_prints_fixes_the_whole_walk(tmp_path, capsys):
     assert fix in out and "anim-set" not in out and "each other" not in out
     capsys.readouterr()
     assert run(*fix.split()[1:]) == 0
-    assert "cropped 4 frames to 4x7" in capsys.readouterr().out
+    assert "cropped 4 frames to 4x7; wrote" in capsys.readouterr().out
     after = check_out(capsys, p, "--headroom", 3)
     assert "rows of headroom" not in after and "size" not in after
     doc = pxart.parse(p)
@@ -300,7 +300,23 @@ def test_a_group_crop_into_another_file_says_to_pick_a_frame(tmp_path):
     with pytest.raises(SystemExit) as e:
         pxart.main(["crop", f"{p}:walk", "0,0,2,2", "-o", str(tmp_path / "parts.px:head")])
     msg = str(e.value.code)
-    assert "E_SELECT" in msg and "only in place" in msg and f"{p}:walk/0" in msg
+    assert "E_SELECT" in msg and "only in place" in msg
+    assert f"pxart crop {p}:walk/0 0,0,2,2 -o {tmp_path / 'parts.px:head'}" in msg
+
+
+def test_a_group_crop_into_another_files_group_suggests_a_frame_there(tmp_path):
+    p = walk(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["crop", f"{p}:walk", "0,0,2,2", "-o", str(tmp_path / "o.px:walk")])
+    assert f"-o {tmp_path / 'o.px:walk/0'}" in str(e.value.code)  # a frame of the group, not a frame named walk
+
+
+def test_a_group_crop_says_what_it_cuts_off(tmp_path, capsys):
+    p = walk(tmp_path)
+    assert run("crop", f"{p}:walk", "0,0,4,3", "-o", f"{p}:walk") == 0
+    out = capsys.readouterr().out
+    assert "cuts off drawn px: 2 in walk/0, 2 in walk/1, 2 in walk/2, 2 in walk/3" in out
+    assert "the pivot of walk/0, walk/1, walk/2, walk/3 is outside the 4x3 frame now" in out
 
 
 def test_a_group_crop_refuses_rekey(tmp_path):
