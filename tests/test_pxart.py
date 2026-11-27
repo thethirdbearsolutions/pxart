@@ -8817,13 +8817,15 @@ def test_onion_aligns_by_pivot(tmp_path):
     p = pivot_anim_file(tmp_path, p0="pivot=0,0", p1="pivot=1,0")
     assert run("onion", f"{p}:a/0", f"{p}:a/1", "-o", tmp_path / "o.png", "--scale", "1") == 0
     img = Image.open(tmp_path / "o.png").convert("RGBA")
-    assert img.size == (4, 4)  # a/1's pivot 1,0 meets a/0's 0,0: a/1 starts 1px left, so the canvas is 4 wide
+    # a/1's pivot 1,0 meets a/0's 0,0: a/1 starts 1px left, so the canvas is 4 wide (twice: the onion, then the
+    # counted pixels beside it, 8px apart; labels only from --scale 4; PX-70)
+    assert img.size == (4 + 8 + 4, 4)
 
 
 def test_onion_without_pivots_is_unchanged(tmp_path):
     p = write(tmp_path, "m.px", MULTI)
     assert run("onion", f"{p}:walk/down/0", f"{p}:idle", "-o", tmp_path / "o.png", "--scale", "1") == 0
-    assert Image.open(tmp_path / "o.png").size == (4, 2)
+    assert Image.open(tmp_path / "o.png").size == (4 + 8 + 4, 2)  # a 4x2 canvas, twice (PX-70)
 
 
 # GAMES-295: onion prints an alignment readout (a 1px jump is too faint to judge by eye).
@@ -8901,8 +8903,8 @@ def test_onion_readout_image_unchanged(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     assert run("onion", f"{p}:w/0", f"{p}:w/1", "-o", tmp_path / "o.png", "--scale", "2") == 0
     img = Image.open(tmp_path / "o.png").convert("RGBA")
-    assert img.size == (3 * 2, 4 * 2)  # below --scale 4: no grid, no rulers
-    assert img.getpixel((2, 0))[3] == 255 and img.getpixel((0, 0)) == (58, 58, 68, 255)
+    assert img.size == (2 * 3 * 2 + 8, 4 * 2)  # below --scale 4: no grid, rulers or labels; the counted panel
+    assert img.getpixel((2, 0))[3] == 255 and img.getpixel((0, 0)) == (58, 58, 68, 255)  # the onion is where it was
 
 
 def test_help_documents_onion_readout():
@@ -12389,7 +12391,7 @@ def test_onion_fade_a_png_is_the_old_default(tmp_path):
     img = onion_png(tmp_path, "--fade-a")
     doc = pxart.parse(tmp_path / "s.px")
     want = old_onion(doc.image(doc.get("a")), doc.image(doc.get("c")), 6, 5, [(0, 0), (0, 0)])
-    assert img.tobytes() == want.tobytes()
+    assert img.crop((0, 0, *want.size)).tobytes() == want.tobytes()  # the onion; the counted pixels go beside it
 
 
 def test_onion_fade_a_png_is_the_old_default_at_scale_8(tmp_path):
@@ -12398,7 +12400,7 @@ def test_onion_fade_a_png_is_the_old_default_at_scale_8(tmp_path):
     doc = pxart.parse(p)
     want = pxart.upscale(old_onion(doc.image(doc.get("a")), doc.image(doc.get("b")), 6, 5, [(0, 0), (0, 0)]), 8,
                          grid=True, rulers=True)
-    assert Image.open(tmp_path / "o.png").convert("RGBA").tobytes() == want.tobytes()
+    assert Image.open(tmp_path / "o.png").convert("RGBA").crop((0, 0, *want.size)).tobytes() == want.tobytes()
 
 
 @pytest.mark.parametrize("look", [[], ["--fade-a"]])
@@ -23815,8 +23817,9 @@ def test_help_all_does_not_grow(capsys):
     # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
     # 73168 with from-png -o OUT:ID (PX-23), in a clause. 73175 with export --tiled's play order (PX-62), in three words.
     # 73328 with crop FILE:GROUP in place and --headroom's one crop for a group (PX-69), in a line and a clause.
+    # 73457 with onion -o's panel of the counted pixels (PX-70), in two lines.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73328
+    assert len(capsys.readouterr().out.encode()) <= 73457
 
 
 def test_help_says_each_shared_rule_once():
@@ -25937,7 +25940,8 @@ SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 
      "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),
     (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x190 px, 2 frames over what changed, at --scale 8"),
     (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"],
-     "the onion (no -o): 40x32 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers"),
+     "the onion (no -o): 88x80 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers, and the counted "
+     "pixels beside it"),
     (["scene", "a.px:w/0@0,0", "a.px:w/1@4,0", "--dry-run", "-o", "s.png"],
      "s.png: 384x256 px, a 96x64 scene at --scale 4, 2 items"),
 ])

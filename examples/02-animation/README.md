@@ -172,7 +172,8 @@ the same pixel. The first two lines say which columns and rows each frame's draw
 cover: A's go from row 0 to 31, B's from row 1 to 31. The third line compares them.
 
 `top +1`: B's top edge is 1 pixel lower than A's, so the head dropped. `bottom +0`: the
-feet stayed on the ground. The red peeking out above the head is where A was:
+feet stayed on the ground. The red peeking out above the head is where A was. On the
+right, the pixels that still differ after the best shift are pink:
 
 ![frame 1 over frame 0's silhouette](onion.png)
 
@@ -197,7 +198,8 @@ wrote onion-feet.png
 
 `bottom -1`: in frame 3 the lowest pixel is 1 row higher (it stops at row 30, not 31).
 One foot is off the ground. `best shift +0,+0`: no move of the whole sprite lines the
-feet up better, because only one foot rose.
+feet up better, because only one foot rose. The right half of the image paints the 11
+changed pixels pink, so you can see which foot it was.
 
 ![the feet of frame 3 over frame 0's](onion-feet.png)
 
