@@ -23816,9 +23816,10 @@ def test_help_all_does_not_grow(capsys):
     # 73002 with compose's note on what the --rekey its WARNINGs offer changes (PX-49), in one (and a rewrap).
     # 73116 with what repeat=N means for a pingpong, Aseprite's one-way passes (PX-56), in FORMAT, anim and --indexed.
     # 73168 with from-png -o OUT:ID (PX-23), in a clause. 73175 with export --tiled's play order (PX-62), in three words.
-    # 73293 with onion -o's panel of the counted pixels (PX-70), in two lines.
+    # 73328 with crop FILE:GROUP in place and --headroom's one crop for a group (PX-69), in a line and a clause.
+    # 73457 with onion -o's panel of the counted pixels (PX-70), in two lines.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73293
+    assert len(capsys.readouterr().out.encode()) <= 73457
 
 
 def test_help_says_each_shared_rule_once():

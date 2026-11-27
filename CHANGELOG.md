@@ -19,6 +19,14 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 - **`onion -o` paints the pixels its count is made of, in pink, in a panel beside the onion,** as `anim`'s strip
   does, so a lifted foot shows where it is. With `--feet` or `--rows`, only that band's pixels are marked (PX-70).
 
+- **`crop` takes a whole group and cuts every frame in place to the same rectangle** (`-o` naming the same file or
+  group), moving pivots with the art, so a walk's canvas grows in one command. `check --headroom` now prints that
+  one command for a group whose frames share a size (PX-69).
+
+  ```
+  pxart crop hero.px:walk 0,-6,16,30 -o hero.px:walk
+  ```
+
 ## 2026-11-26
 
 ### Added

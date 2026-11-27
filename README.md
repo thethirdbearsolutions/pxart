@@ -247,7 +247,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   is see-through in the base or a variant (`outline 'k' draws nothing in base (transparent there)`), whose render
   then shows no outline; `--headroom N` notes
   frames on their group's ground drawn fewer than N rows from the top (`fox.px:stand/0: 2 rows of headroom (want 8);
-  to grow the canvas 6 rows up: pxart crop ...`), a standing frame that leaves a jump nowhere to rise, and `anim`
+  to grow the canvas 6 rows up: pxart crop ...`, one `crop` of the whole group when its frames share a size), a
+  standing frame that leaves a jump nowhere to rise, and `anim`
   prints a group's `vertical travel` and its headroom when its solid bottom edge moves; one line per file, the failing frames under it, and a
   summary like `6 files, 150 frames, 3 warnings`; `-v` for a line per frame; exits 1), `stats` (a directory too, as for `sheet`; `stats
   hero.px:idle/0%night --colors` lists the colors a variant renders, with their keys (`--variant night`: every frame's;
@@ -291,7 +292,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   nothing written on an error, and only that frame's lines change), `fill` (a region or
   the whole frame with one key; `fill hero.px:walk/2 .` clears a frame), `flip`, `shift` (the pixels it leaves behind become `.`,
   or `--fill KEY`), `set` (`set hero.px:idle/0 . 16,10` erases one stray pixel and says `erased 1 px`; it and `fill`
-  count what they paint, as the drawing commands do), `crop`, `recolor` (optionally within a region; `'a<>b'` swaps
+  count what they paint, as the drawing commands do), `crop` (`crop hero.px:walk 0,-6,16,30 -o hero.px:walk` cuts
+  every frame of a group in place to the same rectangle, its pivots moving with the art), `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
   another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names; `'b>t' 't=#1e4548'` gives the new key
