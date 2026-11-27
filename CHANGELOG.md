@@ -12,6 +12,13 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-27
+
+### Added
+
+- **`onion -o` paints the pixels its count is made of, in pink, in a panel beside the onion,** as `anim`'s strip
+  does, so a lifted foot shows where it is. With `--feet` or `--rows`, only that band's pixels are marked (PX-70).
+
 ## 2026-11-26
 
 ### Added
