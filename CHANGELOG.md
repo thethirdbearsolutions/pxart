@@ -12,6 +12,18 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-27
+
+### Added
+
+- **`crop` takes a whole group and cuts every frame in place to the same rectangle,** moving pivots with the art,
+  so a walk's canvas grows in one command. `check --headroom` now prints that one command for a group whose frames
+  share a size (PX-69).
+
+  ```
+  pxart crop hero.px:walk 0,-6,16,30 -o hero.px:walk
+  ```
+
 ## 2026-11-26
 
 ### Added

@@ -98,8 +98,9 @@ def test_a_group_a_line_and_only_its_grounded_frames(tmp_path, capsys):
     assert f"{p}:stand: 0 rows of headroom (want 4) in stand/0; to grow the canvas 4 rows up: pxart crop " \
         f"{p}:stand/0 0,-4,6,12 -o {p}:stand/0" in out
     # jump/1 and jump/2 are airborne (their bottom edge is above jump/0's): a jump is meant to rise, so not noted
-    assert f"{p}:jump: 0 rows of headroom (want 4) in jump/0; to grow the canvas 4 rows up: pxart crop {p}:jump/0 " \
-        f"0,-4,6,12 -o {p}:jump/0; and each other jump frame 4 rows up the same way" in out
+    # jump's three frames share one size: one crop grows them all (PX-69)
+    assert f"{p}:jump: 0 rows of headroom (want 4) in jump/0; to grow the canvas 4 rows up: pxart crop {p}:jump " \
+        f"0,-4,6,12 -o {p}:jump (every frame)" in out
     assert "jump/1" not in out.split("unused")[0].split("headroom", 1)[1]
 
 
@@ -189,7 +190,8 @@ def test_a_pivot_says_where_the_ground_is(tmp_path, capsys):
                  "@frame a/1 pivot=1,5\n.kk.\n.kk.\n....\n....\n")
     out = check_out(capsys, p, "--headroom", 3)
     assert "in a/0;" in out and "a/1" not in out.split("headroom")[1]
-    assert "then pxart anim-set" in out and "pivot=1,4 (the feet stay put)" in out
+    assert f"pxart crop {p}:a 0,-1,4,5 -o {p}:a (every frame, pivots moving with the art)" in out
+    assert "anim-set" not in out
 
 
 def test_a_faint_shadow_doesnt_ground_an_airborne_frame(tmp_path, capsys):
@@ -219,3 +221,103 @@ def test_a_top_level_frame_named_like_a_group_is_its_own(tmp_path, capsys):
     p.write_text("k #000000\n@anim a ms=100\n@frame a/0\n..\nkk\n@frame a/1\nkk\n..\n@frame a\nkk\nkk\n")
     out = check_out(capsys, p, "--headroom", 1)
     assert f"{p}:a: 0 rows of headroom (want 1);" in out
+
+
+# PX-69: crop FILE:GROUP grows a whole group's canvas in one command, its pivots moving with the art
+
+WALK = """pxart 1
+k #000000
+o #ff8800
+
+@anim walk ms=100 pivot=2,3
+
+@frame walk/0
+.kk.
+.oo.
+.oo.
+.kk.
+@frame walk/1
+.kk.
+.oo.
+.oo.
+k..k
+@frame walk/2
+.kk.
+.oo.
+.oo.
+.kk.
+@frame walk/3
+.kk.
+.oo.
+.oo.
+k..k
+"""
+
+
+def walk(tmp_path):
+    p = tmp_path / "walk.px"
+    p.write_text(WALK)
+    return p
+
+
+def test_the_group_crop_check_prints_fixes_the_whole_walk(tmp_path, capsys):
+    p = walk(tmp_path)
+    out = check_out(capsys, p, "--headroom", 3)
+    fix = f"pxart crop {p}:walk 0,-3,4,7 -o {p}:walk"
+    assert fix in out and "anim-set" not in out and "each other" not in out
+    capsys.readouterr()
+    assert run(*fix.split()[1:]) == 0
+    assert "cropped 4 frames to 4x7" in capsys.readouterr().out
+    after = check_out(capsys, p, "--headroom", 3)
+    assert "rows of headroom" not in after and "size" not in after
+    doc = pxart.parse(p)
+    assert doc.anims["walk"]["pivot"] == (2, 6)  # one @anim line moved, no per-frame copies
+    assert all(f.pivot is None and f.size == (4, 7) for f in doc.frames)
+    assert doc.frames[1].grid[-1] == "k..k" and doc.frames[1].grid[:3] == ["....", "....", "...."]
+
+
+def test_anim_places_the_feet_where_they_were(tmp_path, capsys):
+    p = walk(tmp_path)
+    run("anim", f"{p}:walk")
+    before = capsys.readouterr().out
+    run("crop", f"{p}:walk", "0,-3,4,7", "-o", f"{p}:walk")
+    capsys.readouterr()
+    run("anim", f"{p}:walk")
+    assert capsys.readouterr().out.replace("4x7", "4x4") == before.replace("4x7", "4x4")
+
+
+def test_a_group_crop_keeps_frame_pivots_with_the_art(tmp_path):
+    p = tmp_path / "p.px"
+    p.write_text("k #000000\n@anim a ms=100\n@frame a/0 pivot=1,1\nkk\nkk\n@frame a/1\nkk\nkk\n")
+    assert run("crop", f"{p}:a", "-1,-2,4,4", "-o", p) == 0  # a plain -o FILE is in place too
+    doc = pxart.parse(p)
+    assert doc.frames[0].pivot == (2, 3) and doc.frames[1].pivot is None
+    assert doc.frames[0].grid == ["....", "....", ".kk.", ".kk."]
+
+
+def test_a_group_crop_into_another_file_says_to_pick_a_frame(tmp_path):
+    p = walk(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["crop", f"{p}:walk", "0,0,2,2", "-o", str(tmp_path / "parts.px:head")])
+    msg = str(e.value.code)
+    assert "E_SELECT" in msg and "only in place" in msg and f"{p}:walk/0" in msg
+
+
+def test_a_group_crop_refuses_rekey(tmp_path):
+    p = walk(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        pxart.main(["crop", f"{p}:walk", "0,0,2,2", "-o", f"{p}:walk", "--rekey"])
+    assert "E_BAD_ARG" in str(e.value.code) and "--rekey" in str(e.value.code)
+
+
+def test_a_group_crop_dry_run_writes_nothing(tmp_path, capsys):
+    p = walk(tmp_path)
+    run("crop", f"{p}:walk", "0,-1,4,5", "-o", f"{p}:walk", "--dry-run")
+    assert "would write" in capsys.readouterr().out and p.read_text() == WALK
+
+
+def test_mixed_sizes_still_get_a_crop_a_frame(tmp_path, capsys):
+    p = tmp_path / "s.px"
+    p.write_text("k #000000\n@anim a ms=100\n@frame a/0\n....\n.kk.\n.kk.\n@frame a/1\n.kk.\n.kk.\n")
+    out = check_out(capsys, p, "--headroom", 2)
+    assert f"crop {p}:a/" in out and "each other a frame" in out

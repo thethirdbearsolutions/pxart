@@ -264,7 +264,8 @@ CHECKING
       file has, a note.
       --headroom N notes frames drawn fewer than N rows from the top, a group a line and only
       those on its ground (not a jump's airborne frames): 'fox.px:stand/0: 2 rows of headroom
-      (want 8); to grow the canvas 6 rows up: pxart crop ...'. anim prints a group's vertical
+      (want 8); to grow the canvas 6 rows up: pxart crop ...', of the whole group if its frames
+      share a size. anim prints a group's vertical
       travel and headroom when its bottom edge (alpha 128+) moves.
       Non-ASCII chars that look like ASCII (Cyrillic/Greek 'а е о р с х у', fullwidth 'ｋ') get
       a note: line, row, column and the letter they pass for.
@@ -420,6 +421,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
       replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
       gives the cut those keys in OUT and leaves FILE as it is.
+      FILE:GROUP -o FILE:GROUP crops each frame in place, pivots moving with the art.
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
       variants, and @anim/@still lines (minus those of groups left behind;
@@ -5217,13 +5219,21 @@ def headroom_said(its, path, want):
         grow = want - top
         sel = shlex.quote(path if f0.id is None else f"{path}:{f0.id}")
         pv = doc.pivot(f0)
-        fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
-        if pv:
-            fix += f", then pxart anim-set {sel} pivot={pv[0]},{pv[1] + grow} (the feet stay put)"
+        rows = f"{grow} row{'s' * (grow != 1)}"
+        if g is not None and len(whole) > 1 and len({f.size for f in whole}) == 1:  # one crop grows the whole group
+            gsel = shlex.quote(f"{path}:{g}")
+            fix = (f"pxart crop {gsel} 0,-{grow},{w},{h + grow} -o {gsel}"
+                   + (" (every frame, pivots moving with the art)" if any(doc.pivot(f) for f in whole) else
+                      " (every frame)"))
+            rest = ""
+        else:
+            fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
+            if pv:
+                fix += f", then pxart anim-set {sel} pivot={pv[0]},{pv[1] + grow} (the feet stay put)"
+            rest = "" if g is None else f"; and each other {g} frame {rows} up the same way"
         out.append(f"{name}: {top} row{'s' * (top != 1)} of headroom (want {want}){which}"
                    + (f"; the frame is only {h} rows tall" if want >= h else "")
-                   + f"; to grow the canvas {grow} row{'s' * (grow != 1)} up: {fix}"
-                   + ("" if g is None else f"; and each other {g} frame {grow} row{'s' * (grow != 1)} up the same way"))
+                   + f"; to grow the canvas {rows} up: {fix}" + rest)
     return out
 
 
@@ -6618,7 +6628,48 @@ def cmd_set(a):
     print(px_changed(doc, frames, "erased" if a.key == "." else "painted"), write_doc(doc, out))
 
 
+def crop_frames(a):
+    """crop FILE:GROUP x,y,w,h -o FILE[:GROUP]: every selected frame cut to the same rectangle in place (a canvas grown
+    or shrunk the same way for a whole walk), pivots moving with the pixels (move_pivots: the @anim line's when the
+    whole group is cut). True when it did so; False when FILE:SEL is one frame (crop's usual cut, through compose)."""
+    path, sel = split_sel(a.src)
+    if sel is None or pathlib.Path(path).suffix != ".px":
+        return False
+    with reading(f"FILE ({a.src})"):
+        doc = parse(path)
+        frames = doc.select(sel)
+    if len(frames) < 2:
+        return False
+    opath, osel = split_sel(str(a.o))
+    ids = [doc.label(f) for f in frames]
+    if pathlib.Path(opath).resolve() != pathlib.Path(path).resolve() or osel not in (None, sel):
+        fail("E_SELECT", f"crop: {a.src} is {len(frames)} frames ({listed(ids, 4)}); crop cuts several frames only in "
+             f"place, each to the same rectangle: -o {shlex.quote(a.src)}; to cut one out into "
+             f"{a.o}, pick one: {path}:{ids[0]}")
+    for flag, val in (("--rekey", a.rekey), ("--variant-map", a.variant_map), ("--used-keys-only", a.used_keys_only)):
+        if val not in (None, False):
+            fail("E_BAD_ARG", f"crop {a.src} cuts its frames in place, where no key moves: {flag} is for a cut into "
+                 "another file or frame")
+    x, y, w, h = parse_rect(a.rect, frames[0].size)
+    if w < 1 or h < 1:
+        fail("E_BAD_ARG", f"crop's x,y,w,h wants w and h of 1 or more, got {a.rect!r}")
+    doc.before = {id(f): list(f.grid) for f in doc.frames}
+    sizes = {f.size for f in frames}
+    for f in frames:
+        W, H = f.size
+        f.grid = ["".join(f.grid[r][c] if 0 <= r < H and 0 <= c < W else "." for c in range(x, x + w))
+                  for r in range(y, y + h)]
+    move_pivots(doc, frames, lambda f: lambda px, py: (px - x, py - y))
+    if len(sizes) > 1:
+        print(f"note: the frames were {len(sizes)} sizes ({', '.join(f'{a}x{b}' for a, b in sorted(sizes))}); each "
+              f"is cut at {x},{y} from its own top-left, and all are {w}x{h} now")
+    print(f"cropped {len(frames)} frames to {w}x{h}", write_doc(doc))
+    return True
+
+
 def cmd_crop(a):
+    if crop_frames(a):
+        return
     with reading(f"FILE ({a.src})"):
         src = one_frame(a.src, "crop source")
         if not src.doc:
