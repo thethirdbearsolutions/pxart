@@ -25,6 +25,13 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
   `0,-6,16,30` makes 16x24 frames 16x30. `check --headroom`, which warns when a sprite has no room above it to
   jump, now prints this command (PX-69).
 
+### Fixed
+
+- **`check` now warns when some of a sprite's colors stay daytime-bright at night.** This happened when the
+  sprite's own night colors (`@variant night`) covered only a few keys and the shared palette file it imports had
+  none for the rest: those rendered in day colors, and `check` said nothing. The command it prints fixes the
+  sprite's file and leaves the shared palette alone (PX-71).
+
 ## 2026-11-26
 
 ### Added

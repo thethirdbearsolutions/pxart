@@ -42,7 +42,8 @@ FORMAT (.px)
   override imported ones, and check notes the override, and a local key that repeats an
   imported one's color (with the palette --remove that drops its line when nothing changes).
   A variant a file gets only from its @palette leaves the file's own keys at base colors;
-  commands that render it print a WARNING naming them and the fix, and check notes it.
+  commands that render it print a WARNING naming them and the fix, and check notes it (and
+  keys a local variant of that name leaves out).
   Slots, a key's alternatives for runtime recolors ('f #e0ac69 | #f5cfa0'): help slots.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
@@ -5061,6 +5062,8 @@ def cmd_check(a):
                                      + "); frames draw bottom-centered, and Tiled export needs one size")
                 for name, ks in half_variants(doc):
                     notes.append(said_half(doc, name, ks))
+                for name, ks in partly_lit(doc):
+                    notes.append(said_partly(doc, name, ks))
                 for text, n in orphans(doc):
                     msg = f"{text!r} names a group with no frames; remove the line or add frames to it"
                     if a.strict:
@@ -7933,6 +7936,66 @@ def half_variants(d, only=None):
         if ks:
             out.append((name, ks))
     return out
+
+
+def partly_lit(d):
+    """The variants d has a '@variant NAME' line of its own for and also gets from its @palette, that leave some of the
+    keys of d's own its frames draw at their base colors while other drawn keys change: [(name, keys)], in palette
+    order. A local variant written for a few keys (compose and crop write one when an imported key has a color there)
+    says nothing of the rest, and the import's can't know them: walls stay day-bright at night. A key the variant
+    lists, in its base color too (kept lit), has been chosen and isn't named."""
+    if not d.palette_refs or not d.frames:
+        return []
+    drawn = set("".join(r for f in d.frames for r in f.grid))
+    base, out = d.resolved(), []
+    for name in d.variants:
+        if name not in d.shared_variants:
+            continue
+        over = {**d.shared_variants[name], **d.variants[name]}
+        ks = [k for k, c in d.palette.items() if c[3] and k in drawn and k not in over]
+        now = d.resolved(name)
+        if ks and any(now[k] != base[k] for k in drawn if k in base):
+            out.append((name, ks))
+    return out
+
+
+def said_partly(d, name, ks):
+    """The words for one of partly_lit: the keys left at base, and the derive that gives them a color of the night's
+    kind while every line the variant already has keeps its color: --add for a recolor, --keep-lit for a key relisted
+    in its base color (imported keys too: a derive drops a line it isn't told to keep). --match names the import that
+    has the variant; when its variant recolors fewer than 2 keys there is nothing to fit, and the note gives the
+    by-hand --add instead."""
+    base, own = d.resolved(), d.variants[name]
+    src = None
+    for ref in d.palette_refs:  # the import the variant comes from (the first that has it)
+        path = d.path.parent / ref
+        try:
+            pd = parse(path, allow_empty=True)
+        except (PxError, OSError, ValueError):
+            continue
+        if name in pd.variants or name in pd.shared_variants:
+            src = (path, pd)
+            break
+    fits = src is not None and sum(src[1].resolved(name)[k] != c for k, c in src[1].resolved().items() if k != ".") >= 2
+    many = len(ks) > 1
+    them = "them" if many else "it"
+    head = (f"@variant {name} here colors {' '.join(own) or 'no keys'}, and its @palette {' and '.join(d.palette_refs)}"
+            f"'s {name} the imported ones; neither gives {'keys' if many else 'key'} {' '.join(ks)} a {name} color, so "
+            f"in {name} {'they stay at their' if many else 'it stays at its'} base color{'s' * many} while the rest "
+            "change. ")
+    if not fits:
+        cmd = ["pxart", "palette", str(d.path), "--variant", name] + [x for k in ks for x in ("--add", f"{k}=#rrggbb")]
+        return head + (f"Set {them} by hand: {shlex.join(cmd)} (with your colors; {src[0].as_posix() if src else 'its import'}'s "
+                       f"{name} recolors too few keys to fit a derive to)")
+    pal = os.path.normpath(src[0].as_posix()) if not os.path.isabs(str(src[0])) else src[0].as_posix()
+    keep = [k for k, c in own.items() if k in base and c != base[k]]
+    lit = [k for k, c in own.items() if k in base and c == base[k]]
+    cmd = ["pxart", "palette", str(d.path), "--variant", name, "--derive-from", "base", "--match", pal]
+    cmd += ["--keep-lit", ",".join(lit)] if lit else []
+    for k in keep:
+        cmd += ["--add", f"{k}={fmt_color(own[k])}"]
+    return head + (f"To derive {them}, keeping every {name} line set here, run: {shlex.join(cmd)} (add any of "
+                   f"{' '.join(ks)} meant to stay lit to --keep-lit, or set {them} by hand with --add 'K=#rrggbb')")
 
 
 def lit_keys(d):

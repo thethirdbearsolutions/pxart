@@ -23818,8 +23818,9 @@ def test_help_all_does_not_grow(capsys):
     # 73168 with from-png -o OUT:ID (PX-23), in a clause. 73175 with export --tiled's play order (PX-62), in three words.
     # 73328 with crop FILE:GROUP in place and --headroom's one crop for a group (PX-69), in a line and a clause.
     # 73457 with onion -o's panel of the counted pixels (PX-70), in two lines.
+    # 73510 with check naming the keys a local variant leaves at base beside an imported one (PX-71), in a clause.
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73457
+    assert len(capsys.readouterr().out.encode()) <= 73510
 
 
 def test_help_says_each_shared_rule_once():
@@ -24230,7 +24231,8 @@ def test_following_the_warning_for_a_palette_file(tmp_path, monkeypatch, capsys)
 def test_help_says_a_half_variant_warns():
     doc = " ".join(pxart.__doc__.split())
     assert "A variant a file gets only from its @palette leaves the file's own keys at base colors; commands that " \
-        "render it print a WARNING naming them and the fix, and check notes it." in doc
+        "render it print a WARNING naming them and the fix, and check notes it (and keys a local variant of that name " \
+        "leaves out)." in doc
     assert "(imported ones too, unless FILE imports a night: then only its --keep-lit and --lamplit ones," in doc
 
 
