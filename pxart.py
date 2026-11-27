@@ -6633,7 +6633,7 @@ def crop_frames(a):
     or shrunk the same way for a whole walk), pivots moving with the pixels (move_pivots: the @anim line's when the
     whole group is cut). True when it did so; False when FILE:SEL is one frame (crop's usual cut, through compose)."""
     path, sel = split_sel(a.src)
-    if sel is None or pathlib.Path(path).suffix != ".px":
+    if sel is None or "," in sel or pathlib.Path(path).suffix != ".px":  # a list: one_frame's own error
         return False
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
