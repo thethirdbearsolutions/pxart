@@ -201,7 +201,8 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   as a red silhouette, and a printed readout of how B's edges moved from A's, like `top -1,
   bottom +0`, for a 1px jump too faint to see, and the best shift, or for two different
   characters `different sprites: edges only`; `--feet N` or `--rows Y0-Y1` reads only
-  that band, so a weapon swing doesn't hide the feet; `--tint-a COLOR` picks the
+  that band, so a weapon swing doesn't hide the feet; beside the onion, the PNG paints the pixels its count is made of in
+  pink, as `anim`'s strip does, so a lifted foot shows where it is; `--tint-a COLOR` picks the
   silhouette's color and `--fade-a` draws A faded instead; `--variant night` draws both at night, so a halo lit only
   then counts),
   `scene` (.px/.png items at x,y, negative allowed, on a 96x64 scene unless `--size` or `--map`

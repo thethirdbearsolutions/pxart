@@ -154,7 +154,8 @@ LOOKING
       A opaque in 20-23, B in 21-23): left +0, ...'. The shift moves all of A and counts the
       band's rows of both frames, the same count both ways; when the bottom edges
       agree, one up or down only lines up what moved above them, and the readout says no
-      shift. The PNG darkens the rows outside the band.
+      shift. The PNG darkens the rows outside the band, and beside the onion paints in pink
+      the pixels the count is made of, B dimmed under them (those past the edge don't show).
       --tint-a COLOR draws the silhouette in another color. --fade-a draws A itself at 35%
       opacity instead.
   scene -o s.png [--scale 4] [--size WxH] [--anchor center] [--bg #472d3c] [--map M --tile 16x16]
@@ -4003,16 +4004,81 @@ def cmd_onion(a):
         ImageDraw.Draw(shade).rectangle([0, 0, w - 1, h - 1], fill=(0, 0, 0, 150))
         ImageDraw.Draw(shade).rectangle([0, band[0], w - 1, band[1]], fill=CLEAR)
         base.alpha_composite(shade)
-    save_image(upscale(base, a.scale, grid=True, rulers=True), a.o, "-o" if a.o else "the onion (no -o)",
-               about=f"A and B on one {w}x{h} canvas at --scale {a.scale}, with the grid and rulers",
-               smaller="a lower --scale makes it smaller")
     one = bool(split_sel(a.a)[0] == split_sel(a.b)[0] and ia.frame and ib.frame and ia.frame.group
                and ia.frame.group == ib.frame.group)  # frames of one animation: one sprite, whatever their sizes
     kin = True if one else None if A.size == B.size else False
-    for line in alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin,
-                          feet=a.feet is not None):
+    lines, counted = alignment(ia, ib, w, h, spots, "lined up by pivot" if lay else "bottom-centered", band, kin,
+                               feet=a.feet is not None)
+    pic = upscale(base, a.scale, grid=True, rulers=True)
+    if counted:  # a second panel: the pixels the readout counts, pink, as anim's strip marks them (PX-70)
+        how = "A faded" if a.fade_a else "A tinted" if a.tint_a else "A red"
+        pic = onion_panels(pic, counted_panel(A, B, w, h, spots, *counted[:4]), a.scale, sum(counted[3]), counted[4],
+                           how)
+    save_image(pic, a.o, "-o" if a.o else "the onion (no -o)",
+               about=f"A and B on one {w}x{h} canvas at --scale {a.scale}, with the grid and rulers"
+               + (", and the counted pixels beside it" if counted else ""),
+               smaller="a lower --scale makes it smaller")
+    for line in lines:
         print(line)
     print(wrote(a.o))
+
+
+def counted_panel(A, B, w, h, spots, dx, dy, rows, mask):
+    """onion's second panel, w x h: B dimmed to a third, and in pink each pixel the readout counts after its shift
+    (A moved by dx, dy against B, in `rows` only), as anim's strip draws it; rows not counted darkened."""
+    out = on_bg(Image.new("RGBA", (1, 1), CLEAR), w, h)
+    cb = placed(B, w, h, spots[1], "#00000000").load()
+    px = out.load()
+    for y in range(h):
+        for x in range(w):
+            if mask[y * w + x]:
+                px[x, y] = (255, 40, 200, 255)
+            elif cb[x, y][3]:
+                c = cb[x, y]
+                px[x, y] = (c[0] // 3, c[1] // 3, c[2] // 3, 255)
+    if rows is not None:
+        shade = Image.new("RGBA", (w, h), (0, 0, 0, 150))
+        for y in rows:
+            ImageDraw.Draw(shade).line([(0, y), (w - 1, y)], fill=CLEAR)
+        out.alpha_composite(shade)
+    return out
+
+
+def counted_mask(prev, cur, dx, dy, rows=None):
+    """The pixels of the canvas where prev moved by dx, dy differs from cur, in `rows` only when given: a flat list of
+    0/1, row by row. Pixels pushed past the canvas edge are counted by the readout but can't be shown, so aren't here."""
+    m = ImageChops.difference(shifted(prev, dx, dy), cur).split()
+    m = ImageChops.lighter(ImageChops.lighter(m[0], m[1]), ImageChops.lighter(m[2], m[3]))
+    w = cur.width
+    flat = [1 if v else 0 for v in pixels(m)]
+    if rows is not None:
+        keep = set(rows)
+        flat = [v if i // w in keep else 0 for i, v in enumerate(flat)]
+    return flat
+
+
+def onion_panels(left, right, scale, shown, total, how):
+    """onion -o's picture: the onion, and to its right the counted pixels at the same scale, grid and rulers, each
+    over its label (from --scale 4, as the rulers), wrapped to its panel's width: 'B over A (A red)' and '17px counted, in pink' (with ', 6 past
+    the edge not shown' when the shift pushed some off the canvas, so the picture's pink and the readout agree)."""
+    right = upscale(right, scale, grid=True, rulers=True)
+    gap, font = 8, strip_font()
+    d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    texts = [f"B over A ({how})", f"{total}px counted, in pink"
+             + (f"; {total - shown} past the edge not shown" if total > shown else "")]
+    lines = [fit_lines(d, t, im.width, font) if scale >= 4 else [] for t, im in zip(texts, (left, right))]
+    # below --scale 4, as with the grid and rulers: no labels (a 4px-wide panel can't hold a word)
+    top = max(left.height, right.height)
+    out = Image.new("RGBA", (left.width + gap + right.width, top + LINE_H * max(map(len, lines))), CLEAR)
+    if out.height > top:
+        ImageDraw.Draw(out).rectangle([0, top, out.width - 1, out.height - 1], fill=(42, 42, 48, 255))
+    out.alpha_composite(left, (0, 0))  # the onion stays where it always was: the labels go under both
+    out.alpha_composite(right, (left.width + gap, 0))
+    d = ImageDraw.Draw(out)
+    for x, ls, color in ((0, lines[0], (230, 230, 230, 255)), (left.width + gap, lines[1], (255, 40, 200, 255))):
+        for i, line in enumerate(ls):
+            d.text((x, top + 1 + i * LINE_H), line, fill=color, font=font)
+    return out
 
 
 def onion_band(a, h):
@@ -4110,6 +4176,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
                                            f"covers nothing in {spans_of(*band)}")
              + (f" ({where}, {how})" if n == "A" else "")
              for n, it, b in zip("AB", (ia, ib), boxes)]
+    counted = None  # (dx, dy, the canvas rows counted or None for all, the mask): what onion's second panel marks
     if all(boxes):
         (l0, t0, r0, b0), (l1, t1, r1, b1) = boxes
         whole = motion(*clear)[:4]
@@ -4122,11 +4189,18 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
         elif band and b1 == b0 and dy:
             lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
                          f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
+            counted, total = (0, 0, list(range(band[0], band[1] + 1))), n_none
         else:
             past = past_edge(*clear, dx, dy, n_shift) if not band else band_past
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed"
                          + (f" ({past} past the edge)" if past else "") + f" (no shift: {n_none}px)")
-    return lines
+            # band_count's rows: B's band, and the rows A's band moved to
+            counted = (dx, dy, sorted({y for y in range(band[0], band[1] + 1)} | {y + dy for y in range(band[0], band[1] + 1)
+                                                                                 if 0 <= y + dy < h}) if band else None)
+            total = n_shift
+    if counted:
+        counted += (counted_mask(*clear, *counted), total)
+    return lines, counted
 
 
 MAP_HASH_RE = re.compile(r"^\S+\.(px(:[A-Za-z0-9_\-./]+)?|png)(%[A-Za-z0-9_\-]+)?$")

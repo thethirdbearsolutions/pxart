@@ -16,15 +16,14 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Added
 
-- **`crop` takes a whole group and cuts every frame in place to the same rectangle** (`-o` naming the same file or
-  group), moving pivots with the art, so a walk's canvas grows in one command. `check --headroom` now prints that one command for a group whose frames
-  share a size (PX-69).
+- **`onion A B -o out.png` now marks in pink the pixels that changed from frame A to frame B,** in a second
+  panel beside the overlay, so a foot that lifted is easy to spot. With `--feet N` (only the bottom N rows), it
+  marks just the pixels that band's printed count covers (PX-70).
 
-  ```
-  pxart crop hero.px:walk 0,-6,16,30 -o hero.px:walk
-  ```
-
-## 2026-11-27
+- **`crop hero.px:walk x,y,w,h -o hero.px:walk` crops every frame of the `walk` animation to the same box,**
+  keeping each frame's anchor point (pivot) on the same spot of the art. A negative y adds empty rows on top:
+  `0,-6,16,30` makes 16x24 frames 16x30. `check --headroom`, which warns when a sprite has no room above it to
+  jump, now prints this command (PX-69).
 
 ### Fixed
 
