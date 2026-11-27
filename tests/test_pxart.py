@@ -8818,14 +8818,14 @@ def test_onion_aligns_by_pivot(tmp_path):
     assert run("onion", f"{p}:a/0", f"{p}:a/1", "-o", tmp_path / "o.png", "--scale", "1") == 0
     img = Image.open(tmp_path / "o.png").convert("RGBA")
     # a/1's pivot 1,0 meets a/0's 0,0: a/1 starts 1px left, so the canvas is 4 wide (twice: the onion, then the
-    # counted pixels beside it, 8px apart, over their labels; PX-70)
-    assert img.size == (4 + 8 + 4, 4 + pxart.LINE_H)
+    # counted pixels beside it, 8px apart; labels only from --scale 4; PX-70)
+    assert img.size == (4 + 8 + 4, 4)
 
 
 def test_onion_without_pivots_is_unchanged(tmp_path):
     p = write(tmp_path, "m.px", MULTI)
     assert run("onion", f"{p}:walk/down/0", f"{p}:idle", "-o", tmp_path / "o.png", "--scale", "1") == 0
-    assert Image.open(tmp_path / "o.png").size == (4 + 8 + 4, 2 + pxart.LINE_H)  # a 4x2 canvas, twice (PX-70)
+    assert Image.open(tmp_path / "o.png").size == (4 + 8 + 4, 2)  # a 4x2 canvas, twice (PX-70)
 
 
 # GAMES-295: onion prints an alignment readout (a 1px jump is too faint to judge by eye).
@@ -8903,7 +8903,7 @@ def test_onion_readout_image_unchanged(tmp_path, capsys):
     p = write(tmp_path, "b.px", BOB)
     assert run("onion", f"{p}:w/0", f"{p}:w/1", "-o", tmp_path / "o.png", "--scale", "2") == 0
     img = Image.open(tmp_path / "o.png").convert("RGBA")
-    assert img.size == (2 * 3 * 2 + 8, 4 * 2 + pxart.LINE_H)  # below --scale 4: no grid, no rulers; the counted panel
+    assert img.size == (2 * 3 * 2 + 8, 4 * 2)  # below --scale 4: no grid, rulers or labels; the counted panel
     assert img.getpixel((2, 0))[3] == 255 and img.getpixel((0, 0)) == (58, 58, 68, 255)  # the onion is where it was
 
 
@@ -25939,7 +25939,7 @@ SIZE_LINE = re.compile(r"^[^ ].*: \d+x\d+ px(, |$)")  # a dry run's 'sheet.png: 
      "the GIF (no -o): 57x16 px, 2 frames of a 3x2 canvas at --scale 8, its 1x and 2x copies beside it, 200 ms a loop"),
     (["anim", "a.px:w", "--dry-run", "-o", "w.gif"], "w.strip.png: 72x190 px, 2 frames over what changed, at --scale 8"),
     (["onion", "a.px:w/0", "a.px:w/1", "--dry-run"],
-     "the onion (no -o): 88x44 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers, and the counted "
+     "the onion (no -o): 88x80 px, A and B on one 3x2 canvas at --scale 8, with the grid and rulers, and the counted "
      "pixels beside it"),
     (["scene", "a.px:w/0@0,0", "a.px:w/1@4,0", "--dry-run", "-o", "s.png"],
      "s.png: 384x256 px, a 96x64 scene at --scale 4, 2 items"),

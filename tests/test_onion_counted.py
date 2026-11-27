@@ -91,6 +91,27 @@ def test_the_examples_onion_marks_its_count(tmp_path, capsys):
     assert pink_cells(o, 8, 24, 32) == counted(out) == 11
 
 
+def test_the_label_gives_the_readouts_count_and_what_the_edge_hid(tmp_path, capsys):
+    # the PNG's own words: the readout's count, and how many of them no pixel can show
+    got = {}
+    real = pxart.onion_panels
+
+    def spy(left, right, scale, shown, total, how):
+        got.update(shown=shown, total=total, how=how)
+        return real(left, right, scale, shown, total, how)
+    p = tmp_path / "w.px"
+    p.write_text(WALKER.replace("@frame walk/1\n..kk..\n", "@frame walk/1\n......\n..kk..\n").replace(
+        ".k..k.\n.k....\n.k....\n", ".k..k.\n.k....\n"))
+    pxart.onion_panels = spy
+    try:
+        assert run("onion", f"{p}:walk/0", f"{p}:walk/1", "-o", tmp_path / "o.png", "--tint-a", "#40c0ff") == 0
+    finally:
+        pxart.onion_panels = real
+    out = capsys.readouterr().out
+    n = int(re.search(r"then (\d+)px changed", out).group(1))
+    assert got["total"] == n and got["shown"] == counted(out) and got["how"] == "A tinted"
+
+
 def test_two_different_sprites_get_no_counted_panel(tmp_path, capsys):
     a, b = tmp_path / "a.px", tmp_path / "b.px"
     a.write_text("k #000000\nkkkk\nkkkk\n")

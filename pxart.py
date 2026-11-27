@@ -4008,7 +4008,9 @@ def cmd_onion(a):
                                feet=a.feet is not None)
     pic = upscale(base, a.scale, grid=True, rulers=True)
     if counted:  # a second panel: the pixels the readout counts, pink, as anim's strip marks them (PX-70)
-        pic = onion_panels(pic, counted_panel(A, B, w, h, spots, *counted), a.scale, sum(counted[3]))
+        how = "A faded" if a.fade_a else "A tinted" if a.tint_a else "A red"
+        pic = onion_panels(pic, counted_panel(A, B, w, h, spots, *counted[:4]), a.scale, sum(counted[3]), counted[4],
+                           how)
     save_image(pic, a.o, "-o" if a.o else "the onion (no -o)",
                about=f"A and B on one {w}x{h} canvas at --scale {a.scale}, with the grid and rulers"
                + (", and the counted pixels beside it" if counted else ""),
@@ -4052,19 +4054,27 @@ def counted_mask(prev, cur, dx, dy, rows=None):
     return flat
 
 
-def onion_panels(left, right, scale, n):
+def onion_panels(left, right, scale, shown, total, how):
     """onion -o's picture: the onion, and to its right the counted pixels at the same scale, grid and rulers, each
-    under a one-line label."""
+    over its label (from --scale 4, as the rulers), wrapped to its panel's width: 'B over A (A red)' and '17px counted, in pink' (with ', 6 past
+    the edge not shown' when the shift pushed some off the canvas, so the picture's pink and the readout agree)."""
     right = upscale(right, scale, grid=True, rulers=True)
     gap, font = 8, strip_font()
+    d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    texts = [f"B over A ({how})", f"{total}px counted, in pink"
+             + (f"; {total - shown} past the edge not shown" if total > shown else "")]
+    lines = [fit_lines(d, t, im.width, font) if scale >= 4 else [] for t, im in zip(texts, (left, right))]
+    # below --scale 4, as with the grid and rulers: no labels (a 4px-wide panel can't hold a word)
     top = max(left.height, right.height)
-    out = Image.new("RGBA", (left.width + gap + right.width, top + LINE_H), CLEAR)
-    ImageDraw.Draw(out).rectangle([0, top, out.width - 1, out.height - 1], fill=(42, 42, 48, 255))
+    out = Image.new("RGBA", (left.width + gap + right.width, top + LINE_H * max(map(len, lines))), CLEAR)
+    if out.height > top:
+        ImageDraw.Draw(out).rectangle([0, top, out.width - 1, out.height - 1], fill=(42, 42, 48, 255))
     out.alpha_composite(left, (0, 0))  # the onion stays where it always was: the labels go under both
     out.alpha_composite(right, (left.width + gap, 0))
     d = ImageDraw.Draw(out)
-    d.text((0, top + 1), "B over A (A red)", fill=(230, 230, 230, 255), font=font)
-    d.text((left.width + gap, top + 1), f"counted: {n}px pink", fill=(255, 40, 200, 255), font=font)
+    for x, ls, color in ((0, lines[0], (230, 230, 230, 255)), (left.width + gap, lines[1], (255, 40, 200, 255))):
+        for i, line in enumerate(ls):
+            d.text((x, top + 1 + i * LINE_H), line, fill=color, font=font)
     return out
 
 
@@ -4176,7 +4186,7 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
         elif band and b1 == b0 and dy:
             lines.append(f"{edges}; bottom edges agree, so no shift: {n_none}px changed (the band's best shift "
                          f"{dx:+d},{dy:+d} then {n_shift}px only lines up what moved above its bottom edge)")
-            counted = (0, 0, list(range(band[0], band[1] + 1)))
+            counted, total = (0, 0, list(range(band[0], band[1] + 1))), n_none
         else:
             past = past_edge(*clear, dx, dy, n_shift) if not band else band_past
             lines.append(f"{edges}; best shift {dx:+d},{dy:+d} then {n_shift}px changed"
@@ -4184,8 +4194,9 @@ def alignment(ia, ib, w, h, spots, how, band=None, kin=True, feet=False):
             # band_count's rows: B's band, and the rows A's band moved to
             counted = (dx, dy, sorted({y for y in range(band[0], band[1] + 1)} | {y + dy for y in range(band[0], band[1] + 1)
                                                                                  if 0 <= y + dy < h}) if band else None)
+            total = n_shift
     if counted:
-        counted += (counted_mask(*clear, *counted),)
+        counted += (counted_mask(*clear, *counted), total)
     return lines, counted
 
 
