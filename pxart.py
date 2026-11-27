@@ -7961,24 +7961,41 @@ def partly_lit(d):
 
 def said_partly(d, name, ks):
     """The words for one of partly_lit: the keys left at base, and the derive that gives them a color of the night's
-    kind while every key the variant already colors keeps its color (--add, which a derive applies last)."""
-    refs = d.palette_refs
-    pal = (d.path.parent / refs[0]).as_posix() if len(refs) == 1 else "P.px"
-    pal = os.path.normpath(pal) if len(refs) == 1 and not os.path.isabs(pal) else pal
-    many = len(ks) > 1
+    kind while every line the variant already has keeps its color: --add for a recolor, --keep-lit for a key relisted
+    in its base color (imported keys too: a derive drops a line it isn't told to keep). --match names the import that
+    has the variant; when its variant recolors fewer than 2 keys there is nothing to fit, and the note gives the
+    by-hand --add instead."""
     base, own = d.resolved(), d.variants[name]
-    keep = [k for k, c in own.items() if k in d.palette and c != base[k]]
-    lit = [k for k, c in own.items() if k in d.palette and c == base[k]]
+    src = None
+    for ref in d.palette_refs:  # the import the variant comes from (the first that has it)
+        path = d.path.parent / ref
+        try:
+            pd = parse(path, allow_empty=True)
+        except (PxError, OSError, ValueError):
+            continue
+        if name in pd.variants or name in pd.shared_variants:
+            src = (path, pd)
+            break
+    fits = src is not None and sum(src[1].resolved(name)[k] != c for k, c in src[1].resolved().items() if k != ".") >= 2
+    many = len(ks) > 1
+    them = "them" if many else "it"
+    head = (f"@variant {name} here colors {' '.join(own) or 'no keys'}, and its @palette {' and '.join(d.palette_refs)}"
+            f"'s {name} the imported ones; neither gives {'keys' if many else 'key'} {' '.join(ks)} a {name} color, so "
+            f"in {name} {'they stay at their' if many else 'it stays at its'} base color{'s' * many} while the rest "
+            "change. ")
+    if not fits:
+        cmd = ["pxart", "palette", str(d.path), "--variant", name] + [x for k in ks for x in ("--add", f"{k}=#rrggbb")]
+        return head + (f"Set {them} by hand: {shlex.join(cmd)} (with your colors; {src[0].as_posix() if src else 'its import'}'s "
+                       f"{name} recolors too few keys to fit a derive to)")
+    pal = os.path.normpath(src[0].as_posix()) if not os.path.isabs(str(src[0])) else src[0].as_posix()
+    keep = [k for k, c in own.items() if k in base and c != base[k]]
+    lit = [k for k, c in own.items() if k in base and c == base[k]]
     cmd = ["pxart", "palette", str(d.path), "--variant", name, "--derive-from", "base", "--match", pal]
     cmd += ["--keep-lit", ",".join(lit)] if lit else []
     for k in keep:
         cmd += ["--add", f"{k}={fmt_color(own[k])}"]
-    return (f"@variant {name} here colors {' '.join(own) or 'no keys'}, and its @palette {' and '.join(refs)}'s "
-            f"{name} the imported ones; neither gives {'keys' if many else 'key'} {' '.join(ks)} a {name} color, so in "
-            f"{name} {'they stay at their' if many else 'it stays at its'} base color{'s' * many} while the rest "
-            f"change. To derive {'them' if many else 'it'}, keeping the {name} colors set here, run: {shlex.join(cmd)} "
-            f"(add any of {' '.join(ks)} meant to stay lit to --keep-lit, or set {'them' if many else 'it'} by hand "
-            f"with --add 'K=#rrggbb')")
+    return head + (f"To derive {them}, keeping every {name} line set here, run: {shlex.join(cmd)} (add any of "
+                   f"{' '.join(ks)} meant to stay lit to --keep-lit, or set {them} by hand with --add 'K=#rrggbb')")
 
 
 def lit_keys(d):

@@ -83,3 +83,62 @@ def test_a_file_without_an_import_is_left_alone(tmp_path, capsys):
     (tmp_path / "c.px").write_text("k #3f2631\nL #ffd070\n\n@variant night\nk #1a1020\n\nkL\n")
     run("check", tmp_path / "c.px")
     assert "neither gives" not in capsys.readouterr().out
+
+
+def fix_from(out):
+    return shlex.split(out.split("run: ", 1)[1].split(" (add any", 1)[0])[1:]
+
+
+def test_an_imported_key_kept_lit_here_stays_lit(tmp_path, capsys):
+    # the import gives m a dim night; this file's night keeps m lit (relisted in its base color) and colors nothing
+    # of its own: the fix must carry --keep-lit m, or the derive drops that line and the lamp goes dim
+    (tmp_path / "pal.px").write_text("k #3f2631\ng #40a040\nm #ffd070\n\n@variant night\nk #1a1020\ng #183020\n"
+                                     "m #403010\n")
+    b = tmp_path / "b.px"
+    b.write_text("@palette pal.px\nW #c0b090\n\n@variant night\nm #ffd070\n\nkWmg\n")
+    run("check", b)
+    out = capsys.readouterr().out
+    assert "--keep-lit m" in out
+    assert run(*fix_from(out)) == 0
+    capsys.readouterr()
+    night = pxart.parse(b).resolved("night")
+    assert night["m"] == pxart.parse_color("#ffd070") and night["W"] != pxart.parse_color("#c0b090")
+
+
+def test_the_keep_lit_fix_runs_as_printed(tmp_path, capsys):
+    files(tmp_path, b=B.replace("m #ffe090\n", "m #ffd070\n").replace("kWmg", "kWmgT").replace(
+        "m #ffd070\n\n@variant", "m #ffd070\nT #806040\n\n@variant"))
+    run("check", tmp_path / "b.px")
+    out = capsys.readouterr().out
+    assert run(*fix_from(out)) == 0
+    capsys.readouterr()
+    doc = pxart.parse(tmp_path / "b.px")
+    assert doc.resolved("night")["m"] == doc.resolved()["m"]  # kept lit
+    run("check", tmp_path / "b.px")
+    assert "neither gives" not in capsys.readouterr().out
+
+
+def test_several_imports_match_the_one_with_the_variant(tmp_path, capsys):
+    files(tmp_path)
+    (tmp_path / "pal2.px").write_text("z #505050\n")
+    c = tmp_path / "c.px"
+    c.write_text("@palette pal2.px\n@palette pal.px\nW #c0b090\nm #ffd070\n\n@variant night\nm #ffe090\n\nkWmgz\n")
+    run("check", c)
+    out = capsys.readouterr().out
+    assert f"--match {tmp_path / 'pal.px'}" in out and "P.px" not in out
+    assert run(*fix_from(out)) == 0
+
+
+def test_an_import_whose_night_cant_be_fitted_gets_the_by_hand_route(tmp_path, capsys):
+    (tmp_path / "pal.px").write_text("k #3f2631\n\n@variant night\nk #1a1020\n")  # one key: nothing to fit
+    files_ = tmp_path / "b.px"
+    files_.write_text("@palette pal.px\nW #c0b090\nm #ffd070\n\n@variant night\nm #ffe090\n\nkWm\n")
+    run("check", files_)
+    out = capsys.readouterr().out
+    assert "--match" not in out and "--add 'W=#rrggbb'" in out and "too few keys" in out
+
+
+def test_a_night_listing_every_drawn_key_imported_ones_too_is_silent(tmp_path, capsys):
+    files(tmp_path, b=B.replace("m #ffe090\n", "m #ffe090\nW #403020\nk #000000\ng #102010\n"))
+    run("check", tmp_path / "b.px")
+    assert "neither gives" not in capsys.readouterr().out
