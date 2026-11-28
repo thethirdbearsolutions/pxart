@@ -100,10 +100,18 @@ def test_an_unnamed_grid_out_says_the_pivot_is_not_kept(tmp_path, monkeypatch, c
     pathlib.Path("c.px").write_text(walker())
     assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "plain.px") == 0
     out = capsys.readouterr().out
-    assert "pivot 7,25" in out and "-o plain.px:ID keeps it" in out
+    assert "pivot 7,25" in out and "plain.px:plain as -o keeps it" in out
+    assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "plain.px:plain") == 0  # as the note says: one frame
+    doc = pxart.parse(pathlib.Path("plain.px"))
+    assert [f.id for f in doc.frames] == ["plain"] and doc.pivot(doc.frames[0]) == (7, 25)
+    pathlib.Path("my art.px").write_text("pxart 1\no #2b1d32\n\n....\n.oo.\n")
+    capsys.readouterr()
+    assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "my art.px") == 0
+    out = capsys.readouterr().out
+    assert "isn't kept" in out and "as -o" not in out  # no id to suggest
     pathlib.Path("p3.px").write_text("pxart 1\no #2b1d32\n\n....\n.oo.\n")
     assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "p3.px") == 0
-    assert "-o p3.px:p3 keeps it" in capsys.readouterr().out
+    assert "p3.px:p3 as -o keeps it" in capsys.readouterr().out
     capsys.readouterr()
     assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "plain2.px:walk/0") == 0
     assert frame_line(pathlib.Path("plain2.px"), "walk/0") == "@frame walk/0 pivot=7,25"

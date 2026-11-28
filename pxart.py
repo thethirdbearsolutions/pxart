@@ -6786,14 +6786,14 @@ def crop_pivot(doc, target, opath, osel, cut):
     moved by the crop's -x,-y, written on its @frame line unless OUT's @anim for its group gives that same pivot. A
     source without a pivot writes none of its own (a pivot the replaced frame had goes); a note says when OUT's @anim
     then lends it one, when the pivot the frame ends with lies off its canvas, and when a pivot can't be written (OUT
-    as one unnamed grid has no @frame line: -o OUT:STEM names the grid, an existing one by the id it goes by). cut:
+    as one unnamed grid has no @frame line: -o OUT:STEM names it, when the stem can be an id). cut:
     (FILE:frame as typed, the moved pivot or None). The notes, as lines."""
     label, want = cut
     if not osel:  # one unnamed grid: no @frame line to carry a pivot
-        sid = pathlib.Path(opath).stem if pathlib.Path(opath).exists() and ID_RE.match(pathlib.Path(opath).stem) \
-            else "ID"
+        stem = pathlib.Path(opath).stem  # the id the grid goes by: OUT:STEM names it (promoted to '@frame STEM')
+        how = f"; {shlex.quote(f'{opath}:{stem}')} as -o keeps it" if ID_RE.match(stem) else ""
         return [f"note: {label}'s pivot {fmt_setting(want)} (moved with the crop) isn't kept: crop writes {opath} as "
-                f"one unnamed grid, with no @frame line for it; -o {opath}:{sid} keeps it"] if want else []
+                f"one unnamed grid, with no @frame line for it{how}"] if want else []
     had, lent = target.pivot, doc.anims.get(target.group, {}).get("pivot") if target.group else None
     target.pivot = None if want == lent else want
     out = []
