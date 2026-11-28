@@ -5058,9 +5058,20 @@ def cmd_check(a):
                 bad_base = base_variant_said(doc, path)
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
-                        notes.append(f"animation {g!r} mixes frame sizes ("
-                                     + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
-                                     + "); frames draw bottom-centered, and Tiled export needs one size")
+                        bare = [f.id for f in fs if doc.pivot(f) is None]  # as anim lines them up (pivot_layout)
+                        sizes = ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
+                        if len(bare) in (0, len(fs)):
+                            how = "frames line up by pivot" if not bare else "frames draw bottom-centered"
+                            notes.append(f"animation {g!r} mixes frame sizes ({sizes}); {how}, and Tiled export "
+                                         "needs one size")
+                        else:  # pivot_layout puts a bare frame's bottom-centre pixel where the others' pivots go
+                            one = len(bare) == 1
+                            notes.append(f"animation {g!r} mixes frame sizes ({sizes}), and Tiled export needs one "
+                                         f"size; frames line up by pivot, and {listed(bare)} {'has' if one else 'have'} "
+                                         f"none, so {'its' if one else 'their'} bottom-centre pixel stands in for "
+                                         f"{'it' if one else 'one'}: check {'it lines' if one else 'they line'} up, "
+                                         f"or set the group's with pxart anim-set {shlex.quote(f'{path}:{g}')} "
+                                         "pivot=x,y (the feet's pixel; a frame's own pivot stays)")
                 for name, ks in half_variants(doc):
                     notes.append(said_half(doc, name, ks))
                 for name, ks in partly_lit(doc):

@@ -16,14 +16,17 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
-- **When a sprite's own colors stay day-bright in a `night` from an imported palette, the `palette`
-  command `check` suggests to fix them now runs.** It named a missing file when the sprite imports
-  several palettes, and failed when the night was too small to copy; now it names the right file, or prints
-  `palette --add` for your colors (PX-74).
+- **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
+  up by pivot when they have pivots, as `anim` draws them, and names any frame that has none (PX-76).
 
 - **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot (moved with the crop) and its
-  timing,** so `anim` and `export` still find the feet where they were and each frame keeps its own ms. A frame without
-  a pivot takes the one its new file gives the animation, with a note (PX-72, PX-75).
+  timing,** so `anim` and `export` still find the feet where they were and each frame keeps its own ms. A frame
+  without a pivot takes the one the new file's `@anim` line sets for that animation, if any, with a note (PX-72,
+  PX-75).
+
+- **The `palette` command `check` suggests, for a sprite whose own colors stay day-bright in a `night` it imports,
+  now runs as printed.** It writes a `night` into the sprite's file, fitted to the imported one. When that night
+  recolors under two colors there's nothing to fit, so `check` prints a `palette --add` line to fill in (PX-74).
 
 ## 2026-11-27
 
