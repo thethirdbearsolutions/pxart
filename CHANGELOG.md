@@ -12,6 +12,14 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-28
+
+### Fixed
+
+- **The fix `check` and `render --variant` print for a sprite whose night comes only from its shared palette now
+  runs as printed.** With several `@palette` lines it names the palette that has the night; when that night
+  recolors too few colors to match, it gives the by-hand `palette --add` instead (PX-74).
+
 ## 2026-11-27
 
 ### Added
