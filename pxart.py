@@ -8006,7 +8006,7 @@ def said_partly(d, name, ks):
         cmd = ["pxart", "palette", str(d.path), "--variant", name] + [x for k in ks for x in ("--add", f"{k}=#rrggbb")]
         return head + (f"Set {them} by hand: {shlex.join(cmd)} (with your colors; {match_path(src[0]) if src else 'its import'}'s "
                        f"{name} recolors too few keys to fit a derive to)")
-    pal = match_path(src[0])
+    pal = match_arg(src[0], name)
     keep = [k for k, c in own.items() if k in base and c != base[k]]
     lit = [k for k, c in own.items() if k in base and c == base[k]]
     cmd = ["pxart", "palette", str(d.path), "--variant", name, "--derive-from", "base", "--match", pal]
@@ -8029,7 +8029,7 @@ def variant_import(d, name):
         except (PxError, OSError, ValueError):
             continue
         if name in pd.variants or name in pd.shared_variants:
-            if sum(pd.resolved(name)[k] != c for k, c in pd.resolved().items() if k != ".") >= 2:
+            if sum(pd.resolved(name)[k] != c for k, c in pd.resolved().items() if k != "." and c[3]) >= 2:  # as match_fit
                 return (path, pd), True
             first = first or (path, pd)
     return first, False
@@ -8038,6 +8038,13 @@ def variant_import(d, name):
 def match_path(path):
     """An import's path as --match takes it: from the current directory, as typed paths are read."""
     return os.path.normpath(path.as_posix()) if not os.path.isabs(str(path)) else path.as_posix()
+
+
+def match_arg(path, name):
+    """--match's argument for an import's variant `name`: its path from here, with %name when the path has a '%'
+    (--match splits FILE%VARIANT at the last one)."""
+    p = match_path(path)
+    return f"{p}%{name}" if "%" in p else p
 
 
 def lit_keys(d):
@@ -8085,15 +8092,19 @@ def said_half(d, name, ks):
         base = d.resolved()
         cmd = ["pxart", "palette", str(d.path), "--variant", name] + [
             x for k in ks for x in ("--add", f"{k}={fmt_color(base[k]) if k in on else '#rrggbb'}")]
-        return head + (f"Give it a {name} of its own by hand: {shlex.join(cmd)} (with your colors"
+        return head + (f"Give it a {name} of its own by hand: {shlex.join(cmd)} ("
+                       + ("with your colors" if set(ks) - on else "every key a light, as printed")
                        + (f"; kept lit at base, " + "; ".join(
                            f"{' '.join(k for k in v if k in ks)} {w}" for w, v in whys.items() if set(v) & set(ks))
                           if on & set(ks) else "")
                        + f"; {match_path(src[0]) if src else 'its import'}'s {name} recolors too few keys to fit a "
                        "derive to)" + said_recompose(d, name))
-    return (head + f"Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
-            f"--derive-from base --match {match_path(src[0])}" + (f" --keep-lit {','.join(k for k, _ in lit)}" if lit else "")
-            + f"' ({told}), or --add 'K=#rrggbb'" + said_recompose(d, name))
+    cmd = ["pxart", "palette", str(d.path), "--variant", name, "--derive-from", "base", "--match",
+           match_arg(src[0], name)] + (["--keep-lit", ",".join(k for k, _ in lit)] if lit else [])
+    said = shlex.join(cmd)  # in quotes as the other notes' commands, unless a path needs shell quoting itself
+    said = f"'{said}'" if said == " ".join(cmd) else said
+    return (head + f"Give it a {name} of its own: {said} ({told}), or --add 'K=#rrggbb'"
+            + said_recompose(d, name))
 
 
 def said_recompose(d, name):

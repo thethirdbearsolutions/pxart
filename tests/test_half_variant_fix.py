@@ -20,9 +20,10 @@ def run(*argv):
 
 
 def quoted(out, start):
-    """The command the note prints, from `start` to its closing quote."""
+    """The command the note prints, from `start` to the ' (' after it."""
     i = out.index(start)
-    return shlex.split(out[i:out.index("'", i)])
+    said = out[i:out.index(" (", i)]
+    return shlex.split(said[:-1] if out[i - 1] == "'" else said)  # 'the command', or a shell-quoted one bare
 
 
 def test_one_recolored_key_gives_the_by_hand_route(tmp_path, monkeypatch, capsys):
@@ -108,3 +109,44 @@ def test_the_partly_lit_note_names_the_import_from_here(tmp_path, monkeypatch, c
     assert run("check", "props/sign.px") == 0
     out = capsys.readouterr().out
     assert "town.px's night recolors too few" in out and "props/../" not in out
+
+
+def test_a_key_see_through_at_base_does_not_count_toward_a_fit(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("pal.px").write_text("k #3f2631\nx #00000000\n@variant night\nk #1a1020\nx #10203000\n")
+    pathlib.Path("a.px").write_text("pxart 1\n@palette pal.px\nW #c0b090\nkW\n")
+    assert run("check", "a.px") == 0
+    out = capsys.readouterr().out
+    assert "--derive-from" not in out and "--add 'W=#rrggbb'" in out
+
+
+def test_a_percent_in_the_import_path_matches_as_printed(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("pct").mkdir()
+    pathlib.Path("pct/wood%2.px").write_text("g #446644\nr #aa3322\n@variant night\ng #223322\nr #551a11\n")
+    pathlib.Path("pct/hut.px").write_text("pxart 1\n@palette wood%2.px\nW #c0b090\ngrW\n")
+    assert run("check", "pct/hut.px") == 0
+    cmd = quoted(capsys.readouterr().out, "pxart palette pct/hut.px")
+    assert cmd[cmd.index("--match") + 1] == "pct/wood%2.px%night"
+    assert run(*cmd[1:]) == 0
+
+
+def test_a_path_with_a_space_is_quoted(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("my art").mkdir()
+    pathlib.Path("my art/wood.px").write_text("g #446644\nr #aa3322\n@variant night\ng #223322\nr #551a11\n")
+    pathlib.Path("my art/hut.px").write_text("pxart 1\n@palette wood.px\nW #c0b090\ngrW\n")
+    assert run("check", "my art/hut.px") == 0
+    out = capsys.readouterr().out
+    assert "pxart palette 'my art/hut.px'" in out
+    cmd = quoted(out, "pxart palette")
+    assert run(*cmd[1:]) == 0
+
+
+def test_every_key_a_light_needs_no_colors(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("pal.px").write_text("k #3f2631\n@variant night\nk #1a1020\n")
+    pathlib.Path("a.px").write_text("pxart 1\n@palette pal.px\nM #ffe080\n@variant dusk\nM #ffe080\nkM\n")
+    assert run("check", "a.px") == 0
+    out = capsys.readouterr().out
+    assert "every key a light, as printed" in out and "with your colors" not in out
