@@ -47,7 +47,8 @@ FORMAT (.px)
   Slots, a key's alternatives for runtime recolors ('f #e0ac69 | #f5cfa0'): help slots.
 
   Anywhere a command takes FILE, FILE:SEL picks frames: SEL is a frame id or a parent
-  path (FILE:walk/down = every walk/down/* frame), or a list of them, FILE:idle,walk/0.
+  path (FILE:walk/down = every walk/down/* frame), or a list of them, FILE:idle,walk/0;
+  FILE:walk/ is the group alone, beside a frame whose id is walk.
   No SEL (or *) means every frame. A file with one unnamed grid (no @frame) calls it by
   the file's name, as frames lists it: ant.px's grid is ant.px:ant. Writing a named frame into such a file (compose, crop, new, put -o
   ant.px:ID, or from-png into it) first makes the grid '@frame ant', with a note; with ID
@@ -1532,6 +1533,12 @@ class Doc:
             return list(self.frames)
         if self.implicit and sel == self.stem:  # the unnamed grid goes by the file's name, as frames lists it
             return list(self.frames)
+        if sel.endswith("/") and len(sel) > 1:  # FILE:walk/ is the group alone, never a frame whose id is walk
+            got = [f for f in self.frames if (f.id or "").startswith(sel)]
+            if not got:
+                fail("E_SELECT", f"no group {sel[:-1]!r} ({sel!r} picks a group's frames); {self.listing()}"
+                     + guess(sel[:-1], self.paths()), path=self.path)
+            return got
         got = [f for f in self.frames if f.id == sel or (f.id or "").startswith(sel + "/")]
         if not got:
             fail("E_SELECT", f"no frame or group {sel!r}; {self.listing()}" + guess(sel, self.paths()), path=self.path)
@@ -2308,7 +2315,12 @@ def one_frame(arg, what="input", variant=None):
     one_id(split_sel(arg)[1], arg, what)
     got = items(arg, variant)
     if len(got) != 1:
-        fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id")
+        sel = split_sel(arg)[1]
+        d = got[0].doc if got and got[0].doc else None
+        clash = next((c for c in id_clashes(d) if c[0] == sel), None) if d and sel else None
+        fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id" + (
+            f" ({sel} is a frame and the group {sel}/; to name the frame alone, give the group its own name: "
+            f"{clash[3]})" if clash else ""))
     return got[0]
 
 
@@ -5055,6 +5067,10 @@ def cmd_check(a):
                         notes.append(f"frame {f.id}: pivot {fmt_setting(pv)} ({whose}) is outside its {f.size[0]}x"
                                      f"{f.size[1]} frame (allowed: a hand or the ground below the feet; check it's "
                                      "not a typo)")
+                for fid, kids, new, rename in id_clashes(doc):
+                    notes.append(f"frame {fid} shares its id with the group {fid}/ ({listed(kids, 3)}): {path}:{fid} "
+                                 f"picks them all, {path}:{fid}/ the group alone, and no selector the frame alone; "
+                                 f"to give the group its own name: {rename}")
                 bad_base = base_variant_said(doc, path)
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
@@ -5280,6 +5296,31 @@ def ground(doc, f):
     return None if low is None else low - (pv[1] if pv else f.size[1] - 1)
 
 
+def id_clashes(doc):
+    """Frames whose id is also a group's path (a top-level 'a' beside a/0, a/1): FILE:a picks them all, so a command
+    can't name that frame alone; FILE:a/ is the group alone. [(frame id, the group's frame ids, a free new name for
+    the group, the rename that frees the frame id)]."""
+    ids = [f.id for f in doc.frames if f.id]
+    have, kids_of = set(ids), {}
+    for i in ids:  # each id under each of its parent paths that is a frame id too: one pass, not a pair of loops
+        parts = i.split("/")
+        for n in range(1, len(parts)):
+            p = "/".join(parts[:n])
+            if p in have:
+                kids_of.setdefault(p, []).append(i)
+    taken = have | {i.rsplit("/", n)[0] for i in ids for n in range(i.count("/") + 1)}
+    out = []
+    for fid in ids:
+        kids = kids_of.get(fid)
+        if kids:
+            new, n = f"{fid}-anim", 2
+            while new in taken:
+                new, n = f"{fid}-anim{n}", n + 1
+            out.append((fid, kids, new, shlex.join(["pxart", "frames", str(doc.path), "--rename", f"{fid}/",
+                                                     f"{new}/"])))
+    return out
+
+
 def headroom_said(its, path, want):
     """check --headroom N's notes, one per animation group (or other frame): the selected frames that stand on their
     group's ground (ground; the whole group's frames decide where that is, whatever was selected) drawn fewer than N
@@ -5291,8 +5332,16 @@ def headroom_said(its, path, want):
         if it.frame is not None:
             g = it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else None
             groups.setdefault((g, it.frame.id if g is None else None), []).append(it)
-    out = []
-    for (g, fid), got in groups.items():
+    out, clashes = [], {}  # a doc's id_clashes, once per doc
+
+    def renames_first(kv):  # a fix that renames a group goes after every other: theirs name the group as it is now
+        (g, fid), got = kv
+        d = got[0].doc
+        if id(d) not in clashes:
+            clashes[id(d)] = {c[0]: c for c in id_clashes(d)}
+        hit = g is None and fid in clashes[id(d)]  # the deepest first: its rename leaves a parent's as printed
+        return (hit, -fid.count("/") if hit else 0)
+    for (g, fid), got in sorted(groups.items(), key=renames_first):
         doc = got[0].doc
         whole = [f for f in doc.frames if f.group == g] if g else [got[0].frame]
         grounds = {id(f): ground(doc, f) for f in whole}
@@ -5309,15 +5358,18 @@ def headroom_said(its, path, want):
         sel = shlex.quote(path if f0.id is None else f"{path}:{f0.id}")
         pv = doc.pivot(f0)
         rows = f"{grow} row{'s' * (grow != 1)}"
-        if g is not None and len(whole) > 1 and len({f.size for f in whole}) == 1 and doc.get(g) is None:
-            # one crop grows the whole group (crop_frames: the frames whose group is g; a frame named g would win)
-            gsel = shlex.quote(f"{path}:{g}")
+        if g is not None and len(whole) > 1 and len({f.size for f in whole}) == 1:
+            # one crop grows the whole group (crop_frames: the frames whose group is g; FILE:g/ when a frame is g)
+            gsel = shlex.quote(f"{path}:{g}" + ("/" if doc.get(g) is not None else ""))
             fix = (f"pxart crop {gsel} 0,-{grow},{w},{h + grow} -o {gsel}"
                    + (" (every frame, pivots moving with the art)" if any(doc.pivot(f) for f in whole) else
                       " (every frame)"))
             rest = ""
         else:
             fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
+            clash = clashes[id(doc)].get(f0.id)
+            if clash:  # FILE:ID picks the group too: free the id first, then the crop names this frame alone
+                fix = f"{clash[3]} (the group {f0.id}/ shares this frame's id), then {fix}"
             if pv:
                 fix += f", then pxart anim-set {sel} pivot={pv[0]},{pv[1] + grow} (the feet stay put)"
             rest = "" if g is None else f"; and each other {g} frame {rows} up the same way"
@@ -5848,7 +5900,7 @@ def frames_copy(a, doc, sel, picked):
     said = []
     landed = {Frame(new_id[id(f)]).group for f in picked}  # the groups the copies land in (a frame renamed top-level: none)
     for g in dict.fromkeys(f.group for f in picked if f.group):
-        n = renamed_id(g, renames)
+        n = renamed_id(g, renames, group=True)
         if n not in landed:  # no copy lands in it: its @anim or @still line would name a group with no frames
             continue
         if g in doc.anims and n not in dst.anims:
@@ -5912,10 +5964,18 @@ def said_stilled(stilled, dpath):
             + (f"; pivot{'s' * (len(pivots) > 1)} {' '.join(pivots)} kept" if pivots else ""))
 
 
-def renamed_id(fid, renames):
+def renamed_id(fid, renames, group=False):
     """A frame id or group under --rename's [(OLD, NEW)]: OLD itself becomes NEW, OLD/rest becomes NEW/rest (the first
-    rename that names it); any other id stays."""
+    rename that names it); any other id stays. An OLD ending in '/' renames the group alone: OLD/rest, and OLD itself
+    only as a group name (group: fid is an @anim/@still group), never the frame whose id is OLD."""
     for old, new in renames:
+        if old.endswith("/"):  # GROUP/: the group alone (its frames, its @anim/@still name), not a frame named GROUP
+            o, n = old[:-1], new.rstrip("/")
+            if group and fid == o:
+                return n
+            if fid and fid.startswith(old):
+                return n + fid[len(o):]
+            continue
         if fid == old:
             return new
         if fid and fid.startswith(old + "/"):
@@ -5926,8 +5986,13 @@ def renamed_id(fid, renames):
 def check_renames(renames, ids, where):
     """--rename's pairs against the frame ids they rename: each OLD names some of them, each new id is a valid one."""
     for old, new in renames:
-        if not any(i == old or i.startswith(old + "/") for i in ids):
-            fail("E_SELECT", f"--rename {old} {new}: no frame {old!r} or {old}/... in {where}; frames: "
+        if "//" in old or "//" in new or old == "/" or new == "/":
+            fail("E_BAD_ID", f"--rename {old} {new}: a group ends in one '/' (--rename walk/ run/)")
+        if new.endswith("/") and not old.endswith("/"):
+            fail("E_BAD_ARG", f"--rename {old} {new}: NEW/ goes with OLD/: --rename {old}/ {new} renames the group "
+                 f"{old}/ alone, --rename {old} {new[:-1]} the frame {old} and its group both")
+        if not any((i == old and not old.endswith("/")) or i.startswith(old.rstrip("/") + "/") for i in ids):
+            fail("E_SELECT", f"--rename {old} {new}: no frame {old.rstrip('/')!r} or {old.rstrip('/')}/... in {where}; frames: "
                  f"{', '.join(ids) or 'none'}" + guess(old, [i.rsplit("/", n)[0] for i in ids
                                                               for n in range(i.count("/") + 1)]))
     bad = [renamed_id(i, renames) for i in ids if not ID_RE.match(renamed_id(i, renames))]
@@ -5955,14 +6020,14 @@ def rename_frames(doc, renames):
     new_ids = [renamed_id(i, renames) for i in ids]
     taken = [n for i, n in zip(ids, new_ids) if i in moving and (n in set(ids) - moving or new_ids.count(n) > 1)]
     groups = {f.group for f in doc.frames if f.id not in moving}
-    into = [new for _, new in renames if new in groups or new in set(ids) - moving]
+    into = [new for _, new in renames if new.rstrip("/") in groups or new.rstrip("/") in set(ids) - moving]
     if taken or into:
         what = sorted(set(taken)) or into
         fail("E_DUP_FRAME", f"--rename: {doc.path} already has {listed(what, 5)}; rename into a group it hasn't "
              "got (or remove those frames first: frames FILE:GROUP --rm)")
     for store in (doc.lead, doc.raw, doc.at):
         for anchor in [k for k in store if k[0] in ("frame", "row", "anim", "still") and k[1] is not None]:
-            new = renamed_id(anchor[1], renames)
+            new = renamed_id(anchor[1], renames, group=anchor[0] in ("anim", "still"))
             if new != anchor[1]:
                 store[(anchor[0], new) + anchor[2:]] = store.pop(anchor)
     for f in doc.frames:
@@ -5970,20 +6035,24 @@ def rename_frames(doc, renames):
     said = []
     anims = {}
     for g, v in doc.anims.items():
-        n = renamed_id(g, renames)
+        n = renamed_id(g, renames, group=True)
         anims[n] = v
         if n != g:
             said.append(f"@anim {n}")
     doc.anims = anims
     stills = []
     for g in doc.stills:
-        n = renamed_id(g, renames) if g != "*" else g
+        n = renamed_id(g, renames, group=True) if g != "*" else g
         stills.append(n)
         if n != g:
             said.append(f"@still {n}")
     doc.stills = stills
     per = [f"{old} -> {new} ({sum(1 for i in ids if renamed_id(i, [(old, new)]) != i)} frame(s))"
            for old, new in renames]
+    for old, new in renames:
+        if not old.endswith("/") and old in ids and any(i.startswith(old + "/") for i in ids):
+            print(f"note: --rename {old} renamed the frame {old} and the group {old}/ both; --rename {old}/ {new}/ "
+                  "renames the group alone")
     return [f"renamed {', '.join(per)}" + (f"; {', '.join(said)}" if said else "")]
 
 
@@ -6284,12 +6353,16 @@ def copy_target(a):
     if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
         fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP {verb} a copy of FILE:GROUP within FILE ('{a.cmd} {path}:walk/right"
              f"{turn} -o {path}:walk/left'); to another file, copy first (frames --copy-to) and {a.cmd} there")
+    only = sel.endswith("/")  # FILE:GROUP/: the group alone, beside a frame named GROUP
+    sel, osel = sel.rstrip("/"), osel.rstrip("/")
     with reading(f"FILE ({a.file})"):
         doc = parse(path)
-        if doc.get(sel) or not any((f.id or "").startswith(sel + "/") for f in doc.frames):
-            doc.select(sel)  # a missing selector's error, with its guess
-            fail("E_BAD_ARG", f"-o {a.o}: {a.cmd} into a copy takes a group (FILE:GROUP); for one frame, dup it "
-                 f"first: dup {path}:{sel} NEWID, then {a.cmd} {path}:NEWID{turn}")
+        kids = any((f.id or "").startswith(sel + "/") for f in doc.frames)
+        if (doc.get(sel) and not only) or not kids:
+            doc.select(sel + "/" * only)  # a missing selector's error, with its guess
+            fail("E_BAD_ARG", f"-o {a.o}: {a.cmd} into a copy takes a group (FILE:GROUP); " + (
+                f"{sel} is a frame and a group: {path}:{sel}/ is the group alone" if kids else
+                f"for one frame, dup it first: dup {path}:{sel} NEWID, then {a.cmd} {path}:NEWID{turn}"))
     said, frames = dup_group(doc, sel, osel, how=f"{a.cmd} {a.file}{turn} -o {a.o}", replace=a.replace)
     return doc, frames, doc.path, said
 
@@ -6727,15 +6800,16 @@ def crop_frames(a):
         return False
     with reading(f"FILE ({a.src})"):
         doc = parse(path)
-        if doc.get(sel) is not None:  # a frame by that id: crop's one-frame cut, as the headroom note means it
-            return False
+        if not sel.endswith("/") and doc.get(sel) is not None:  # a frame by that id: crop's one-frame cut (GROUP/
+            return False                                         # is the group alone)
         picked = doc.select(sel)
+    gsel, sel = sel, sel.rstrip("/")
     frames = [f for f in picked if f.group == sel]  # the group's own frames, not a nested group's (walk/side/0)
     if len(frames) < 2:
         return False
     opath, osel = split_sel(str(a.o))
     ids = [doc.label(f) for f in frames]
-    if pathlib.Path(opath).resolve() != pathlib.Path(path).resolve() or osel not in (None, sel):
+    if pathlib.Path(opath).resolve() != pathlib.Path(path).resolve() or osel not in (None, sel, gsel):
         fail("E_SELECT", f"crop: {a.src} is {len(frames)} frames ({listed(ids, 4)}); crop cuts several frames only in "
              f"place, each to the same rectangle: -o {shlex.quote(a.src)}; to cut one out, name one frame on both "
              f"sides: pxart crop {shlex.quote(f'{path}:{ids[0]}')} {a.rect} -o "
@@ -9126,7 +9200,13 @@ def cmd_dup(a):
         where = a.o or doc.path
         print(f"note: {doc.stem}, {doc.path}'s unnamed grid, {'would be' if DRY['run'] else 'is'} '@frame {doc.stem}' "
               f"in {where} (the id it went by)")
-    src = doc.get(sel) if sel else None
+    only = bool(sel) and sel.endswith("/") and len(sel) > 1  # FILE:GROUP/: the group alone, never a frame GROUP
+    if only:
+        sel, a.new = sel[:-1], a.new.rstrip("/")
+        doc.select(sel + "/")  # no such group: select's error, with its guess
+    src = doc.get(sel) if sel and not only else None
+    if src and any((f.id or "").startswith(sel + "/") for f in doc.frames):
+        print(f"note: {sel} is a frame and a group; dup copies the frame ({doc.path}:{sel}/ is the group)")
     if not src and sel and any((f.id or "").startswith(sel + "/") for f in doc.frames):  # a group: dup GROUP NEWGROUP
         note_suffix(a.o or doc.path)
         print("; ".join(dup_group(doc, sel, a.new, a.after, a.o or doc.path, replace=a.replace)[0]
@@ -9258,6 +9338,13 @@ def cmd_anim_set(a):
     with reading(f"FILE ({a.target})"):
         doc = parse(path)
     out = pathlib.Path(a.o) if a.o else doc.path
+    if sel and sel.endswith("/") and len(sel) > 1:  # FILE:GROUP/: the group's @anim/@still line, as FILE:GROUP
+        doc.select(sel)  # no such group: select's error, with its guess
+        sel = sel[:-1]
+        if sel not in doc.groups():  # walk/ over walk/down/* only: a path, not a group with frames of its own
+            fail("E_SELECT", f"{sel}/ has no frames of its own, only groups under it: "
+                 f"{', '.join(g for g in doc.groups() if g and g.startswith(sel + '/'))}; anim-set one of those",
+                 path=doc.path)
     if not sel and (a.still or a.no_still):
         sel = "*"  # the whole file: '@still *'
     if not sel:
@@ -14027,8 +14114,8 @@ def parser(describe=True):
     p.add_argument("--rekey", nargs="?", const="", metavar="KEYS", help=REKEY_HELP)
     p.add_argument("--variant-map", action="append", metavar="NAME=V1,V2", help=VMAP_HELP)
     p.add_argument("--rename", nargs=2, action="append", metavar=("GROUP", "NEWGROUP"),
-                   help="GROUP's frames (or the frame GROUP) get NEWGROUP's ids, @anim/@still lines too; with "
-                        "--copy-to, only the copies (repeatable)")
+                   help="GROUP's frames (or the frame GROUP) get NEWGROUP's ids, @anim/@still lines too; GROUP/ NEW/ the "
+                        "group alone, not a frame GROUP; with --copy-to, only the copies (repeatable)")
     p.add_argument("--prefix", metavar="P", help="with --copy-to: every copy's id gets P in front ('wick/')")
     p = sub.add_parser("flip"); p.add_argument("file")
     p.add_argument("-o", help="OUT, or FILE:NEWGROUP to flip a copy of FILE:GROUP (dup GROUP NEWGROUP, then flip it)")

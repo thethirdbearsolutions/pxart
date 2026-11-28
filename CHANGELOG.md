@@ -14,19 +14,26 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ## 2026-11-28
 
+### Added
+
+- **`hero.px:walk/`, with the slash, picks the frames of the `walk` animation alone, even when a single frame is
+  also called `walk`.** `frames hero.px --rename walk/ walk-anim/` renames just the animation, and `check` points
+  out a frame and an animation that share a name and prints that rename (PX-73).
+
 ### Fixed
 
 - **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
   up by pivot when they have pivots, as `anim` draws them, and names any frame that has none (PX-76).
 
-- **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot (moved with the crop) and its
-  timing,** so `anim` and `export` still find the feet where they were and each frame keeps its own ms. A frame
-  without a pivot takes the one the new file's `@anim` line sets for that animation, if any, with a note (PX-72,
+- **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot (its anchor point, moved with the
+  crop) and its ms,** so `anim` and `export` find the feet where they were and play it at the same pace. A
+  frame with no pivot of its own takes the pivot `other.px` sets for that animation, if any, with a note (PX-72,
   PX-75).
 
-- **The `palette` command `check` suggests, for a sprite whose own colors stay day-bright in a `night` it imports,
-  now runs as printed.** It writes a `night` into the sprite's file, fitted to the imported one. When that night
-  recolors under two colors there's nothing to fit, so `check` prints a `palette --add` line to fill in (PX-74).
+- **When a sprite's imported palette has a `@variant night` that leaves the sprite's own colors day-bright, the
+  `palette` command that `check` suggests to darken them now runs.** When that night changes too few colors to
+  copy its look from, `check` instead prints a `palette --add` command with `#rrggbb` blanks to type your night
+  colors into (PX-74).
 
 ## 2026-11-27
 
