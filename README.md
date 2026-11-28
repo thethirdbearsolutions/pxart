@@ -299,7 +299,7 @@ selecting frames, ...) rather than repeating them. zsh users: write `"${F}:walk"
   the whole frame with one key; `fill hero.px:walk/2 .` clears a frame), `flip`, `shift` (the pixels it leaves behind become `.`,
   or `--fill KEY`), `set` (`set hero.px:idle/0 . 16,10` erases one stray pixel and says `erased 1 px`; it and `fill`
   count what they paint, as the drawing commands do), `crop` (`crop hero.px:walk 0,-6,16,30 -o hero.px:walk` cuts
-  every frame of a group in place to the same rectangle, its pivots moving with the art; one frame cut into another frame or file keeps its pivot the same way, on its `@frame` line unless the `@anim` there gives that pivot, with a note when it has none and takes the `@anim`'s), `recolor` (optionally within a region; `'a<>b'` swaps
+  every frame of a group in place to the same rectangle, its pivots moving with the art; one frame cut into another frame or file keeps its pivot the same way, and its ms (a replaced frame's own goes, with a note; a still gets none, with a note), each on its `@frame` line unless the `@anim` there gives it, with a note when it has none and takes the `@anim`'s), `recolor` (optionally within a region; `'a<>b'` swaps
   two keys, quoted for the shell; `'a>b'` gives a's pixels a new key b in a's color, a
   rename when nothing keeps a, and onto a key already in a's color the error says `a=b`; the key moves of one call apply together, so none feeds
   another, and a key renamed away is free for another: `'a>b' 'b>a'` swaps two names; `'b>t' 't=#1e4548'` gives the new key

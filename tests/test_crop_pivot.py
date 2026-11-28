@@ -122,3 +122,64 @@ def test_a_pivot_off_the_cut_canvas_is_said(tmp_path, monkeypatch, capsys):
     pathlib.Path("c.px").write_text(walker())
     assert run("crop", "c.px:walk/0", "0,0,16,12", "-o", "top.px:top/0") == 0
     assert "top/0's pivot 7,23 lies outside its 16x12 canvas" in capsys.readouterr().out
+
+
+def test_a_cut_into_a_new_file_keeps_the_timing(tmp_path, monkeypatch, capsys):
+    """PX-75: the @anim's ms=140 comes along on the frame line, so the cut walk plays at 140 ms."""
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23"))
+    assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "tall.px:walk/0") == 0
+    assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "tall.px:walk/1") == 0
+    assert frame_line(pathlib.Path("tall.px"), "walk/0") == "@frame walk/0 ms=140 pivot=7,25"
+    capsys.readouterr()
+    assert run("anim", "tall.px:walk") == 0
+    assert "140ms" in capsys.readouterr().out
+
+
+def test_a_matching_anim_ms_writes_none_and_a_frame_s_own_wins(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    text = walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23")
+    pathlib.Path("c.px").write_text(text)
+    pathlib.Path("o.px").write_text(text)
+    assert run("crop", "c.px:walk/0", "0,0,16,24", "-o", "o.px:walk/1") == 0
+    assert frame_line(pathlib.Path("o.px"), "walk/1") == "@frame walk/1"
+    pathlib.Path("d.px").write_text(text.replace("@frame walk/0", "@frame walk/0 ms=300"))
+    assert run("crop", "d.px:walk/0", "0,0,16,24", "-o", "o.px:walk/2") == 0
+    assert frame_line(pathlib.Path("o.px"), "walk/2") == "@frame walk/2 ms=300"
+
+
+def test_the_default_ms_writes_none_and_a_still_gets_none(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker())  # no ms: the default
+    assert run("crop", "c.px:walk/0", "0,0,16,24", "-o", "n.px:walk/0") == 0
+    assert "ms=" not in frame_line(pathlib.Path("n.px"), "walk/0")
+    pathlib.Path("e.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23"))
+    assert run("crop", "e.px:walk/0", "0,0,16,24", "-o", "n.px:head") == 0  # a top-level id is a still
+    assert "ms=" not in frame_line(pathlib.Path("n.px"), "head")
+
+
+def test_a_default_ms_is_carried_and_a_lost_hold_is_said(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("o.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=120 pivot=7,23")
+                                    .replace("@frame walk/0", "@frame walk/0 ms=400"))
+    pathlib.Path("redraw.px").write_text(walker().replace("@anim walk pivot=7,23\n", ""))  # no ms anywhere
+    assert run("crop", "redraw.px:walk/0", "0,0,16,24", "-o", "o.px:walk/0") == 0
+    assert frame_line(pathlib.Path("o.px"), "walk/0").startswith("@frame walk/0 ms=100")  # as it plays in redraw.px
+    assert "walk/0's own ms=400 goes: it takes redraw.px:walk/0's 100" in capsys.readouterr().out
+
+
+def test_a_cut_into_a_still_says_its_ms_goes(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23"))
+    pathlib.Path("ui.px").write_text("pxart 1\nk #222222\n@still ui\n@frame ui/icon\nk\n")
+    assert run("crop", "c.px:walk/0", "0,0,16,24", "-o", "ui.px:ui/hit") == 0
+    out = capsys.readouterr().out
+    assert "ui/hit is a still in ui.px, so c.px:walk/0's ms=140 goes" in out
+    assert "ms=" not in frame_line(pathlib.Path("ui.px"), "ui/hit")
+
+
+def test_an_unnamed_grid_says_the_ms_is_not_kept(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23"))
+    assert run("crop", "c.px:walk/0", "0,0,16,24", "-o", "grid.px") == 0
+    assert "c.px:walk/0's pivot 7,23 (moved with the crop) and ms=140 aren't kept" in capsys.readouterr().out
