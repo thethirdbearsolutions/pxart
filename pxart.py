@@ -5301,10 +5301,17 @@ def id_clashes(doc):
     can't name that frame alone; FILE:a/ is the group alone. [(frame id, the group's frame ids, a free new name for
     the group, the rename that frees the frame id)]."""
     ids = [f.id for f in doc.frames if f.id]
-    taken = set(ids) | {i.rsplit("/", n)[0] for i in ids for n in range(i.count("/") + 1)}
+    have, kids_of = set(ids), {}
+    for i in ids:  # each id under each of its parent paths that is a frame id too: one pass, not a pair of loops
+        parts = i.split("/")
+        for n in range(1, len(parts)):
+            p = "/".join(parts[:n])
+            if p in have:
+                kids_of.setdefault(p, []).append(i)
+    taken = have | {i.rsplit("/", n)[0] for i in ids for n in range(i.count("/") + 1)}
     out = []
     for fid in ids:
-        kids = [i for i in ids if i.startswith(fid + "/")]
+        kids = kids_of.get(fid)
         if kids:
             new, n = f"{fid}-anim", 2
             while new in taken:
@@ -5325,9 +5332,17 @@ def headroom_said(its, path, want):
         if it.frame is not None:
             g = it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else None
             groups.setdefault((g, it.frame.id if g is None else None), []).append(it)
-    out = []
-    for (g, fid), got in sorted(groups.items(), key=lambda kv: kv[0][0] is None):  # groups first: a frame's fix may
-        doc = got[0].doc                                                          # rename the group it clashes with
+    out, clashes = [], {}  # a doc's id_clashes, once per doc
+
+    def renames_first(kv):  # a fix that renames a group goes after every other: theirs name the group as it is now
+        (g, fid), got = kv
+        d = got[0].doc
+        if id(d) not in clashes:
+            clashes[id(d)] = {c[0]: c for c in id_clashes(d)}
+        hit = g is None and fid in clashes[id(d)]  # the deepest first: its rename leaves a parent's as printed
+        return (hit, -fid.count("/") if hit else 0)
+    for (g, fid), got in sorted(groups.items(), key=renames_first):
+        doc = got[0].doc
         whole = [f for f in doc.frames if f.group == g] if g else [got[0].frame]
         grounds = {id(f): ground(doc, f) for f in whole}
         floor = max((v for v in grounds.values() if v is not None), default=None)
@@ -5352,7 +5367,7 @@ def headroom_said(its, path, want):
             rest = ""
         else:
             fix = f"pxart crop {sel} 0,-{grow},{w},{h + grow} -o {sel}"
-            clash = next((c for c in id_clashes(doc) if c[0] == f0.id), None)
+            clash = clashes[id(doc)].get(f0.id)
             if clash:  # FILE:ID picks the group too: free the id first, then the crop names this frame alone
                 fix = f"{clash[3]} (the group {f0.id}/ shares this frame's id), then {fix}"
             if pv:
@@ -5971,8 +5986,13 @@ def renamed_id(fid, renames, group=False):
 def check_renames(renames, ids, where):
     """--rename's pairs against the frame ids they rename: each OLD names some of them, each new id is a valid one."""
     for old, new in renames:
+        if "//" in old or "//" in new or old == "/" or new == "/":
+            fail("E_BAD_ID", f"--rename {old} {new}: a group ends in one '/' (--rename walk/ run/)")
+        if new.endswith("/") and not old.endswith("/"):
+            fail("E_BAD_ARG", f"--rename {old} {new}: NEW/ goes with OLD/: --rename {old}/ {new} renames the group "
+                 f"{old}/ alone, --rename {old} {new[:-1]} the frame {old} and its group both")
         if not any((i == old and not old.endswith("/")) or i.startswith(old.rstrip("/") + "/") for i in ids):
-            fail("E_SELECT", f"--rename {old} {new}: no frame {old!r} or {old}/... in {where}; frames: "
+            fail("E_SELECT", f"--rename {old} {new}: no frame {old.rstrip('/')!r} or {old.rstrip('/')}/... in {where}; frames: "
                  f"{', '.join(ids) or 'none'}" + guess(old, [i.rsplit("/", n)[0] for i in ids
                                                               for n in range(i.count("/") + 1)]))
     bad = [renamed_id(i, renames) for i in ids if not ID_RE.match(renamed_id(i, renames))]
@@ -9321,6 +9341,10 @@ def cmd_anim_set(a):
     if sel and sel.endswith("/") and len(sel) > 1:  # FILE:GROUP/: the group's @anim/@still line, as FILE:GROUP
         doc.select(sel)  # no such group: select's error, with its guess
         sel = sel[:-1]
+        if sel not in doc.groups():  # walk/ over walk/down/* only: a path, not a group with frames of its own
+            fail("E_SELECT", f"{sel}/ has no frames of its own, only groups under it: "
+                 f"{', '.join(g for g in doc.groups() if g and g.startswith(sel + '/'))}; anim-set one of those",
+                 path=doc.path)
     if not sel and (a.still or a.no_still):
         sel = "*"  # the whole file: '@still *'
     if not sel:

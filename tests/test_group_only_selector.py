@@ -161,3 +161,69 @@ def test_headroom_says_the_group_first(tmp_path, monkeypatch, capsys):
     assert run("check", "top.px", "--headroom", "2") == 0
     lines = [l for l in capsys.readouterr().out.splitlines() if "headroom" in l]
     assert "in a/0, a/1" in lines[0] and "then pxart crop" in lines[1]
+
+
+def follow_headroom(path, n):
+    """check --headroom's printed commands, each run in the order printed; the codes."""
+    import contextlib
+    import io
+    import re
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        run("check", path, "--headroom", n)
+    codes = []
+    for line in buf.getvalue().splitlines():
+        if "headroom" not in line or "pxart " not in line:
+            continue
+        for part in re.split(r", then |; and each", line[line.index("up: ") + 4:]):
+            part = re.sub(r" \((every frame[^)]*|the group [^)]*|the feet stay put)\)", "", part).strip()
+            if part.startswith("pxart"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    codes.append(run(*shlex.split(part)[1:]))
+    return codes
+
+
+G = "kkk\nkkk\nkkk\nkkk\n"
+
+
+def test_a_still_clash_runs_in_the_order_printed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("x.px").write_text(f"pxart 1\nk #000000\n@still a\n@frame a\n{G}@frame a/0\n{G}@frame a/1\n{G}")
+    codes = follow_headroom("x.px", 2)
+    assert codes and all(c == 0 for c in codes)
+    assert follow_headroom("x.px", 2) == []  # nothing left to fix
+
+
+def test_nested_clashes_rename_the_deepest_first(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("x.px").write_text(f"pxart 1\nk #000000\n@still *\n@frame walk\n{G}@frame walk/down/0\n{G}"
+                                    f"@frame walk/down/1\n{G}@frame walk/down\n{G}")
+    codes = follow_headroom("x.px", 2)
+    assert len(codes) == 6 and all(c == 0 for c in codes)
+    assert follow_headroom("x.px", 2) == []
+
+
+def test_headroom_on_many_frames_stays_quick(tmp_path):
+    import time
+    p = tmp_path / "big.px"
+    p.write_text("pxart 1\nk #000000\n@still *\n" + "".join(f"@frame f{i}\nkk\nkk\n" for i in range(2000)))
+    t = time.time()
+    run("check", p, "--headroom", "2")
+    assert time.time() - t < 10
+
+
+def test_anim_set_slash_over_a_path_with_no_frames_of_its_own(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("w.px").write_text("pxart 1\nk #000000\n@anim walk/down ms=100\n@frame walk/down/0\nk\n"
+                                    "@frame walk/down/1\nk\n@frame walk\nk\n")
+    assert run("anim-set", "w.px:walk/", "ms=50") != 0
+    assert "@frame walk\n" in pathlib.Path("w.px").read_text()  # the frame walk untouched
+
+
+def test_bad_slashes_in_rename_are_refused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("r.px").write_text(TOP)
+    assert run("frames", "r.px", "--rename", "a//", "b/") != 0
+    assert run("frames", "r.px", "--rename", "a/", "b//") != 0
+    assert run("frames", "r.px", "--rename", "a", "b/") != 0
+    assert ids("r.px") == ["a/0", "a/1", "a"]
