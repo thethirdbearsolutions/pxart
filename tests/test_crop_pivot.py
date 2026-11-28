@@ -158,13 +158,14 @@ def test_the_default_ms_writes_none_and_a_still_gets_none(tmp_path, monkeypatch,
     assert "ms=" not in frame_line(pathlib.Path("n.px"), "head")
 
 
-def test_a_source_with_no_stated_ms_keeps_the_replaced_frame_s_hold(tmp_path, monkeypatch, capsys):
+def test_a_default_ms_is_carried_and_a_lost_hold_is_said(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     pathlib.Path("o.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=120 pivot=7,23")
                                     .replace("@frame walk/0", "@frame walk/0 ms=400"))
     pathlib.Path("redraw.px").write_text(walker().replace("@anim walk pivot=7,23\n", ""))  # no ms anywhere
     assert run("crop", "redraw.px:walk/0", "0,0,16,24", "-o", "o.px:walk/0") == 0
-    assert frame_line(pathlib.Path("o.px"), "walk/0").startswith("@frame walk/0 ms=400")
+    assert frame_line(pathlib.Path("o.px"), "walk/0").startswith("@frame walk/0 ms=100")  # as it plays in redraw.px
+    assert "walk/0's own ms=400 goes: it takes redraw.px:walk/0's 100" in capsys.readouterr().out
 
 
 def test_a_cut_into_a_still_says_its_ms_goes(tmp_path, monkeypatch, capsys):
@@ -175,3 +176,10 @@ def test_a_cut_into_a_still_says_its_ms_goes(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "ui/hit is a still in ui.px, so c.px:walk/0's ms=140 goes" in out
     assert "ms=" not in frame_line(pathlib.Path("ui.px"), "ui/hit")
+
+
+def test_an_unnamed_grid_says_the_ms_is_not_kept(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker().replace("@anim walk pivot=7,23", "@anim walk ms=140 pivot=7,23"))
+    assert run("crop", "c.px:walk/0", "0,0,16,24", "-o", "grid.px") == 0
+    assert "c.px:walk/0's pivot 7,23 (moved with the crop) and ms=140 aren't kept" in capsys.readouterr().out
