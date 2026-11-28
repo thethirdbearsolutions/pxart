@@ -47,7 +47,7 @@ def test_a_light_goes_by_hand_in_its_base_color(tmp_path, monkeypatch, capsys):
                                     "kWM\n")
     assert run("check", "a.px") == 0
     out = capsys.readouterr().out
-    assert "--add 'W=#rrggbb' --add 'M=#ffe080'" in out and "M kept lit at base" in out
+    assert "--add 'W=#rrggbb' --add 'M=#ffe080'" in out and "kept lit at base, M " in out
 
 
 def test_several_imports_match_the_one_with_the_variant(tmp_path, monkeypatch, capsys):
@@ -86,3 +86,25 @@ def test_a_sub_folder_sprite_matches_from_the_current_folder(tmp_path, monkeypat
     cmd = quoted(capsys.readouterr().out, "pxart palette art/b.px")
     assert cmd[cmd.index("--match") + 1] == "art/pal2.px"
     assert run(*cmd[1:]) == 0
+
+
+def test_of_several_imports_the_one_a_derive_fits_to_is_matched(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("town.px").write_text("k #3f2631\n@variant night\nk #1a1020\n")
+    pathlib.Path("wood.px").write_text("g #446644\nr #aa3322\n@variant night\ng #223322\nr #551a11\n")
+    pathlib.Path("v.px").write_text("pxart 1\n@palette town.px\n@palette wood.px\nW #c0b090\nkWgr\n")
+    assert run("check", "v.px") == 0
+    cmd = quoted(capsys.readouterr().out, "pxart palette v.px")
+    assert cmd[cmd.index("--match") + 1] == "wood.px"
+    assert run(*cmd[1:]) == 0
+
+
+def test_the_partly_lit_note_names_the_import_from_here(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("props").mkdir()
+    pathlib.Path("town.px").write_text("k #3f2631\n@variant night\nk #1a1020\n")
+    pathlib.Path("props/sign.px").write_text("pxart 1\n@palette ../town.px\np #aa3333\nd #886644\n"
+                                             "@variant night\np #551111\nkpd\n")
+    assert run("check", "props/sign.px") == 0
+    out = capsys.readouterr().out
+    assert "town.px's night recolors too few" in out and "props/../" not in out

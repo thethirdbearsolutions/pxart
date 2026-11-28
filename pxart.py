@@ -7975,7 +7975,7 @@ def said_partly(d, name, ks):
             "change. ")
     if not fits:
         cmd = ["pxart", "palette", str(d.path), "--variant", name] + [x for k in ks for x in ("--add", f"{k}=#rrggbb")]
-        return head + (f"Set {them} by hand: {shlex.join(cmd)} (with your colors; {src[0].as_posix() if src else 'its import'}'s "
+        return head + (f"Set {them} by hand: {shlex.join(cmd)} (with your colors; {match_path(src[0]) if src else 'its import'}'s "
                        f"{name} recolors too few keys to fit a derive to)")
     pal = match_path(src[0])
     keep = [k for k, c in own.items() if k in base and c != base[k]]
@@ -7989,8 +7989,10 @@ def said_partly(d, name, ks):
 
 
 def variant_import(d, name):
-    """The @palette import d's variant `name` comes from (the first that has it), as (path, doc) or None, and whether a
-    derive can fit to it: its variant recolors 2 or more keys (palette --derive-from needs 2)."""
+    """The @palette import to match d's variant `name` to, as (path, doc) or None, and whether a derive can fit to it:
+    its variant recolors 2 or more keys (palette --derive-from needs 2). Of several imports that have the variant, the
+    first a derive fits to, else the first."""
+    first = None
     for ref in d.palette_refs:
         path = d.path.parent / ref
         try:
@@ -7998,8 +8000,10 @@ def variant_import(d, name):
         except (PxError, OSError, ValueError):
             continue
         if name in pd.variants or name in pd.shared_variants:
-            return (path, pd), sum(pd.resolved(name)[k] != c for k, c in pd.resolved().items() if k != ".") >= 2
-    return None, False
+            if sum(pd.resolved(name)[k] != c for k, c in pd.resolved().items() if k != ".") >= 2:
+                return (path, pd), True
+            first = first or (path, pd)
+    return first, False
 
 
 def match_path(path):
@@ -8053,7 +8057,9 @@ def said_half(d, name, ks):
         cmd = ["pxart", "palette", str(d.path), "--variant", name] + [
             x for k in ks for x in ("--add", f"{k}={fmt_color(base[k]) if k in on else '#rrggbb'}")]
         return head + (f"Give it a {name} of its own by hand: {shlex.join(cmd)} (with your colors"
-                       + (f"; {' '.join(k for k in ks if k in on)} kept lit at base" if on & set(ks) else "")
+                       + (f"; kept lit at base, " + "; ".join(
+                           f"{' '.join(k for k in v if k in ks)} {w}" for w, v in whys.items() if set(v) & set(ks))
+                          if on & set(ks) else "")
                        + f"; {match_path(src[0]) if src else 'its import'}'s {name} recolors too few keys to fit a "
                        "derive to)" + said_recompose(d, name))
     return (head + f"Give it a {name} of its own: 'pxart palette {d.path} --variant {name} "
