@@ -14,6 +14,12 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ## 2026-11-28
 
+### Added
+
+- **`hero.px:walk/` picks the `walk` group alone, even when a frame is also called `walk`.** `frames hero.px
+  --rename walk/ walk-anim/` renames just the group, and `check` points out such a name clash and prints that
+  rename, so the fixes `check --headroom` prints run as printed (PX-73).
+
 ### Fixed
 
 - **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line

@@ -119,7 +119,7 @@ pxart 1
   starts a still group.
 
 Any command that takes a file also takes `file.px:walk/down` (a whole group) or
-`file.px:walk/down/0` (one frame); `'file.px:*'` (quoted for the shell) is every frame, as a
+`file.px:walk/down/0` (one frame), and `file.px:walk/` the group alone when a frame's id is `walk` too (`check` notes such a clash and prints the `frames file.px --rename walk/ walk-anim/` that ends it); `'file.px:*'` (quoted for the shell) is every frame, as a
 plain `file.px` is. Pixel coordinates need you to say which frames they go to, so on a file of several frames `set`,
 `fill --region`, `line`, `rect`, `poly`, `ellipse`, `arc`, `flood`, `paste --at`, `mask --keep`
 and a `--region` of `shift`, `recolor` or `shade` want one of these, and the `E_SELECT` lists
