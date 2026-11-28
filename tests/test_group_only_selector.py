@@ -108,3 +108,56 @@ def test_no_clash_no_note(tmp_path, capsys):
     p.write_text(TOP.replace("@frame a\n", "@frame b\n"))
     assert run("check", p) == 0
     assert "shares its id" not in capsys.readouterr().out
+
+
+def test_anim_set_dup_and_flip_take_the_slash(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    assert run("anim-set", "top.px:a/", "ms=150") == 0
+    assert "@anim a ms=150" in pathlib.Path("top.px").read_text()
+    assert run("dup", "top.px:a/", "cast") == 0
+    assert run("flip", "top.px:a/", "-o", "top.px:left/") == 0
+    got = ids("top.px")
+    assert {"cast/0", "cast/1", "left/0", "left/1", "a"} <= set(got) and "cast" not in got
+
+
+def test_dup_of_the_clashing_id_says_it_copied_the_frame(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    assert run("dup", "top.px:a", "b") == 0
+    assert "top.px:a/ is the group" in capsys.readouterr().out
+
+
+def test_copy_to_with_the_slash_carries_the_anim_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    pathlib.Path("d.px").write_text("pxart 1\nk #000000\n@frame x\nk\n")
+    assert run("frames", "top.px:a/", "--copy-to", "d.px", "--rename", "a/", "cast/") == 0
+    assert "@anim cast ms=120" in pathlib.Path("d.px").read_text()
+
+
+def test_a_selector_of_several_frames_names_the_clash(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    try:
+        pxart.main(["crop", "top.px:a", "0,0,3,2", "-o", "parts.px:face"])
+    except SystemExit as e:
+        assert "pxart frames top.px --rename a/ a-anim/" in str(e.code)
+    else:
+        raise AssertionError("crop of 3 frames ran")
+
+
+def test_a_plain_rename_of_both_says_so(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    assert run("frames", "top.px", "--rename", "a", "b") == 0
+    assert "--rename a/ b/ renames the group alone" in capsys.readouterr().out
+
+
+def test_headroom_says_the_group_first(tmp_path, monkeypatch, capsys):
+    """Run in the order printed: the group's crop names a/ before the frame's fix renames the group."""
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("top.px").write_text(TOP)
+    assert run("check", "top.px", "--headroom", "2") == 0
+    lines = [l for l in capsys.readouterr().out.splitlines() if "headroom" in l]
+    assert "in a/0, a/1" in lines[0] and "then pxart crop" in lines[1]

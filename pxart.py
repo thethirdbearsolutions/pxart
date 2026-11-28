@@ -2315,7 +2315,12 @@ def one_frame(arg, what="input", variant=None):
     one_id(split_sel(arg)[1], arg, what)
     got = items(arg, variant)
     if len(got) != 1:
-        fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id")
+        sel = split_sel(arg)[1]
+        d = got[0].doc if got and got[0].doc else None
+        clash = next((c for c in id_clashes(d) if c[0] == sel), None) if d and sel else None
+        fail("E_SELECT", f"{what} {arg!r} is {len(got)} frames; pick one with FILE:frame-id" + (
+            f" ({sel} is a frame and the group {sel}/; to name the frame alone, give the group its own name: "
+            f"{clash[3]})" if clash else ""))
     return got[0]
 
 
@@ -5321,8 +5326,8 @@ def headroom_said(its, path, want):
             g = it.frame.group if it.frame.group and it.doc.animated(it.frame.group) else None
             groups.setdefault((g, it.frame.id if g is None else None), []).append(it)
     out = []
-    for (g, fid), got in groups.items():
-        doc = got[0].doc
+    for (g, fid), got in sorted(groups.items(), key=lambda kv: kv[0][0] is None):  # groups first: a frame's fix may
+        doc = got[0].doc                                                          # rename the group it clashes with
         whole = [f for f in doc.frames if f.group == g] if g else [got[0].frame]
         grounds = {id(f): ground(doc, f) for f in whole}
         floor = max((v for v in grounds.values() if v is not None), default=None)
@@ -5880,7 +5885,7 @@ def frames_copy(a, doc, sel, picked):
     said = []
     landed = {Frame(new_id[id(f)]).group for f in picked}  # the groups the copies land in (a frame renamed top-level: none)
     for g in dict.fromkeys(f.group for f in picked if f.group):
-        n = renamed_id(g, renames)
+        n = renamed_id(g, renames, group=True)
         if n not in landed:  # no copy lands in it: its @anim or @still line would name a group with no frames
             continue
         if g in doc.anims and n not in dst.anims:
@@ -6024,6 +6029,10 @@ def rename_frames(doc, renames):
     doc.stills = stills
     per = [f"{old} -> {new} ({sum(1 for i in ids if renamed_id(i, [(old, new)]) != i)} frame(s))"
            for old, new in renames]
+    for old, new in renames:
+        if not old.endswith("/") and old in ids and any(i.startswith(old + "/") for i in ids):
+            print(f"note: --rename {old} renamed the frame {old} and the group {old}/ both; --rename {old}/ {new}/ "
+                  "renames the group alone")
     return [f"renamed {', '.join(per)}" + (f"; {', '.join(said)}" if said else "")]
 
 
@@ -6324,12 +6333,16 @@ def copy_target(a):
     if not sel or pathlib.Path(opath).resolve() != pathlib.Path(path).resolve():
         fail("E_BAD_ARG", f"-o {a.o}: -o FILE:GROUP {verb} a copy of FILE:GROUP within FILE ('{a.cmd} {path}:walk/right"
              f"{turn} -o {path}:walk/left'); to another file, copy first (frames --copy-to) and {a.cmd} there")
+    only = sel.endswith("/")  # FILE:GROUP/: the group alone, beside a frame named GROUP
+    sel, osel = sel.rstrip("/"), osel.rstrip("/")
     with reading(f"FILE ({a.file})"):
         doc = parse(path)
-        if doc.get(sel) or not any((f.id or "").startswith(sel + "/") for f in doc.frames):
-            doc.select(sel)  # a missing selector's error, with its guess
-            fail("E_BAD_ARG", f"-o {a.o}: {a.cmd} into a copy takes a group (FILE:GROUP); for one frame, dup it "
-                 f"first: dup {path}:{sel} NEWID, then {a.cmd} {path}:NEWID{turn}")
+        kids = any((f.id or "").startswith(sel + "/") for f in doc.frames)
+        if (doc.get(sel) and not only) or not kids:
+            doc.select(sel + "/" * only)  # a missing selector's error, with its guess
+            fail("E_BAD_ARG", f"-o {a.o}: {a.cmd} into a copy takes a group (FILE:GROUP); " + (
+                f"{sel} is a frame and a group: {path}:{sel}/ is the group alone" if kids else
+                f"for one frame, dup it first: dup {path}:{sel} NEWID, then {a.cmd} {path}:NEWID{turn}"))
     said, frames = dup_group(doc, sel, osel, how=f"{a.cmd} {a.file}{turn} -o {a.o}", replace=a.replace)
     return doc, frames, doc.path, said
 
@@ -9167,7 +9180,13 @@ def cmd_dup(a):
         where = a.o or doc.path
         print(f"note: {doc.stem}, {doc.path}'s unnamed grid, {'would be' if DRY['run'] else 'is'} '@frame {doc.stem}' "
               f"in {where} (the id it went by)")
-    src = doc.get(sel) if sel else None
+    only = bool(sel) and sel.endswith("/") and len(sel) > 1  # FILE:GROUP/: the group alone, never a frame GROUP
+    if only:
+        sel, a.new = sel[:-1], a.new.rstrip("/")
+        doc.select(sel + "/")  # no such group: select's error, with its guess
+    src = doc.get(sel) if sel and not only else None
+    if src and any((f.id or "").startswith(sel + "/") for f in doc.frames):
+        print(f"note: {sel} is a frame and a group; dup copies the frame ({doc.path}:{sel}/ is the group)")
     if not src and sel and any((f.id or "").startswith(sel + "/") for f in doc.frames):  # a group: dup GROUP NEWGROUP
         note_suffix(a.o or doc.path)
         print("; ".join(dup_group(doc, sel, a.new, a.after, a.o or doc.path, replace=a.replace)[0]
@@ -9299,6 +9318,9 @@ def cmd_anim_set(a):
     with reading(f"FILE ({a.target})"):
         doc = parse(path)
     out = pathlib.Path(a.o) if a.o else doc.path
+    if sel and sel.endswith("/") and len(sel) > 1:  # FILE:GROUP/: the group's @anim/@still line, as FILE:GROUP
+        doc.select(sel)  # no such group: select's error, with its guess
+        sel = sel[:-1]
     if not sel and (a.still or a.no_still):
         sel = "*"  # the whole file: '@still *'
     if not sel:
