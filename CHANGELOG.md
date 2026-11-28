@@ -26,7 +26,7 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
   file it lands in gives its animation one, the frame uses that one, and a note says so (PX-72).
 
 - **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
-  up by pivot when they have pivots, as `anim` and `sheet --align pivot` draw them (PX-76).
+  up by pivot when they have pivots, as `anim` draws them, and names any frame without one, which can jump (PX-76).
 
 ## 2026-11-27
 

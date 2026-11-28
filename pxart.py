@@ -5061,11 +5061,13 @@ def cmd_check(a):
                         bare = [f.id for f in fs if doc.pivot(f) is None]  # as anim lines them up (pivot_layout)
                         how = "frames draw bottom-centered" if len(bare) == len(fs) else \
                             "frames line up by pivot" if not bare else \
-                            f"frames line up by pivot ({listed(bare)} by {'its' if len(bare) == 1 else 'their'} " \
-                            "bottom-centre pixel, having none)"
+                            f"frames line up by pivot, but {listed(bare)} {'has' if len(bare) == 1 else 'have'} none " \
+                            f"and {'falls' if len(bare) == 1 else 'fall'} back to the bottom-centre pixel, so a frame " \
+                            f"wider than the rest can jump; give {'it' if len(bare) == 1 else 'each'} one: pxart " \
+                            f"anim-set {shlex.quote(f'{path}:{bare[0]}')} pivot=X,Y"
                         notes.append(f"animation {g!r} mixes frame sizes ("
                                      + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
-                                     + f"); {how}, and Tiled export needs one size")
+                                     + f"); Tiled export needs one size, and {how}")
                 for name, ks in half_variants(doc):
                     notes.append(said_half(doc, name, ks))
                 for name, ks in partly_lit(doc):
