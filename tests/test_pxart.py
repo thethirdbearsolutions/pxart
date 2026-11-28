@@ -23819,9 +23819,9 @@ def test_help_all_does_not_grow(capsys):
     # 73328 with crop FILE:GROUP in place and --headroom's one crop for a group (PX-69), in a line and a clause.
     # 73457 with onion -o's panel of the counted pixels (PX-70), in two lines.
     # 73510 with check naming the keys a local variant leaves at base beside an imported one (PX-71), in a clause.
-    # 73566 with a single-frame crop keeping its pivot (PX-72), in a clause.
+    # 73566 with a single-frame crop keeping its pivot (PX-72), in a clause. 73578 with its ms too (PX-75).
     assert run("help", "all") == 0
-    assert len(capsys.readouterr().out.encode()) <= 73566
+    assert len(capsys.readouterr().out.encode()) <= 73578
 
 
 def test_help_says_each_shared_rule_once():

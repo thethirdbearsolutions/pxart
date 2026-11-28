@@ -424,7 +424,7 @@ EDITING (writes .px; -o defaults to editing the input in place)
       replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
       gives the cut those keys in OUT and leaves FILE as it is.
       FILE:GROUP -o FILE:GROUP (or -o FILE) crops its frames, pivots moving with the art (a
-      frame cut to OUT:frame keeps its pivot so too).
+      frame cut to OUT:frame keeps its pivot so too, and its ms).
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
       variants, and @anim/@still lines (minus those of groups left behind;
@@ -6777,7 +6777,8 @@ def cmd_crop(a):
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     pv = src.doc.pivot(src.frame)  # the cut frame's anchor, moved with its pixels (compose writes it: crop_pivot)
-    a.crop_pivot = (a.src, None if pv is None else (pv[0] - x, pv[1] - y))
+    a.crop_pivot = (a.src, None if pv is None else (pv[0] - x, pv[1] - y),
+                    src.doc.ms(src.frame) if src.doc.animated(src.frame.group) else None)  # a still has no timing
     cmd_compose(a)
 
 
@@ -6787,8 +6788,12 @@ def crop_pivot(doc, target, opath, osel, cut):
     source without a pivot writes none of its own (a pivot the replaced frame had goes); a note says when OUT's @anim
     then lends it one, when the pivot the frame ends with lies off its canvas, and when a pivot can't be written (OUT
     as one unnamed grid has no @frame line: -o OUT:STEM names it, when the stem can be an id). cut:
-    (FILE:frame as typed, the moved pivot or None). The notes, as lines."""
-    label, want = cut
+    (FILE:frame as typed, the moved pivot or None, the frame's ms or None for a still). The ms goes the same way as
+    the pivot: on the @frame line unless OUT's @anim (or the default) gives that ms, and not into a still. The notes,
+    as lines."""
+    label, want, ms = cut
+    if osel and ms is not None and doc.animated(target.group):
+        target.ms = None if ms == (doc.anims.get(target.group, {}).get("ms") or DEFAULT_MS) else ms
     if not osel:  # one unnamed grid: no @frame line to carry a pivot
         stem = pathlib.Path(opath).stem  # the id the grid goes by: OUT:STEM names it (promoted to '@frame STEM')
         how = f"; {shlex.quote(f'{opath}:{stem}')} as -o keeps it" if ID_RE.match(stem) else ""
