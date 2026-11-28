@@ -16,13 +16,14 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
-- **The fix `check` and `render --variant` print for a sprite whose night comes only from its shared palette now
-  runs as printed.** With several `@palette` lines it names the palette whose night it can match; when no night
-  recolors enough colors to match, it gives the by-hand `palette --add` instead (PX-74).
+- **When a sprite's imported palette (`@palette`) has a variant like `night` that leaves the sprite's own colors
+  unchanged, the command `check` and `render --variant` suggest now runs.** It failed when the sprite imported
+  several palettes, or when that variant changed too few colors to copy its look; then you get a `palette --add`
+  line to fill in (PX-74).
 
-- **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot,** moved with the crop, so `anim`
-  and `export` still find the feet where they were. When the frame has no pivot and the file it lands in gives
-  its animation one, a note says so (PX-72).
+- **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot instead of dropping it,** moved
+  with the crop, so `anim` and `export` still find the feet where they were. When the frame has no pivot and the
+  file it lands in gives its animation one, the frame uses that one, and a note says so (PX-72).
 
 ## 2026-11-27
 
