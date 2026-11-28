@@ -6777,8 +6777,9 @@ def cmd_crop(a):
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     pv = src.doc.pivot(src.frame)  # the cut frame's anchor, moved with its pixels (compose writes it: crop_pivot)
+    stated = src.frame.ms or src.doc.anims.get(src.frame.group, {}).get("ms")  # a default 100 says nothing
     a.crop_pivot = (a.src, None if pv is None else (pv[0] - x, pv[1] - y),
-                    src.doc.ms(src.frame) if src.doc.animated(src.frame.group) else None)  # a still has no timing
+                    stated if src.doc.animated(src.frame.group) else None)  # a still has no timing
     cmd_compose(a)
 
 
@@ -6790,10 +6791,13 @@ def crop_pivot(doc, target, opath, osel, cut):
     as one unnamed grid has no @frame line: -o OUT:STEM names it, when the stem can be an id). cut:
     (FILE:frame as typed, the moved pivot or None, the frame's ms or None for a still). The ms goes the same way as
     the pivot: on the @frame line unless OUT's @anim (or the default) gives that ms, and not into a still. The notes,
-    as lines."""
+    as lines. A source whose ms is the default (no ms of its own or its @anim's) leaves the frame's ms as it was."""
     label, want, ms = cut
+    out = []
     if osel and ms is not None and doc.animated(target.group):
         target.ms = None if ms == (doc.anims.get(target.group, {}).get("ms") or DEFAULT_MS) else ms
+    elif osel and ms is not None:
+        out.append(f"note: {osel} is a still in {opath}, so {label}'s ms={ms} goes (stills have no timing)")
     if not osel:  # one unnamed grid: no @frame line to carry a pivot
         stem = pathlib.Path(opath).stem  # the id the grid goes by: OUT:STEM names it (promoted to '@frame STEM')
         how = f"; {shlex.quote(f'{opath}:{stem}')} as -o keeps it" if ID_RE.match(stem) else ""
@@ -6801,7 +6805,6 @@ def crop_pivot(doc, target, opath, osel, cut):
                 f"one unnamed grid, with no @frame line for it{how}"] if want else []
     had, lent = target.pivot, doc.anims.get(target.group, {}).get("pivot") if target.group else None
     target.pivot = None if want == lent else want
-    out = []
     if want is None and lent is not None:
         out.append(f"note: {label} has no pivot, and {osel} takes {opath}'s @anim {target.group} pivot "
                    f"{fmt_setting(lent)} there" + (f" (its own, {fmt_setting(had)}, goes)" if had else ""))
@@ -6811,6 +6814,7 @@ def crop_pivot(doc, target, opath, osel, cut):
     if pv and not (0 <= pv[0] < w and 0 <= pv[1] < h):
         out.append(f"note: {osel}'s pivot {fmt_setting(pv)} lies outside its {w}x{h} canvas")
     return out
+
 
 def cmd_paste(a):
     with reading(f"SRC ({a.src})"):
