@@ -25,6 +25,9 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
   with the crop, so `anim` and `export` still find the feet where they were. When the frame has no pivot and the
   file it lands in gives its animation one, the frame uses that one, and a note says so (PX-72).
 
+- **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
+  up by pivot when they have pivots, as `anim` and `sheet --align pivot` draw them (PX-76).
+
 ## 2026-11-27
 
 ### Added

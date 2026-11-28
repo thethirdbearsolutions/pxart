@@ -5058,9 +5058,14 @@ def cmd_check(a):
                 bad_base = base_variant_said(doc, path)
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
+                        bare = [f.id for f in fs if doc.pivot(f) is None]  # as anim lines them up (pivot_layout)
+                        how = "frames draw bottom-centered" if len(bare) == len(fs) else \
+                            "frames line up by pivot" if not bare else \
+                            f"frames line up by pivot ({listed(bare)} by {'its' if len(bare) == 1 else 'their'} " \
+                            "bottom-centre pixel, having none)"
                         notes.append(f"animation {g!r} mixes frame sizes ("
                                      + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
-                                     + "); frames draw bottom-centered, and Tiled export needs one size")
+                                     + f"); {how}, and Tiled export needs one size")
                 for name, ks in half_variants(doc):
                     notes.append(said_half(doc, name, ks))
                 for name, ks in partly_lit(doc):
