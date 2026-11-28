@@ -423,7 +423,8 @@ EDITING (writes .px; -o defaults to editing the input in place)
       replaces that frame in an existing OUT, and a plain OUT with one unnamed grid has it
       replaced. A key OUT has in another color is E_KEY_CONFLICT, with free keys; --rekey
       gives the cut those keys in OUT and leaves FILE as it is.
-      FILE:GROUP -o FILE:GROUP (or -o FILE) crops its frames, pivots moving with the art.
+      FILE:GROUP -o FILE:GROUP (or -o FILE) crops its frames, pivots moving with the art (a
+      frame cut to OUT:frame keeps its pivot so too).
   extract FILE:SEL -o OUT [--inline-palette] [--replace]
       Write only the selected frames to a new OUT, with FILE's palette, @palette imports,
       variants, and @anim/@still lines (minus those of groups left behind;
@@ -6775,7 +6776,29 @@ def cmd_crop(a):
         fail("E_BAD_ARG", f"crop's x,y,w,h wants w and h of 1 or more, got {a.rect!r}")
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
+    pv = src.doc.pivot(src.frame)  # the cut frame's anchor, moved with its pixels (compose writes it: crop_pivot)
+    a.crop_pivot = (src.doc.label(src.frame), None if pv is None else (pv[0] - x, pv[1] - y))
     cmd_compose(a)
+
+
+def crop_pivot(doc, target, opath, osel, cut):
+    """crop FILE:frame -o OUT[:frame]: the frame written keeps the source frame's pivot (its own or its @anim's),
+    moved by the crop's -x,-y, written on its @frame line unless OUT's @anim for its group gives that same pivot. A
+    source without a pivot writes none of its own (a pivot the replaced frame had goes); a note says when OUT's @anim
+    then lends it one, and when a pivot can't be written (OUT as one unnamed grid has no @frame line). cut: (the
+    source frame's label, the moved pivot or None). The notes, as lines."""
+    label, want = cut
+    if not osel:  # one unnamed grid: no @frame line to carry a pivot
+        return [f"note: {label}'s pivot {fmt_setting(want)} (moved with the crop) isn't kept: {opath} is one unnamed "
+                f"grid, with no @frame line for it; -o {opath}:ID keeps it"] if want else []
+    had, lent = target.pivot, doc.anims.get(target.group, {}).get("pivot") if target.group else None
+    target.pivot = None if want == lent else want
+    if want is None and lent is not None:
+        return [f"note: {label} has no pivot, and {osel} takes {opath}'s @anim {target.group} pivot "
+                f"{fmt_setting(lent)} there" + (f" (its own, {fmt_setting(had)}, goes)" if had else "")]
+    if want is None and had:
+        return [f"note: {label} has no pivot, so {osel}'s own, {fmt_setting(had)}, goes"]
+    return []
 
 
 def cmd_paste(a):
@@ -8797,6 +8820,8 @@ def compose(a, layers, dry=False, gone=None, vmap=None, notes=None, renamed=None
         left = set("".join(target.grid))
         doc.palette = {k: c for k, c in doc.palette.items() if k in left}
         doc.variants = {n: {k: c for k, c in over.items() if k in left} for n, over in doc.variants.items()}
+    if getattr(a, "crop_pivot", None):
+        cuts += crop_pivot(doc, target, opath, osel, a.crop_pivot)
     undrawn = said_undrawn(opath, doc, target, owners) if fresh and not getattr(a, "used_keys_only", False) else None
     grouped = getattr(a, "cmd", None) == "compose" and not getattr(a, "verbose", False) and \
         sum(isinstance(line, Note) for line in said + [undrawn]) > GROUP_NOTES  # a few read fine in full

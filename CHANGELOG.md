@@ -12,6 +12,14 @@
 What changed in pxart (still `0.1.0`), newest first, grouped by the day it landed on `main` until a first tagged
 release. The file format is `pxart 1` throughout, and every `.px` file written for an earlier day still reads the same.
 
+## 2026-11-28
+
+### Fixed
+
+- **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot,** moved with the crop, so `anim`
+  and `export` still find the feet where they were. When the frame has no pivot and the file it lands in gives
+  its animation one, a note says so (PX-72).
+
 ## 2026-11-27
 
 ### Added
