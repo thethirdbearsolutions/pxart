@@ -16,6 +16,9 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 
 ### Fixed
 
+- **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
+  up by pivot when they have pivots, as `anim` draws them, and names any frame that has none (PX-76).
+
 - **When a sprite's own colors stay day-bright in a `night` from an imported palette, the `palette`
   command `check` suggests to fix them now runs.** It named a missing file when the sprite imports
   several palettes, and failed when the night was too small to copy; now it names the right file, or prints
@@ -24,9 +27,6 @@ release. The file format is `pxart 1` throughout, and every `.px` file written f
 - **`crop hero.px:walk/0 x,y,w,h -o other.px:walk/0` keeps the frame's pivot instead of dropping it,** moved
   with the crop, so `anim` and `export` still find the feet where they were. When the frame has no pivot and the
   file it lands in gives its animation one, the frame uses that one, and a note says so (PX-72).
-
-- **Clearer messages from `check`:** its note on an animation whose frames differ in size now says the frames line
-  up by pivot when they have pivots, as `anim` draws them, and names any frame without one, which can jump (PX-76).
 
 ## 2026-11-27
 

@@ -5059,15 +5059,19 @@ def cmd_check(a):
                 for g, fs in doc.groups().items():
                     if doc.animated(g) and len({f.size for f in fs}) > 1:
                         bare = [f.id for f in fs if doc.pivot(f) is None]  # as anim lines them up (pivot_layout)
-                        how = "frames draw bottom-centered" if len(bare) == len(fs) else \
-                            "frames line up by pivot" if not bare else \
-                            f"frames line up by pivot, but {listed(bare)} {'has' if len(bare) == 1 else 'have'} none " \
-                            f"and {'falls' if len(bare) == 1 else 'fall'} back to the bottom-centre pixel, so a frame " \
-                            f"wider than the rest can jump; give {'it' if len(bare) == 1 else 'each'} one: pxart " \
-                            f"anim-set {shlex.quote(f'{path}:{bare[0]}')} pivot=X,Y"
-                        notes.append(f"animation {g!r} mixes frame sizes ("
-                                     + ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
-                                     + f"); Tiled export needs one size, and {how}")
+                        sizes = ", ".join(f"{f.id} {f.size[0]}x{f.size[1]}" for f in fs)
+                        if len(bare) in (0, len(fs)):
+                            how = "frames line up by pivot" if not bare else "frames draw bottom-centered"
+                            notes.append(f"animation {g!r} mixes frame sizes ({sizes}); {how}, and Tiled export "
+                                         "needs one size")
+                        else:  # pivot_layout puts a bare frame's bottom-centre pixel where the others' pivots go
+                            one = len(bare) == 1
+                            notes.append(f"animation {g!r} mixes frame sizes ({sizes}), and Tiled export needs one "
+                                         f"size; frames line up by pivot, and {listed(bare)} {'has' if one else 'have'} "
+                                         f"none, so {'its' if one else 'their'} bottom-centre pixel stands in for "
+                                         f"{'it' if one else 'one'}: check {'it lines' if one else 'they line'} up, "
+                                         f"or set the group's with pxart anim-set {shlex.quote(f'{path}:{g}')} "
+                                         "pivot=x,y (the feet's pixel; a frame's own pivot stays)")
                 for name, ks in half_variants(doc):
                     notes.append(said_half(doc, name, ks))
                 for name, ks in partly_lit(doc):

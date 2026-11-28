@@ -36,14 +36,19 @@ def note(tmp_path, capsys, anim="@anim walk ms=140", own=""):
 
 def test_every_frame_with_a_pivot_lines_up_by_pivot(tmp_path, capsys):
     line = note(tmp_path, capsys, "@anim walk ms=140 pivot=2,1", " pivot=4,1")
-    assert line.endswith("and frames line up by pivot") and "bottom-centered" not in line
+    assert line.endswith("frames line up by pivot, and Tiled export needs one size") and "bottom-centered" not in line
 
 
 def test_no_pivot_keeps_bottom_centered(tmp_path, capsys):
-    assert note(tmp_path, capsys).endswith("Tiled export needs one size, and frames draw bottom-centered")
+    assert note(tmp_path, capsys).endswith("frames draw bottom-centered, and Tiled export needs one size")
 
 
 def test_some_frames_without_a_pivot_are_named(tmp_path, capsys):
     line = note(tmp_path, capsys, own=" pivot=4,1")
-    assert "frames line up by pivot, but walk/0 has none and falls back to the bottom-centre pixel" in line
-    assert f"anim-set {tmp_path / 'w.px'}:walk/0 pivot=X,Y" in line
+    assert "frames line up by pivot, and walk/0 has none, so its bottom-centre pixel stands in for it" in line
+    assert f"pxart anim-set {tmp_path / 'w.px'}:walk pivot=x,y" in line
+    capsys.readouterr()
+    assert run("anim-set", f"{tmp_path / 'w.px'}:walk", "pivot=2,1") == 0  # the group's: walk/1 keeps its own
+    capsys.readouterr()
+    assert run("check", tmp_path / "w.px") == 0
+    assert "frames line up by pivot, and Tiled" in capsys.readouterr().out
