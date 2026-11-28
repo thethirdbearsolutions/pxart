@@ -6777,7 +6777,7 @@ def cmd_crop(a):
     a.layers, a.size, a.cut_note = [f"{a.src}@{-x},{-y}"], f"{w}x{h}", False  # cutting is the point: no note
     a.words = {"label": f"FILE ({a.src})", "what": "FILE", "redo": "crop"}  # crop's nouns, not compose's
     pv = src.doc.pivot(src.frame)  # the cut frame's anchor, moved with its pixels (compose writes it: crop_pivot)
-    a.crop_pivot = (src.doc.label(src.frame), None if pv is None else (pv[0] - x, pv[1] - y))
+    a.crop_pivot = (a.src, None if pv is None else (pv[0] - x, pv[1] - y))
     cmd_compose(a)
 
 
@@ -6785,21 +6785,27 @@ def crop_pivot(doc, target, opath, osel, cut):
     """crop FILE:frame -o OUT[:frame]: the frame written keeps the source frame's pivot (its own or its @anim's),
     moved by the crop's -x,-y, written on its @frame line unless OUT's @anim for its group gives that same pivot. A
     source without a pivot writes none of its own (a pivot the replaced frame had goes); a note says when OUT's @anim
-    then lends it one, and when a pivot can't be written (OUT as one unnamed grid has no @frame line). cut: (the
-    source frame's label, the moved pivot or None). The notes, as lines."""
+    then lends it one, when the pivot the frame ends with lies off its canvas, and when a pivot can't be written (OUT
+    as one unnamed grid has no @frame line: -o OUT:STEM names the grid, an existing one by the id it goes by). cut:
+    (FILE:frame as typed, the moved pivot or None). The notes, as lines."""
     label, want = cut
     if not osel:  # one unnamed grid: no @frame line to carry a pivot
-        return [f"note: {label}'s pivot {fmt_setting(want)} (moved with the crop) isn't kept: {opath} is one unnamed "
-                f"grid, with no @frame line for it; -o {opath}:ID keeps it"] if want else []
+        sid = pathlib.Path(opath).stem if pathlib.Path(opath).exists() and ID_RE.match(pathlib.Path(opath).stem) \
+            else "ID"
+        return [f"note: {label}'s pivot {fmt_setting(want)} (moved with the crop) isn't kept: crop writes {opath} as "
+                f"one unnamed grid, with no @frame line for it; -o {opath}:{sid} keeps it"] if want else []
     had, lent = target.pivot, doc.anims.get(target.group, {}).get("pivot") if target.group else None
     target.pivot = None if want == lent else want
+    out = []
     if want is None and lent is not None:
-        return [f"note: {label} has no pivot, and {osel} takes {opath}'s @anim {target.group} pivot "
-                f"{fmt_setting(lent)} there" + (f" (its own, {fmt_setting(had)}, goes)" if had else "")]
-    if want is None and had:
-        return [f"note: {label} has no pivot, so {osel}'s own, {fmt_setting(had)}, goes"]
-    return []
-
+        out.append(f"note: {label} has no pivot, and {osel} takes {opath}'s @anim {target.group} pivot "
+                   f"{fmt_setting(lent)} there" + (f" (its own, {fmt_setting(had)}, goes)" if had else ""))
+    elif want is None and had:
+        out.append(f"note: {label} has no pivot, so {osel}'s own, {fmt_setting(had)}, goes")
+    pv, (w, h) = doc.pivot(target), target.size
+    if pv and not (0 <= pv[0] < w and 0 <= pv[1] < h):
+        out.append(f"note: {osel}'s pivot {fmt_setting(pv)} lies outside its {w}x{h} canvas")
+    return out
 
 def cmd_paste(a):
     with reading(f"SRC ({a.src})"):

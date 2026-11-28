@@ -81,7 +81,7 @@ def test_no_pivot_but_the_anim_lends_one_says_so(tmp_path, monkeypatch, capsys):
     pathlib.Path("other4.px").write_text(walker())
     assert run("crop", "bare.px:walk/0", "0,-2,16,26", "-o", "other4.px:walk/1") == 0
     out = capsys.readouterr().out
-    assert "walk/0 has no pivot" in out and "@anim walk pivot 7,23" in out
+    assert "bare.px:walk/0 has no pivot" in out and "@anim walk pivot 7,23" in out
     assert frame_line(pathlib.Path("other4.px"), "walk/1") == "@frame walk/1"
 
 
@@ -101,6 +101,16 @@ def test_an_unnamed_grid_out_says_the_pivot_is_not_kept(tmp_path, monkeypatch, c
     assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "plain.px") == 0
     out = capsys.readouterr().out
     assert "pivot 7,25" in out and "-o plain.px:ID keeps it" in out
+    pathlib.Path("p3.px").write_text("pxart 1\no #2b1d32\n\n....\n.oo.\n")
+    assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "p3.px") == 0
+    assert "-o p3.px:p3 keeps it" in capsys.readouterr().out
     capsys.readouterr()
     assert run("crop", "c.px:walk/0", "0,-2,16,26", "-o", "plain2.px:walk/0") == 0
     assert frame_line(pathlib.Path("plain2.px"), "walk/0") == "@frame walk/0 pivot=7,25"
+
+
+def test_a_pivot_off_the_cut_canvas_is_said(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    pathlib.Path("c.px").write_text(walker())
+    assert run("crop", "c.px:walk/0", "0,0,16,12", "-o", "top.px:top/0") == 0
+    assert "top/0's pivot 7,23 lies outside its 16x12 canvas" in capsys.readouterr().out
